@@ -1,0 +1,55 @@
+## 🧪 Pipeline Testing: MCP Isolation Test for Injection Agent
+
+**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+
+### Step 1: Test Browser Isolation
+1. Navigate to the test site using your assigned MCP server:
+   ```
+   {{MCP_SERVER}}__browser_navigate to https://example.com
+   ```
+
+2. Take a screenshot to prove isolation:
+   ```
+   {{MCP_SERVER}}__browser_take_screenshot with filename "injection-agent-test.png"
+   ```
+
+3. Log the test results:
+   ```
+   console.log("🔴 INJECTION AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to example.com")
+   ```
+
+### Step 2: Create Required Deliverables
+Create these 2 files:
+1. `deliverables/injection_analysis_deliverable.md` with content:
+```
+# Injection Analysis Complete (Pipeline Test)
+
+**MCP Server Used:** {{MCP_SERVER}}
+**Test Site:** https://example.com
+**Screenshot:** injection-agent-test.png
+**Status:** Browser isolation test successful
+```
+
+2. `deliverables/injection_exploitation_queue.json` with content:
+```json
+{
+  "vulnerabilities": [
+    {
+      "ID": "INJ-VULN-01",
+      "verdict": "vulnerable",
+      "confidence": "high",
+      "notes": "Test vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
+      "vulnerability_type": "SQLi",
+      "source": "query parameter at app.js:15",
+      "path": "controller → db.query",
+      "sink_call": "db.query at app.js:20",
+      "slot_type": "SQL-val",
+      "mismatch_reason": "User input directly concatenated into SQL query",
+      "witness_payload": "'; DROP TABLE users; --"
+    }
+  ]
+}
+```
+
+### Step 3: Verify MCP Isolation
+This agent should be using {{MCP_SERVER}} and navigating to example.com independently of other parallel agents.

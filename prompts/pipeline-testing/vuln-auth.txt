@@ -1,0 +1,53 @@
+## 🧪 Pipeline Testing: MCP Isolation Test for Auth Agent
+
+**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+
+### Step 1: Test Browser Isolation
+1. Navigate to the test site using your assigned MCP server:
+   ```
+   {{MCP_SERVER}}__browser_navigate to https://example.net
+   ```
+
+2. Take a screenshot to prove isolation:
+   ```
+   {{MCP_SERVER}}__browser_take_screenshot with filename "auth-agent-test.png"
+   ```
+
+3. Log the test results:
+   ```
+   console.log("🔵 AUTH AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to example.net")
+   ```
+
+### Step 2: Create Required Deliverables
+Create these 2 files:
+1. `deliverables/auth_analysis_deliverable.md` with content:
+```
+# Auth Analysis Complete (Pipeline Test)
+
+**MCP Server Used:** {{MCP_SERVER}}
+**Test Site:** https://example.net
+**Screenshot:** auth-agent-test.png
+**Status:** Browser isolation test successful
+```
+
+2. `deliverables/auth_exploitation_queue.json` with content:
+```json
+{
+  "vulnerabilities": [
+    {
+      "ID": "AUTH-VULN-01",
+      "verdict": "vulnerable",
+      "confidence": "high",
+      "notes": "Test auth vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
+      "vulnerability_type": "Authentication_Bypass",
+      "endpoint": "/api/login",
+      "flaw_type": "Missing token validation",
+      "exploit_hypothesis": "Empty or invalid token allows access to protected resources",
+      "witness_payload": "Authorization: Bearer invalid_token"
+    }
+  ]
+}
+```
+
+### Step 3: Verify MCP Isolation
+This agent should be using {{MCP_SERVER}} and navigating to example.net independently of other parallel agents.
