@@ -1,0 +1,143 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://example.com/pentest-config-schema.json",
+  "title": "Penetration Testing Configuration Schema",
+  "description": "Schema for YAML configuration files used in the penetration testing agent",
+  "type": "object",
+  "properties": {
+    "authentication": {
+      "type": "object",
+      "description": "Authentication configuration for the target application",
+      "properties": {
+        "login_type": {
+          "type": "string",
+          "enum": ["form", "sso", "api", "basic"],
+          "description": "Type of authentication mechanism"
+        },
+        "login_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "URL for the login page or endpoint"
+        },
+        "credentials": {
+          "type": "object",
+          "description": "Login credentials",
+          "properties": {
+            "username": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Username or email for authentication"
+            },
+            "password": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 255,
+              "description": "Password for authentication"
+            },
+            "totp_secret": {
+              "type": "string",
+              "pattern": "^[A-Za-z2-7]+=*$",
+              "description": "TOTP secret for two-factor authentication (Base32 encoded, case insensitive)"
+            }
+          },
+          "required": ["username", "password"],
+          "additionalProperties": false
+        },
+        "login_flow": {
+          "type": "array",
+          "description": "Step-by-step instructions for the login process",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "success_condition": {
+          "type": "object",
+          "description": "Condition that indicates successful authentication",
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["url_contains", "element_present", "url_equals_exactly", "text_contains"],
+              "description": "Type of success condition to check"
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 500,
+              "description": "Value to match against the success condition"
+            }
+          },
+          "required": ["type", "value"],
+          "additionalProperties": false
+        }
+      },
+      "required": ["login_type", "login_url", "credentials", "success_condition"],
+      "additionalProperties": false
+    },
+    "rules": {
+      "type": "object",
+      "description": "Testing rules that define what to focus on or avoid during penetration testing",
+      "properties": {
+        "avoid": {
+          "type": "array",
+          "description": "Rules defining areas to avoid during testing",
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "maxItems": 50
+        },
+        "focus": {
+          "type": "array",
+          "description": "Rules defining areas to focus on during testing",
+          "items": {
+            "$ref": "#/$defs/rule"
+          },
+          "maxItems": 50
+        }
+      },
+      "additionalProperties": false
+    },
+    "login": {
+      "type": "object",
+      "description": "Deprecated: Use 'authentication' section instead",
+      "deprecated": true
+    }
+  },
+  "anyOf": [
+    {"required": ["authentication"]},
+    {"required": ["rules"]},
+    {"required": ["authentication", "rules"]}
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "description": "A single testing rule",
+      "properties": {
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Human-readable description of the rule"
+        },
+        "type": {
+          "type": "string",
+          "enum": ["path", "subdomain", "domain", "method", "header", "parameter"],
+          "description": "Type of rule (what aspect of requests to match against)"
+        },
+        "url_path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000,
+          "description": "URL path pattern or value to match"
+        }
+      },
+      "required": ["description", "type", "url_path"],
+      "additionalProperties": false
+    }
+  }
+}
