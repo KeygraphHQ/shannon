@@ -1,0 +1,52 @@
+## 🧪 Pipeline Testing: MCP Isolation Test for SSRF Agent
+
+**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+
+### Step 1: Test Browser Isolation
+1. Navigate to the test site using your assigned MCP server:
+   ```
+   {{MCP_SERVER}}__browser_navigate to https://httpbin.org
+   ```
+
+2. Take a screenshot to prove isolation:
+   ```
+   {{MCP_SERVER}}__browser_take_screenshot with filename "ssrf-agent-test.png"
+   ```
+
+3. Log the test results:
+   ```
+   console.log("🟠 SSRF AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to httpbin.org")
+   ```
+
+### Step 2: Create Required Deliverables
+Create these 2 files:
+1. `deliverables/ssrf_analysis_deliverable.md` with content:
+```
+# SSRF Analysis Complete (Pipeline Test)
+
+**MCP Server Used:** {{MCP_SERVER}}
+**Test Site:** https://httpbin.org
+**Screenshot:** ssrf-agent-test.png
+**Status:** Browser isolation test successful
+```
+
+2. `deliverables/ssrf_exploitation_queue.json` with content:
+```json
+{
+  "vulnerabilities": [
+    {
+      "ID": "SSRF-VULN-01",
+      "verdict": "vulnerable",
+      "confidence": "high",
+      "notes": "Test SSRF vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
+      "vulnerability_type": "URL_Manipulation",
+      "source": "url parameter in /api/fetch",
+      "outbound_call": "fetch() at api.js:45",
+      "witness_payload": "http://internal.localhost/admin"
+    }
+  ]
+}
+```
+
+### Step 3: Verify MCP Isolation
+This agent should be using {{MCP_SERVER}} and navigating to httpbin.org independently of other parallel agents.
