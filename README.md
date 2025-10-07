@@ -3,8 +3,8 @@
 </p>
 
 <p align="center">
-  <b>AI-Powered Autonomous Penetration Testing</b><br>
-  <i>Your Claude needs a Shannon</i>
+  <b>Shannon is an AI pentester that delivers actual exploits, not just alerts.</b><br>
+  <i>Break your web app before someone else does.</i>
 </p>
 
 <p align="center">
@@ -20,9 +20,9 @@
 
 ## 🎯 What is Shannon?
 
-Shannon is the first **fully autonomous AI penetration tester** that thinks and acts like a human security researcher. Powered by Claude 4, it goes beyond traditional scanners by combining white-box code analysis with live black-box exploitation—all without human intervention.
+Shannon is an AI pentester that delivers actual exploits, not just alerts.
 
-**Launch a full autonomous pentest with a single command. Professional reports with actual exploits running in white-box mode with code analysis.**
+Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as SQL injection, command execution, and auth bypass, to prove the vulnerability is actually exploitable.
 
 ## ✨ Features
 
@@ -46,8 +46,8 @@ Shannon is available in two editions:
 | **Shannon Lite** | BSL | Security teams, independent researchers, testing your own applications |
 | **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
 
-**This repository contains Shannon Lite.** Both editions share the same core AI pentesting engine, but Shannon Pro adds enterprise-grade capabilities. [See feature comparison ↓](#shannon-pro-vs-shannon-lite)
-
+> **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection. [See feature comparison ↓](#shannon-pro-vs-shannon-lite)
+> 
 ## 📑 Table of Contents
 
 - [What is Shannon?](#-what-is-shannon)
@@ -394,7 +394,7 @@ Shannon emulates a human penetration tester's methodology using a sophisticated 
 
 ### Architectural Overview
 
-Shannon is engineered to emulate the methodology of a human penetration tester. It leverages Anthropic's Claude Code as its core reasoning engine, but its true strength lies in the sophisticated multi-agent architecture built around it. This architecture combines the deep context of **white-box source code analysis** with the real-world validation of **black-box dynamic exploitation**, managed by an orchestrator through four distinct phases to ensure a focus on minimal false positives and intelligent context management.
+Shannon is engineered to emulate the methodology of a human penetration tester. It leverages Anthropic's Claude Agent SDK as its core reasoning engine, but its true strength lies in the sophisticated multi-agent architecture built around it. This architecture combines the deep context of **white-box source code analysis** with the real-world validation of **black-box dynamic exploitation**, managed by an orchestrator through four distinct phases to ensure a focus on minimal false positives and intelligent context management.
 
 ---
 
@@ -405,15 +405,6 @@ The first phase builds a comprehensive map of the application's attack surface. 
 #### **Phase 2: Vulnerability Analysis**
 
 To maximize efficiency, this phase operates in parallel. Using the reconnaissance data, specialized agents for each OWASP category hunt for potential flaws in parallel. For vulnerabilities like SQLi and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
-
-> [!NOTE]
-> **A Glimpse into Keygraph's AppSec Platform:**
-> 
-> The data flow analysis in this open-source tool is a powerful demonstration of our core methodology, using procedural guidance to find high-probability exploitable paths.
-> 
-> Our commercial **Keygraph AppSec** platform elevates this to an enterprise level. It uses a proprietary engine with deterministic code navigation tools and a stateful "explore graph" to ensure **exhaustive analysis**. This enables a robust 'shift-left' security approach, designed for deep scans on every pull request directly within your CI/CD pipeline.
-> 
-> Ultimately, the comprehensive findings from this SAST engine will directly integrate with our enterprise AI Pentester, creating a seamless workflow from exhaustive code analysis to live exploit validation.
 
 #### **Phase 3: Exploitation**
 
@@ -429,14 +420,14 @@ The final phase compiles all validated findings into a professional, actionable 
 
 ### Technical Differences
 
-**Shannon Pro** adds advanced static analysis capabilities, including source-sink analysis to trace data flow and identify exploitable vulnerabilities. It's cloud-based with native CI/CD integration (GitHub Actions, GitLab CI, Jenkins) and supports self-hosted deployment.
+**Shannon Pro** is built on advanced, LLM-powered data flow analysis inspired by the ideas of the [LLM-driven Data-Flow Analysis paper](https://arxiv.org/abs/2402.10754). It traces data flows to identify complex, exploitable vulnerabilities with high precision. It's cloud-based with native CI/CD integration (GitHub Actions, GitLab CI, Jenkins) and supports self-hosted deployment.
 
 ### Feature Comparison
 
 | Feature | Shannon Lite<br>(BSL 1.1) | Shannon Pro<br>(Commercial) |
 |---------|:-------------------------:|:---------------------------:|
 | **Core Scanning** |
-| Source-Sink Analysis | Basic | Advanced source code analysis integrated with Keygraph AppSec |
+| Source-Sink Analysis | Basic | LLM-powered data flow analysis for high-precision, source-to-sink vulnerability detection |
 | CVSS Scoring | ❌ | ✅ |
 | Remediation Guidance | Basic | Code-level fixes |
 | **Integration** |
@@ -444,9 +435,7 @@ The final phase compiles all validated findings into a professional, actionable 
 | API Access | ❌ | ✅ |
 | Jira/Linear/ServiceNow/Slack | ❌ | ✅ |
 | **Deployment** |
-| Hosting | Local only | Cloud or Self-hosted |
-| Distributed Scanning | ❌ | ✅ |
-| Air-gapped Deployment | ❌ | ✅ |
+| Hosting | Self-hosted | Cloud or Self-hosted |
 | **Enterprise** |
 | Multi-user & RBAC | ❌ | ✅ |
 | SSO/SAML | ❌ | ✅ |
@@ -459,7 +448,7 @@ The final phase compiles all validated findings into a professional, actionable 
 ### Which to Choose?
 
 **Shannon Lite**: Individual researchers, small teams, or testing personal projects  
-**Shannon Pro**: Organizations needing CI/CD integration, compliance reporting, multi-user access, or enterprise deployment options
+**Shannon Pro**: Designed for organizations that want to "shift-left" and integrate security directly into their development lifecycle. Its **advanced LLM-powered data flow analysis engine** is ideal for catching deep-seated vulnerabilities before they ever reach production, complemented by full CI/CD integration and enterprise support.
 
 ---
 
@@ -473,7 +462,7 @@ For detailed information about Shannon's security testing coverage and developme
 
 ### Important Usage Guidelines & Disclaimers
 
-Please review the following guidelines carefully before using Shannon. As a user, you are responsible for your actions and assume all liability.
+Please review the following guidelines carefully before using Shannon (Lite). As a user, you are responsible for your actions and assume all liability.
 
 #### **1. Potential for Mutative Effects & Environment Selection**
 
@@ -497,22 +486,22 @@ Shannon is designed for legitimate security auditing purposes only.
 #### **3. LLM & Automation Caveats**
 
 - **Verification is Required**: While significant engineering has gone into our "proof-by-exploitation" methodology to eliminate false positives, the underlying LLMs can still generate hallucinated or weakly-supported content in the final report. **Human oversight is essential** to validate the legitimacy and severity of all reported findings.
-- **Comprehensiveness**: Due to the inherent limitations of LLM context windows, the analysis may not be exhaustive. For a more comprehensive, graph-based analysis of your entire codebase, look out for our upcoming **Keygraph Code Security (SAST)** platform.
+- **Comprehensiveness**: The analysis in Shannon Lite may not be exhaustive due to the inherent limitations of LLM context windows. For a more comprehensive, graph-based analysis of your entire codebase, **Shannon Pro** leverages its advanced data flow analysis engine to ensure deeper and more thorough coverage.
 
 #### **4. Scope of Analysis**
 
-- **Targeted Vulnerabilities**: The current version of Shannon specifically targets the following classes of *exploitable* vulnerabilities:
+- **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of *exploitable* vulnerabilities:
   - Broken Authentication & Authorization
   - SQL Injection (SQLi)
   - Command Injection
   - Cross-Site Scripting (XSS)
   - Server-Side Request Forgery (SSRF)
-- **What Shannon Does Not Cover**: This list is not exhaustive of all potential security risks. Shannon does not, for example, report on issues that it cannot actively exploit, such as the use of vulnerable third-party libraries, weak encryption algorithms, or insecure configurations. These types of static-analysis findings are the focus of our upcoming **Keygraph Code Security (SAST)** product.
+- **What Shannon Lite Does Not Cover**: This list is not exhaustive of all potential security risks. Shannon Lite's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit, such as vulnerable third-party libraries or insecure configurations. These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Shannon Pro**.
 
 #### **5. Cost & Performance**
 
 - **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
-- **Cost**: Running the full test using Anthropic's claude-4-sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
+- **Cost**: Running the full test using Anthropic's Claude 3 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
 
 ---
 
