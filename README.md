@@ -1,28 +1,32 @@
-<p align="center">
-  <img src="./assets/shannon-banner.png" alt="Shannon Banner" width="100%">
-</p>
 
-<p align="center">
-  <b>Shannon is an AI pentester that delivers actual exploits, not just alerts.</b><br>
-  <i>Break your web app before someone else does.</i>
-</p>
+<div align="center">
 
-<p align="center">
-  <a href="https://github.com/KeygraphHQ/shannon/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-BSL%201.1-blue.svg" alt="License"></a>
-  <a href="https://twitter.com/keygraphHQ"><img src="https://img.shields.io/twitter/follow/keygraphio?style=social" alt="Twitter"></a>
-</p>
+<img src="./assets/shannon-screen.png" alt="Shannon Screen" width="100%">
+
+# Shannon is your fully autonomous AI pentester.
+
+Shannon’s job is simple: break your web app before anyone else does. <br />
+The Red Team to your vibe-coding Blue team. <br />
+Every Claude (coder) deserves their Shannon.
 
 ---
 
-⭐ **Star us on GitHub** — Every star motivates us to build better security tools for the community!
+[Website](https://keygraph.io) • [Discord](https://discord.gg/fnmRqdk9)
 
 ---
+</div>
 
 ## 🎯 What is Shannon?
 
 Shannon is an AI pentester that delivers actual exploits, not just alerts.
 
 Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as SQL injection, command execution, and auth bypass, to prove the vulnerability is actually exploitable.
+
+## 🎬 See Shannon in Action
+
+**Real Results**: Shannon discovered 20+ critical vulnerabilities in OWASP Juice Shop, including complete auth bypass and database exfiltration. [See full report →](sample-reports/shannon-report-juice-shop.md)
+
+![Demo](assets/shannon-action.gif)
 
 ## ✨ Features
 
@@ -33,9 +37,6 @@ Shannon's goal is to break your web app before someone else does. It autonomousl
 - **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
 - **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
 
-## 🎬 See Shannon in Action
-
-**Real Results**: Shannon discovered 20+ critical vulnerabilities in OWASP Juice Shop, including complete auth bypass and database exfiltration. [See full report →](sample-reports/shannon-report-juice-shop.md)
 
 ## 📦 Product Line
 
@@ -46,13 +47,14 @@ Shannon is available in two editions:
 | **Shannon Lite** | BSL | Security teams, independent researchers, testing your own applications |
 | **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
 
-> **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection. [See feature comparison ↓](#shannon-pro-vs-shannon-lite)
-> 
+> **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection.
+>
+[See feature comparison](./SHANNON-PRO.md)
 ## 📑 Table of Contents
 
 - [What is Shannon?](#-what-is-shannon)
-- [Features](#-features)
 - [See Shannon in Action](#-see-shannon-in-action)
+- [Features](#-features)
 - [Product Line](#-product-line)
 - [Setup & Usage Instructions](#-setup--usage-instructions)
   - [Prerequisites](#prerequisites)
@@ -63,7 +65,6 @@ Shannon is available in two editions:
   - [Output and Results](#output-and-results)
 - [Sample Reports & Benchmarks](#-sample-reports--benchmarks)
 - [Architecture](#-architecture)
-- [Shannon Pro vs Shannon Lite](#shannon-pro-vs-shannon-lite)
 - [Coverage and Roadmap](#-coverage-and-roadmap)
 - [Disclaimers](#-disclaimers)
 - [License](#-license)
@@ -414,49 +415,10 @@ Continuing the parallel workflow to maintain speed, this phase is dedicated enti
 
 The final phase compiles all validated findings into a professional, actionable report. An agent consolidates the reconnaissance data and the successful exploit evidence, cleaning up any noise or hallucinated artifacts. Only verified vulnerabilities are included, complete with **reproducible, copy-and-paste Proof-of-Concepts**, delivering a final pentest-grade report focused exclusively on proven risks.
 
----
-
-## Shannon Pro vs Shannon Lite
-
-### Technical Differences
-
-**Shannon Pro** is built on advanced, LLM-powered data flow analysis inspired by the ideas of the [LLM-driven Data-Flow Analysis paper](https://arxiv.org/abs/2402.10754). It traces data flows to identify complex, exploitable vulnerabilities with high precision. It's cloud-based with native CI/CD integration (GitHub Actions, GitLab CI, Jenkins) and supports self-hosted deployment.
-
-### Feature Comparison
-
-| Feature | Shannon Lite<br>(BSL 1.1) | Shannon Pro<br>(Commercial) |
-|---------|:-------------------------:|:---------------------------:|
-| **Core Scanning** |
-| Source-Sink Analysis | Basic | LLM-powered data flow analysis for high-precision, source-to-sink vulnerability detection |
-| CVSS Scoring | ❌ | ✅ |
-| Remediation Guidance | Basic | Code-level fixes |
-| **Integration** |
-| CI/CD Pipeline Support | ❌ | ✅ |
-| API Access | ❌ | ✅ |
-| Jira/Linear/ServiceNow/Slack | ❌ | ✅ |
-| **Deployment** |
-| Hosting | Self-hosted | Cloud or Self-hosted |
-| **Enterprise** |
-| Multi-user & RBAC | ❌ | ✅ |
-| SSO/SAML | ❌ | ✅ |
-| Audit Logs | ❌ | ✅ |
-| Compliance Reporting | ❌ | ✅ (OWASP, PCI-DSS, SOC2) |
-| **Support** |
-| Support | Community | Dedicated + SLA |
-| **Cost** | Free + API costs | Contact Us |
-
-### Which to Choose?
-
-**Shannon Lite**: Individual researchers, small teams, or testing personal projects  
-**Shannon Pro**: Designed for organizations that want to "shift-left" and integrate security directly into their development lifecycle. Its _advanced LLM-powered data flow analysis engine_ is ideal for catching deep-seated vulnerabilities before they ever reach production, complemented by full CI/CD integration and enterprise support.
-
----
 
 ## 📋 Coverage and Roadmap
 
 For detailed information about Shannon's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
-
----
 
 ## ⚠️ Disclaimers
 
@@ -503,7 +465,7 @@ Shannon is designed for legitimate security auditing purposes only.
 - **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
 - **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
 
----
+
 
 ## 📜 License
 
@@ -511,7 +473,7 @@ Shannon Lite is released under the [Business Source License 1.1 (BSL)](LICENSE).
 
 **Need different licensing terms?** Contact us at [shannon@keygraph.io](mailto:shannon@keygraph.io) to discuss custom licensing options for your organization.
 
----
+
 
 ## 👥 Community & Support
 
@@ -519,7 +481,7 @@ Shannon Lite is released under the [Business Source License 1.1 (BSL)](LICENSE).
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/keygraph/shannon/issues)
 - 💡 **Suggest features** in [Discussions](https://github.com/keygraph/shannon/discussions)
-- 💬 **Join our Discord** for real-time community support
+- 💬 **Join our [Discord](https://discord.gg/fnmRqdk9)** for real-time community support
 
 ### Stay Connected
 
@@ -527,13 +489,15 @@ Shannon Lite is released under the [Business Source License 1.1 (BSL)](LICENSE).
 - 💼 **LinkedIn**: [Keygraph](https://linkedin.com/company/keygraph)
 - 🌐 **Website**: [keygraph.io](https://keygraph.io)
 
----
+
 
 ## 💬 Get in Touch
 
 ### Interested in Shannon Pro?
 
-Shannon Pro offers enterprise-grade features, dedicated support, and seamless CI/CD integration for organizations serious about application security.
+Shannon Pro is designed for organizations serious about application security. It offers enterprise-grade features, dedicated support, and seamless CI/CD integration, all powered by our most advanced LLM-based analysis engine. Find and fix complex vulnerabilities deep in your codebase before they ever reach production.
+
+For a detailed breakdown of features, technical differences, and enterprise use cases, see our [complete comparison guide](./SHANNON-PRO.md).
 
 <p align="center">
   <a href="https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header" target="_blank">
