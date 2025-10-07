@@ -501,7 +501,7 @@ Shannon is designed for legitimate security auditing purposes only.
 #### **5. Cost & Performance**
 
 - **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
-- **Cost**: Running the full test using Anthropic's Claude 3 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
+- **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
 
 ---
 
