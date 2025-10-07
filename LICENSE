@@ -19,8 +19,6 @@ A "Restricted Commercial Service" includes any of the following:
 
 4. **GRC Platform Integration**: Bundling, integrating, or embedding Shannon into a Governance, Risk, and Compliance (GRC) platform, security platform, or similar product that is sold, licensed, or provided as a service to third parties.
 
-5. **Competing Services**: Using Shannon to build, operate, or provide any product or service that directly competes with Keygraph's commercial offerings.
-
 **Permitted Use:** For the avoidance of doubt, the following scenarios are explicitly permitted under this license and do not constitute a "Restricted Commercial Service":
 
 - Using Shannon to test your own applications, infrastructure, or systems in any environment (development, staging, production)
