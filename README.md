@@ -22,6 +22,15 @@ Shannon is an AI pentester that delivers actual exploits, not just alerts.
 
 Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as SQL injection, command execution, and auth bypass, to prove the vulnerability is actually exploitable.
 
+> [!NOTE]
+> **From Autonomous Pentesting to Automated Compliance**
+>
+> Shannon is a core component of the **Keygraph Security and Compliance Platform**.
+>
+> While Shannon automates the critical task of penetration testing for your application, our broader platform automates your entire compliance journey—from evidence collection to audit readiness. We're building the "Rippling for Cybersecurity," a single platform to manage your security posture and streamline compliance frameworks like SOC 2 and HIPAA.
+>
+> ➡️ **[Learn more about the Keygraph Platform](https://keygraph.io)**
+
 ## 🎬 See Shannon in Action
 
 **Real Results**: Shannon discovered 20+ critical vulnerabilities in OWASP Juice Shop, including complete auth bypass and database exfiltration. [See full report →](sample-reports/shannon-report-juice-shop.md)
@@ -470,9 +479,6 @@ Shannon is designed for legitimate security auditing purposes only.
 ## 📜 License
 
 Shannon Lite is released under the [Business Source License 1.1 (BSL)](LICENSE).
-
-**Need different licensing terms?** Contact us at [shannon@keygraph.io](mailto:shannon@keygraph.io) to discuss custom licensing options for your organization.
-
 
 
 ## 👥 Community & Support
