@@ -11,7 +11,7 @@ Every Claude (coder) deserves their Shannon.
 
 ---
 
-[Website](https://keygraph.io) • [Discord](https://discord.gg/fnmRqdk9)
+[Website](https://keygraph.io) • [Discord](https://discord.gg/aWY8rRUCxc)
 
 ---
 </div>
@@ -493,7 +493,7 @@ Shannon Lite is released under the [Business Source License 1.1 (BSL)](LICENSE).
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/keygraph/shannon/issues)
 - 💡 **Suggest features** in [Discussions](https://github.com/keygraph/shannon/discussions)
-- 💬 **Join our [Discord](https://discord.gg/fnmRqdk9)** for real-time community support
+- 💬 **Join our [Discord](https://discord.gg/aWY8rRUCxc)** for real-time community support
 
 ### Stay Connected
 
