@@ -448,7 +448,7 @@ The final phase compiles all validated findings into a professional, actionable 
 ### Which to Choose?
 
 **Shannon Lite**: Individual researchers, small teams, or testing personal projects  
-**Shannon Pro**: Designed for organizations that want to "shift-left" and integrate security directly into their development lifecycle. Its **advanced LLM-powered data flow analysis engine** is ideal for catching deep-seated vulnerabilities before they ever reach production, complemented by full CI/CD integration and enterprise support.
+**Shannon Pro**: Designed for organizations that want to "shift-left" and integrate security directly into their development lifecycle. Its _advanced LLM-powered data flow analysis engine_ is ideal for catching deep-seated vulnerabilities before they ever reach production, complemented by full CI/CD integration and enterprise support.
 
 ---
 
