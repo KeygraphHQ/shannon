@@ -22,6 +22,12 @@ Shannon is an AI pentester that delivers actual exploits, not just alerts.
 
 Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as SQL injection, command execution, and auth bypass, to prove the vulnerability is actually exploitable.
 
+**What Problem Does Shannon Solve?**
+
+Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a *massive* security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
+
+Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn't just find potential issues. It executes real exploits, providing concrete proof of vulnerabilities. This lets you ship with confidence, knowing every build can be secured.
+
 > [!NOTE]
 > **From Autonomous Pentesting to Automated Compliance**
 >
