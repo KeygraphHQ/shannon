@@ -107,7 +107,7 @@ COPY . .
 
 RUN mkdir -p /app/sessions /app/deliverables /app/repos && \
     chown -R pentest:pentest /app /app/repos && \
-    chmod +x /app/pentest-agent.mjs
+    chmod +x /app/shannon.mjs
 
 
 # Switch to non-root user
