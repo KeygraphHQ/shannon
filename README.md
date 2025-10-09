@@ -97,39 +97,7 @@ Shannon is available in two editions:
 
 ### Authentication Setup
 
-#### Generate Claude Code OAuth Token
-
-First, install Claude Code CLI on your local machine:
-
-```bash
-npm install -g @anthropic-ai/claude-code
-```
-
-Generate a long-lived OAuth token:
-
-```bash
-claude setup-token
-```
-
-This creates a token like: `sk-ant-oat01-XXXXXXXXXXXXXXXXXXXXXXXXXXX`
-
-**Note**: This works with Claude Console accounts (with purchased credits), regardless of whether you have a Pro/Max subscription.
-
-#### Alternative: Use Anthropic API Key
-
-If you have an existing Anthropic API key instead of a Claude Console account:
-
-```bash
-export ANTHROPIC_API_KEY="sk-ant-api03-XXXXXXXXXXXXXXXXXXXXXXXXXXX"
-```
-
-#### Set Environment Variable
-
-For Claude Console users, export the OAuth token:
-
-```bash
-export CLAUDE_CODE_OAUTH_TOKEN="sk-ant-oat01-XXXXXXXXXXXXXXXXXXXXXXXXXXX"
-```
+You need either a **Claude Code OAuth token** or an **Anthropic API key** to run Shannon. Get your token from the [Anthropic Console](https://console.anthropic.com) and pass it to Docker via the `-e` flag.
 
 ### Quick Start with Docker
 
@@ -178,13 +146,12 @@ docker run --rm -it \
       --cap-add=NET_RAW \
       --cap-add=NET_ADMIN \
       -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -v "$(pwd):/app/host-data" \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config configs/example-config.yaml
+      --config /app/configs/example-config.yaml
 ```
 
 **With Anthropic API Key:**
@@ -195,13 +162,12 @@ docker run --rm -it \
       --cap-add=NET_RAW \
       --cap-add=NET_ADMIN \
       -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-      -v "$(pwd):/app/host-data" \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config configs/example-config.yaml
+      --config /app/configs/example-config.yaml
 ```
 
 **Network Capabilities:**
@@ -258,50 +224,12 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
-### Usage Patterns
-
-#### Run Complete Pentest
-
-**With Claude Console OAuth Token:**
-
-```bash
-docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -v "$(pwd):/app/host-data" \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config configs/your-config.yaml
-```
-
-**With Anthropic API Key:**
-
-```bash
-docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-      -v "$(pwd):/app/host-data" \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config configs/your-config.yaml
-```
-
-#### Check Status
+### Check Status
 
 View progress of previous runs:
 
 ```bash
-docker run --rm -v "$(pwd):/app/host-data" shannon:latest --status
+docker run --rm shannon:latest --status
 ```
 
 ### Output and Results
