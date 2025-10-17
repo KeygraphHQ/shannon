@@ -25,6 +25,7 @@ import { assembleFinalReport } from './src/phases/reporting.js';
 
 // Utils
 import { timingResults, costResults, displayTimingSummary, Timer, formatDuration } from './src/utils/metrics.js';
+import { setupLogging } from './src/utils/logger.js';
 
 // CLI
 import { handleDeveloperCommand } from './src/cli/command-handler.js';
@@ -44,16 +45,21 @@ import {
 // Configure zx to disable timeouts (let tools run as long as needed)
 $.timeout = 0;
 
+// Global cleanup function for logging
+let cleanupLogging = null;
+
 // Setup graceful cleanup on process signals
 process.on('SIGINT', async () => {
   console.log(chalk.yellow('\n⚠️ Received SIGINT, cleaning up...'));
   await cleanupMCP();
+  if (cleanupLogging) await cleanupLogging();
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log(chalk.yellow('\n⚠️ Received SIGTERM, cleaning up...'));
   await cleanupMCP();
+  if (cleanupLogging) await cleanupLogging();
   process.exit(0);
 });
 
@@ -377,6 +383,7 @@ if (args[0] && args[0].includes('shannon.mjs')) {
 // Parse flags and arguments
 let configPath = null;
 let pipelineTestingMode = false;
+let logFilePath = null;
 const nonFlagArgs = [];
 let developerCommand = null;
 const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
@@ -389,6 +396,16 @@ for (let i = 0; i < args.length; i++) {
     } else {
       console.log(chalk.red('❌ --config flag requires a file path'));
       process.exit(1);
+    }
+  } else if (args[i] === '--log') {
+    // --log can optionally take a file path, otherwise use default
+    if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
+      logFilePath = args[i + 1];
+      i++; // Skip the next argument
+    } else {
+      // Generate default log filename with timestamp
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+      logFilePath = `shannon-${timestamp}.log`;
     }
   } else if (args[i] === '--pipeline-testing') {
     pipelineTestingMode = true;
@@ -416,10 +433,25 @@ if (args.includes('--help') || args.includes('-h') || args.includes('help')) {
   process.exit(0);
 }
 
+// Setup logging if --log flag is present
+if (logFilePath) {
+  try {
+    cleanupLogging = await setupLogging(logFilePath);
+    const absoluteLogPath = path.isAbsolute(logFilePath)
+      ? logFilePath
+      : path.join(process.cwd(), logFilePath);
+    console.log(chalk.green(`📝 Logging enabled: ${absoluteLogPath}`));
+  } catch (error) {
+    console.log(chalk.yellow(`⚠️ Failed to setup logging: ${error.message}`));
+    console.log(chalk.gray('Continuing without logging...'));
+  }
+}
+
 // Handle developer commands
 if (developerCommand) {
   await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
   await cleanupMCP();
+  if (cleanupLogging) await cleanupLogging();
   process.exit(0);
 }
 
@@ -470,6 +502,7 @@ try {
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(finalReportPath));
   await cleanupMCP();
+  if (cleanupLogging) await cleanupLogging();
 } catch (error) {
   // Enhanced error boundary with proper logging
   if (error instanceof PentestError) {
@@ -490,5 +523,6 @@ try {
     }
   }
   await cleanupMCP();
+  if (cleanupLogging) await cleanupLogging();
   process.exit(1);
 }
