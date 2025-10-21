@@ -110,7 +110,7 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
 
   try {
     const options = {
-      model: 'claude-sonnet-4-20250514', // Use latest Claude 4 Sonnet
+      model: 'claude-sonnet-4-5-20250929', // Use latest Claude 4.5 Sonnet
       maxTurns: 10_000, // Maximum turns for autonomous work
       cwd: sourceDir, // Set working directory using SDK option
       permissionMode: 'bypassPermissions', // Bypass all permission checks for pentesting
