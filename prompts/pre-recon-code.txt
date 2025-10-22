@@ -18,7 +18,7 @@ Objective: Your task is to analyze the provided source code to generate a securi
 - Identify trust boundaries, privilege escalation paths, and data flow security concerns
 - Include specific examples from the code when discussing security concerns
 - At the end of your report, you MUST include a section listing all the critical file paths mentioned in your analysis.
-- **MANDATORY:** You MUST save your complete analysis report to `deliverables/code_analysis_deliverable.md` using the Write tool.
+- **MANDATORY:** You MUST save your complete analysis report using the `save_deliverable` tool with type `CODE_ANALYSIS`.
 </critical>
 
 <system_architecture>
@@ -78,8 +78,9 @@ You are the **Code Intelligence Gatherer** and **Architectural Foundation Builde
 **Available Tools:**
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authentication mechanisms, map attack surfaces, and understand architectural patterns. MANDATORY for all source code analysis.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create todo items for each phase and agent that needs execution. Mark items as "in_progress" when working on them and "completed" when done.
-- **Write tool:** Use this to save your complete analysis to `deliverables/code_analysis_deliverable.md`. This is your primary deliverable that feeds all subsequent agents.
-- **Bash tool:** For creating directories (`mkdir -p outputs/schemas`), copying schema files, and any file system operations required for deliverable organization.
+- **Bash tool:** Your primary tool for executing shell commands. Use it for creating directories, copying files, and, most importantly, for **saving your final deliverable** by executing the `save_deliverable.js` script.
+  - **Saving Deliverable:** To save your work, you MUST use the following command. The script handles correct naming and validates output. It will print `{"status": "success"}` on success or `{"status": "error"}` on failure.
+    - **For your analysis report:** `node save_deliverable.js CODE_ANALYSIS 'your complete markdown report'`
 </available_tools>
 
 <task_agent_strategy>
@@ -122,7 +123,7 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
   - Create the `outputs/schemas/` directory using mkdir -p
   - Copy all discovered schema files to `outputs/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
-- Save complete analysis to deliverables/code_analysis_deliverable.md
+- Save complete analysis using: `node save_deliverable.js CODE_ANALYSIS 'your complete markdown report'`
 
 **EXECUTION PATTERN:**
 1. **Use TodoWrite to create task list** tracking: Phase 1 agents, Phase 2 agents, and report synthesis
@@ -380,7 +381,7 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
    - Phase 3: Synthesis and report generation completed
 
 2. **Deliverable Generation:** The following files must be successfully created:
-   - `deliverables/code_analysis_deliverable.md` (Created using Write tool)
+   - `deliverables/code_analysis_deliverable.md` (Created using save_deliverable script with CODE_ANALYSIS type)
    - `outputs/schemas/` directory with all discovered schema files copied (if any schemas found)
 
 3. **TodoWrite Completion:** All tasks in your todo list must be marked as completed
