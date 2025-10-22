@@ -114,21 +114,36 @@ export async function setupLocalRepo(repoPath) {
       // Non-fatal - continue without Git setup
     }
 
-    // Copy TOTP generation script to local repository for agent accessibility
+    // Copy tools to local repository for agent accessibility
     try {
-      const totpScriptSource = path.join(import.meta.dirname, '..', '..', 'login_resources', 'generate-totp-standalone.mjs');
+      const toolsDir = path.join(import.meta.dirname, '..', '..', 'tools');
+
+      // Copy TOTP generation script
+      const totpScriptSource = path.join(toolsDir, 'generate-totp-standalone.mjs');
       const totpScriptDest = path.join(sourceDir, 'generate-totp.mjs');
 
       if (await fs.pathExists(totpScriptSource)) {
         await fs.copy(totpScriptSource, totpScriptDest);
         await fs.chmod(totpScriptDest, '755'); // Make executable
-        console.log(chalk.green('✅ TOTP generation script (standalone) copied to target repository'));
+        console.log(chalk.green('✅ TOTP generation script copied to target repository'));
       } else {
         console.log(chalk.yellow('⚠️ TOTP script not found, authentication may fail if TOTP is required'));
       }
-    } catch (totpError) {
-      console.log(chalk.yellow(`⚠️ Failed to copy TOTP script: ${totpError.message}`));
-      // Non-fatal - continue without TOTP script
+
+      // Copy save_deliverable tool
+      const saveDeliverableSource = path.join(toolsDir, 'save_deliverable.js');
+      const saveDeliverableDest = path.join(sourceDir, 'save_deliverable.js');
+
+      if (await fs.pathExists(saveDeliverableSource)) {
+        await fs.copy(saveDeliverableSource, saveDeliverableDest);
+        await fs.chmod(saveDeliverableDest, '755'); // Make executable
+        console.log(chalk.green('✅ save_deliverable tool copied to target repository'));
+      } else {
+        console.log(chalk.yellow('⚠️ save_deliverable tool not found, deliverable creation may fail'));
+      }
+    } catch (toolError) {
+      console.log(chalk.yellow(`⚠️ Failed to copy tools: ${toolError.message}`));
+      // Non-fatal - continue without tools
     }
 
     return sourceDir;

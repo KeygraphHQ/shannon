@@ -19,20 +19,21 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/auth_analysis_deliverable.md` with content:
-```
-# Auth Analysis Complete (Pipeline Test)
+Use the save_deliverable script to create both deliverables:
+
+**1. Analysis Report:**
+```bash
+node save_deliverable.js AUTH_ANALYSIS '# Auth Analysis Complete (Pipeline Test)
 
 **MCP Server Used:** {{MCP_SERVER}}
 **Test Site:** https://example.net
 **Screenshot:** auth-agent-test.png
-**Status:** Browser isolation test successful
+**Status:** Browser isolation test successful'
 ```
 
-2. `deliverables/auth_exploitation_queue.json` with content:
-```json
-{
+**2. Exploitation Queue:**
+```bash
+node save_deliverable.js AUTH_QUEUE '{
   "vulnerabilities": [
     {
       "ID": "AUTH-VULN-01",
@@ -46,8 +47,10 @@ Create these 2 files:
       "witness_payload": "Authorization: Bearer invalid_token"
     }
   ]
-}
+}'
 ```
+
+These commands will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to example.net independently of other parallel agents.

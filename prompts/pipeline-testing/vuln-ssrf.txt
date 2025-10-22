@@ -19,20 +19,21 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/ssrf_analysis_deliverable.md` with content:
-```
-# SSRF Analysis Complete (Pipeline Test)
+Use the save_deliverable script to create both deliverables:
+
+**1. Analysis Report:**
+```bash
+node save_deliverable.js SSRF_ANALYSIS '# SSRF Analysis Complete (Pipeline Test)
 
 **MCP Server Used:** {{MCP_SERVER}}
 **Test Site:** https://httpbin.org
 **Screenshot:** ssrf-agent-test.png
-**Status:** Browser isolation test successful
+**Status:** Browser isolation test successful'
 ```
 
-2. `deliverables/ssrf_exploitation_queue.json` with content:
-```json
-{
+**2. Exploitation Queue:**
+```bash
+node save_deliverable.js SSRF_QUEUE '{
   "vulnerabilities": [
     {
       "ID": "SSRF-VULN-01",
@@ -45,8 +46,10 @@ Create these 2 files:
       "witness_payload": "http://internal.localhost/admin"
     }
   ]
-}
+}'
 ```
+
+These commands will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to httpbin.org independently of other parallel agents.

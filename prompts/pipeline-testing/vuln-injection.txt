@@ -19,20 +19,21 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/injection_analysis_deliverable.md` with content:
-```
-# Injection Analysis Complete (Pipeline Test)
+Use the save_deliverable script to create both deliverables:
+
+**1. Analysis Report:**
+```bash
+node save_deliverable.js INJECTION_ANALYSIS '# Injection Analysis Complete (Pipeline Test)
 
 **MCP Server Used:** {{MCP_SERVER}}
 **Test Site:** https://example.com
 **Screenshot:** injection-agent-test.png
-**Status:** Browser isolation test successful
+**Status:** Browser isolation test successful'
 ```
 
-2. `deliverables/injection_exploitation_queue.json` with content:
-```json
-{
+**2. Exploitation Queue:**
+```bash
+node save_deliverable.js INJECTION_QUEUE '{
   "vulnerabilities": [
     {
       "ID": "INJ-VULN-01",
@@ -45,11 +46,13 @@ Create these 2 files:
       "sink_call": "db.query at app.js:20",
       "slot_type": "SQL-val",
       "mismatch_reason": "User input directly concatenated into SQL query",
-      "witness_payload": "'; DROP TABLE users; --"
+      "witness_payload": "'"'"'; DROP TABLE users; --"
     }
   ]
-}
+}'
 ```
+
+These commands will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to example.com independently of other parallel agents.

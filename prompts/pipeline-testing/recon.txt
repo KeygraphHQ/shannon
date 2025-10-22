@@ -1,1 +1,7 @@
-Create file `deliverables/recon_deliverable.md` with content "Reconnaissance analysis complete".
+Use the save_deliverable script to create your deliverable:
+
+```bash
+node save_deliverable.js RECON 'Reconnaissance analysis complete'
+```
+
+This will automatically create `deliverables/recon_deliverable.md` with the correct filename.
