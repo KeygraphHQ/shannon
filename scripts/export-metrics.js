@@ -1,15 +1,40 @@
 #!/usr/bin/env node
 
 /**
- * Export Metrics Script
+ * Export Metrics to CSV
  *
- * Export session metrics from audit logs to CSV format for analysis.
+ * Converts session.json from audit-logs into CSV format for spreadsheet analysis.
  *
- * Use Cases:
- * - Performance analysis across sessions
- * - Cost tracking and budgeting
- * - Agent success rate analysis
- * - Benchmarking improvements
+ * DATA SOURCE:
+ * - Reads from: audit-logs/{hostname}_{sessionId}/session.json
+ * - Source of truth for all metrics, timing, and cost data
+ * - Automatically created by Shannon during agent execution
+ *
+ * CSV OUTPUT:
+ * - One row per agent with: agent, phase, status, attempts, duration_ms, cost_usd
+ * - Perfect for importing into Excel/Google Sheets for analysis
+ *
+ * USE CASES:
+ * - Compare performance across multiple sessions
+ * - Track costs and optimize budget
+ * - Identify slow agents for optimization
+ * - Generate charts and visualizations
+ * - Export data for external reporting tools
+ *
+ * EXAMPLES:
+ * ```bash
+ * # Export to stdout
+ * ./scripts/export-metrics.js --session-id abc123
+ *
+ * # Export to file
+ * ./scripts/export-metrics.js --session-id abc123 --output metrics.csv
+ *
+ * # Find session ID from Shannon store
+ * cat .shannon-store.json | jq '.sessions | keys'
+ * ```
+ *
+ * NOTE: For raw metrics, just read audit-logs/.../session.json directly.
+ * This script only exists to provide a spreadsheet-friendly CSV format.
  */
 
 import chalk from 'chalk';
