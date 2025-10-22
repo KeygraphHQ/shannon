@@ -79,7 +79,7 @@ const rollbackGitToCommit = async (targetRepo, commitHash) => {
 export const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, allowRerun = false, skipWorkspaceClean = false) => {
   // Validate agent first
   const agent = validateAgent(agentName);
-  
+
   console.log(chalk.cyan(`\n🤖 Running agent: ${agent.displayName}`));
   
   // Reload session to get latest state (important for agent ranges)
@@ -191,7 +191,7 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
       AGENTS[agentName].displayName,
       agentName,  // Pass agent name for snapshot creation
       getAgentColor(agentName),  // Pass color function for this agent
-      { webUrl: session.webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl: session.webUrl, repoPath: session.repoPath }  // Session metadata for audit logging
     );
     
     if (!result.success) {
@@ -616,13 +616,35 @@ export const rollbackTo = async (targetAgent, session) => {
   }
   
   const commitHash = session.checkpoints[targetAgent];
-  
+
   // Rollback git workspace
   await rollbackGitToCommit(session.targetRepo, commitHash);
-  
-  // Update session state
+
+  // Update session state (removes agents from completedAgents)
   await rollbackToAgent(session.id, targetAgent);
-  
+
+  // Mark rolled-back agents in audit system (for forensic trail)
+  try {
+    const { AuditSession } = await import('./audit/index.js');
+    const auditSession = new AuditSession(session);
+    await auditSession.initialize();
+
+    // Find agents that were rolled back (agents after targetAgent)
+    const targetOrder = AGENTS[targetAgent].order;
+    const rolledBackAgents = Object.values(AGENTS)
+      .filter(agent => agent.order > targetOrder)
+      .map(agent => agent.name);
+
+    // Mark them as rolled-back in audit system
+    if (rolledBackAgents.length > 0) {
+      await auditSession.markMultipleRolledBack(rolledBackAgents);
+      console.log(chalk.gray(`   Marked ${rolledBackAgents.length} agents as rolled-back in audit logs`));
+    }
+  } catch (error) {
+    // Non-critical: rollback succeeded even if audit update failed
+    console.log(chalk.yellow(`   ⚠️ Failed to update audit logs: ${error.message}`));
+  }
+
   console.log(chalk.green(`✅ Successfully rolled back to agent '${targetAgent}'`));
 };
 

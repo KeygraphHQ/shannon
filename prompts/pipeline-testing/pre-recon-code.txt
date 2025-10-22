@@ -1,7 +1,6 @@
-Use the save_deliverable script to create your deliverable:
+Run this command and do nothing else:
 
 ```bash
 node save_deliverable.js CODE_ANALYSIS 'Pre-recon analysis complete'
 ```
-
-This will automatically create `deliverables/code_analysis_deliverable.md` with the correct filename.
+Then say "Done".

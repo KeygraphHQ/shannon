@@ -6,10 +6,10 @@ import { isRetryableError, getRetryDelay, PentestError } from '../error-handling
 import { ProgressIndicator } from '../progress-indicator.js';
 import { timingResults, costResults, Timer, formatDuration } from '../utils/metrics.js';
 import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace } from '../utils/git-manager.js';
-import { savePromptSnapshot } from '../prompts/prompt-manager.js';
 import { AGENT_VALIDATORS } from '../constants.js';
 import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';
 import { generateSessionLogPath } from '../session-manager.js';
+import { AuditSession } from '../audit/index.js';
 
 // Simplified validation using direct agent name mapping
 async function validateAgentOutput(result, agentName, sourceDir) {
@@ -57,10 +57,11 @@ async function validateAgentOutput(result, agentName, sourceDir) {
 // - Output validation
 // - Prompt snapshotting for debugging
 // - Git checkpoint/rollback safety
-async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context = '', description = 'Claude analysis', colorFn = chalk.cyan, sessionMetadata = null) {
+async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context = '', description = 'Claude analysis', colorFn = chalk.cyan, sessionMetadata = null, auditSession = null, attemptNumber = 1) {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
   let totalCost = 0;
+  let partialCost = 0; // Track partial cost for crash safety
 
   // Auto-detect execution mode to adjust logging behavior
   const isParallelExecution = description.includes('vuln agent') || description.includes('exploit agent');
@@ -82,28 +83,14 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
     progressIndicator = new ProgressIndicator(`Running ${agentType}...`);
   }
 
-  // Setup detailed logging for all agents (if session metadata is available)
+  // NOTE: Logging now handled by AuditSession (append-only, crash-safe)
+  // Legacy log path generation kept for compatibility
   let logFilePath = null;
-  let logBuffer = [];
-
-  if (sessionMetadata && sessionMetadata.webUrl && sessionMetadata.sessionId) {
+  if (sessionMetadata && sessionMetadata.webUrl && sessionMetadata.id) {
     const timestamp = new Date().toISOString().replace(/T/, '_').replace(/[:.]/g, '-').slice(0, 19);
     const agentName = description.toLowerCase().replace(/\s+/g, '-');
-
-    // Use session-based folder structure
-    const logDir = generateSessionLogPath(sessionMetadata.webUrl, sessionMetadata.sessionId);
-
-    await fs.ensureDir(logDir);
-    logFilePath = path.join(logDir, `${timestamp}_${agentName}_attempt-1.log`);
-
-    // Initialize log with agent startup info
-    const sessionId = sessionMetadata?.sessionId || path.basename(sourceDir).split('-').pop().substring(0, 8);
-    logBuffer.push(`=== ${description} - Detailed Execution Log ===`);
-    logBuffer.push(`Timestamp: ${new Date().toISOString()}`);
-    logBuffer.push(`Working Directory: ${sourceDir}`);
-    logBuffer.push(`Session ID: ${sessionId}`);
-    logBuffer.push(`Log File: ${logFilePath}`);
-    logBuffer.push(`\n=== Agent Execution Start ===\n`);
+    const logDir = generateSessionLogPath(sessionMetadata.webUrl, sessionMetadata.id);
+    logFilePath = path.join(logDir, `${timestamp}_${agentName}_attempt-${attemptNumber}.log`);
   } else {
     console.log(chalk.blue(`  🤖 Running Claude Code: ${description}...`));
   }
@@ -114,7 +101,6 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       maxTurns: 10_000, // Maximum turns for autonomous work
       cwd: sourceDir, // Set working directory using SDK option
       permissionMode: 'bypassPermissions', // Bypass all permission checks for pentesting
-      customSystemPrompt: fullPrompt, // Use system prompt for better security and consistency
     };
 
     // SDK Options only shown for verbose agents (not clean output)
@@ -132,7 +118,7 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       progressIndicator.start();
     }
 
-    for await (const message of query({ prompt: 'Begin.', options })) {
+    for await (const message of query({ prompt: fullPrompt, options })) {
       if (message.type === "assistant") {
         turnCount++;
         const content = Array.isArray(message.message.content)
@@ -177,9 +163,15 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
           console.log(colorFn(`    ${content}`));
         }
 
-        // Log full details to file for later review
-        logBuffer.push(`\n🤖 Turn ${turnCount} (${description}):`);
-        logBuffer.push(content);
+        // Log to audit system (crash-safe, append-only)
+        if (auditSession) {
+          await auditSession.logEvent('llm_response', {
+            turn: turnCount,
+            content,
+            timestamp: new Date().toISOString()
+          });
+        }
+
         messages.push(content);
 
         // Check for API error patterns in assistant message content
@@ -210,6 +202,15 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
         if (message.input && Object.keys(message.input).length > 0) {
           console.log(chalk.gray(`    Input: ${JSON.stringify(message.input, null, 2)}`));
         }
+
+        // Log tool start event
+        if (auditSession) {
+          await auditSession.logEvent('tool_start', {
+            toolName: message.name,
+            parameters: message.input,
+            timestamp: new Date().toISOString()
+          });
+        }
       } else if (message.type === "tool_result") {
         console.log(chalk.green(`    ✅ Tool Result:`));
         if (message.content) {
@@ -220,6 +221,14 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
           } else {
             console.log(chalk.gray(`    ${resultStr}`));
           }
+        }
+
+        // Log tool end event
+        if (auditSession) {
+          await auditSession.logEvent('tool_end', {
+            result: message.content,
+            timestamp: new Date().toISOString()
+          });
         }
       } else if (message.type === "result") {
         result = message.result;
@@ -273,8 +282,9 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
         costResults.agents[agentKey] = cost;
         costResults.total += cost;
 
-        // Store cost for return value
+        // Store cost for return value and partial tracking
         totalCost = cost;
+        partialCost = cost;
         break;
       } else {
         // Log any other message types we might not be handling
@@ -292,23 +302,14 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       console.log(chalk.yellow(`  ⚠️ API Error detected in ${description} - will validate deliverables before failing`));
     }
 
-    // Finish status line for parallel execution and save detailed log
+    // Finish status line for parallel execution
     if (statusManager) {
       statusManager.clearAgentStatus(description);
       statusManager.finishStatusLine();
     }
 
-    // Write detailed log to file
-    if (logFilePath && logBuffer.length > 0) {
-        logBuffer.push(`\n=== Agent Execution Complete ===`);
-        logBuffer.push(`Duration: ${formatDuration(duration)}`);
-        logBuffer.push(`Turns: ${turnCount}`);
-        logBuffer.push(`Cost: $${totalCost.toFixed(4)}`);
-        logBuffer.push(`Status: Success`);
-        logBuffer.push(`Completed: ${new Date().toISOString()}`);
-
-        await fs.writeFile(logFilePath, logBuffer.join('\n'));
-    }
+    // NOTE: Log writing now handled by AuditSession (crash-safe, append-only)
+    // Legacy log writing removed - audit system handles this automatically
 
     // Show completion messages based on agent type
     if (progressIndicator) {
@@ -327,7 +328,15 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
     }
 
     // Return result with log file path for all agents
-    const returnData = { result, success: true, duration, turns: turnCount, cost: totalCost, apiErrorDetected };
+    const returnData = {
+      result,
+      success: true,
+      duration,
+      turns: turnCount,
+      cost: totalCost,
+      partialCost, // Include partial cost for crash recovery
+      apiErrorDetected
+    };
     if (logFilePath) {
       returnData.logFile = logFilePath;
     }
@@ -344,17 +353,16 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       statusManager.finishStatusLine();
     }
 
-    // Write error log to file
-    if (logFilePath && logBuffer.length > 0) {
-        logBuffer.push(`\n=== Agent Execution Failed ===`);
-        logBuffer.push(`Duration: ${formatDuration(duration)}`);
-        logBuffer.push(`Turns: ${turnCount}`);
-        logBuffer.push(`Error: ${error.message}`);
-        logBuffer.push(`Error Type: ${error.constructor.name}`);
-        logBuffer.push(`Status: Failed`);
-        logBuffer.push(`Failed: ${new Date().toISOString()}`);
-
-        await fs.writeFile(logFilePath, logBuffer.join('\n'));
+    // Log error to audit system
+    if (auditSession) {
+      await auditSession.logEvent('error', {
+        message: error.message,
+        errorType: error.constructor.name,
+        stack: error.stack,
+        duration,
+        turns: turnCount,
+        timestamp: new Date().toISOString()
+      });
     }
 
     // Show error messages based on agent type
@@ -420,6 +428,7 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       prompt: fullPrompt.slice(0, 100) + '...',
       success: false,
       duration,
+      cost: partialCost, // Include partial cost on error
       retryable: isRetryableError(error)
     };
   }
@@ -432,6 +441,7 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
 // - Prompt snapshotting for debugging and reproducibility
 // - Git checkpoint/rollback safety for workspace protection
 // - Comprehensive error handling and logging
+// - Crash-safe audit logging via AuditSession
 export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools = 'Read', context = '', description = 'Claude analysis', agentName = null, colorFn = chalk.cyan, sessionMetadata = null) {
   const maxRetries = 3;
   let lastError;
@@ -439,22 +449,25 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
 
   console.log(chalk.cyan(`🚀 Starting ${description} with ${maxRetries} max attempts`));
 
-  // Save prompt snapshot before execution starts (for debugging failed runs)
-  let snapshotSaved = false;
+  // Initialize audit session (crash-safe logging)
+  let auditSession = null;
+  if (sessionMetadata && agentName) {
+    auditSession = new AuditSession(sessionMetadata);
+    await auditSession.initialize();
+  }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     // Create checkpoint before each attempt
     await createGitCheckpoint(sourceDir, description, attempt);
 
-    // Save snapshot on first attempt only (before any execution)
-    if (!snapshotSaved && agentName) {
+    // Start agent tracking in audit system (saves prompt snapshot automatically)
+    if (auditSession) {
       const fullPrompt = retryContext ? `${retryContext}\n\n${prompt}` : prompt;
-      await savePromptSnapshot(sourceDir, agentName, fullPrompt);
-      snapshotSaved = true;
+      await auditSession.startAgent(agentName, fullPrompt, attempt);
     }
 
     try {
-      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, colorFn, sessionMetadata);
+      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, colorFn, sessionMetadata, auditSession, attempt);
 
       // Validate output after successful run
       if (result.success) {
@@ -466,6 +479,17 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
             console.log(chalk.yellow(`📋 Validation: Ready for exploitation despite API error warnings`));
           }
 
+          // Record successful attempt in audit system
+          if (auditSession) {
+            await auditSession.endAgent(agentName, {
+              attemptNumber: attempt,
+              duration_ms: result.duration,
+              cost_usd: result.cost || 0,
+              success: true,
+              checkpoint: await getGitCommitHash(sourceDir)
+            });
+          }
+
           // Commit successful changes (will include the snapshot)
           await commitGitSuccess(sourceDir, description);
           console.log(chalk.green.bold(`🎉 ${description} completed successfully on attempt ${attempt}/${maxRetries}`));
@@ -473,6 +497,18 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
         } else {
           // Agent completed but output validation failed
           console.log(chalk.yellow(`⚠️ ${description} completed but output validation failed`));
+
+          // Record failed validation attempt in audit system
+          if (auditSession) {
+            await auditSession.endAgent(agentName, {
+              attemptNumber: attempt,
+              duration_ms: result.duration,
+              cost_usd: result.partialCost || result.cost || 0,
+              success: false,
+              error: 'Output validation failed',
+              isFinalAttempt: attempt === maxRetries
+            });
+          }
 
           // If API error detected AND validation failed, this is a retryable error
           if (result.apiErrorDetected) {
@@ -500,6 +536,18 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
 
     } catch (error) {
       lastError = error;
+
+      // Record failed attempt in audit system
+      if (auditSession) {
+        await auditSession.endAgent(agentName, {
+          attemptNumber: attempt,
+          duration_ms: error.duration || 0,
+          cost_usd: error.cost || 0,
+          success: false,
+          error: error.message,
+          isFinalAttempt: attempt === maxRetries
+        });
+      }
 
       // Check if error is retryable
       if (!isRetryableError(error)) {
@@ -533,4 +581,14 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
   }
 
   throw lastError;
+}
+
+// Helper function to get git commit hash
+async function getGitCommitHash(sourceDir) {
+  try {
+    const result = await $`cd ${sourceDir} && git rev-parse HEAD`;
+    return result.stdout.trim();
+  } catch (error) {
+    return null;
+  }
 }
