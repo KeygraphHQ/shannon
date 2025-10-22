@@ -188,17 +188,47 @@ The agent implements a sophisticated checkpoint system using git:
 - Every agent creates a git checkpoint before execution
 - Rollback to any previous agent state using `--rollback-to` or `--rerun`
 - Failed agents don't affect completed work
-- Timing and cost data cleaned up during rollbacks
+- Rolled-back agents marked in audit system with status: "rolled-back"
+- Reconciliation automatically syncs Shannon store with audit logs after rollback
 - Fail-fast safety prevents accidental re-execution of completed agents
 
-### Timing & Performance Monitoring
-The agent includes comprehensive timing instrumentation that tracks:
-- Total execution time
-- Phase-level timing breakdown
-- Individual command execution times
-- Claude Code agent processing times
-- Cost tracking for AI agent usage
+### Unified Audit & Metrics System
+The agent implements a crash-safe, self-healing audit system (v3.0) with the following guarantees:
 
+**Architecture:**
+- **audit-logs/**: Centralized metrics and forensic logs (source of truth)
+  - `{hostname}_{sessionId}/session.json` - Comprehensive metrics with attempt-level detail
+  - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
+  - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
+- **.shannon-store.json**: Minimal orchestration state (completedAgents, checkpoints)
+
+**Crash Safety:**
+- Append-only logging with immediate flush (survives kill -9)
+- Atomic writes for session.json (no partial writes)
+- Event-based logging (tool_start, tool_end, llm_response) closes data loss windows
+
+**Self-Healing:**
+- Automatic reconciliation before every CLI command
+- Recovers from crashes during rollback
+- Audit logs are source of truth; Shannon store follows
+
+**Forensic Completeness:**
+- All retry attempts logged with errors, costs, durations
+- Rolled-back agents preserved with status: "rolled-back"
+- Partial cost capture for failed attempts
+- Complete event trail for debugging
+
+**Concurrency Safety:**
+- SessionMutex prevents race conditions during parallel agent execution
+- Safe parallel execution of vulnerability and exploitation phases
+
+**Metrics & Reporting:**
+- Export metrics with `./scripts/export-metrics.js`
+- Manual reconciliation (diagnostics) with `./scripts/reconcile-session.js`
+- Phase-level and agent-level timing/cost aggregations
+- Validation results integrated with metrics
+
+For detailed design, see `docs/unified-audit-system-design.md`.
 
 ## Development Notes
 
@@ -232,34 +262,56 @@ The tool should only be used on systems you own or have explicit permission to t
 ## File Structure
 
 ```
-shannon.mjs              # Main orchestration script
-package.json                  # Node.js dependencies
-src/                         # Core modules
-├── config-parser.js         # Configuration handling
-├── error-handling.js        # Error management
-├── tool-checker.js          # Tool validation
-├── session-manager.js       # Session state management
-├── checkpoint-manager.js    # Git-based checkpointing
-├── queue-validation.js      # Deliverable validation
+shannon.mjs                      # Main orchestration script
+package.json                     # Node.js dependencies
+.shannon-store.json              # Orchestration state (minimal)
+src/                             # Core modules
+├── audit/                       # Unified audit system (v3.0)
+│   ├── index.js                 # Public API
+│   ├── audit-session.js         # Main facade (logger + metrics + mutex)
+│   ├── logger.js                # Append-only crash-safe logging
+│   ├── metrics-tracker.js       # Timing, cost, attempt tracking
+│   └── utils.js                 # Path generation, atomic writes
+├── config-parser.js             # Configuration handling
+├── error-handling.js            # Error management
+├── tool-checker.js              # Tool validation
+├── session-manager.js           # Session state + reconciliation
+├── checkpoint-manager.js        # Git-based checkpointing + rollback
+├── queue-validation.js          # Deliverable validation
+├── ai/
+│   └── claude-executor.js       # Claude Code SDK integration
 └── utils/
-configs/                     # Configuration files
-├── config-schema.json       # JSON Schema validation
-├── example-config.yaml      # Template configuration
-├── juice-shop-config.yaml   # Juice Shop example
-├── keygraph-config.yaml     # Keygraph configuration
-├── chatwoot-config.yaml     # Chatwoot configuration
-├── metabase-config.yaml     # Metabase configuration
-└── cal-com-config.yaml      # Cal.com configuration
-prompts/                     # AI prompt templates
-├── pre-recon-code.txt       # Code analysis
-├── recon.txt               # Reconnaissance  
-├── vuln-*.txt              # Vulnerability assessment
-├── exploit-*.txt           # Exploitation
-└── report-executive.txt    # Executive reporting
-login_resources/            # Authentication utilities
-├── generate-totp.mjs       # TOTP generation
-└── login_instructions.txt  # Login documentation
-deliverables/              # Output directory
+audit-logs/                      # Centralized audit data (v3.0)
+└── {hostname}_{sessionId}/
+    ├── session.json             # Comprehensive metrics
+    ├── prompts/                 # Prompt snapshots
+    │   └── {agent}.md
+    └── agents/                  # Agent execution logs
+        └── {timestamp}_{agent}_attempt-{N}.log
+configs/                         # Configuration files
+├── config-schema.json           # JSON Schema validation
+├── example-config.yaml          # Template configuration
+├── juice-shop-config.yaml       # Juice Shop example
+├── keygraph-config.yaml         # Keygraph configuration
+├── chatwoot-config.yaml         # Chatwoot configuration
+├── metabase-config.yaml         # Metabase configuration
+└── cal-com-config.yaml          # Cal.com configuration
+prompts/                         # AI prompt templates
+├── pre-recon-code.txt           # Code analysis
+├── recon.txt                    # Reconnaissance
+├── vuln-*.txt                   # Vulnerability assessment
+├── exploit-*.txt                # Exploitation
+└── report-executive.txt         # Executive reporting
+login_resources/                 # Authentication utilities
+├── generate-totp.mjs            # TOTP generation
+└── login_instructions.txt       # Login documentation
+scripts/                         # Utility scripts
+├── reconcile-session.js         # Manual reconciliation (diagnostics)
+└── export-metrics.js            # Export metrics to CSV/JSON
+deliverables/                    # Output directory (in target repo)
+docs/                            # Documentation
+├── unified-audit-system-design.md
+└── migration-guide.md
 ```
 
 ## Troubleshooting
@@ -275,4 +327,18 @@ deliverables/              # Output directory
 Missing tools can be skipped using `--pipeline-testing` mode during development:
 - `nmap` - Network scanning
 - `subfinder` - Subdomain discovery
-- `whatweb` - Web technology detection  
+- `whatweb` - Web technology detection
+
+### Diagnostic & Utility Scripts
+```bash
+# Manual reconciliation (for diagnostics only)
+./scripts/reconcile-session.js --session-id <id> --dry-run --verbose
+
+# Export metrics to CSV/JSON
+./scripts/export-metrics.js --session-id <id> --format csv --output metrics.csv
+
+# System-wide consistency audit
+./scripts/reconcile-session.js --all-sessions --dry-run
+```
+
+Note: Manual reconciliation should rarely be needed. Frequent use indicates bugs in automatic reconciliation.

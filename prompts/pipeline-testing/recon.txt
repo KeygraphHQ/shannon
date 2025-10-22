@@ -1,7 +1,6 @@
-Use the save_deliverable script to create your deliverable:
+Run this command and do nothing else:
 
 ```bash
 node save_deliverable.js RECON 'Reconnaissance analysis complete'
 ```
-
-This will automatically create `deliverables/recon_deliverable.md` with the correct filename.
+Then say "Done".

@@ -208,35 +208,3 @@ export async function loadPrompt(promptName, variables, config = null, pipelineT
     throw promptError.error;
   }
 }
-
-// Save prompt snapshot for successful agent runs only
-export async function savePromptSnapshot(sourceDir, agentName, promptContent) {
-  const snapshotDir = path.join(sourceDir, 'prompt-snapshots');
-  await fs.ensureDir(snapshotDir);
-
-  // Use deterministic naming - one snapshot per agent
-  const fileName = `${agentName}.md`;
-  const filePath = path.join(snapshotDir, fileName);
-
-  const timestamp = new Date().toISOString();
-  const snapshotContent = `# Prompt Snapshot: ${agentName}
-
-**Generated:** ${timestamp}
-**Agent:** ${agentName}
-
----
-
-## Full Interpolated Prompt
-
-\`\`\`markdown
-${promptContent}
-\`\`\`
-
----
-
-*This snapshot represents the exact prompt that was sent to Claude Code to generate the current deliverables for this agent.*
-`;
-
-  await fs.writeFile(filePath, snapshotContent);
-  console.log(chalk.gray(`    📸 Prompt snapshot saved: prompt-snapshots/${fileName}`));
-}

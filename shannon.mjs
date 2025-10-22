@@ -233,7 +233,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
       AGENTS['recon'].displayName,
       'recon',  // Agent name for snapshot creation
       chalk.cyan,
-      { webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
     const reconDuration = reconTimer.stop();
     timingResults.phases['recon'] = reconDuration;
@@ -309,7 +309,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
       'Executive Summary and Report Cleanup',
       'report',  // Agent name for snapshot creation
       chalk.cyan,
-      { webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
 
     const reportDuration = reportTimer.stop();
