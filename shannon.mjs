@@ -13,7 +13,6 @@ import { runPhase, getGitCommitHash } from './src/checkpoint-manager.js';
 
 // Setup and Deliverables
 import { setupLocalRepo, cleanupMCP } from './src/setup/environment.js';
-import { saveRunMetadata } from './src/setup/deliverables.js';
 
 // AI and Prompts
 import { runClaudePromptWithRetry } from './src/ai/claude-executor.js';
@@ -176,15 +175,6 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
       false,
       { sourceDir, originalError: error.message }
     );
-  }
-
-  // Save run metadata with error handling
-  try {
-    await saveRunMetadata(sourceDir, webUrl, repoPath);
-  } catch (error) {
-    // Non-critical operation, log warning and continue
-    console.log(chalk.yellow(`⚠️ Failed to save run metadata: ${error.message}`));
-    await logError(error, 'Run metadata saving', sourceDir);
   }
 
   // Check if we should continue from where session left off
