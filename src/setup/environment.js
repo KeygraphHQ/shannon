@@ -21,21 +21,16 @@ export async function setupMCP(sourceDir) {
       }
     }
 
-    // Ensure screenshot directories exist
-    await fs.ensureDir(path.join(sourceDir, 'screenshots'));
-
     // Create 5 isolated instances sequentially to avoid config conflicts
     for (let i = 1; i <= 5; i++) {
       const instanceName = `playwright-agent${i}`;
-      const screenshotDir = path.join(sourceDir, 'screenshots', instanceName);
       const userDataDir = `/tmp/${instanceName}`;
 
-      // Ensure both directories exist
-      await fs.ensureDir(screenshotDir);
+      // Ensure user data directory exists
       await fs.ensureDir(userDataDir);
 
       try {
-        await $`claude mcp add ${instanceName} --scope user -- npx @playwright/mcp@latest --isolated --user-data-dir ${userDataDir} --output-dir ${screenshotDir}`;
+        await $`claude mcp add ${instanceName} --scope user -- npx @playwright/mcp@latest --isolated --user-data-dir ${userDataDir}`;
         console.log(chalk.green(`  ✅ ${instanceName} configured`));
       } catch (error) {
         if (error.message?.includes('already exists')) {
