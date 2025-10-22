@@ -223,8 +223,7 @@ The agent implements a crash-safe, self-healing audit system (v3.0) with the fol
 - Safe parallel execution of vulnerability and exploitation phases
 
 **Metrics & Reporting:**
-- Export metrics with `./scripts/export-metrics.js`
-- Manual reconciliation (diagnostics) with `./scripts/reconcile-session.js`
+- Export metrics to CSV with `./scripts/export-metrics.js`
 - Phase-level and agent-level timing/cost aggregations
 - Validation results integrated with metrics
 
@@ -306,8 +305,7 @@ login_resources/                 # Authentication utilities
 ├── generate-totp.mjs            # TOTP generation
 └── login_instructions.txt       # Login documentation
 scripts/                         # Utility scripts
-├── reconcile-session.js         # Manual reconciliation (diagnostics)
-└── export-metrics.js            # Export metrics to CSV/JSON
+└── export-metrics.js            # Export metrics to CSV
 deliverables/                    # Output directory (in target repo)
 docs/                            # Documentation
 ├── unified-audit-system-design.md
@@ -331,14 +329,8 @@ Missing tools can be skipped using `--pipeline-testing` mode during development:
 
 ### Diagnostic & Utility Scripts
 ```bash
-# Manual reconciliation (for diagnostics only)
-./scripts/reconcile-session.js --session-id <id> --dry-run --verbose
-
-# Export metrics to CSV/JSON
-./scripts/export-metrics.js --session-id <id> --format csv --output metrics.csv
-
-# System-wide consistency audit
-./scripts/reconcile-session.js --all-sessions --dry-run
+# Export metrics to CSV
+./scripts/export-metrics.js --session-id <id> --output metrics.csv
 ```
 
-Note: Manual reconciliation should rarely be needed. Frequent use indicates bugs in automatic reconciliation.
+Note: For recovery from corrupted state, simply delete `.shannon-store.json` or edit JSON files directly.
