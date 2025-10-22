@@ -13,7 +13,7 @@ import { runPhase, getGitCommitHash } from './src/checkpoint-manager.js';
 
 // Setup and Deliverables
 import { setupLocalRepo, cleanupMCP } from './src/setup/environment.js';
-import { saveRunMetadata, savePermanentDeliverables } from './src/setup/deliverables.js';
+import { saveRunMetadata } from './src/setup/deliverables.js';
 
 // AI and Prompts
 import { runClaudePromptWithRetry } from './src/ai/claude-executor.js';
@@ -349,19 +349,6 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     timingBreakdown,
     costBreakdown
   });
-
-  // Save deliverables to permanent location in Documents
-  const permanentPath = await savePermanentDeliverables(
-    sourceDir, webUrl, repoPath, session, timingBreakdown, costBreakdown
-  );
-  if (permanentPath) {
-    console.log(chalk.green(`📂 Deliverables permanently saved to: ${permanentPath}`));
-  }
-
-  // Keep files for manual review
-  console.log(chalk.blue(`📁 Files preserved for review at: ${sourceDir}`));
-  console.log(chalk.gray(`   Deliverables: ${sourceDir}/deliverables/`));
-  console.log(chalk.gray(`   Source code: ${sourceDir}/`));
 
   // Display comprehensive timing summary
   displayTimingSummary();
