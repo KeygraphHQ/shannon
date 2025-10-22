@@ -4,13 +4,10 @@ import crypto from 'crypto';
 import { PentestError } from './error-handling.js';
 
 // Generate a session-based log folder path
+// NEW FORMAT: {hostname}_{sessionId} (no hash, full UUID for consistency with audit system)
 export const generateSessionLogPath = (webUrl, sessionId) => {
-  // Create a hash of the webUrl for uniqueness while keeping it readable
-  const urlHash = crypto.createHash('md5').update(webUrl).digest('hex').substring(0, 8);
   const hostname = new URL(webUrl).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-  const shortSessionId = sessionId.substring(0, 8);
-
-  const sessionFolderName = `${hostname}_${urlHash}_${shortSessionId}`;
+  const sessionFolderName = `${hostname}_${sessionId}`;
   return path.join(process.cwd(), 'agent-logs', sessionFolderName);
 };
 
@@ -242,6 +239,8 @@ export const createSession = async (webUrl, repoPath, configFile = null, targetR
 
   const sessionId = generateSessionId();
 
+  // STANDARD: All sessions use 'id' field (NOT 'sessionId')
+  // This is the canonical session structure used throughout the codebase
   const session = {
     id: sessionId,
     webUrl,
@@ -452,7 +451,9 @@ export const getNextAgent = (session) => {
 };
 
 // Mark agent as completed with checkpoint
-export const markAgentCompleted = async (sessionId, agentName, checkpointCommit, timingData = null, costData = null, validationData = null) => {
+// NOTE: Timing, cost, and validation data now managed by AuditSession (audit-logs/session.json)
+// Shannon store contains ONLY orchestration state (completedAgents, checkpoints)
+export const markAgentCompleted = async (sessionId, agentName, checkpointCommit) => {
   // Use mutex to prevent race conditions during parallel agent execution
   const unlock = await sessionMutex.lock(sessionId);
 
@@ -473,38 +474,6 @@ export const markAgentCompleted = async (sessionId, agentName, checkpointCommit,
         [agentName]: checkpointCommit
       }
     };
-  
-  // Update timing data if provided
-  if (timingData) {
-    updates.timingBreakdown = {
-      ...session.timingBreakdown,
-      agents: {
-        ...session.timingBreakdown?.agents,
-        [agentName]: timingData
-      }
-    };
-  }
-  
-  // Update cost data if provided
-  if (costData) {
-    const existingCost = session.costBreakdown?.total || 0;
-    updates.costBreakdown = {
-      total: existingCost + costData,
-      agents: {
-        ...session.costBreakdown?.agents,
-        [agentName]: costData
-      }
-    };
-  }
-
-
-  // Update validation data if provided (for vulnerability agents)
-  if (validationData && agentName.includes('-vuln')) {
-    updates.validationResults = {
-      ...session.validationResults,
-      [agentName]: validationData
-    };
-  }
 
     // Check if all agents are now completed and update session status
     const totalAgents = Object.keys(AGENTS).length;
@@ -656,31 +625,101 @@ export const rollbackToAgent = async (sessionId, targetAgent) => {
       Object.entries(session.checkpoints).filter(([agent]) => !agentsToRemove.includes(agent))
     )
   };
-  
-  // Clean up timing data for rolled-back agents
-  if (session.timingBreakdown?.agents) {
-    const filteredTimingAgents = Object.fromEntries(
-      Object.entries(session.timingBreakdown.agents).filter(([agent]) => !agentsToRemove.includes(agent))
-    );
-    updates.timingBreakdown = {
-      ...session.timingBreakdown,
-      agents: filteredTimingAgents
-    };
-  }
-  
-  // Clean up cost data for rolled-back agents and recalculate total
-  if (session.costBreakdown?.agents) {
-    const filteredCostAgents = Object.fromEntries(
-      Object.entries(session.costBreakdown.agents).filter(([agent]) => !agentsToRemove.includes(agent))
-    );
-    const recalculatedTotal = Object.values(filteredCostAgents).reduce((sum, cost) => sum + cost, 0);
-    updates.costBreakdown = {
-      total: recalculatedTotal,
-      agents: filteredCostAgents
-    };
-  }
-  
+
+  // NOTE: Timing and cost data now managed in audit-logs/session.json
+  // Rollback will be reflected via reconcileSession() which marks agents as "rolled-back"
+
   return await updateSession(sessionId, updates);
+};
+
+/**
+ * Reconcile Shannon store with audit logs (self-healing)
+ *
+ * This function ensures the Shannon store (.shannon-store.json) is consistent with
+ * the audit logs (audit-logs/session.json) by syncing agent completion status.
+ *
+ * Three-part reconciliation:
+ * 1. PROMOTIONS: Agents completed/failed in audit → added to Shannon store
+ * 2. DEMOTIONS: Agents rolled-back in audit → removed from Shannon store
+ * 3. VERIFICATION: Ensure audit state fully reflected in orchestration
+ *
+ * Critical for crash recovery, especially crash during rollback operations.
+ *
+ * @param {string} sessionId - Session ID to reconcile
+ * @returns {Promise<Object>} Reconciliation report with added/removed/failed agents
+ */
+export const reconcileSession = async (sessionId) => {
+  const { AuditSession } = await import('./audit/index.js');
+
+  // Get Shannon store session
+  const shannonSession = await getSession(sessionId);
+  if (!shannonSession) {
+    throw new PentestError(`Session ${sessionId} not found in Shannon store`, 'validation', false);
+  }
+
+  // Get audit session data
+  const auditSession = new AuditSession(shannonSession);
+  await auditSession.initialize();
+  const auditData = await auditSession.getMetrics();
+
+  const report = {
+    promotions: [],
+    demotions: [],
+    failures: []
+  };
+
+  // PART 1: PROMOTIONS (Additive)
+  // Find agents completed in audit but not in Shannon store
+  const auditCompleted = Object.entries(auditData.metrics.agents)
+    .filter(([_, agentData]) => agentData.status === 'success')
+    .map(([agentName]) => agentName);
+
+  const missing = auditCompleted.filter(agent => !shannonSession.completedAgents.includes(agent));
+
+  for (const agentName of missing) {
+    const agentData = auditData.metrics.agents[agentName];
+    const checkpoint = agentData.checkpoint || null;
+    await markAgentCompleted(sessionId, agentName, checkpoint);
+    report.promotions.push(agentName);
+  }
+
+  // PART 2: DEMOTIONS (Subtractive) - CRITICAL FOR ROLLBACK RECOVERY
+  // Find agents rolled-back in audit but still in Shannon store
+  const auditRolledBack = Object.entries(auditData.metrics.agents)
+    .filter(([_, agentData]) => agentData.status === 'rolled-back')
+    .map(([agentName]) => agentName);
+
+  const toRemove = shannonSession.completedAgents.filter(agent => auditRolledBack.includes(agent));
+
+  if (toRemove.length > 0) {
+    // Reload session to get fresh state
+    const freshSession = await getSession(sessionId);
+
+    const updates = {
+      completedAgents: freshSession.completedAgents.filter(agent => !toRemove.includes(agent)),
+      checkpoints: Object.fromEntries(
+        Object.entries(freshSession.checkpoints).filter(([agent]) => !toRemove.includes(agent))
+      )
+    };
+
+    await updateSession(sessionId, updates);
+    report.demotions.push(...toRemove);
+  }
+
+  // PART 3: FAILURES
+  // Find agents failed in audit but not marked failed in Shannon store
+  const auditFailed = Object.entries(auditData.metrics.agents)
+    .filter(([_, agentData]) => agentData.status === 'failed')
+    .map(([agentName]) => agentName);
+
+  const failedToAdd = auditFailed.filter(agent => !shannonSession.failedAgents.includes(agent));
+
+  for (const agentName of failedToAdd) {
+    await markAgentFailed(sessionId, agentName);
+    report.failures.push(agentName);
+  }
+
+  return report;
 };
 
 // Delete a specific session by ID
