@@ -7,7 +7,7 @@ import { MCP_AGENT_MAPPING } from '../constants.js';
 async function buildLoginInstructions(authentication) {
   try {
     // Load the login instructions template
-    const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'login_resources', 'login_instructions.txt');
+    const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
 
     if (!await fs.pathExists(loginInstructionsPath)) {
       throw new PentestError(
@@ -82,6 +82,27 @@ async function buildLoginInstructions(authentication) {
       { authentication, originalError: error.message }
     );
   }
+}
+
+// Pure function: Process @include() directives
+async function processIncludes(content, baseDir) {
+  const includeRegex = /@include\(([^)]+)\)/g;
+  // Use a Promise.all to handle all includes concurrently
+  const replacements = await Promise.all(
+    Array.from(content.matchAll(includeRegex)).map(async (match) => {
+      const includePath = path.join(baseDir, match[1]);
+      const sharedContent = await fs.readFile(includePath, 'utf8');
+      return {
+        placeholder: match[0],
+        content: sharedContent,
+      };
+    })
+  );
+
+  for (const replacement of replacements) {
+    content = content.replace(replacement.placeholder, replacement.content);
+  }
+  return content;
 }
 
 // Pure function: Variable interpolation
@@ -198,7 +219,11 @@ export async function loadPrompt(promptName, variables, config = null, pipelineT
       console.log(chalk.yellow(`    🎭 Unknown agent ${promptName}, using fallback → ${enhancedVariables.MCP_SERVER}`));
     }
 
-    const template = await fs.readFile(promptPath, 'utf8');
+    let template = await fs.readFile(promptPath, 'utf8');
+
+    // Pre-process the template to handle @include directives
+    template = await processIncludes(template, promptsDir);
+
     return await interpolateVariables(template, enhancedVariables, config);
   } catch (error) {
     if (error instanceof PentestError) {
