@@ -97,7 +97,7 @@ COPY package*.json ./
 # Install Node.js dependencies as root
 RUN npm ci --only=production && \
     npm install -g zx && \
-    npm install -g @anthropic-ai/claude-code && \
+    npm install -g @anthropic-ai/claude-agent-sdk && \
     npm cache clean --force
 
 # Copy application code
