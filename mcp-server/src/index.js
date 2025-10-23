@@ -28,16 +28,6 @@ export function createShannonHelperServer(targetDir) {
   });
 }
 
-/**
- * Legacy export for backward compatibility
- * @deprecated Use createShannonHelperServer(targetDir) instead
- */
-export const shannonHelperServer = createSdkMcpServer({
-  name: 'shannon-helper',
-  version: '1.0.0',
-  tools: [saveDeliverableTool, generateTotpTool],
-});
-
 // Export tools for direct usage if needed
 export { saveDeliverableTool, generateTotpTool };
 

@@ -72,7 +72,7 @@ export const executeGitCommandWithRetry = async (commandArgs, sourceDir, descrip
 };
 
 // Pure functions for Git workspace management
-export const cleanWorkspace = async (sourceDir, reason = 'clean start') => {
+const cleanWorkspace = async (sourceDir, reason = 'clean start') => {
   console.log(chalk.blue(`    🧹 Cleaning workspace for ${reason}`));
   try {
     // Check for uncommitted changes
