@@ -218,12 +218,12 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
         const validation = await safeValidateQueueAndDeliverable(vulnType, targetRepo);
 
         if (validation.success) {
+          // Log validation result (don't store - will be re-validated during exploitation phase)
+          console.log(chalk.blue(`📋 Validation: ${validation.data.shouldExploit ? `Ready for exploitation (${validation.data.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
           validationData = {
             shouldExploit: validation.data.shouldExploit,
-            vulnerabilityCount: validation.data.vulnerabilityCount,
-            validatedAt: new Date().toISOString()
+            vulnerabilityCount: validation.data.vulnerabilityCount
           };
-          console.log(chalk.blue(`📋 Validation: ${validationData.shouldExploit ? `Ready for exploitation (${validationData.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
         } else {
           console.log(chalk.yellow(`⚠️ Validation failed: ${validation.error.message}`));
         }
@@ -232,8 +232,8 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
       }
     }
 
-    // Mark agent as completed
-    await markAgentCompleted(session.id, agentName, commitHash, timingData, costData, validationData);
+    // Mark agent as completed (validation not stored - will be re-checked during exploitation)
+    await markAgentCompleted(session.id, agentName, commitHash);
 
     // Only show completion message for sequential execution
     if (!skipWorkspaceClean) {
@@ -429,25 +429,36 @@ export const runParallelExploit = async (session, pipelineTestingMode, runClaude
   const { getSession } = await import('./session-manager.js');
   const freshSession = await getSession(session.id);
 
+  // Load validation module
+  const { safeValidateQueueAndDeliverable } = await import('./queue-validation.js');
+
   // Only run exploit agents whose vuln counterparts completed successfully AND found vulnerabilities
-  const eligibleAgents = exploitAgents.filter(agentName => {
-    const vulnAgentName = agentName.replace('-exploit', '-vuln');
+  const eligibilityChecks = await Promise.all(
+    exploitAgents.map(async (agentName) => {
+      const vulnAgentName = agentName.replace('-exploit', '-vuln');
 
-    // Must have completed the vulnerability analysis
-    if (!freshSession.completedAgents.includes(vulnAgentName)) {
-      return false;
-    }
+      // Must have completed the vulnerability analysis
+      if (!freshSession.completedAgents.includes(vulnAgentName)) {
+        return { agentName, eligible: false };
+      }
 
-    // Must have found vulnerabilities to exploit
-    const validationResult = freshSession.validationResults?.[vulnAgentName];
-    if (!validationResult || !validationResult.shouldExploit) {
-      console.log(chalk.gray(`⏭️  Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
-      return false;
-    }
+      // Check if vulnerabilities were found by validating the queue file
+      const vulnType = vulnAgentName.replace('-vuln', ''); // "injection-vuln" -> "injection"
+      const validation = await safeValidateQueueAndDeliverable(vulnType, freshSession.targetRepo);
 
-    console.log(chalk.blue(`✓ ${agentName} eligible (${validationResult.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
-    return true;
-  });
+      if (!validation.success || !validation.data.shouldExploit) {
+        console.log(chalk.gray(`⏭️  Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
+        return { agentName, eligible: false };
+      }
+
+      console.log(chalk.blue(`✓ ${agentName} eligible (${validation.data.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
+      return { agentName, eligible: true };
+    })
+  );
+
+  const eligibleAgents = eligibilityChecks
+    .filter(check => check.eligible)
+    .map(check => check.agentName);
 
   const activeAgents = eligibleAgents.filter(agent => !freshSession.completedAgents.includes(agent));
 
