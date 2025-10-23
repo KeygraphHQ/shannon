@@ -36,9 +36,7 @@ npm start <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
 ```
 
 ### Generate TOTP for Authentication
-```bash
-./login_resources/generate-totp.mjs <TOTP_SECRET>
-```
+TOTP generation is now handled automatically via the `generate_totp` MCP tool during authentication flows.
 
 ### Development Commands
 ```bash
@@ -163,8 +161,8 @@ The agent uses the `@anthropic-ai/claude-agent-sdk` with maximum autonomy config
 - Configuration context injection for authenticated testing
 
 ### Authentication & Login Resources
-- `login_resources/generate-totp.mjs` - TOTP token generation utility
-- `login_resources/login_instructions.txt` - Login flow documentation
+- `prompts/shared/login-instructions.txt` - Login flow template for all agents
+- TOTP token generation via MCP `generate_totp` tool
 - Support for multi-factor authentication workflows
 - Configurable authentication mechanisms (form, SSO, API, basic)
 
@@ -296,14 +294,17 @@ configs/                         # Configuration files
 ├── metabase-config.yaml         # Metabase configuration
 └── cal-com-config.yaml          # Cal.com configuration
 prompts/                         # AI prompt templates
+├── shared/                      # Shared content for all prompts
+│   ├── _target.txt              # Target URL template
+│   ├── _rules.txt               # Rules template
+│   ├── _vuln-scope.txt          # Vulnerability scope template
+│   ├── _exploit-scope.txt       # Exploitation scope template
+│   └── login-instructions.txt   # Login flow template
 ├── pre-recon-code.txt           # Code analysis
 ├── recon.txt                    # Reconnaissance
 ├── vuln-*.txt                   # Vulnerability assessment
 ├── exploit-*.txt                # Exploitation
 └── report-executive.txt         # Executive reporting
-login_resources/                 # Authentication utilities
-├── generate-totp.mjs            # TOTP generation
-└── login_instructions.txt       # Login documentation
 scripts/                         # Utility scripts
 └── export-metrics.js            # Export metrics to CSV
 deliverables/                    # Output directory (in target repo)
