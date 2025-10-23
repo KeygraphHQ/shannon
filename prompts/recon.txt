@@ -60,9 +60,12 @@ Please use these tools for the following use cases:
 - Task tool: **MANDATORY for ALL source code analysis.** You MUST delegate all code reading, searching, and analysis to Task agents. DO NOT use Read, Glob, or Grep tools for source code.
 - {{MCP_SERVER}} (Playwright): To interact with the live web application at the target.
   - **CRITICAL RULE:** For all browser interactions, you MUST use the {{MCP_SERVER}} (Playwright).
-- Bash tool: Your primary tool for executing shell commands. Use it for simple, non-intrusive commands and, most importantly, for **saving your final deliverable** by executing the `save_deliverable.js` script.
-  - **Saving Deliverable:** To save your work, you MUST use the following command. The script handles correct naming and validates output. It will print `{"status": "success"}` on success or `{"status": "error"}` on failure.
-    - **For your reconnaissance report:** `node save_deliverable.js RECON 'your complete markdown report'`
+- **save_deliverable (MCP Tool):** Saves your reconnaissance deliverable file.
+  - **Parameters:**
+    - `deliverable_type`: "RECON" (required)
+    - `content`: Your complete markdown report (required)
+  - **Returns:** `{ status: "success", filepath: "..." }` on success or `{ status: "error", message: "..." }` on failure
+- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.
 </available_tools>
@@ -388,5 +391,5 @@ Vulnerability Sources by Type
 </deliverable_instructions>
 
 <conclusion_trigger>
-Once you have saved the complete deliverable using the save_deliverable script (`node save_deliverable.js RECON 'your report'`), your phase is complete. Announce "RECONNAISSANCE COMPLETE" and await further instructions.
+Once you have saved the complete deliverable using the save_deliverable MCP tool with `deliverable_type: "RECON"` and your complete report as the `content`, your phase is complete. Announce "RECONNAISSANCE COMPLETE" and await further instructions.
 </conclusion_trigger>
