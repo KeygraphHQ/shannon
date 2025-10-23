@@ -552,25 +552,12 @@ export const getSessionStatus = (session) => {
 export const calculateVulnerabilityAnalysisSummary = (session) => {
   const vulnAgents = PHASES['vulnerability-analysis'];
   const completedVulnAgents = session.completedAgents.filter(agent => vulnAgents.includes(agent));
-  const validationResults = session.validationResults || {};
 
-  let totalVulnerabilities = 0;
-  let agentsWithVulns = 0;
-
-  for (const agent of completedVulnAgents) {
-    const validation = validationResults[agent];
-    if (validation?.vulnerabilityCount > 0) {
-      totalVulnerabilities += validation.vulnerabilityCount;
-      agentsWithVulns++;
-    }
-  }
-
+  // NOTE: Actual vulnerability counts require reading queue files
+  // This summary only shows completion counts
   return Object.freeze({
     totalAnalyses: completedVulnAgents.length,
-    totalVulnerabilities,
-    agentsWithVulnerabilities: agentsWithVulns,
-    successRate: completedVulnAgents.length > 0 ? (agentsWithVulns / completedVulnAgents.length) * 100 : 0,
-    exploitationCandidates: Object.values(validationResults).filter(v => v?.shouldExploit).length
+    completedAgents: completedVulnAgents
   });
 };
 
@@ -578,19 +565,12 @@ export const calculateVulnerabilityAnalysisSummary = (session) => {
 export const calculateExploitationSummary = (session) => {
   const exploitAgents = PHASES['exploitation'];
   const completedExploitAgents = session.completedAgents.filter(agent => exploitAgents.includes(agent));
-  const validationResults = session.validationResults || {};
 
-  // Count how many exploitation agents were eligible to run
-  const eligibleExploits = exploitAgents.filter(agentName => {
-    const vulnAgentName = agentName.replace('-exploit', '-vuln');
-    return validationResults[vulnAgentName]?.shouldExploit;
-  });
-
+  // NOTE: Eligibility requires reading queue files
+  // This summary only shows completion counts
   return Object.freeze({
     totalAttempts: completedExploitAgents.length,
-    eligibleExploits: eligibleExploits.length,
-    skippedExploits: eligibleExploits.length - completedExploitAgents.length,
-    successRate: eligibleExploits.length > 0 ? (completedExploitAgents.length / eligibleExploits.length) * 100 : 0
+    completedAgents: completedExploitAgents
   });
 };
 
