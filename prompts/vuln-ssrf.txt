@@ -77,10 +77,13 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 
 **Available Tools:**
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace data flows, and understand HTTP client usage. MANDATORY for all source code analysis.
-- **Bash tool:** Your primary tool for executing shell commands. Use it for crafting manual HTTP requests with `curl` to test endpoint behavior and, most importantly, for **saving your final deliverables** by executing the `save_deliverable.js` script.
-  - **Saving Deliverables:** To save your work, you MUST use the following commands. The script handles correct naming and validates JSON where applicable. It will print `{"status": "success"}` on success or `{"status": "error"}` on failure.
-    - **For your analysis report:** `node save_deliverable.js SSRF_ANALYSIS 'your complete markdown report'`
-    - **For your exploitation queue:** `node save_deliverable.js SSRF_QUEUE '{"vulnerabilities": [...]}'`
+- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
+  - **Parameters:**
+    - `deliverable_type`: "SSRF_ANALYSIS" or "SSRF_QUEUE" (required)
+    - `content`: Your markdown report or JSON queue (required)
+  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
+  - **Usage:** Call the tool with your deliverable type and content. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **{{MCP_SERVER}} (Playwright):** To interact with the live web application to understand multi-step flows that might involve URL redirection or proxy functionality.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each SSRF sink that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
 </available_tools>
@@ -285,9 +288,9 @@ These components were analyzed and found to have robust defenses. They are low-p
 
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable script:
-- **If vulnerabilities found:** Use `node save_deliverable.js SSRF_QUEUE '{"vulnerabilities": [...]}'` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
-- **If no vulnerabilities found:** Use `node save_deliverable.js SSRF_QUEUE '{"vulnerabilities": []}'`.
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool:
+- **If vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": [...]}` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+- **If no vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": []}`.
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 This file serves as the handoff mechanism and must always be created to signal completion.
 </exploitation_queue_requirements>
@@ -296,9 +299,9 @@ This file serves as the handoff mechanism and must always be created to signal c
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1.  **Systematic Analysis:** ALL relevant API endpoints and request-making features identified in the reconnaissance deliverable must be analyzed for SSRF vulnerabilities.
-2.  **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable script:
-    - Analysis report: `node save_deliverable.js SSRF_ANALYSIS 'your report'`
-    - Exploitation queue: `node save_deliverable.js SSRF_QUEUE '{"vulnerabilities": [...]}'`
+2.  **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable MCP tool:
+    - Analysis report: Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_ANALYSIS"` and your report as `content`
+    - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
 **ONLY AFTER** both systematic analysis AND successful deliverable generation, announce "**SSRF ANALYSIS COMPLETE**" and stop.
 </conclusion_trigger>

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "^1.0.96",
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "boxen": "^8.0.1",
@@ -15,6 +16,7 @@
     "figlet": "^1.9.3",
     "gradient-string": "^3.0.0",
     "js-yaml": "^4.1.0",
+    "zod": "^3.22.4",
     "zx": "^8.0.0"
   },
   "bin": {
