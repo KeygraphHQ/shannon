@@ -8,16 +8,15 @@ Success criterion: A complete source-to-sink trace for every identified SSRF vul
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via {{WEB_URL}} from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+@include(shared/_vuln-scope.txt)
 </scope>
 
 <target>
-URL: {{WEB_URL}}
+@include(shared/_target.txt)
 </target>
 
 <rules>
-Rules to Avoid:
-{{RULES_AVOID}}
+@include(shared/_rules.txt)
 </rules>
 
 <login_instructions>
