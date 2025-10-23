@@ -19,37 +19,19 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Use the save_deliverable script to create both deliverables:
+Use the save_deliverable MCP tool to create both deliverables:
 
 **1. Analysis Report:**
-```bash
-node save_deliverable.js AUTHZ_ANALYSIS '# Authorization Analysis Complete (Pipeline Test)
-
-**MCP Server Used:** {{MCP_SERVER}}
-**Test Site:** https://jsonplaceholder.typicode.com
-**Screenshot:** authz-agent-test.png
-**Status:** Browser isolation test successful'
-```
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "AUTHZ_ANALYSIS"`
+- `content: "# Authorization Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://jsonplaceholder.typicode.com\n**Screenshot:** authz-agent-test.png\n**Status:** Browser isolation test successful"`
 
 **2. Exploitation Queue:**
-```bash
-node save_deliverable.js AUTHZ_QUEUE '{
-  "vulnerabilities": [
-    {
-      "ID": "AUTHZ-VULN-01",
-      "verdict": "vulnerable",
-      "confidence": "high",
-      "notes": "Test authz vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
-      "vulnerability_type": "Vertical",
-      "endpoint": "/admin/users",
-      "actual_access": "Regular users can access admin functions",
-      "witness_payload": "GET /admin/users with regular user token"
-    }
-  ]
-}'
-```
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "AUTHZ_QUEUE"`
+- `content: {"vulnerabilities": [{"ID": "AUTHZ-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test authz vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "Vertical", "endpoint": "/admin/users", "actual_access": "Regular users can access admin functions", "witness_payload": "GET /admin/users with regular user token"}]}`
 
-These commands will automatically create the correct files in `deliverables/`.
+These tools will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to jsonplaceholder.typicode.com independently of other parallel agents.

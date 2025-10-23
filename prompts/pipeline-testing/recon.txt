@@ -1,6 +1,1 @@
-Run this command and do nothing else:
-
-```bash
-node save_deliverable.js RECON 'Reconnaissance analysis complete'
-```
-Then say "Done".
+Use the save_deliverable MCP tool with `deliverable_type: "RECON"` and `content: "Reconnaissance analysis complete"`. Then say "Done".

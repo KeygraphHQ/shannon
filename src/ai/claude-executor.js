@@ -1,15 +1,49 @@
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
-import { query } from '@anthropic-ai/claude-code';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 
 import { isRetryableError, getRetryDelay, PentestError } from '../error-handling.js';
 import { ProgressIndicator } from '../progress-indicator.js';
 import { timingResults, costResults, Timer, formatDuration } from '../utils/metrics.js';
 import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace } from '../utils/git-manager.js';
-import { AGENT_VALIDATORS } from '../constants.js';
+import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
 import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';
 import { generateSessionLogPath } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
+import { createShannonHelperServer } from '../../mcp-server/src/index.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
+/**
+ * Convert agent name to prompt name for MCP_AGENT_MAPPING lookup
+ *
+ * @param {string} agentName - Agent name (e.g., 'xss-vuln', 'injection-exploit')
+ * @returns {string} Prompt name (e.g., 'vuln-xss', 'exploit-injection')
+ */
+function agentNameToPromptName(agentName) {
+  // Special cases
+  if (agentName === 'pre-recon') return 'pre-recon-code';
+  if (agentName === 'report') return 'report-executive';
+  if (agentName === 'recon') return 'recon';
+
+  // Pattern: {type}-vuln → vuln-{type}
+  const vulnMatch = agentName.match(/^(.+)-vuln$/);
+  if (vulnMatch) {
+    return `vuln-${vulnMatch[1]}`;
+  }
+
+  // Pattern: {type}-exploit → exploit-{type}
+  const exploitMatch = agentName.match(/^(.+)-exploit$/);
+  if (exploitMatch) {
+    return `exploit-${exploitMatch[1]}`;
+  }
+
+  // Default: return as-is
+  return agentName;
+}
 
 // Simplified validation using direct agent name mapping
 async function validateAgentOutput(result, agentName, sourceDir) {
@@ -57,7 +91,7 @@ async function validateAgentOutput(result, agentName, sourceDir) {
 // - Output validation
 // - Prompt snapshotting for debugging
 // - Git checkpoint/rollback safety
-async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context = '', description = 'Claude analysis', colorFn = chalk.cyan, sessionMetadata = null, auditSession = null, attemptNumber = 1) {
+async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context = '', description = 'Claude analysis', agentName = null, colorFn = chalk.cyan, sessionMetadata = null, auditSession = null, attemptNumber = 1) {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
   let totalCost = 0;
@@ -95,12 +129,50 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
     console.log(chalk.blue(`  🤖 Running Claude Code: ${description}...`));
   }
 
+  // Declare variables that need to be accessible in both try and catch blocks
+  let turnCount = 0;
+
   try {
+    // Create MCP server with target directory context
+    const shannonHelperServer = createShannonHelperServer(sourceDir);
+
+    // Look up agent's assigned Playwright MCP server
+    // Convert agent name (e.g., 'xss-vuln') to prompt name (e.g., 'vuln-xss')
+    let playwrightMcpName = null;
+    if (agentName) {
+      const promptName = agentNameToPromptName(agentName);
+      playwrightMcpName = MCP_AGENT_MAPPING[promptName];
+
+      if (playwrightMcpName) {
+        console.log(chalk.gray(`    🎭 Assigned ${agentName} → ${playwrightMcpName}`));
+      }
+    }
+
+    // Configure MCP servers: shannon-helper (SDK) + playwright-agentN (stdio)
+    const mcpServers = {
+      'shannon-helper': shannonHelperServer,
+    };
+
+    // Add Playwright MCP server if this agent needs browser automation
+    if (playwrightMcpName) {
+      const userDataDir = `/tmp/${playwrightMcpName}`;
+      mcpServers[playwrightMcpName] = {
+        type: 'stdio',
+        command: 'npx',
+        args: ['@playwright/mcp@latest', '--isolated', '--user-data-dir', userDataDir],
+        env: {
+          ...process.env,
+          PLAYWRIGHT_HEADLESS: 'true', // Ensure headless mode for security and CI compatibility
+        },
+      };
+    }
+
     const options = {
       model: 'claude-sonnet-4-5-20250929', // Use latest Claude 4.5 Sonnet
       maxTurns: 10_000, // Maximum turns for autonomous work
       cwd: sourceDir, // Set working directory using SDK option
       permissionMode: 'bypassPermissions', // Bypass all permission checks for pentesting
+      mcpServers,
     };
 
     // SDK Options only shown for verbose agents (not clean output)
@@ -110,7 +182,6 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
 
     let result = null;
     let messages = [];
-    let turnCount = 0;
     let apiErrorDetected = false;
 
     // Start progress indicator for clean output agents
@@ -118,9 +189,15 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       progressIndicator.start();
     }
 
-    for await (const message of query({ prompt: fullPrompt, options })) {
+
+    let messageCount = 0;
+    try {
+      for await (const message of query({ prompt: fullPrompt, options })) {
+        messageCount++;
+
       if (message.type === "assistant") {
         turnCount++;
+
         const content = Array.isArray(message.message.content)
           ? message.message.content.map(c => c.text || JSON.stringify(c)).join('\n')
           : message.message.content;
@@ -290,6 +367,9 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
         // Log any other message types we might not be handling
         console.log(chalk.gray(`    💬 ${message.type}: ${JSON.stringify(message, null, 2)}`));
       }
+      }
+    } catch (queryError) {
+      throw queryError; // Re-throw to outer catch
     }
 
     const duration = timer.stop();
@@ -467,7 +547,7 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
     }
 
     try {
-      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, colorFn, sessionMetadata, auditSession, attempt);
+      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, agentName, colorFn, sessionMetadata, auditSession, attempt);
 
       // Validate output after successful run
       if (result.success) {

@@ -82,10 +82,13 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 - **Terminal (curl):** MANDATORY for testing HTTP-based XSS vectors and observing raw HTML responses. Use for reflected XSS testing and JSONP injection testing.
 - **{{MCP_SERVER}} (Playwright):** MANDATORY for testing DOM-based XSS and form submission vectors. Use for stored XSS testing and client-side payload execution verification.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
-- **Bash tool:** Your primary tool for executing shell commands. Use it for testing XSS vectors with `curl` and, most importantly, for **saving your final deliverables** by executing the `save_deliverable.js` script.
-  - **Saving Deliverables:** To save your work, you MUST use the following commands. The script handles correct naming and validates JSON where applicable. It will print `{"status": "success"}` on success or `{"status": "error"}` on failure.
-    - **For your analysis report:** `node save_deliverable.js XSS_ANALYSIS 'your complete markdown report'`
-    - **For your exploitation queue:** `node save_deliverable.js XSS_QUEUE '{"vulnerabilities": [...]}'`
+- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
+  - **Parameters:**
+    - `deliverable_type`: "XSS_ANALYSIS" or "XSS_QUEUE" (required)
+    - `content`: Your markdown report or JSON queue (required)
+  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
+  - **Usage:** Call the tool with your deliverable type and content. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </available_tools>
 
 <data_format_specifications>
@@ -268,13 +271,13 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## Exploitation Queue (MANDATORY)
 
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable script.
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool.
 
 - **If exploitable vulnerabilities found:**
-  Use `node save_deliverable.js XSS_QUEUE '{"vulnerabilities": [...]}'` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
 
 - **If no exploitable vulnerabilities found:**
-  Use `node save_deliverable.js XSS_QUEUE '{"vulnerabilities": []}'`
+  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": []}`
 
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 
@@ -285,9 +288,9 @@ This file is the mandatory handoff to the Exploitation phase.
 COMPLETION REQUIREMENTS (ALL must be satisfied):
 
 1. Systematic Analysis: ALL input vectors identified from the reconnaissance deliverable must be analyzed.
-2. Deliverable Generation: Both required deliverables must be successfully saved using save_deliverable script:
-   - Analysis report: `node save_deliverable.js XSS_ANALYSIS 'your report'`
-   - Exploitation queue: `node save_deliverable.js XSS_QUEUE '{"vulnerabilities": [...]}'`
+2. Deliverable Generation: Both required deliverables must be successfully saved using save_deliverable MCP tool:
+   - Analysis report: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_ANALYSIS"` and your report as `content`
+   - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
 ONLY AFTER both systematic analysis AND successful deliverable generation, announce "XSS ANALYSIS COMPLETE" and stop.
 </conclusion_trigger>
