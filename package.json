@@ -7,7 +7,6 @@
     "start": "./shannon.mjs"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "^1.0.96",
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",

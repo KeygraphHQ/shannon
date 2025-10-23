@@ -154,8 +154,8 @@ The `prompts/` directory contains specialized prompt templates for each testing 
 - `exploit-*.txt` - Exploitation attempt prompts
 - `report-executive.txt` - Executive report generation prompts
 
-### Claude Code SDK Integration
-The agent uses the `@anthropic-ai/claude-code` SDK with maximum autonomy configuration:
+### Claude Agent SDK Integration
+The agent uses the `@anthropic-ai/claude-agent-sdk` with maximum autonomy configuration:
 - `maxTurns: 10_000` - Allows extensive autonomous analysis
 - `permissionMode: 'bypassPermissions'` - Full system access for thorough testing
 - Playwright MCP integration for web browser automation
@@ -235,7 +235,7 @@ For detailed design, see `docs/unified-audit-system-design.md`.
 - **Configuration-Driven Architecture**: YAML configs with JSON Schema validation
 - **Modular Error Handling**: Categorized error types with retry logic
 - **Pure Functions**: Most functionality is implemented as pure functions for testability
-- **SDK-First Approach**: Heavy reliance on Claude Code SDK for autonomous AI operations
+- **SDK-First Approach**: Heavy reliance on Claude Agent SDK for autonomous AI operations
 - **Progressive Analysis**: Each phase builds on previous phase results
 - **Local Repository Setup**: Target applications are accessed directly from user-provided local directories
 
@@ -278,7 +278,7 @@ src/                             # Core modules
 ├── checkpoint-manager.js        # Git-based checkpointing + rollback
 ├── queue-validation.js          # Deliverable validation
 ├── ai/
-│   └── claude-executor.js       # Claude Code SDK integration
+│   └── claude-executor.js       # Claude Agent SDK integration
 └── utils/
 audit-logs/                      # Centralized audit data (v3.0)
 └── {hostname}_{sessionId}/
