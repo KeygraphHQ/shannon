@@ -76,7 +76,7 @@ const rollbackGitToCommit = async (targetRepo, commitHash) => {
 };
 
 // Run a single agent with retry logic and checkpointing
-export const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, allowRerun = false, skipWorkspaceClean = false) => {
+const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, allowRerun = false, skipWorkspaceClean = false) => {
   // Validate agent first
   const agent = validateAgent(agentName);
 
@@ -299,7 +299,7 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
 };
 
 // Run multiple agents in sequence
-export const runAgentRange = async (startAgent, endAgent, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runAgentRange = async (startAgent, endAgent, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const agents = validateAgentRange(startAgent, endAgent);
   
   console.log(chalk.cyan(`\n🔄 Running agent range: ${startAgent} to ${endAgent} (${agents.length} agents)`));
@@ -323,7 +323,7 @@ export const runAgentRange = async (startAgent, endAgent, session, pipelineTesti
 };
 
 // Run vulnerability agents in parallel
-export const runParallelVuln = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runParallelVuln = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const vulnAgents = ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'];
   const activeAgents = vulnAgents.filter(agent => !session.completedAgents.includes(agent));
 
@@ -421,7 +421,7 @@ export const runParallelVuln = async (session, pipelineTestingMode, runClaudePro
 };
 
 // Run exploitation agents in parallel
-export const runParallelExploit = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runParallelExploit = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const exploitAgents = ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'];
 
   // Get fresh session data to ensure we have the latest vulnerability analysis results

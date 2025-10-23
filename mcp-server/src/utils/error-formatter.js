@@ -32,24 +32,6 @@ export function createValidationError(message, retryable = true, context) {
 }
 
 /**
- * Create a file system error response
- *
- * @param {string} message
- * @param {boolean} [retryable=false]
- * @param {Record<string, unknown>} [context]
- * @returns {ErrorResponse}
- */
-export function createFileSystemError(message, retryable = false, context) {
-  return {
-    status: 'error',
-    message,
-    errorType: 'FileSystemError',
-    retryable,
-    context,
-  };
-}
-
-/**
  * Create a crypto error response
  *
  * @param {string} message
