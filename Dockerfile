@@ -68,7 +68,23 @@ RUN apk update && apk add --no-cache \
     nodejs-22 \
     npm \
     python3 \
-    ruby
+    ruby \
+    # Chromium browser and dependencies for Playwright
+    chromium \
+    # Additional libraries Chromium needs
+    nss \
+    freetype \
+    harfbuzz \
+    # X11 libraries for headless browser
+    libx11 \
+    libxcomposite \
+    libxdamage \
+    libxext \
+    libxfixes \
+    libxrandr \
+    mesa-gbm \
+    # Font rendering
+    fontconfig
 
 # Copy Go binaries from builder
 COPY --from=builder /go/bin/subfinder /usr/local/bin/
@@ -116,6 +132,9 @@ USER pentest
 # Set environment variables
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:$PATH"
+ENV SHANNON_DOCKER=true
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 
 # Set entrypoint
