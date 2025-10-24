@@ -19,35 +19,19 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/auth_analysis_deliverable.md` with content:
-```
-# Auth Analysis Complete (Pipeline Test)
+Use the save_deliverable MCP tool to create both deliverables:
 
-**MCP Server Used:** {{MCP_SERVER}}
-**Test Site:** https://example.net
-**Screenshot:** auth-agent-test.png
-**Status:** Browser isolation test successful
-```
+**1. Analysis Report:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "AUTH_ANALYSIS"`
+- `content: "# Auth Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://example.net\n**Screenshot:** auth-agent-test.png\n**Status:** Browser isolation test successful"`
 
-2. `deliverables/auth_exploitation_queue.json` with content:
-```json
-{
-  "vulnerabilities": [
-    {
-      "ID": "AUTH-VULN-01",
-      "verdict": "vulnerable",
-      "confidence": "high",
-      "notes": "Test auth vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
-      "vulnerability_type": "Authentication_Bypass",
-      "endpoint": "/api/login",
-      "flaw_type": "Missing token validation",
-      "exploit_hypothesis": "Empty or invalid token allows access to protected resources",
-      "witness_payload": "Authorization: Bearer invalid_token"
-    }
-  ]
-}
-```
+**2. Exploitation Queue:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "AUTH_QUEUE"`
+- `content: {"vulnerabilities": [{"ID": "AUTH-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test auth vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "Authentication_Bypass", "endpoint": "/api/login", "flaw_type": "Missing token validation", "exploit_hypothesis": "Empty or invalid token allows access to protected resources", "witness_payload": "Authorization: Bearer invalid_token"}]}`
+
+These tools will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to example.net independently of other parallel agents.
