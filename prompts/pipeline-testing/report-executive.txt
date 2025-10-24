@@ -1,138 +1,31 @@
-<role>
-You are a Security Report Generator for pipeline testing. Your job is to create a comprehensive security assessment report that simulates realistic exploitation scenarios.
-</role>
+Create a file at `deliverables/comprehensive_security_assessment_report.md` with this content:
 
-<audience>
-Pipeline testing and vulnerability reporting validation.
-</audience>
+```markdown
+# Injection Exploitation Evidence
 
-<objective>
-Create a comprehensive security assessment report with successfully exploited vulnerabilities.
-</objective>
+## Successfully Exploited Vulnerabilities
 
-<target>
-URL: {{WEB_URL}}
-Repository: {{GITHUB_URL}}
-</target>
+### INJ-VULN-01: SQL Injection Test
 
-<instructions>
-Create or modify `deliverables/comprehensive_security_assessment_report.md` with the following structure:
-
-# Security Assessment Report
-
-## Executive Summary
-- Target: {{WEB_URL}}
-- Assessment Date: {current date}
-- Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
-
-## Summary by Vulnerability Type
-
-**Authentication Vulnerabilities:**
-Three authentication vulnerabilities were successfully exploited. Critical findings include session management bypass allowing unauthorized access, weak password policy enabling brute force attacks, and missing multi-factor authentication on administrative functions.
-
-**Authorization Vulnerabilities:**
-One authorization vulnerability was successfully exploited: privilege escalation through role manipulation in user profile settings.
-
-**Cross-Site Scripting (XSS) Vulnerabilities:**
-One XSS vulnerability was successfully exploited: CSS injection in the chart styling component enabling CSRF token extraction and keylogging capabilities.
-
-**SQL/Command Injection Vulnerabilities:**
-One injection vulnerability was successfully exploited: SQL injection in user search functionality allowing database enumeration and data extraction.
-
-**Server-Side Request Forgery (SSRF) Vulnerabilities:**
-No SSRF vulnerabilities were successfully exploited due to network access restrictions.
-
-## Network Reconnaissance
-
-**Open Ports and Services:**
-- Port 80/tcp: HTTP service, redirects to HTTPS
-- Port 443/tcp: HTTPS service, main application access point
-
-**Security Headers:**
-- HTTP Strict Transport Security (HSTS) configured with max-age=31536000
-- X-Frame-Options set to DENY preventing clickjacking attacks
-- Content Security Policy implemented with nonces
+**Summary:** Test SQL injection vulnerability for pipeline testing.
 
 # Authentication Exploitation Evidence
 
 ## Successfully Exploited Vulnerabilities
 
-### AUTH-VULN-01: Session Management Bypass
+### AUTH-VULN-01: Authentication Bypass Test
 
-**Summary:**
-- **Vulnerability:** Session token predictability in authentication system
-- **Impact:** Complete authentication bypass allowing unauthorized access
-- **Severity:** Critical
+**Summary:** Test authentication vulnerability for pipeline testing.
+```
 
-**Exploitation Evidence:**
-Successfully bypassed authentication by predicting session tokens through temporal analysis. Gained administrative access to user management functions.
+Then read and modify the file by adding these sections at the top:
 
-### AUTH-VULN-02: Weak Password Policy Exploitation
+1. **Executive Summary** section with:
+   - Target: {{WEB_URL}}
+   - Assessment Date: (current date)
+   - Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+   - Brief summary of findings (2-3 vulnerabilities found for testing)
 
-**Summary:**
-- **Vulnerability:** Insufficient password complexity requirements
-- **Impact:** Account takeover through brute force attacks
-- **Severity:** High
+2. **Network Reconnaissance** section with test data for open ports and services
 
-**Exploitation Evidence:**
-Successfully performed brute force attacks against multiple user accounts due to weak password policy allowing simple passwords.
-
-# Authorization Exploitation Evidence
-
-## Successfully Exploited Vulnerabilities
-
-### AUTHZ-VULN-01: Privilege Escalation via Role Manipulation
-
-**Summary:**
-- **Vulnerability:** Insufficient authorization checks in user profile settings
-- **Impact:** Privilege escalation from standard user to administrator
-- **Severity:** High
-
-**Exploitation Evidence:**
-Successfully escalated privileges by manipulating user role parameters in profile update requests, gaining administrative access.
-
-# XSS Exploitation Evidence
-
-## Successfully Exploited Vulnerabilities
-
-### XSS-VULN-01: CSS Injection with Token Extraction
-
-**Summary:**
-- **Vulnerability:** CSS injection in chart styling component using dangerouslySetInnerHTML
-- **Impact:** CSRF token extraction and keylogging capabilities
-- **Severity:** Medium
-
-**Exploitation Evidence:**
-Successfully injected CSS code that extracted CSRF tokens and demonstrated keylogging capabilities. CSP blocked data exfiltration but exploitation was proven.
-
-# Injection Exploitation Evidence
-
-## Successfully Exploited Vulnerabilities
-
-### INJ-VULN-01: SQL Injection in User Search
-
-**Summary:**
-- **Vulnerability:** SQL injection in user search functionality
-- **Impact:** Database enumeration and sensitive data extraction
-- **Severity:** High
-
-**Exploitation Evidence:**
-Successfully exploited SQL injection to enumerate database structure and extract sensitive user information including password hashes.
-
-# SSRF Exploitation Evidence
-
-## Potential Vulnerabilities (Validation Blocked)
-
-### SSRF-VULN-01: Internal Service Access via URL Parameter
-
-**Summary:**
-- **Vulnerability:** SSRF in URL processing service
-- **Current Blocker:** Network access restriction
-- **Potential Impact:** Internal service enumeration and data access
-- **Confidence:** HIGH
-
-**Evidence of Vulnerability:**
-Code analysis shows SSRF vulnerability in URL processing service but exploitation blocked by network restrictions.
-
-
-</instructions>
+Save the modified content back to `deliverables/comprehensive_security_assessment_report.md`, then say "Done".
