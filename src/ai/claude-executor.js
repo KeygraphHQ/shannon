@@ -157,13 +157,31 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
     // Add Playwright MCP server if this agent needs browser automation
     if (playwrightMcpName) {
       const userDataDir = `/tmp/${playwrightMcpName}`;
+
+      // Detect if running in Docker via explicit environment variable
+      const isDocker = process.env.SHANNON_DOCKER === 'true';
+
+      // Build args array - conditionally add --executable-path for Docker
+      const mcpArgs = [
+        '@playwright/mcp@latest',
+        '--isolated',
+        '--user-data-dir', userDataDir,
+      ];
+
+      // Docker: Use system Chromium; Local: Use Playwright's bundled browsers
+      if (isDocker) {
+        mcpArgs.push('--executable-path', '/usr/bin/chromium-browser');
+        mcpArgs.push('--browser', 'chromium');
+      }
+
       mcpServers[playwrightMcpName] = {
         type: 'stdio',
         command: 'npx',
-        args: ['@playwright/mcp@latest', '--isolated', '--user-data-dir', userDataDir],
+        args: mcpArgs,
         env: {
           ...process.env,
           PLAYWRIGHT_HEADLESS: 'true', // Ensure headless mode for security and CI compatibility
+          ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }), // Only skip in Docker
         },
       };
     }
