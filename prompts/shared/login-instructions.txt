@@ -15,8 +15,8 @@ Execute the login flow based on the login_type specified in the configuration:
 1. Navigate to the specified login_url using Playwright
 2. Execute each step in the login_flow array sequentially:
    - Replace $username with the provided username credential
-   - Replace $password with the provided password credential  
-   - Replace $totp with generated code using the TOTP script in the repo root: `node generate-totp.mjs --secret "{{totp_secret}}"`
+   - Replace $password with the provided password credential
+   - Replace $totp with generated code using the `generate_totp` MCP tool with the TOTP secret: {{totp_secret}}
    - Perform the specified actions (type text, click buttons, etc.)
 3. Wait for page navigation/loading to complete after each critical step
 4. Handle any consent dialogs or "Continue as [user]" prompts by clicking appropriate buttons
@@ -30,7 +30,7 @@ Execute the login flow based on the login_type specified in the configuration:
    - Handle account selection if prompted
    - Replace $username with the provided username credential in provider login
    - Replace $password with the provided password credential in provider login
-   - Replace $totp with generated code using the TOTP script in the repo root: `node generate-totp.mjs --secret "{{totp_secret}}"`
+   - Replace $totp with generated code using the `generate_totp` MCP tool with the TOTP secret: {{totp_secret}}
    - Handle OAuth consent screens by clicking "Allow", "Accept", or "Continue", and hitting check boxes as needed.
    - Handle "Continue as [username]" dialogs by clicking "Continue"
 3. Wait for OAuth callback and final redirect to complete

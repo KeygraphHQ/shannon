@@ -12,8 +12,7 @@ import { createSession, updateSession, getSession, AGENTS } from './src/session-
 import { runPhase, getGitCommitHash } from './src/checkpoint-manager.js';
 
 // Setup and Deliverables
-import { setupLocalRepo, cleanupMCP } from './src/setup/environment.js';
-import { saveRunMetadata, savePermanentDeliverables } from './src/setup/deliverables.js';
+import { setupLocalRepo } from './src/setup/environment.js';
 
 // AI and Prompts
 import { runClaudePromptWithRetry } from './src/ai/claude-executor.js';
@@ -24,8 +23,8 @@ import { executePreReconPhase } from './src/phases/pre-recon.js';
 import { assembleFinalReport } from './src/phases/reporting.js';
 
 // Utils
-import { timingResults, costResults, displayTimingSummary, Timer, formatDuration } from './src/utils/metrics.js';
-import { setupLogging } from './src/utils/logger.js';
+import { timingResults, costResults, displayTimingSummary, Timer } from './src/utils/metrics.js';
+import { formatDuration } from './src/audit/utils.js';
 
 // CLI
 import { handleDeveloperCommand } from './src/cli/command-handler.js';
@@ -45,21 +44,16 @@ import {
 // Configure zx to disable timeouts (let tools run as long as needed)
 $.timeout = 0;
 
-// Global cleanup function for logging
-let cleanupLogging = null;
-
 // Setup graceful cleanup on process signals
 process.on('SIGINT', async () => {
   console.log(chalk.yellow('\n⚠️ Received SIGINT, cleaning up...'));
-  await cleanupMCP();
-  if (cleanupLogging) await cleanupLogging();
+
   process.exit(0);
 });
 
 process.on('SIGTERM', async () => {
   console.log(chalk.yellow('\n⚠️ Received SIGTERM, cleaning up...'));
-  await cleanupMCP();
-  if (cleanupLogging) await cleanupLogging();
+
   process.exit(0);
 });
 
@@ -137,7 +131,6 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     console.log(chalk.gray('Use developer commands to run individual agents:'));
     console.log(chalk.gray('  ./shannon.mjs --run-agent pre-recon'));
     console.log(chalk.gray('  ./shannon.mjs --status'));
-    await cleanupMCP();
     process.exit(0);
   }
 
@@ -178,21 +171,11 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     );
   }
 
-  // Save run metadata with error handling
-  try {
-    await saveRunMetadata(sourceDir, webUrl, repoPath);
-  } catch (error) {
-    // Non-critical operation, log warning and continue
-    console.log(chalk.yellow(`⚠️ Failed to save run metadata: ${error.message}`));
-    await logError(error, 'Run metadata saving', sourceDir);
-  }
-
   // Check if we should continue from where session left off
   const nextAgent = getNextAgent(session);
   if (!nextAgent) {
     console.log(chalk.green(`✅ All agents completed! Session is finished.`));
     await displayTimingSummary(timingResults, costResults, session.completedAgents);
-    await cleanupMCP();
     process.exit(0);
   }
 
@@ -233,7 +216,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
       AGENTS['recon'].displayName,
       'recon',  // Agent name for snapshot creation
       chalk.cyan,
-      { webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
     const reconDuration = reconTimer.stop();
     timingResults.phases['recon'] = reconDuration;
@@ -309,7 +292,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
       'Executive Summary and Report Cleanup',
       'report',  // Agent name for snapshot creation
       chalk.cyan,
-      { webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
 
     const reportDuration = reportTimer.stop();
@@ -350,19 +333,6 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     costBreakdown
   });
 
-  // Save deliverables to permanent location in Documents
-  const permanentPath = await savePermanentDeliverables(
-    sourceDir, webUrl, repoPath, session, timingBreakdown, costBreakdown
-  );
-  if (permanentPath) {
-    console.log(chalk.green(`📂 Deliverables permanently saved to: ${permanentPath}`));
-  }
-
-  // Keep files for manual review
-  console.log(chalk.blue(`📁 Files preserved for review at: ${sourceDir}`));
-  console.log(chalk.gray(`   Deliverables: ${sourceDir}/deliverables/`));
-  console.log(chalk.gray(`   Source code: ${sourceDir}/`));
-
   // Display comprehensive timing summary
   displayTimingSummary();
 
@@ -383,7 +353,6 @@ if (args[0] && args[0].includes('shannon.mjs')) {
 // Parse flags and arguments
 let configPath = null;
 let pipelineTestingMode = false;
-let logFilePath = null;
 const nonFlagArgs = [];
 let developerCommand = null;
 const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
@@ -396,16 +365,6 @@ for (let i = 0; i < args.length; i++) {
     } else {
       console.log(chalk.red('❌ --config flag requires a file path'));
       process.exit(1);
-    }
-  } else if (args[i] === '--log') {
-    // --log can optionally take a file path, otherwise use default
-    if (i + 1 < args.length && !args[i + 1].startsWith('-')) {
-      logFilePath = args[i + 1];
-      i++; // Skip the next argument
-    } else {
-      // Generate default log filename with timestamp
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-      logFilePath = `shannon-${timestamp}.log`;
     }
   } else if (args[i] === '--pipeline-testing') {
     pipelineTestingMode = true;
@@ -433,25 +392,10 @@ if (args.includes('--help') || args.includes('-h') || args.includes('help')) {
   process.exit(0);
 }
 
-// Setup logging if --log flag is present
-if (logFilePath) {
-  try {
-    cleanupLogging = await setupLogging(logFilePath);
-    const absoluteLogPath = path.isAbsolute(logFilePath)
-      ? logFilePath
-      : path.join(process.cwd(), logFilePath);
-    console.log(chalk.green(`📝 Logging enabled: ${absoluteLogPath}`));
-  } catch (error) {
-    console.log(chalk.yellow(`⚠️ Failed to setup logging: ${error.message}`));
-    console.log(chalk.gray('Continuing without logging...'));
-  }
-}
-
 // Handle developer commands
 if (developerCommand) {
   await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
-  await cleanupMCP();
-  if (cleanupLogging) await cleanupLogging();
+
   process.exit(0);
 }
 
@@ -501,8 +445,7 @@ try {
   const finalReportPath = await main(webUrl, repoPathValidation.path, configPath, pipelineTestingMode);
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(finalReportPath));
-  await cleanupMCP();
-  if (cleanupLogging) await cleanupLogging();
+
 } catch (error) {
   // Enhanced error boundary with proper logging
   if (error instanceof PentestError) {
@@ -522,7 +465,6 @@ try {
       console.log(chalk.gray(`   Stack: ${error?.stack || 'No stack trace available'}`));
     }
   }
-  await cleanupMCP();
-  if (cleanupLogging) await cleanupLogging();
+
   process.exit(1);
 }

@@ -11,17 +11,15 @@ Success criterion: A complete source-to-sink trace for every identified vulnerab
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via {{WEB_URL}} from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+@include(shared/_vuln-scope.txt)
 </scope>
 
 <target>
-URL: {{WEB_URL}}
+@include(shared/_target.txt)
 </target>
 
 <rules>
-Rules to Avoid:
-{{RULES_AVOID}}
-
+@include(shared/_rules.txt)
 </rules>
 
 <login_instructions>
@@ -84,16 +82,21 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 
 **Available Tools:**
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, map query/command construction paths, and verify sanitization coverage. MANDATORY for all source code analysis.
-- **Bash tool:** For crafting manual API requests with `curl` to probe injection surfaces and validate hypotheses about server behavior (without performing malicious actions).
+- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
+  - **Parameters:**
+    - `deliverable_type`: "INJECTION_ANALYSIS" or "INJECTION_QUEUE" (required)
+    - `content`: Your markdown report or JSON queue (required)
+  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
+  - **Usage:** Call the tool with your deliverable type and content. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **{{MCP_SERVER}} (Playwright):** To interact with the live web application to understand multi-step flows like password reset or registration.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each injection source that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
-- **Write tool:** Use this to create or update `deliverables/injection_exploitation_queue.json` following the exploitation queue format. Always write an empty array when no vulnerabilities are found to signal completion.
 </available_tools>
 
 <data_format_specifications>
 
   <exploitation_queue_format>
-  **Purpose:** Defines the structure for a "exploitation queue" saved to `deliverables/injection_exploitation_queue.json` via the Write tool.
+  **Purpose:** Defines the structure for a "exploitation queue" saved via the save_deliverable script with type INJECTION_QUEUE.
 
   **Structure:** The `vulnerability` JSON object MUST follow this exact format:
 		{
@@ -359,10 +362,10 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
 
-Regardless of whether vulnerabilities are found, you MUST create `deliverables/injection_exploitation_queue.json` using the Write tool:
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool:
 
-- **If vulnerabilities found:** Add each exploitable injection vulnerability (vertict: "vulnerable") using the exploitation_queue_format
-- **If no vulnerabilities found:** Create an empty file by using the Write tool to save `{"vulnerabilities": []}`
+- **If vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": [...]}` with each exploitable injection vulnerability (verdict: "vulnerable") following the exploitation_queue_format
+- **If no vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": []}`
 
 This file serves as the handoff mechanism to the Exploitation phase and must always be created to signal completion of your analysis.
 </exploitation_queue_requirements>
@@ -371,11 +374,11 @@ This file serves as the handoff mechanism to the Exploitation phase and must alw
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Todo Completion:** ALL tasks in your TodoWrite list must be marked as "completed"
-2. **Deliverable Generation:** Both required files must be successfully created:
-   - `deliverables/injection_analysis_deliverable.md`
-   - `deliverables/injection_exploitation_queue.json`
+2. **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable MCP tool:
+   - Analysis report: Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_ANALYSIS"` and your report as `content`
+   - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
-**ONLY AFTER** both todo completion AND successful file generation, announce "**INJECTION ANALYSIS COMPLETE**" and stop.
+**ONLY AFTER** both todo completion AND successful deliverable generation, announce "**INJECTION ANALYSIS COMPLETE**" and stop.
 
 **FAILURE TO COMPLETE TODOS = INCOMPLETE ANALYSIS** - You will be considered to have failed the mission if you generate deliverables before completing comprehensive testing of all input vectors.
 </conclusion_trigger>

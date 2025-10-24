@@ -51,18 +51,6 @@ export const logError = async (error, contextMsg, sourceDir = null) => {
   return logEntry;
 };
 
-// Handle configuration parsing errors
-const handleConfigError = (error, configPath) => {
-  const configError = new PentestError(
-    `Configuration error in ${configPath}: ${error.message}. Check your config.yaml file format and try again.`,
-    'config',
-    false,
-    { configPath, originalError: error.message }
-  );
-  throw configError;
-};
-
-
 // Handle tool execution errors
 export const handleToolError = (toolName, error) => {
   const isRetryable = error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT' || error.code === 'ENOTFOUND';
@@ -167,22 +155,4 @@ export const getRetryDelay = (error, attempt) => {
   const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
   const jitter = Math.random() * 1000; // 0-1s random
   return Math.min(baseDelay + jitter, 30000); // Max 30s
-};
-
-// General error handler with context
-const handleError = (error, context, isFatal = false) => {
-  const pentestError = error instanceof PentestError 
-    ? error 
-    : new PentestError(error.message, 'unknown', false, { context, originalError: error.message });
-  
-  if (isFatal) {
-    pentestError.type = 'fatal';
-    throw pentestError;
-  }
-  
-  return {
-    success: false,
-    error: pentestError,
-    continuable: !isFatal
-  };
 };

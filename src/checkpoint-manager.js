@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { PentestError } from './error-handling.js';
 import { parseConfig, distributeConfig } from './config-parser.js';
 import { executeGitCommandWithRetry } from './utils/git-manager.js';
+import { formatDuration } from './audit/utils.js';
 import {
   AGENTS,
   PHASES,
@@ -76,10 +77,10 @@ const rollbackGitToCommit = async (targetRepo, commitHash) => {
 };
 
 // Run a single agent with retry logic and checkpointing
-export const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, allowRerun = false, skipWorkspaceClean = false) => {
+const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, allowRerun = false, skipWorkspaceClean = false) => {
   // Validate agent first
   const agent = validateAgent(agentName);
-  
+
   console.log(chalk.cyan(`\n🤖 Running agent: ${agent.displayName}`));
   
   // Reload session to get latest state (important for agent ranges)
@@ -191,7 +192,7 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
       AGENTS[agentName].displayName,
       agentName,  // Pass agent name for snapshot creation
       getAgentColor(agentName),  // Pass color function for this agent
-      { webUrl: session.webUrl, sessionId: session.id }  // Session metadata for logging
+      { id: session.id, webUrl: session.webUrl, repoPath: session.repoPath }  // Session metadata for audit logging
     );
     
     if (!result.success) {
@@ -218,12 +219,12 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
         const validation = await safeValidateQueueAndDeliverable(vulnType, targetRepo);
 
         if (validation.success) {
+          // Log validation result (don't store - will be re-validated during exploitation phase)
+          console.log(chalk.blue(`📋 Validation: ${validation.data.shouldExploit ? `Ready for exploitation (${validation.data.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
           validationData = {
             shouldExploit: validation.data.shouldExploit,
-            vulnerabilityCount: validation.data.vulnerabilityCount,
-            validatedAt: new Date().toISOString()
+            vulnerabilityCount: validation.data.vulnerabilityCount
           };
-          console.log(chalk.blue(`📋 Validation: ${validationData.shouldExploit ? `Ready for exploitation (${validationData.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
         } else {
           console.log(chalk.yellow(`⚠️ Validation failed: ${validation.error.message}`));
         }
@@ -232,8 +233,8 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
       }
     }
 
-    // Mark agent as completed
-    await markAgentCompleted(session.id, agentName, commitHash, timingData, costData, validationData);
+    // Mark agent as completed (validation not stored - will be re-checked during exploitation)
+    await markAgentCompleted(session.id, agentName, commitHash);
 
     // Only show completion message for sequential execution
     if (!skipWorkspaceClean) {
@@ -299,7 +300,7 @@ export const runSingleAgent = async (agentName, session, pipelineTestingMode, ru
 };
 
 // Run multiple agents in sequence
-export const runAgentRange = async (startAgent, endAgent, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runAgentRange = async (startAgent, endAgent, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const agents = validateAgentRange(startAgent, endAgent);
   
   console.log(chalk.cyan(`\n🔄 Running agent range: ${startAgent} to ${endAgent} (${agents.length} agents)`));
@@ -323,7 +324,7 @@ export const runAgentRange = async (startAgent, endAgent, session, pipelineTesti
 };
 
 // Run vulnerability agents in parallel
-export const runParallelVuln = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runParallelVuln = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const vulnAgents = ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'];
   const activeAgents = vulnAgents.filter(agent => !session.completedAgents.includes(agent));
 
@@ -421,7 +422,7 @@ export const runParallelVuln = async (session, pipelineTestingMode, runClaudePro
 };
 
 // Run exploitation agents in parallel
-export const runParallelExploit = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+const runParallelExploit = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   const exploitAgents = ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'];
 
   // Get fresh session data to ensure we have the latest vulnerability analysis results
@@ -429,25 +430,36 @@ export const runParallelExploit = async (session, pipelineTestingMode, runClaude
   const { getSession } = await import('./session-manager.js');
   const freshSession = await getSession(session.id);
 
+  // Load validation module
+  const { safeValidateQueueAndDeliverable } = await import('./queue-validation.js');
+
   // Only run exploit agents whose vuln counterparts completed successfully AND found vulnerabilities
-  const eligibleAgents = exploitAgents.filter(agentName => {
-    const vulnAgentName = agentName.replace('-exploit', '-vuln');
+  const eligibilityChecks = await Promise.all(
+    exploitAgents.map(async (agentName) => {
+      const vulnAgentName = agentName.replace('-exploit', '-vuln');
 
-    // Must have completed the vulnerability analysis
-    if (!freshSession.completedAgents.includes(vulnAgentName)) {
-      return false;
-    }
+      // Must have completed the vulnerability analysis
+      if (!freshSession.completedAgents.includes(vulnAgentName)) {
+        return { agentName, eligible: false };
+      }
 
-    // Must have found vulnerabilities to exploit
-    const validationResult = freshSession.validationResults?.[vulnAgentName];
-    if (!validationResult || !validationResult.shouldExploit) {
-      console.log(chalk.gray(`⏭️  Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
-      return false;
-    }
+      // Check if vulnerabilities were found by validating the queue file
+      const vulnType = vulnAgentName.replace('-vuln', ''); // "injection-vuln" -> "injection"
+      const validation = await safeValidateQueueAndDeliverable(vulnType, freshSession.targetRepo);
 
-    console.log(chalk.blue(`✓ ${agentName} eligible (${validationResult.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
-    return true;
-  });
+      if (!validation.success || !validation.data.shouldExploit) {
+        console.log(chalk.gray(`⏭️  Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
+        return { agentName, eligible: false };
+      }
+
+      console.log(chalk.blue(`✓ ${agentName} eligible (${validation.data.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
+      return { agentName, eligible: true };
+    })
+  );
+
+  const eligibleAgents = eligibilityChecks
+    .filter(check => check.eligible)
+    .map(check => check.agentName);
 
   const activeAgents = eligibleAgents.filter(agent => !freshSession.completedAgents.includes(agent));
 
@@ -616,13 +628,35 @@ export const rollbackTo = async (targetAgent, session) => {
   }
   
   const commitHash = session.checkpoints[targetAgent];
-  
+
   // Rollback git workspace
   await rollbackGitToCommit(session.targetRepo, commitHash);
-  
-  // Update session state
+
+  // Update session state (removes agents from completedAgents)
   await rollbackToAgent(session.id, targetAgent);
-  
+
+  // Mark rolled-back agents in audit system (for forensic trail)
+  try {
+    const { AuditSession } = await import('./audit/index.js');
+    const auditSession = new AuditSession(session);
+    await auditSession.initialize();
+
+    // Find agents that were rolled back (agents after targetAgent)
+    const targetOrder = AGENTS[targetAgent].order;
+    const rolledBackAgents = Object.values(AGENTS)
+      .filter(agent => agent.order > targetOrder)
+      .map(agent => agent.name);
+
+    // Mark them as rolled-back in audit system
+    if (rolledBackAgents.length > 0) {
+      await auditSession.markMultipleRolledBack(rolledBackAgents);
+      console.log(chalk.gray(`   Marked ${rolledBackAgents.length} agents as rolled-back in audit logs`));
+    }
+  } catch (error) {
+    // Non-critical: rollback succeeded even if audit update failed
+    console.log(chalk.yellow(`   ⚠️ Failed to update audit logs: ${error.message}`));
+  }
+
   console.log(chalk.green(`✅ Successfully rolled back to agent '${targetAgent}'`));
 };
 
@@ -866,24 +900,4 @@ const getTimeAgo = (timestamp) => {
     return `${diffDays}d ago`;
   }
 };
-
-// Helper function to format duration in milliseconds to human readable format
-const formatDuration = (durationMs) => {
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-  
-  const seconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  } else {
-    return `${seconds}s`;
-  }
-};
-
 

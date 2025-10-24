@@ -48,17 +48,6 @@ export const handleMissingTools = (toolAvailability) => {
     });
     console.log('');
   }
-  
+
   return missing;
 };
-
-// Check if a specific tool is available
-const isToolAvailable = async (toolName) => {
-  try {
-    await $`command -v ${toolName}`;
-    return true;
-  } catch {
-    return false;
-  }
-};
-

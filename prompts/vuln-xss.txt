@@ -8,16 +8,15 @@ Success criterion: Live confirmation of XSS execution for every vulnerability th
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via {{WEB_URL}} from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+@include(shared/_vuln-scope.txt)
 </scope>
 
 <target>
-URL: {{WEB_URL}}
+@include(shared/_target.txt)
 </target>
 
 <rules>
-Rules to Avoid:
-{{RULES_AVOID}}
+@include(shared/_rules.txt)
 </rules>
 
 <login_instructions>
@@ -82,15 +81,19 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 - **Terminal (curl):** MANDATORY for testing HTTP-based XSS vectors and observing raw HTML responses. Use for reflected XSS testing and JSONP injection testing.
 - **{{MCP_SERVER}} (Playwright):** MANDATORY for testing DOM-based XSS and form submission vectors. Use for stored XSS testing and client-side payload execution verification.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
-
-**Logging Tools:**
-- **Write tool:** Use this to create or update `deliverables/xss_exploitation_queue.json` following the exploitation queue format. Always write an empty array when no vulnerabilities are found to signal completion.
+- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
+  - **Parameters:**
+    - `deliverable_type`: "XSS_ANALYSIS" or "XSS_QUEUE" (required)
+    - `content`: Your markdown report or JSON queue (required)
+  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
+  - **Usage:** Call the tool with your deliverable type and content. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </available_tools>
 
 <data_format_specifications>
 
 <exploitation_queue_format>
-Purpose: Defines the structure for a "exploitation queue" saved to `deliverables/xss_exploitation_queue.json` via the Write tool.
+Purpose: Defines the structure for a "exploitation queue" saved via the save_deliverable script with type XSS_QUEUE.
 Structure: The vulnerability JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability json (XSS-VULN-XX)",
@@ -175,8 +178,8 @@ This rulebook is used for the **Early Termination** check in Step 2.
 - Include both safe and vulnerable paths to demonstrate **full coverage**.  
 - Craft a minimal `witness_payload` that proves control over the render context.  
 - For every path analyzed, you must document the outcome. The location of the documentation depends on the verdict:
-		- If the verdict is 'vulnerable', you MUST use the Write tool to save the finding to `deliverables/xss_exploitation_queue.json`, including complete source-to-sink information.
-		- If the verdict is 'safe', you MUST NOT add it to the exploitation queue. Instead, you will document these secure paths in the "Vectors Analyzed and Confirmed Secure" table of your final report (deliverables/xss_analysis_deliverable.md).
+		- If the verdict is 'vulnerable', you MUST use the save_deliverable script to save the finding to the exploitation queue, including complete source-to-sink information.
+		- If the verdict is 'safe', you MUST NOT add it to the exploitation queue. Instead, you will document these secure paths in the "Vectors Analyzed and Confirmed Secure" table of your final analysis report.
 - For vulnerable findings, craft a minimal witness_payload that proves control over the render context.
 
 ### **8) Score Confidence**
@@ -267,20 +270,16 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## Exploitation Queue (MANDATORY)
 
-Regardless of whether vulnerabilities are found, you MUST create:  
-`deliverables/xss_exploitation_queue.json`  
-using the **Write tool**.
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool.
 
 - **If exploitable vulnerabilities found:**
-  Add each exploitable XSS vulnerability (verdict: "vulnerable") using the `exploitation_queue_format` when writing the file. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
 
 - **If no exploitable vulnerabilities found:**
-  Create an empty file by using the Write tool to save the following JSON:
+  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": []}`
 
-  ```json
-  {"vulnerabilities": []}
-  ```
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
+
 This file is the mandatory handoff to the Exploitation phase.
 </exploitation_queue_requirements>
 
@@ -288,9 +287,9 @@ This file is the mandatory handoff to the Exploitation phase.
 COMPLETION REQUIREMENTS (ALL must be satisfied):
 
 1. Systematic Analysis: ALL input vectors identified from the reconnaissance deliverable must be analyzed.
-2. Deliverable Generation: Both required files must be successfully created:
-	 - deliverables/xss_analysis_deliverable.md (Created)
-	 - deliverables/xss_exploitation_queue.json (Created)
+2. Deliverable Generation: Both required deliverables must be successfully saved using save_deliverable MCP tool:
+   - Analysis report: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_ANALYSIS"` and your report as `content`
+   - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
-ONLY AFTER both systematic analysis AND successful file generation, announce "XSS ANALYSIS COMPLETE" and stop.
+ONLY AFTER both systematic analysis AND successful deliverable generation, announce "XSS ANALYSIS COMPLETE" and stop.
 </conclusion_trigger>
