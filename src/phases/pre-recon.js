@@ -1,6 +1,7 @@
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
-import { Timer, timingResults, formatDuration } from '../utils/metrics.js';
+import { Timer, timingResults } from '../utils/metrics.js';
+import { formatDuration } from '../audit/utils.js';
 import { handleToolError, PentestError } from '../error-handling.js';
 import { AGENTS } from '../session-manager.js';
 import { runClaudePromptWithRetry } from '../ai/claude-executor.js';

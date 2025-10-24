@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { PentestError } from './error-handling.js';
 import { parseConfig, distributeConfig } from './config-parser.js';
 import { executeGitCommandWithRetry } from './utils/git-manager.js';
+import { formatDuration } from './audit/utils.js';
 import {
   AGENTS,
   PHASES,
@@ -899,24 +900,4 @@ const getTimeAgo = (timestamp) => {
     return `${diffDays}d ago`;
   }
 };
-
-// Helper function to format duration in milliseconds to human readable format
-const formatDuration = (durationMs) => {
-  if (durationMs < 1000) {
-    return `${durationMs}ms`;
-  }
-  
-  const seconds = Math.floor(durationMs / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  
-  if (hours > 0) {
-    return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
-  } else if (minutes > 0) {
-    return `${minutes}m ${seconds % 60}s`;
-  } else {
-    return `${seconds}s`;
-  }
-};
-
 

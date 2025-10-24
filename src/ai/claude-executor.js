@@ -6,7 +6,8 @@ import { dirname } from 'path';
 
 import { isRetryableError, getRetryDelay, PentestError } from '../error-handling.js';
 import { ProgressIndicator } from '../progress-indicator.js';
-import { timingResults, costResults, Timer, formatDuration } from '../utils/metrics.js';
+import { timingResults, costResults, Timer } from '../utils/metrics.js';
+import { formatDuration } from '../audit/utils.js';
 import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace } from '../utils/git-manager.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
 import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';

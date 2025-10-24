@@ -139,15 +139,6 @@ export function formatDuration(ms) {
 }
 
 /**
- * Format cost in USD
- * @param {number} usd - Cost in USD
- * @returns {string} Formatted cost (e.g., "$0.0823", "$2.14")
- */
-export function formatCost(usd) {
-  return `$${usd.toFixed(4)}`;
-}
-
-/**
  * Format timestamp to ISO 8601 string
  * @param {number} [timestamp] - Unix timestamp in ms (defaults to now)
  * @returns {string} ISO 8601 formatted string

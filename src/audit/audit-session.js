@@ -8,32 +8,7 @@
 import { AgentLogger } from './logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, formatTimestamp } from './utils.js';
-
-/**
- * SessionMutex for concurrency control
- * (Identical to session-manager.js implementation)
- */
-class SessionMutex {
-  constructor() {
-    this.locks = new Map();
-  }
-
-  async lock(sessionId) {
-    if (this.locks.has(sessionId)) {
-      // Wait for existing lock to be released
-      await this.locks.get(sessionId);
-    }
-
-    let resolve;
-    const promise = new Promise(r => resolve = r);
-    this.locks.set(sessionId, promise);
-
-    return () => {
-      this.locks.delete(sessionId);
-      resolve();
-    };
-  }
-}
+import { SessionMutex } from '../utils/concurrency.js';
 
 // Global mutex instance
 const sessionMutex = new SessionMutex();
@@ -101,31 +76,6 @@ export class AuditSession {
   }
 
   /**
-   * Log session-level failure (pre-agent failures)
-   * @param {Error} error - Error object
-   * @param {Object} context - Additional context
-   * @returns {Promise<void>}
-   */
-  async logSessionFailure(error, context = {}) {
-    await this.ensureInitialized();
-
-    // Update session status
-    await this.metricsTracker.updateSessionStatus('failed');
-
-    // Create a special failure logger
-    const failureLogger = new AgentLogger(this.sessionMetadata, 'session-failure', 1);
-    await failureLogger.initialize();
-
-    await failureLogger.logError(error, {
-      ...context,
-      timestamp: formatTimestamp(),
-      sessionId: this.sessionId
-    });
-
-    await failureLogger.close();
-  }
-
-  /**
    * Start agent execution
    * @param {string} agentName - Agent name
    * @param {string} promptContent - Full prompt content
@@ -170,19 +120,6 @@ export class AuditSession {
   }
 
   /**
-   * Log a text message (for compatibility)
-   * @param {string} message - Message to log
-   * @returns {Promise<void>}
-   */
-  async logMessage(message) {
-    if (!this.currentLogger) {
-      throw new Error('No active logger. Call startAgent() first.');
-    }
-
-    await this.currentLogger.logMessage(message);
-  }
-
-  /**
    * End agent execution (mutex-protected)
    * @param {string} agentName - Agent name
    * @param {Object} result - Execution result
@@ -219,41 +156,6 @@ export class AuditSession {
 
       // Update metrics
       await this.metricsTracker.endAgent(agentName, result);
-    } finally {
-      unlock();
-    }
-  }
-
-  /**
-   * Update validation results
-   * @param {string} agentName - Agent name
-   * @param {Object} validationData - Validation data
-   * @returns {Promise<void>}
-   */
-  async updateValidation(agentName, validationData) {
-    await this.ensureInitialized();
-
-    const unlock = await sessionMutex.lock(this.sessionId);
-    try {
-      await this.metricsTracker.reload();
-      await this.metricsTracker.updateValidation(agentName, validationData);
-    } finally {
-      unlock();
-    }
-  }
-
-  /**
-   * Mark agent as rolled back
-   * @param {string} agentName - Agent name
-   * @returns {Promise<void>}
-   */
-  async markRolledBack(agentName) {
-    await this.ensureInitialized();
-
-    const unlock = await sessionMutex.lock(this.sessionId);
-    try {
-      await this.metricsTracker.reload();
-      await this.metricsTracker.markRolledBack(agentName);
     } finally {
       unlock();
     }
@@ -300,14 +202,5 @@ export class AuditSession {
   async getMetrics() {
     await this.ensureInitialized();
     return this.metricsTracker.getMetrics();
-  }
-
-  /**
-   * Get validation results (read-only)
-   * @returns {Promise<Object>} Validation results
-   */
-  async getValidation() {
-    await this.ensureInitialized();
-    return this.metricsTracker.getValidation();
   }
 }
