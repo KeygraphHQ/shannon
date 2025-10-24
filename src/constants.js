@@ -2,6 +2,27 @@ import { path, fs } from 'zx';
 import chalk from 'chalk';
 import { validateQueueAndDeliverable } from './queue-validation.js';
 
+// Factory function for vulnerability queue validators
+function createVulnValidator(vulnType) {
+  return async (sourceDir) => {
+    try {
+      await validateQueueAndDeliverable(vulnType, sourceDir);
+      return true;
+    } catch (error) {
+      console.log(chalk.yellow(`   Queue validation failed for ${vulnType}: ${error.message}`));
+      return false;
+    }
+  };
+}
+
+// Factory function for exploit deliverable validators
+function createExploitValidator(vulnType) {
+  return async (sourceDir) => {
+    const evidenceFile = path.join(sourceDir, 'deliverables', `${vulnType}_exploitation_evidence.md`);
+    return await fs.pathExists(evidenceFile);
+  };
+}
+
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 export const MCP_AGENT_MAPPING = Object.freeze({
   // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
@@ -47,81 +68,18 @@ export const AGENT_VALIDATORS = Object.freeze({
   },
 
   // Vulnerability analysis agents
-  'injection-vuln': async (sourceDir) => {
-    try {
-      await validateQueueAndDeliverable('injection', sourceDir);
-      return true;
-    } catch (error) {
-      console.log(chalk.yellow(`   Queue validation failed for injection: ${error.message}`));
-      return false;
-    }
-  },
-
-  'xss-vuln': async (sourceDir) => {
-    try {
-      await validateQueueAndDeliverable('xss', sourceDir);
-      return true;
-    } catch (error) {
-      console.log(chalk.yellow(`   Queue validation failed for xss: ${error.message}`));
-      return false;
-    }
-  },
-
-  'auth-vuln': async (sourceDir) => {
-    try {
-      await validateQueueAndDeliverable('auth', sourceDir);
-      return true;
-    } catch (error) {
-      console.log(chalk.yellow(`   Queue validation failed for auth: ${error.message}`));
-      return false;
-    }
-  },
-
-  'ssrf-vuln': async (sourceDir) => {
-    try {
-      await validateQueueAndDeliverable('ssrf', sourceDir);
-      return true;
-    } catch (error) {
-      console.log(chalk.yellow(`   Queue validation failed for ssrf: ${error.message}`));
-      return false;
-    }
-  },
-
-  'authz-vuln': async (sourceDir) => {
-    try {
-      await validateQueueAndDeliverable('authz', sourceDir);
-      return true;
-    } catch (error) {
-      console.log(chalk.yellow(`   Queue validation failed for authz: ${error.message}`));
-      return false;
-    }
-  },
+  'injection-vuln': createVulnValidator('injection'),
+  'xss-vuln': createVulnValidator('xss'),
+  'auth-vuln': createVulnValidator('auth'),
+  'ssrf-vuln': createVulnValidator('ssrf'),
+  'authz-vuln': createVulnValidator('authz'),
 
   // Exploitation agents
-  'injection-exploit': async (sourceDir) => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', 'injection_exploitation_evidence.md');
-    return await fs.pathExists(evidenceFile);
-  },
-
-  'xss-exploit': async (sourceDir) => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', 'xss_exploitation_evidence.md');
-    return await fs.pathExists(evidenceFile);
-  },
-
-  'auth-exploit': async (sourceDir) => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', 'auth_exploitation_evidence.md');
-    return await fs.pathExists(evidenceFile);
-  },
-
-  'ssrf-exploit': async (sourceDir) => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', 'ssrf_exploitation_evidence.md');
-    return await fs.pathExists(evidenceFile);
-  },
-
-  'authz-exploit': async (sourceDir) => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', 'authz_exploitation_evidence.md');
-    return await fs.pathExists(evidenceFile);
-  },
+  'injection-exploit': createExploitValidator('injection'),
+  'xss-exploit': createExploitValidator('xss'),
+  'auth-exploit': createExploitValidator('auth'),
+  'ssrf-exploit': createExploitValidator('ssrf'),
+  'authz-exploit': createExploitValidator('authz'),
 
   // Executive report agent
   'report': async (sourceDir) => {

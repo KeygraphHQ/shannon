@@ -22,10 +22,6 @@ export class ProgressIndicator {
     }, 100);
   }
 
-  updateMessage(newMessage) {
-    this.message = newMessage;
-  }
-
   stop() {
     if (!this.isRunning) return;
 

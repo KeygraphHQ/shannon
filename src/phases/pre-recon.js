@@ -1,6 +1,7 @@
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
-import { Timer, timingResults, formatDuration } from '../utils/metrics.js';
+import { Timer, timingResults } from '../utils/metrics.js';
+import { formatDuration } from '../audit/utils.js';
 import { handleToolError, PentestError } from '../error-handling.js';
 import { AGENTS } from '../session-manager.js';
 import { runClaudePromptWithRetry } from '../ai/claude-executor.js';
@@ -99,7 +100,7 @@ async function runPreReconWave1(webUrl, sourceDir, variables, config, pipelineTe
         AGENTS['pre-recon'].displayName,
         'pre-recon',  // Agent name for snapshot creation
         chalk.cyan,
-        { webUrl, sessionId }  // Session metadata for logging
+        { id: sessionId, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
       )
     );
     const [codeAnalysis] = await Promise.all(operations);
@@ -123,7 +124,7 @@ async function runPreReconWave1(webUrl, sourceDir, variables, config, pipelineTe
         AGENTS['pre-recon'].displayName,
         'pre-recon',  // Agent name for snapshot creation
         chalk.cyan,
-        { webUrl, sessionId }  // Session metadata for logging
+        { id: sessionId, webUrl }  // Session metadata for audit logging (STANDARD: use 'id' field)
       )
     );
   }

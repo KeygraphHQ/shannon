@@ -19,36 +19,19 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/xss_analysis_deliverable.md` with content:
-```
-# XSS Analysis Complete (Pipeline Test)
+Use the save_deliverable MCP tool to create both deliverables:
 
-**MCP Server Used:** {{MCP_SERVER}}
-**Test Site:** https://example.org
-**Screenshot:** xss-agent-test.png
-**Status:** Browser isolation test successful
-```
+**1. Analysis Report:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "XSS_ANALYSIS"`
+- `content: "# XSS Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://example.org\n**Screenshot:** xss-agent-test.png\n**Status:** Browser isolation test successful"`
 
-2. `deliverables/xss_exploitation_queue.json` with content:
-```json
-{
-  "vulnerabilities": [
-    {
-      "ID": "XSS-VULN-01",
-      "verdict": "vulnerable",
-      "confidence": "high",
-      "notes": "Test XSS vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
-      "vulnerability_type": "Reflected",
-      "source": "search parameter",
-      "sink_function": "template.render at search.js:25",
-      "render_context": "HTML_BODY",
-      "mismatch_reason": "User input rendered without HTML encoding",
-      "witness_payload": "<script>alert(1)</script>"
-    }
-  ]
-}
-```
+**2. Exploitation Queue:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "XSS_QUEUE"`
+- `content: {"vulnerabilities": [{"ID": "XSS-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test XSS vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "Reflected", "source": "search parameter", "sink_function": "template.render at search.js:25", "render_context": "HTML_BODY", "mismatch_reason": "User input rendered without HTML encoding", "witness_payload": "<script>alert(1)</script>"}]}`
+
+These tools will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to example.org independently of other parallel agents.

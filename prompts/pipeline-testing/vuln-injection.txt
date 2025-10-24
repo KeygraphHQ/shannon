@@ -19,37 +19,19 @@
    ```
 
 ### Step 2: Create Required Deliverables
-Create these 2 files:
-1. `deliverables/injection_analysis_deliverable.md` with content:
-```
-# Injection Analysis Complete (Pipeline Test)
+Use the save_deliverable MCP tool to create both deliverables:
 
-**MCP Server Used:** {{MCP_SERVER}}
-**Test Site:** https://example.com
-**Screenshot:** injection-agent-test.png
-**Status:** Browser isolation test successful
-```
+**1. Analysis Report:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "INJECTION_ANALYSIS"`
+- `content: "# Injection Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://example.com\n**Screenshot:** injection-agent-test.png\n**Status:** Browser isolation test successful"`
 
-2. `deliverables/injection_exploitation_queue.json` with content:
-```json
-{
-  "vulnerabilities": [
-    {
-      "ID": "INJ-VULN-01",
-      "verdict": "vulnerable",
-      "confidence": "high",
-      "notes": "Test vulnerability for pipeline validation (MCP: {{MCP_SERVER}})",
-      "vulnerability_type": "SQLi",
-      "source": "query parameter at app.js:15",
-      "path": "controller → db.query",
-      "sink_call": "db.query at app.js:20",
-      "slot_type": "SQL-val",
-      "mismatch_reason": "User input directly concatenated into SQL query",
-      "witness_payload": "'; DROP TABLE users; --"
-    }
-  ]
-}
-```
+**2. Exploitation Queue:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "INJECTION_QUEUE"`
+- `content: {"vulnerabilities": [{"ID": "INJ-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "SQLi", "source": "query parameter at app.js:15", "path": "controller → db.query", "sink_call": "db.query at app.js:20", "slot_type": "SQL-val", "mismatch_reason": "User input directly concatenated into SQL query", "witness_payload": "'; DROP TABLE users; --"}]}`
+
+These tools will automatically create the correct files in `deliverables/`.
 
 ### Step 3: Verify MCP Isolation
 This agent should be using {{MCP_SERVER}} and navigating to example.com independently of other parallel agents.
