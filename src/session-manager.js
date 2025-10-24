@@ -2,6 +2,8 @@ import { fs, path } from 'zx';
 import chalk from 'chalk';
 import crypto from 'crypto';
 import { PentestError } from './error-handling.js';
+import { SessionMutex } from './utils/concurrency.js';
+import { promptSelection } from './cli/prompts.js';
 
 // Generate a session-based log folder path
 // NEW FORMAT: {hostname}_{sessionId} (no hash, full UUID for consistency with audit system)
@@ -10,29 +12,6 @@ export const generateSessionLogPath = (webUrl, sessionId) => {
   const sessionFolderName = `${hostname}_${sessionId}`;
   return path.join(process.cwd(), 'agent-logs', sessionFolderName);
 };
-
-// Mutex for session file operations to prevent race conditions
-class SessionMutex {
-  constructor() {
-    this.locks = new Map();
-  }
-
-  async lock(sessionId) {
-    if (this.locks.has(sessionId)) {
-      // Wait for existing lock to be released
-      await this.locks.get(sessionId);
-    }
-
-    let resolve;
-    const promise = new Promise(r => resolve = r);
-    this.locks.set(sessionId, promise);
-
-    return () => {
-      this.locks.delete(sessionId);
-      resolve();
-    };
-  }
-}
 
 const sessionMutex = new SessionMutex();
 
@@ -338,29 +317,10 @@ export const selectSession = async () => {
   });
   
   // Get user selection
-  const { createInterface } = await import('readline');
-  const readline = createInterface({
-    input: process.stdin,
-    output: process.stdout
-  });
-  
-  return new Promise((resolve, reject) => {
-    readline.question(chalk.cyan(`Select session (1-${sessions.length}): `), (answer) => {
-      readline.close();
-      
-      const choice = parseInt(answer);
-      if (isNaN(choice) || choice < 1 || choice > sessions.length) {
-        reject(new PentestError(
-          `Invalid selection. Please enter a number between 1 and ${sessions.length}`,
-          'validation',
-          false,
-          { choice: answer }
-        ));
-      } else {
-        resolve(sessions[choice - 1]);
-      }
-    });
-  });
+  return await promptSelection(
+    chalk.cyan(`Select session (1-${sessions.length}):`),
+    sessions
+  );
 };
 
 // Validate agent name

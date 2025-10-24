@@ -21,7 +21,6 @@ export function showHelp() {
 
   console.log(chalk.yellow.bold('OPTIONS:'));
   console.log('  --config <file>      YAML configuration file for authentication and testing parameters');
-  console.log('  --log [file]         Capture all output to log file (default: shannon-<timestamp>.log)');
   console.log('  --pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)\n');
 
   console.log(chalk.yellow.bold('DEVELOPER COMMANDS:'));
@@ -37,7 +36,6 @@ export function showHelp() {
   console.log('  # Normal mode - create new session');
   console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo"');
   console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo" --config auth.yaml');
-  console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo" --log pentest.log');
   console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo" --setup-only  # Setup only\n');
 
   console.log('  # Developer mode - operate on existing session');
