@@ -27,7 +27,6 @@ const VULN_TYPE_CONFIG = Object.freeze({
 
 // Functional composition utilities - async pipe for promise chain
 const pipe = (...fns) => x => fns.reduce(async (v, f) => f(await v), x);
-const compose = (...fns) => x => fns.reduceRight((v, f) => f(v), x);
 
 // Pure function to create validation rule
 const createValidationRule = (predicate, errorMessage, retryable = true) => 
