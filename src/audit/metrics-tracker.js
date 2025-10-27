@@ -62,7 +62,7 @@ export class MetricsTracker {
         webUrl: this.sessionMetadata.webUrl,
         repoPath: this.sessionMetadata.repoPath,
         status: 'in-progress',
-        createdAt: formatTimestamp()
+        createdAt: this.sessionMetadata.createdAt || formatTimestamp()
       },
       metrics: {
         total_duration_ms: 0,
