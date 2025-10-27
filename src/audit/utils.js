@@ -17,78 +17,16 @@ export const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
 export const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
 
 /**
- * Extract application name from config file or URL
- * @param {string} configFile - Config filename (e.g., "app-config.yaml")
- * @param {string} webUrl - Target web URL
- * @returns {string} App name (e.g., "app", "8080", "noconfig")
- */
-function extractAppName(configFile, webUrl) {
-  // If config file provided, extract app name from it
-  if (configFile) {
-    // Remove .yaml/.yml extension
-    let baseName = configFile.replace(/\.(yaml|yml)$/i, '');
-
-    // Remove path if present (e.g., "configs/app-config.yaml")
-    baseName = baseName.split('/').pop();
-
-    // Extract parts before "config"
-    // app-config → app
-    // my-app-config → myapp
-    const parts = baseName.split('-');
-    const configIndex = parts.indexOf('config');
-
-    if (configIndex > 0) {
-      // Take everything before "config" and join without hyphens
-      return parts.slice(0, configIndex).join('').toLowerCase();
-    }
-
-    // Fallback: just use the whole thing without hyphens
-    return baseName.replace(/-/g, '').toLowerCase();
-  }
-
-  // No config file - use port number for localhost, "noconfig" for remote
-  const url = new URL(webUrl);
-  if (url.hostname === 'localhost' || url.hostname === '127.0.0.1') {
-    // Use port number (default to 80 for http, 443 for https)
-    const port = url.port || (url.protocol === 'https:' ? '443' : '80');
-    return port;
-  }
-
-  // Remote URL without config
-  return 'noconfig';
-}
-
-/**
- * Generate standardized session identifier with timestamp and app context
- * Format: {timestamp}_{appName}_{hostname}_{sessionIdShort}
- * Example: 20251025T193847Z_myapp_localhost_efc60ee0
- *
+ * Generate standardized session identifier: {hostname}_{sessionId}
  * @param {Object} sessionMetadata - Session metadata from Shannon store
  * @param {string} sessionMetadata.id - UUID session ID
  * @param {string} sessionMetadata.webUrl - Target web URL
- * @param {string} [sessionMetadata.configFile] - Config filename (optional)
- * @param {string} [sessionMetadata.createdAt] - ISO 8601 timestamp (optional, defaults to now)
  * @returns {string} Formatted session identifier
  */
 export function generateSessionIdentifier(sessionMetadata) {
-  const { id, webUrl, configFile, createdAt } = sessionMetadata;
-
-  // Extract hostname
+  const { id, webUrl } = sessionMetadata;
   const hostname = new URL(webUrl).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-
-  // Extract app name from config file or URL
-  const appName = extractAppName(configFile, webUrl);
-
-  // Format timestamp (use createdAt if available, otherwise use current time)
-  let timestamp = createdAt || new Date().toISOString();
-  // Convert to compact ISO 8601: 2025-10-25T01:37:36.174Z → 20251025T013736Z
-  timestamp = timestamp.replace(/[-:]/g, '').replace(/\.\d{3}Z/, 'Z');
-
-  // Use first 8 characters of session ID for uniqueness
-  const sessionIdShort = id.substring(0, 8);
-
-  // Combine: timestamp_appName_hostname_sessionIdShort
-  return `${timestamp}_${appName}_${hostname}_${sessionIdShort}`;
+  return `${hostname}_${id}`;
 }
 
 /**
