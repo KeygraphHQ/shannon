@@ -100,7 +100,7 @@ Launch these three discovery agents simultaneously to understand the codebase st
    "Map the application's structure, technology stack, and critical components. Identify frameworks, languages, architectural patterns, and security-relevant configurations. Determine if this is a web app, API service, microservices, or hybrid. Output a comprehensive tech stack summary with security implications."
 
 2. **Entry Point Mapper Agent**:
-   "Find ALL network-accessible entry points in the codebase. Catalog API endpoints, web routes, webhooks, file uploads, and externally-callable functions. ALSO identify and catalog API schema files (OpenAPI/Swagger *.json/*.yaml/*.yml, GraphQL *.graphql/*.gql, JSON Schema *.schema.json) that document these endpoints. Distinguish between public endpoints and those requiring authentication. Exclude local-only dev tools, CLI scripts, and build processes. Provide exact file paths and route definitions for both endpoints and schemas."
+   "Find ALL network-accessible entry points in the codebase. Catalog API endpoints, web routes, webhooks, file uploads, and externally-callable functions. ALSO identify and catalog API schema files (OpenAPI/Swagger *.json/*.yaml/*.yml, GraphQL *.graphql/*.gql, JSON Schema *.schema.json) that document these endpoints. **IN CTF SCENARIOS: Identify flag storage locations in Dockerfiles (e.g., RUN echo $FLAG > /flag.txt), environment variable references (FLAG, CTF_FLAG, SECRET), configuration files with flag paths, and any source code references to /flag.txt, /FLAG, /app/flag.txt, or similar flag files. These are HIGH-VALUE intelligence targets.** Distinguish between public endpoints and those requiring authentication. Exclude local-only dev tools, CLI scripts, and build processes. Provide exact file paths and route definitions for both endpoints and schemas."
 
 3. **Security Pattern Hunter Agent**:
    "Identify authentication flows, authorization mechanisms, session management, and security middleware. Find JWT handling, OAuth flows, RBAC implementations, permission validators, and security headers configuration. Map the complete security architecture with exact file locations."
@@ -238,7 +238,8 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 	  - **Sensitive Data & Secrets Handling:** [e.g., `internal/utils/encryption.go`, `internal/secrets/manager.go`]
 	  - **Middleware & Input Validation:** [e.g., `internal/middleware/validator.go`, `internal/handlers/input_parsers.go`]
 	  - **Logging & Monitoring:** [e.g., `internal/logging/logger.go`, `config/monitoring.yaml`]
-	  - **Infrastructure & Deployment:** [e.g., `infra/pulumi/main.go`, `kubernetes/deploy.yaml`, `nginx.conf`, `gateway-ingress.yaml`]  
+	  - **Infrastructure & Deployment:** [e.g., `infra/pulumi/main.go`, `kubernetes/deploy.yaml`, `nginx.conf`, `gateway-ingress.yaml`]
+	  - **CTF Flag Storage (if applicable):** [e.g., `Dockerfile` with FLAG env var, `/flag.txt`, `/app/flag.txt`, `config/secrets.yaml` with flag references, database seed files with flags]  
 	 
 	 ## 9. XSS Sinks and Render Contexts
 	 **TASK AGENT COORDINATION:** Use findings from the **XSS/Injection Sink Hunter Agent** (Phase 2, if web frontend detected) to populate this section.
