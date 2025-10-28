@@ -24,7 +24,7 @@ import { assembleFinalReport } from './src/phases/reporting.js';
 
 // Utils
 import { timingResults, costResults, displayTimingSummary, Timer } from './src/utils/metrics.js';
-import { formatDuration } from './src/audit/utils.js';
+import { formatDuration, generateAuditPath } from './src/audit/utils.js';
 
 // CLI
 import { handleDeveloperCommand } from './src/cli/command-handler.js';
@@ -339,8 +339,14 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
   console.log(chalk.cyan.bold('\n🎉 PENETRATION TESTING COMPLETE!'));
   console.log(chalk.gray('─'.repeat(60)));
 
-  // Return final report path for clickable output
-  return path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md');
+  // Calculate audit logs path
+  const auditLogsPath = generateAuditPath(session);
+
+  // Return final report path and audit logs path for clickable output
+  return {
+    reportPath: path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md'),
+    auditLogsPath
+  };
 }
 
 // Entry point - handle both direct node execution and shebang execution
@@ -442,9 +448,11 @@ if (pipelineTestingMode) {
 }
 
 try {
-  const finalReportPath = await main(webUrl, repoPathValidation.path, configPath, pipelineTestingMode);
+  const result = await main(webUrl, repoPathValidation.path, configPath, pipelineTestingMode);
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
-  console.log(chalk.cyan(finalReportPath));
+  console.log(chalk.cyan(result.reportPath));
+  console.log(chalk.green.bold('\n📂 AUDIT LOGS AVAILABLE:'));
+  console.log(chalk.cyan(result.auditLogsPath));
 
 } catch (error) {
   // Enhanced error boundary with proper logging
