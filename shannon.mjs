@@ -2,6 +2,9 @@
 
 import { path, fs } from 'zx';
 import chalk from 'chalk';
+import dotenv from 'dotenv';
+
+dotenv.config();
 
 // Config and Tools
 import { parseConfig, distributeConfig } from './src/config-parser.js';
