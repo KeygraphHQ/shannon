@@ -273,6 +273,9 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
         // Check for API error patterns in assistant message content
         if (content && typeof content === 'string') {
           const lowerContent = content.toLowerCase();
+          if (lowerContent.includes('session limit reached')) {
+            throw new PentestError('Session limit reached', 'billing', false);
+          }
           if (lowerContent.includes('api error') || lowerContent.includes('terminated')) {
             apiErrorDetected = true;
             console.log(chalk.red(`    ⚠️  API Error detected in assistant response: ${content.trim()}`));
