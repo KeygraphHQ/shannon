@@ -134,6 +134,7 @@ export const isRetryableError = (error) => {
       message.includes('invalid prompt') ||
       message.includes('out of memory') ||
       message.includes('permission denied') ||
+      message.includes('session limit reached') ||
       message.includes('invalid api key')) {
     return false;
   }
