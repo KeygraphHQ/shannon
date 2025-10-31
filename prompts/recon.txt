@@ -342,50 +342,24 @@ Multi-step workflow endpoints that assume prior steps were completed.
 | Password Reset | `/api/auth/reset/confirm` | Reset token generated | Direct password reset |
 | Multi-step Forms | `/api/wizard/finalize` | Form data from previous steps | Skip validation steps |
 
-## 9. Injection Sources (Command Injection and SQL Injection)
+## 9. Injection Sources (Command Injection, SQL Injection, LFI/RFI, SSTI, Path Traversal, Deserialization)
 **TASK AGENT COORDINATION:** Launch a dedicated **Injection Source Tracer Agent** to identify these sources:
-"Find all command injection and SQL injection sources in the codebase. Trace user-controllable input from network-accessible endpoints to shell commands and database queries. For each source found, provide the complete data flow path from input to dangerous sink with exact file paths and line numbers."
+"Find all injection sources in the codebase: SQL injection, command injection, file inclusion/path traversal (LFI/RFI), server-side template injection (SSTI), and insecure deserialization. Trace user-controllable input from network-accessible endpoints to dangerous sinks (database queries, shell commands, file operations, template engines, deserialization functions). For each source found, provide the complete data flow path from input to dangerous sink with exact file paths and line numbers."
 
 **Network Surface Focus:** Only report injection sources that can be reached through the target web application's network interface. Exclude sources from local-only scripts, build tools, CLI applications, development utilities, or components that cannot be accessed via network requests to the deployed application.
 
-Create a list of network-accessible Command Injection and SQL injection sources using findings from the Injection Source Tracer Agent. Your output MUST include sufficient information to find the exact location found, such as filepaths with line numbers, or specific references for a downstream agent to find the location exactly.
-Command Injection Source: Any data that flows from a user-controlled origin into a program variable that is eventually interpolated into a shell or system command string (within network-accessible code paths).
-SQL Injection Source: Any user-controllable input that reaches a database query string (within network-accessible code paths). 
-Vulnerability Sources by Type
-		- 1. Command Injection Sources
-				- HTTP Request Data
-				- Query Parameters
-				- Form Fields
-				- Cookies
-				- HTTP Headers (e.g., User-Agent, X-Forwarded-For, Referer)
-				- File Uploads
-				- Filenames
-				- File Contents
-				- Environment Variables
-				- Inter-Process Communication (IPC)
-				- Data from Sockets
-				- Data from Pipes
-				- Data from Message Queues
-				- Configuration Files or Registry Entries
-				- Command-Line Arguments
-		- 2. SQL Injection Sources
-				- HTTP Request Data
-				- Query Parameters
-				- Form Fields (e.g., login, search)
-				- Cookies
-				- HTTP Headers
-				- File Uploads
-				- File Metadata (e.g., filename, filetype, description)
-				- Hidden Fields in HTML Forms
-				- URL Path Variables (e.g., in REST APIs)
-				- Stored Inputs
-				- Comments
-				- Blog Posts
-				- User Profile Fields
-				- Third-Party Integrations
-				- Webhook Data
-				- API Responses
-	CRITICAL: You must only include a source in this list if it matches the Command Injection and SQLI source definitions above (meets the requirement of tracing back to a DB query or a backend command execute).
+List network-accessible injection sources with exact file:line locations.
+
+**Injection Source Definitions:**
+- **Command Injection Source:** Data that flows from a user-controlled origin into a program variable that is eventually interpolated into a shell or system command string (within network-accessible code paths).
+- **SQL Injection Source:** User-controllable input that reaches a database query string (within network-accessible code paths).
+- **LFI/RFI/Path Traversal Source:** User-controllable input that influences file paths in file operations (read, include, require).
+- **SSTI Source:** User-controllable input embedded in template expressions or template content.
+- **Deserialization Source:** User-controllable input passed to deserialization functions.
+
+**Common Vectors:** HTTP params/body/headers/cookies, file uploads/names, URL paths, stored data, webhooks, sessions, message queues
+
+CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, templates, deserialization).
 
 ---
 </deliverable_instructions>
