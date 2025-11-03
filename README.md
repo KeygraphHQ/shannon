@@ -37,6 +37,12 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 >
 > ➡️ **[Learn more about the Keygraph Platform](https://keygraph.io)**
 
+> [!TIP]
+> **CTF Mode**: For Capture-The-Flag challenges, use the `ctf-mode` branch which includes optimized prompts for flag extraction and CTF-specific testing workflows.
+> ```bash
+> git checkout ctf-mode
+> ```
+
 ## 🎬 See Shannon in Action
 
 **Real Results**: Shannon discovered 20+ critical vulnerabilities in OWASP Juice Shop, including complete auth bypass and database exfiltration. [See full report →](sample-reports/shannon-report-juice-shop.md)
