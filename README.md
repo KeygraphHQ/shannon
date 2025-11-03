@@ -99,6 +99,16 @@ Shannon is available in two editions:
 
 You need either a **Claude Code OAuth token** or an **Anthropic API key** to run Shannon. Get your token from the [Anthropic Console](https://console.anthropic.com) and pass it to Docker via the `-e` flag.
 
+### Environment Configuration (Optional)
+
+To prevent Claude Code from hitting token limits during long report generation, set the max output tokens before running Shannon:
+
+```bash
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+This is especially useful for extensive penetration testing reports or when analyzing large codebases.
+
 ### Quick Start with Docker
 
 #### Build the Container
