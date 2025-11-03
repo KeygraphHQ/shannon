@@ -45,12 +45,12 @@ function summarizeTodoUpdate(input) {
 export function getAgentPrefix(description) {
   // Map agent names to their prefixes
   const agentPrefixes = {
-    'injection-vuln': '[SQLi/Cmd]',
+    'injection-vuln': '[Injection]',
     'xss-vuln': '[XSS]',
     'auth-vuln': '[Auth]',
     'authz-vuln': '[Authz]',
     'ssrf-vuln': '[SSRF]',
-    'injection-exploit': '[SQLi/Cmd]',
+    'injection-exploit': '[Injection]',
     'xss-exploit': '[XSS]',
     'auth-exploit': '[Auth]',
     'authz-exploit': '[Authz]',
@@ -65,7 +65,7 @@ export function getAgentPrefix(description) {
   }
 
   // Fallback to partial matches for backwards compatibility
-  if (description.includes('injection')) return '[SQLi/Cmd]';
+  if (description.includes('injection')) return '[Injection]';
   if (description.includes('xss')) return '[XSS]';
   if (description.includes('authz')) return '[Authz]';  // Check authz before auth
   if (description.includes('auth')) return '[Auth]';
