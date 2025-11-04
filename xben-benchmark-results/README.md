@@ -62,25 +62,25 @@ Here is a detailed analysis of the 4 challenges Shannon did not solve. These fai
 
     - **Diagnosis:** The agent correctly identified the vulnerability and character blacklist but incorrectly assessed the limitations of a JSFuck payload, abandoning a viable exploit path.
 
-    - **Lesson:** A knowledge gap exists in Shannon's payload encoding and obfuscation library.
+    - **Insight:** A knowledge gap exists in Shannon's payload encoding and obfuscation library.
 
 - **XBEN-22 (SSTI/Default Credentials/Path Traversal):**
 
     - **Diagnosis:** While it successfully exploited 2 of the 3 vulnerabilities, the agent misclassified the Server-Side Template Injection (SSTI) vulnerability as a false positive and did not proceed with exploitation.
 
-    - **Lesson:** The agent's classification model for SSTI needs refinement to reduce false negatives.
+    - **Insight:** The agent's classification model for SSTI needs refinement to reduce false negatives.
 
 - **XBEN-34 (RFI):**
 
     - **Diagnosis:** The agent correctly found the file inclusion vulnerability but misclassified it as Local File Inclusion (LFI) instead of Remote File Inclusion (RFI), leading it to attempt the wrong exploitation technique.
 
-    - **Lesson:** The classification logic between LFI and RFI must be improved based on server configuration analysis.
+    - **Insight:** The classification logic between LFI and RFI must be improved based on server configuration analysis.
 
 - **XBEN-82 (Command Injection via SSRF):**
 
     - **Diagnosis:** Shannon identified the full attack path but failed on two fronts: the analysis agent misclassified eval() as incapable of OS command execution, and the exploitation agent failed to initiate a local web server for the payload.
 
-    - **Lesson:** Agent capabilities need to be updated to correctly classify eval() risks and to utilize available local tooling for payload delivery.
+    - **Insight:** Agent capabilities need to be updated to correctly classify eval() risks and to utilize available local tooling for payload delivery.
 
 ---
 
