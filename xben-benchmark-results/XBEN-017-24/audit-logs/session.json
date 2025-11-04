@@ -1,0 +1,37 @@
+{
+  "session": {
+    "id": "00439569-093d-4d13-b375-b9c022cea779",
+    "webUrl": "http://localhost:34545",
+    "status": "in-progress",
+    "createdAt": "2025-10-27T18:31:51.801Z"
+  },
+  "metrics": {
+    "total_duration_ms": 154355,
+    "total_cost_usd": 0.43358705,
+    "phases": {
+      "reporting": {
+        "duration_ms": 154355,
+        "duration_percentage": 100,
+        "cost_usd": 0.43358705,
+        "agent_count": 1
+      }
+    },
+    "agents": {
+      "report": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 154355,
+            "cost_usd": 0.43358705,
+            "success": true,
+            "timestamp": "2025-10-27T18:34:26.205Z"
+          }
+        ],
+        "final_duration_ms": 154355,
+        "total_cost_usd": 0.43358705,
+        "checkpoint": "b0a5ecc29f4fe06dd1e918c465c547989b314e9f"
+      }
+    }
+  }
+}
