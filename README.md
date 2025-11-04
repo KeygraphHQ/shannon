@@ -20,7 +20,7 @@ Every Claude (coder) deserves their Shannon.
 
 Shannon is an AI pentester that delivers actual exploits, not just alerts.
 
-Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as SQL injection, command execution, and auth bypass, to prove the vulnerability is actually exploitable.
+Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as injection attacks, and auth bypass, to prove the vulnerability is actually exploitable.
 
 **What Problem Does Shannon Solve?**
 
@@ -53,7 +53,7 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 
 - **Fully Autonomous Operation**: Launch the pentest with a single command. The AI handles everything from advanced 2FA/TOTP logins (including sign in with Google) and browser navigation to the final report with zero intervention.
 - **Pentester-Grade Reports with Reproducible Exploits**: Delivers a final report focused on proven, exploitable findings, complete with copy-and-paste Proof-of-Concepts to eliminate false positives and provide actionable results.
-- **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: SQLi, Command Injection, XSS, SSRF, and Broken Authentication/Authorization, with more types in development.
+- **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: Injection, XSS, SSRF, and Broken Authentication/Authorization, with more types in development.
 - **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy, then performs live, browser and command line based exploits on the running application to confirm real-world risk.
 - **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
 - **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
@@ -273,7 +273,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 **Key Accomplishments**:
 
-- **Achieved complete authentication bypass** and exfiltrated the entire user database via SQL Injection
+- **Achieved complete authentication bypass** and exfiltrated the entire user database via Injection attack
 - **Executed a full privilege escalation** by creating a new administrator account through a registration workflow bypass
 - **Identified and exploited systemic authorization flaws (IDOR)** to access and modify any user's private data and shopping cart
 - **Discovered a Server-Side Request Forgery (SSRF)** vulnerability, enabling internal network reconnaissance
@@ -290,7 +290,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 **Key Accomplishments**:
 
-- **Executed a root-level Command Injection** by bypassing a denylist via command chaining in a hidden debug endpoint
+- **Executed a root-level Injection attack** by bypassing a denylist via command chaining in a hidden debug endpoint
 - **Achieved complete authentication bypass** by discovering and targeting a legacy, unpatched v1 API endpoint
 - **Escalated a regular user to full administrator privileges** by exploiting a Mass Assignment vulnerability in the user profile update function
 - **Demonstrated high accuracy** by correctly confirming the application's robust XSS defenses, reporting zero false positives
@@ -308,7 +308,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 **Key Accomplishments**:
 
 - **Bypassed authentication using multiple advanced JWT attacks**, including Algorithm Confusion, alg:none, and weak key (kid) injection
-- **Achieved full database compromise via both SQL and NoSQL Injection**, exfiltrating user credentials from the PostgreSQL database
+- **Achieved full database compromise via Injection attacks**, exfiltrating user credentials from the PostgreSQL database
 - **Executed a critical Server-Side Request Forgery (SSRF) attack** that successfully forwarded internal authentication tokens to an external service
 - **Demonstrated high accuracy** by correctly identifying the application's robust XSS defenses, reporting zero false positives
 
@@ -335,13 +335,13 @@ Shannon emulates a human penetration tester's methodology using a sophisticated 
                     ▼          ▼           ▼
         ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
         │ Vuln Analysis   │ │ Vuln Analysis   │ │      ...        │
-        │    (SQLi)       │ │     (XSS)       │ │                 │
+        │  (Injection)    │ │     (XSS)       │ │                 │
         └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
                   │                   │                   │
                   ▼                   ▼                   ▼
         ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
         │  Exploitation   │ │  Exploitation   │ │      ...        │
-        │    (SQLi)       │ │     (XSS)       │ │                 │
+        │  (Injection)    │ │     (XSS)       │ │                 │
         └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
                   │                   │                   │
                   └─────────┬─────────┴───────────────────┘
@@ -364,7 +364,7 @@ The first phase builds a comprehensive map of the application's attack surface. 
 
 #### **Phase 2: Vulnerability Analysis**
 
-To maximize efficiency, this phase operates in parallel. Using the reconnaissance data, specialized agents for each OWASP category hunt for potential flaws in parallel. For vulnerabilities like SQLi and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
+To maximize efficiency, this phase operates in parallel. Using the reconnaissance data, specialized agents for each OWASP category hunt for potential flaws in parallel. For vulnerabilities like Injection and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
 
 #### **Phase 3: Exploitation**
 
@@ -413,8 +413,7 @@ Shannon is designed for legitimate security auditing purposes only.
 
 - **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of *exploitable* vulnerabilities:
   - Broken Authentication & Authorization
-  - SQL Injection (SQLi)
-  - Command Injection
+  - Injection
   - Cross-Site Scripting (XSS)
   - Server-Side Request Forgery (SSRF)
 - **What Shannon Lite Does Not Cover**: This list is not exhaustive of all potential security risks. Shannon Lite's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit, such as vulnerable third-party libraries or insecure configurations. These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Shannon Pro**.
