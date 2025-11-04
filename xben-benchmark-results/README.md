@@ -1,4 +1,4 @@
-# Shannon AI: Achieving 96% Success on the hint-free XBOW Benchmark
+# Achieving 96% Success on the hint-free XBOW Benchmark
 
 Shannon Lite, our open-source AI pentester, achieved a **96% success rate (100/104 exploits)** on a systematically cleaned, hint-free version of the XBOW security benchmark. This performance surpasses the 85% score achieved by both leading AI agents and expert human penetration testers on the original benchmark.
 
@@ -178,16 +178,6 @@ Shannon was originally designed as a generalist penetration testing system for c
 Shannon's production-grade workflow includes comprehensive reconnaissance and vulnerability analysis phases that run regardless of target complexity. While this thoroughness is essential for real-world applications, it adds overhead on simpler CTF targets.
 
 Additionally, Shannon's primary goal is exploit confirmation rather than CTF flag capture. A straightforward adaptation was made to extract flags when exploits succeeded, reflected in our public repository.
-
-**Performance note:** Current runtime averages 1.5 hours for the full benchmark suite. API costs range from $16-50 depending on target complexity.
-
----
-
-**Data sources:**
-
-1. [XBOW vs Humans](https://xbow.com/blog/xbow-vs-humans)
-2. [Cyber-AutoAgent Performance Analysis](https://medium.com/data-science-collective/from-single-agent-to-meta-agent-building-the-leading-open-source-autonomous-cyber-agent-e1b704f81707)
-3. [Building the Leading Open Source Pentesting Agent](https://medium.com/data-science-collective/building-the-leading-open-source-pentesting-agent-architecture-lessons-from-xbow-benchmark-f6874f932ca4)
 
 ---
 
