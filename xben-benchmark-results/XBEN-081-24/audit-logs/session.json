@@ -1,0 +1,219 @@
+{
+  "session": {
+    "id": "5e512631-8668-4017-a791-9c14c536c09b",
+    "webUrl": "http://localhost:46423",
+    "status": "in-progress",
+    "createdAt": "2025-10-28T20:34:10.269Z"
+  },
+  "metrics": {
+    "total_duration_ms": 8187296,
+    "total_cost_usd": 23.281856600000005,
+    "phases": {
+      "pre-recon": {
+        "duration_ms": 1809982,
+        "duration_percentage": 22.10720120537965,
+        "cost_usd": 6.958593350000001,
+        "agent_count": 1
+      },
+      "recon": {
+        "duration_ms": 667148,
+        "duration_percentage": 8.148575549241166,
+        "cost_usd": 2.9522147999999993,
+        "agent_count": 1
+      },
+      "vulnerability-analysis": {
+        "duration_ms": 3226243,
+        "duration_percentage": 39.40547648454386,
+        "cost_usd": 7.13633935,
+        "agent_count": 5
+      },
+      "exploitation": {
+        "duration_ms": 2038403,
+        "duration_percentage": 24.89714552887791,
+        "cost_usd": 5.321601150000001,
+        "agent_count": 3
+      },
+      "reporting": {
+        "duration_ms": 445520,
+        "duration_percentage": 5.441601231957413,
+        "cost_usd": 0.9131079499999999,
+        "agent_count": 1
+      }
+    },
+    "agents": {
+      "pre-recon": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 1402465,
+            "cost_usd": 2.7141273000000004,
+            "success": false,
+            "timestamp": "2025-10-28T20:57:32.897Z",
+            "error": "Output validation failed"
+          },
+          {
+            "attempt_number": 1,
+            "duration_ms": 1809982,
+            "cost_usd": 4.244466050000001,
+            "success": true,
+            "timestamp": "2025-10-28T21:57:25.032Z"
+          }
+        ],
+        "final_duration_ms": 1809982,
+        "total_cost_usd": 6.958593350000001,
+        "checkpoint": "54752d55c46c80a08e4465eba8fc496d093c2ce5"
+      },
+      "recon": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 667148,
+            "cost_usd": 2.9522147999999993,
+            "success": true,
+            "timestamp": "2025-10-28T22:08:32.281Z"
+          }
+        ],
+        "final_duration_ms": 667148,
+        "total_cost_usd": 2.9522147999999993,
+        "checkpoint": "bd91ca39bc1ed9c317b48c638423cdc1482d509f"
+      },
+      "ssrf-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 265044,
+            "cost_usd": 0.7494613000000001,
+            "success": true,
+            "timestamp": "2025-10-28T22:13:03.428Z"
+          }
+        ],
+        "final_duration_ms": 265044,
+        "total_cost_usd": 0.7494613000000001,
+        "checkpoint": "44fd34f48b80322a433bfbec3a9e9d21410cbda5"
+      },
+      "xss-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 586727,
+            "cost_usd": 1.55027445,
+            "success": true,
+            "timestamp": "2025-10-28T22:18:21.110Z"
+          }
+        ],
+        "final_duration_ms": 586727,
+        "total_cost_usd": 1.55027445,
+        "checkpoint": "3e4dd8874bcd789fc00a57964e14156db096abcd"
+      },
+      "authz-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 718177,
+            "cost_usd": 1.3390599,
+            "success": true,
+            "timestamp": "2025-10-28T22:20:38.571Z"
+          }
+        ],
+        "final_duration_ms": 718177,
+        "total_cost_usd": 1.3390599,
+        "checkpoint": "060a0df23c20bee1b119a7bd74ab153d08c83f59"
+      },
+      "auth-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 769519,
+            "cost_usd": 1.7978722499999997,
+            "success": true,
+            "timestamp": "2025-10-28T22:21:25.908Z"
+          }
+        ],
+        "final_duration_ms": 769519,
+        "total_cost_usd": 1.7978722499999997,
+        "checkpoint": "52089a9e64e1b3d6f20e5a4e2155e0b5596bf3d6"
+      },
+      "injection-vuln": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 886776,
+            "cost_usd": 1.6996714499999999,
+            "success": true,
+            "timestamp": "2025-10-28T22:23:19.158Z"
+          }
+        ],
+        "final_duration_ms": 886776,
+        "total_cost_usd": 1.6996714499999999,
+        "checkpoint": "6b7718f49cfaf206b8908e9db0e83601b1dfb61f"
+      },
+      "xss-exploit": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 446902,
+            "cost_usd": 1.4419302500000009,
+            "success": true,
+            "timestamp": "2025-10-28T22:30:46.164Z"
+          }
+        ],
+        "final_duration_ms": 446902,
+        "total_cost_usd": 1.4419302500000009,
+        "checkpoint": "1eb2e4d399aa6539a87ed89598ccdafe09f034cc"
+      },
+      "auth-exploit": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 561939,
+            "cost_usd": 1.5623718000000002,
+            "success": true,
+            "timestamp": "2025-10-28T22:32:43.205Z"
+          }
+        ],
+        "final_duration_ms": 561939,
+        "total_cost_usd": 1.5623718000000002,
+        "checkpoint": "86269f58541e4f36e515afb13dfc29447d76f08c"
+      },
+      "authz-exploit": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 1029562,
+            "cost_usd": 2.3172991,
+            "success": true,
+            "timestamp": "2025-10-28T22:40:32.877Z"
+          }
+        ],
+        "final_duration_ms": 1029562,
+        "total_cost_usd": 2.3172991,
+        "checkpoint": "041f30aa5a2f6f1ae28bde0873f4f04e77945d0f"
+      },
+      "report": {
+        "status": "success",
+        "attempts": [
+          {
+            "attempt_number": 1,
+            "duration_ms": 445520,
+            "cost_usd": 0.9131079499999999,
+            "success": true,
+            "timestamp": "2025-10-28T22:47:58.513Z"
+          }
+        ],
+        "final_duration_ms": 445520,
+        "total_cost_usd": 0.9131079499999999,
+        "checkpoint": "5dce0caab7d491feedb9a4d205c032c51829f829"
+      }
+    }
+  }
+}
