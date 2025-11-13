@@ -1,3 +1,5 @@
+> [!NOTE]
+> **[Shannon Lite achieves a 96% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
 
 <div align="center">
 
@@ -15,9 +17,6 @@ Every Claude (coder) deserves their Shannon.
 
 ---
 </div>
-
-> [!NOTE]
-> **[Shannon Lite achieves a 96% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
 
 ## 🎯 What is Shannon?
 
