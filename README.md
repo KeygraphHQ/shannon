@@ -16,6 +16,9 @@ Every Claude (coder) deserves their Shannon.
 ---
 </div>
 
+> [!NOTE]
+> **[Shannon Lite achieves a 96% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
+
 ## 🎯 What is Shannon?
 
 Shannon is an AI pentester that delivers actual exploits, not just alerts.
