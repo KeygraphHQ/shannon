@@ -6,7 +6,7 @@
 
 ### Feature Comparison
 
-| Feature | Shannon Lite<br>(BSL 1.1) | Shannon Pro<br>(Commercial) |
+| Feature | Shannon Lite<br>(MPL 2.0) | Shannon Pro<br>(Commercial) |
 |---------|:-------------------------:|:---------------------------:|
 | **Core Scanning** |
 | Source-Sink Analysis | Basic | LLM-powered data flow analysis for high-precision, source-to-sink vulnerability detection |
