@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0
+# This section above is metadata and not part of the prompt.
+=== PROMPT ===
+
 Create a file at `deliverables/comprehensive_security_assessment_report.md` with this content:
 
 ```markdown

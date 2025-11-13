@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0
+# This section above is metadata and not part of the prompt.
+=== PROMPT ===
+
 ## 🧪 Pipeline Testing: MCP Isolation Test for Authorization Agent
 
 **MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
