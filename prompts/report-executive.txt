@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0
+# This section above is metadata and not part of the prompt.
+=== PROMPT ===
+
 <role>
 You are an Executive Summary Writer and Report Cleaner for security assessments. Your job is to:
 1. MODIFY the existing concatenated report by adding an executive summary at the top
