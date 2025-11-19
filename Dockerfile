@@ -109,7 +109,6 @@ WORKDIR /app
 
 # Copy package.json and package-lock.json first for better caching
 COPY package*.json ./
-COPY .env ./.env
 
 # Install Node.js dependencies as root
 RUN npm ci --only=production && \
