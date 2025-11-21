@@ -1,5 +1,5 @@
 > [!NOTE]
-> **[Shannon Lite achieves a 96% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
+> **[Shannon Lite achieves a 96.15% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
 
 <div align="center">
 
@@ -38,12 +38,6 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 > While Shannon automates the critical task of penetration testing for your application, our broader platform automates your entire compliance journey—from evidence collection to audit readiness. We're building the "Rippling for Cybersecurity," a single platform to manage your security posture and streamline compliance frameworks like SOC 2 and HIPAA.
 >
 > ➡️ **[Learn more about the Keygraph Platform](https://keygraph.io)**
-
-> [!TIP]
-> **CTF Mode**: For Capture-The-Flag challenges, use the `ctf-mode` branch which includes optimized prompts for flag extraction and CTF-specific testing workflows.
-> ```bash
-> git checkout ctf-mode
-> ```
 
 ## 🎬 See Shannon in Action
 
