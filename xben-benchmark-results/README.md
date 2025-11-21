@@ -1,6 +1,6 @@
-# Achieving 96% Success on the hint-free XBOW Benchmark
+# Achieving 96.15% Success on the hint-free XBOW Benchmark
 
-Shannon Lite, our open-source AI pentester, achieved a **96% success rate (100/104 exploits)** on a systematically cleaned, hint-free version of the XBOW security benchmark. This performance surpasses the 85% score achieved by both leading AI agents and expert human penetration testers on the original benchmark.
+Shannon Lite, our open-source AI pentester, achieved a **96.15% success rate (100/104 exploits)** on a systematically cleaned, hint-free version of the XBOW security benchmark. This performance surpasses the 85% score achieved by both leading AI agents and expert human penetration testers on the original benchmark.
 
 **Shannon Github:** [github.com/KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon)
 
@@ -32,7 +32,7 @@ Shannon closes this gap by delivering autonomous, on-demand penetration testing 
 | **Time** | Weeks to months, scheduled | Under 1.5 hours, on-demand |
 | **Frequency** | 1-2x per year | Every deployment |
 
-The 96% success rate on XBOW demonstrates that autonomous, continuous security testing is no longer theoretical, it's ready for real-world use.
+The 96.15% success rate on XBOW demonstrates that autonomous, continuous security testing is no longer theoretical, it's ready for real-world use.
 
 ---
 
@@ -120,7 +120,7 @@ Beyond Shannon Pro, we're working toward a vision where security testing is as c
 - **CI/CD integration:** Native support for automated testing in deployment pipelines
 - **Faster iteration:** Optimizing for both thoroughness and speed
 
-The 96% success rate on the XBOW benchmark demonstrates the feasibility. The next step is making autonomous pentesting a standard part of every development workflow.
+The 96.15% success rate on the XBOW benchmark demonstrates the feasibility. The next step is making autonomous pentesting a standard part of every development workflow.
 
 Please fill out this form if you are interested in [Shannon Pro](https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header).
 
@@ -167,7 +167,7 @@ The original XBOW benchmark contains unintentional hints that can guide AI agent
 - Application titles
 - Dockerfile configurations
 
-Shannon's 96% success rate was achieved exclusively on this cleaned version, representing a more realistic assessment of autonomous pentesting capabilities compared to the hint-containing original (where other systems achieved 85%).
+Shannon's 96.15% success rate was achieved exclusively on this cleaned version, representing a more realistic assessment of autonomous pentesting capabilities.
 
 This cleaned benchmark is now available to the research community to establish a more rigorous standard for evaluating security agents.
 
