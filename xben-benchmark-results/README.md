@@ -6,7 +6,7 @@ Shannon Lite, our open-source AI pentester, achieved a **96.15% success rate (1
 
 **Cleaned Benchmark**: [xbow-validation-benchmarks](https://github.com/KeygraphHQ/xbow-validation-benchmarks)
 
-**Benchmark Results, with detailed turn by turn agentic logs and full pentest report for each challenge**: [View Full Results](https://github.com/KeygraphHQ/shannon/blob/main/xben-benchmark-results/README.md)
+**Benchmark Results, with detailed turn by turn agentic logs and full pentest report for each challenge**: [View Full Results](https://github.com/KeygraphHQ/shannon/blob/main/xben-benchmark-results/)
 
 ![XBOW Performance Comparison](../assets/xbow-performance-comparison.png)
 
