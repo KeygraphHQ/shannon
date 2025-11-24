@@ -1,5 +1,6 @@
 > [!NOTE]
-> **[Shannon Lite achieves a 96.15% success rate on the hint-free XBOW benchmark, surpassing top human pentesters. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
+> **[Shannon Lite achieves a 96.15% success rate on a hint-free, source-aware XBOW benchmark. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
+
 
 <div align="center">
 
@@ -54,7 +55,6 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 - **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
 - **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
 
-
 ## 📦 Product Line
 
 Shannon is available in two editions:
@@ -65,7 +65,11 @@ Shannon is available in two editions:
 | **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
 
 > **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection.
->
+
+> [!IMPORTANT]
+> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
+> It expects access to your application's source code and repository layout.
+
 [See feature comparison](./SHANNON-PRO.md)
 ## 📑 Table of Contents
 
