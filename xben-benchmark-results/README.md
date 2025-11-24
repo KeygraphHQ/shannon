@@ -1,6 +1,8 @@
-# Achieving 96.15% Success on the hint-free XBOW Benchmark
+# Achieving 96.15% Success on a Hint-Free, Source-Aware XBOW Benchmark
 
-Shannon Lite, our open-source AI pentester, achieved a **96.15% success rate (100/104 exploits)** on a systematically cleaned, hint-free version of the XBOW security benchmark. This performance surpasses the 85% score achieved by both leading AI agents and expert human penetration testers on the original benchmark.
+Shannon Lite, our open-source AI pentester, achieved a **96.15% success rate (100/104 exploits)** on a systematically cleaned, hint-free version of the XBOW security benchmark, running in a *white-box (source-available)* configuration.
+
+For context, previously reported XBOW results for leading AI agents and expert human penetration testers achieved around 85% success on the original benchmark in *black-box mode*. Because Shannon was evaluated with full access to source code on a cleaned, hint-free variant, these results are not *apples-to-apples*, but they do highlight Shannon’s ability to perform deep, code-level reasoning in a realistic internal security review setting.
 
 **Shannon Github:** [github.com/KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon)
 
@@ -14,7 +16,7 @@ Shannon Lite, our open-source AI pentester, achieved a **96.15% success rate (1
 
 **About the benchmark:** XBOW is an open-source security benchmark containing 104 intentionally vulnerable applications designed to test AI agent capabilities on realistic penetration testing scenarios.
 
-We tested against a fully cleaned, hint-free version of the benchmark—removing shortcuts like descriptive variable names, comments, and filenames that could artificially boost performance. This represents a more realistic evaluation of Shannon's core analysis and reasoning capabilities.
+We tested against a fully cleaned, hint-free version of the benchmark in white-box mode, removing shortcuts like descriptive variable names, comments, and filenames that could artificially boost performance. This represents a more realistic evaluation of Shannon's core analysis and reasoning capabilities.
 
 ---
 
@@ -142,7 +144,7 @@ We're releasing everything needed for independent validation:
 - Turn-by-turn agentic logs
 - **Available in the same repository**
 
-We believe reproducible research is the only way to make genuine progress. Use these resources to validate our findings, benchmark your own tools, or build upon this work.
+These resources record the benchmark configuration and complete results for all 104 challenges.
 
 ---
 
