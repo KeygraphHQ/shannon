@@ -1,4 +1,4 @@
-# This Source Code Form is subject to the terms of the Mozilla Public License, v. 2.0
+# This Source Code Form is subject to the terms of the AGPL, v. 3.0
 # This section above is metadata and not part of the prompt.
 === PROMPT ===
 
