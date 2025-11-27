@@ -1,1 +1,3 @@
+# This Source Code Form is subject to the terms of the AGPL, v. 3.0
+# This section above is metadata and not part of the prompt.
 URL: {{WEB_URL}}

@@ -61,7 +61,7 @@ Shannon is available in two editions:
 
 | Edition | License | Best For |
 |---------|---------|----------|
-| **Shannon Lite** | MPL | Security teams, independent researchers, testing your own applications |
+| **Shannon Lite** | AGPL-3.0 | Security teams, independent researchers, testing your own applications |
 | **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
 
 > **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection.
@@ -433,7 +433,13 @@ Shannon is designed for legitimate security auditing purposes only.
 
 ## 📜 License
 
-Shannon Lite is released under the [Mozilla Public License 2.0 (MPL)](LICENSE).
+Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
+
+Shannon is open source (AGPL v3). This license allows you to:
+- Use it freely for all internal security testing.
+- Modify the code privately for internal use without sharing your changes.
+
+The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
 
 
 ## 👥 Community & Support
