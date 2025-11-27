@@ -435,6 +435,12 @@ Shannon is designed for legitimate security auditing purposes only.
 
 Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
+Shannon is open source (AGPL v3). This license allows you to:
+- Use it freely for all internal security testing.
+- Modify the code privately for internal use without sharing your changes.
+
+The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
+
 
 ## 👥 Community & Support
 
