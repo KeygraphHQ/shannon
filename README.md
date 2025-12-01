@@ -14,7 +14,7 @@ Every Claude (coder) deserves their Shannon.
 
 ---
 
-[Website](https://keygraph.io) • [Discord](https://discord.gg/aWY8rRUCxc)
+[Website](https://keygraph.io) • [Discord](https://discord.gg/u7DRRXrs7H)
 
 ---
 </div>
@@ -448,7 +448,7 @@ The AGPL's sharing requirements primarily apply to organizations offering Shanno
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/keygraph/shannon/issues)
 - 💡 **Suggest features** in [Discussions](https://github.com/keygraph/shannon/discussions)
-- 💬 **Join our [Discord](https://discord.gg/aWY8rRUCxc)** for real-time community support
+- 💬 **Join our [Discord](https://discord.gg/u7DRRXrs7H)** for real-time community support
 
 ### Stay Connected
 

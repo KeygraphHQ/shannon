@@ -151,7 +151,7 @@ These resources record the benchmark configuration and complete results for all 
 ## Join the Community
 
 - **GitHub:** [KeygraphHQ/shannon](https://github.com/KeygraphHQ/shannon)
-- **Discord:** [Join our Discord](https://discord.gg/aWY8rRUCxc)
+- **Discord:** [Join our Discord](https://discord.gg/u7DRRXrs7H)
 - **Twitter/X:** [@KeygraphHQ](https://x.com/KeygraphHQ)
 - **Enterprise inquiries:** [shannon@keygraph.io](mailto:shannon@keygraph.io)
 
