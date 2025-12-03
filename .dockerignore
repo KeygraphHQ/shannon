@@ -7,6 +7,7 @@ yarn-error.log*
 # Runtime directories
 sessions/
 deliverables/
+xben-benchmark-results/
 .claude/
 
 # Git
