@@ -429,6 +429,9 @@ Shannon is designed for legitimate security auditing purposes only.
 - **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
 - **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
 
+#### **6. Windows Antivirus False Positives**
+
+Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
 
 
 ## 📜 License
