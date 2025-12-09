@@ -66,7 +66,10 @@ process.on('SIGTERM', async () => {
 });
 
 // Main orchestration function
-async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = false) {
+async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = false, disableLoader = false) {
+  // Set global flag for loader control
+  global.SHANNON_DISABLE_LOADER = disableLoader;
+
   const totalTimer = new Timer('total-execution');
   timingResults.total = totalTimer;
 
@@ -367,6 +370,7 @@ if (args[0] && args[0].includes('shannon.mjs')) {
 // Parse flags and arguments
 let configPath = null;
 let pipelineTestingMode = false;
+let disableLoader = false;
 const nonFlagArgs = [];
 let developerCommand = null;
 const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
@@ -382,18 +386,25 @@ for (let i = 0; i < args.length; i++) {
     }
   } else if (args[i] === '--pipeline-testing') {
     pipelineTestingMode = true;
+  } else if (args[i] === '--disable-loader') {
+    disableLoader = true;
   } else if (developerCommands.includes(args[i])) {
     developerCommand = args[i];
     // Collect remaining args for the developer command
-    const remainingArgs = args.slice(i + 1).filter(arg => !arg.startsWith('--') || arg === '--pipeline-testing');
+    const remainingArgs = args.slice(i + 1).filter(arg => !arg.startsWith('--') || arg === '--pipeline-testing' || arg === '--disable-loader');
 
     // Check for --pipeline-testing in remaining args
     if (remainingArgs.includes('--pipeline-testing')) {
       pipelineTestingMode = true;
     }
 
-    // Add non-flag args (excluding --pipeline-testing)
-    nonFlagArgs.push(...remainingArgs.filter(arg => arg !== '--pipeline-testing'));
+    // Check for --disable-loader in remaining args
+    if (remainingArgs.includes('--disable-loader')) {
+      disableLoader = true;
+    }
+
+    // Add non-flag args (excluding --pipeline-testing and --disable-loader)
+    nonFlagArgs.push(...remainingArgs.filter(arg => arg !== '--pipeline-testing' && arg !== '--disable-loader'));
     break; // Stop parsing after developer command
   } else if (!args[i].startsWith('-')) {
     nonFlagArgs.push(args[i]);
@@ -408,6 +419,9 @@ if (args.includes('--help') || args.includes('-h') || args.includes('help')) {
 
 // Handle developer commands
 if (developerCommand) {
+  // Set global flag for loader control in developer mode too
+  global.SHANNON_DISABLE_LOADER = disableLoader;
+
   await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
 
   process.exit(0);
@@ -454,9 +468,12 @@ console.log(chalk.gray(`   Config Path: ${configPath}\n`));
 if (pipelineTestingMode) {
   console.log(chalk.yellow('⚡ PIPELINE TESTING MODE ENABLED - Using minimal test prompts for fast pipeline validation\n'));
 }
+if (disableLoader) {
+  console.log(chalk.yellow('⚙️  LOADER DISABLED - Progress indicator will not be shown\n'));
+}
 
 try {
-  const result = await main(webUrl, repoPathValidation.path, configPath, pipelineTestingMode);
+  const result = await main(webUrl, repoPathValidation.path, configPath, pipelineTestingMode, disableLoader);
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(result.reportPath));
   console.log(chalk.green.bold('\n📂 AUDIT LOGS AVAILABLE:'));
