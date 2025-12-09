@@ -115,9 +115,9 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
   // Disable status manager - using simple JSON filtering for all agents now
   const statusManager = null;
 
-  // Setup progress indicator for clean output agents
+  // Setup progress indicator for clean output agents (unless disabled via flag)
   let progressIndicator = null;
-  if (useCleanOutput) {
+  if (useCleanOutput && !global.SHANNON_DISABLE_LOADER) {
     const agentType = description.includes('Pre-recon') ? 'pre-reconnaissance' :
                      description.includes('Recon') ? 'reconnaissance' :
                      description.includes('Report') ? 'report generation' : 'analysis';
@@ -216,9 +216,19 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
 
 
     let messageCount = 0;
+    let lastHeartbeat = Date.now();
+    const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+
     try {
       for await (const message of query({ prompt: fullPrompt, options })) {
         messageCount++;
+
+        // Periodic heartbeat for long-running agents (only when loader is disabled)
+        const now = Date.now();
+        if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+          console.log(chalk.blue(`    ⏱️  [${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`));
+          lastHeartbeat = now;
+        }
 
       if (message.type === "assistant") {
         turnCount++;
