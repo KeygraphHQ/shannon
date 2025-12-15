@@ -198,6 +198,25 @@ docker run --rm -it \
 - `--cap-add=NET_ADMIN` - Allows network administration for security tools
 - `--network host` - Provides access to target network interfaces
 
+**Testing Local Applications:**
+
+Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
+
+```bash
+docker run --rm -it \
+      --add-host=host.docker.internal:host-gateway \
+      --cap-add=NET_RAW \
+      --cap-add=NET_ADMIN \
+      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
+      -v "$(pwd)/repos:/app/repos" \
+      -v "$(pwd)/configs:/app/configs" \
+      shannon:latest \
+      "http://host.docker.internal:3000" \
+      "/app/repos/your-app" \
+      --config /app/configs/example-config.yaml
+```
+
 ### Configuration (Optional)
 
 While you can run without a config file, creating one enables authenticated testing and customized analysis.
