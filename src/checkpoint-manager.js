@@ -154,8 +154,8 @@ const runSingleAgent = async (agentName, session, pipelineTestingMode, runClaude
   // Handle relative config paths - prepend configs/ if needed
   let configPath = null;
   if (session.configFile) {
-    configPath = session.configFile.startsWith('configs/') 
-      ? session.configFile 
+    configPath = path.isAbsolute(session.configFile) || session.configFile.startsWith('configs/')
+      ? session.configFile
       : path.join('configs', session.configFile);
   }
   
