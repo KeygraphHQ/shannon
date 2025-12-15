@@ -130,6 +130,9 @@ RUN mkdir -p /app/sessions /app/deliverables /app/repos && \
 # Switch to non-root user
 USER pentest
 
+# Configure Git to trust all directories
+RUN git config --global --add safe.directory '*'
+
 # Set environment variables
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:$PATH"
