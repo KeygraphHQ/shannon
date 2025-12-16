@@ -1,6 +1,4 @@
-> [!NOTE]
-> **[Shannon Lite achieves a 96.15% success rate on a hint-free, source-aware XBOW benchmark. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
-
+> [!NOTE] > **[Shannon Lite achieves a 96.15% success rate on a hint-free, source-aware XBOW benchmark. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
 
 <div align="center">
 
@@ -17,6 +15,7 @@ Every Claude (coder) deserves their Shannon.
 [Website](https://keygraph.io) • [Discord](https://discord.gg/u7DRRXrs7H)
 
 ---
+
 </div>
 
 ## 🎯 What is Shannon?
@@ -27,12 +26,11 @@ Shannon's goal is to break your web app before someone else does. It autonomousl
 
 **What Problem Does Shannon Solve?**
 
-Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a *massive* security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
+Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a _massive_ security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
 
 Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn't just find potential issues. It executes real exploits, providing concrete proof of vulnerabilities. This lets you ship with confidence, knowing every build can be secured.
 
-> [!NOTE]
-> **From Autonomous Pentesting to Automated Compliance**
+> [!NOTE] > **From Autonomous Pentesting to Automated Compliance**
 >
 > Shannon is a core component of the **Keygraph Security and Compliance Platform**.
 >
@@ -50,7 +48,7 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 
 - **Fully Autonomous Operation**: Launch the pentest with a single command. The AI handles everything from advanced 2FA/TOTP logins (including sign in with Google) and browser navigation to the final report with zero intervention.
 - **Pentester-Grade Reports with Reproducible Exploits**: Delivers a final report focused on proven, exploitable findings, complete with copy-and-paste Proof-of-Concepts to eliminate false positives and provide actionable results.
-- **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: Injection, XSS, SSRF, and Broken Authentication/Authorization, with more types in development.
+- **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: **Injection, XSS, SSRF, Broken Authentication/Authorization, and XXE (XML External Entities)**, with more types in development.
 - **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy, then performs live, browser and command line based exploits on the running application to confirm real-world risk.
 - **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
 - **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
@@ -59,18 +57,18 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 
 Shannon is available in two editions:
 
-| Edition | License | Best For |
-|---------|---------|----------|
-| **Shannon Lite** | AGPL-3.0 | Security teams, independent researchers, testing your own applications |
-| **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
+| Edition          | License    | Best For                                                                          |
+| ---------------- | ---------- | --------------------------------------------------------------------------------- |
+| **Shannon Lite** | AGPL-3.0   | Security teams, independent researchers, testing your own applications            |
+| **Shannon Pro**  | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
 
 > **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection.
 
-> [!IMPORTANT]
-> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
+> [!IMPORTANT] > **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
 > It expects access to your application's source code and repository layout.
 
 [See feature comparison](./SHANNON-PRO.md)
+
 ## 📑 Table of Contents
 
 - [What is Shannon?](#-what-is-shannon)
@@ -110,11 +108,13 @@ You need either a **Claude Code OAuth token** or an **Anthropic API key** to run
 To prevent Claude Code from hitting token limits during long report generation, set the max output tokens environment variable:
 
 **For local runs:**
+
 ```bash
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
 **For Docker runs:**
+
 ```bash
 -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
@@ -238,7 +238,7 @@ authentication:
   credentials:
     username: "test@example.com"
     password: "yourpassword"
-    totp_secret: "LB2E2RX7XFHSTGCK"  # Optional for 2FA
+    totp_secret: "LB2E2RX7XFHSTGCK" # Optional for 2FA
 
   login_flow:
     - "Type $username into the email field"
@@ -292,7 +292,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 #### 🧃 **OWASP Juice Shop** • [GitHub](https://github.com/juice-shop/juice-shop)
 
-*A notoriously insecure web application maintained by OWASP, designed to test a tool's ability to uncover a wide range of modern vulnerabilities.*
+_A notoriously insecure web application maintained by OWASP, designed to test a tool's ability to uncover a wide range of modern vulnerabilities._
 
 **Performance**: Identified **over 20 high-impact vulnerabilities** across targeted OWASP categories in a single automated run.
 
@@ -309,7 +309,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 #### 🔗 **c{api}tal API** • [GitHub](https://github.com/Checkmarx/capital)
 
-*An intentionally vulnerable API from Checkmarx, designed to test a tool's ability to uncover the OWASP API Security Top 10.*
+_An intentionally vulnerable API from Checkmarx, designed to test a tool's ability to uncover the OWASP API Security Top 10._
 
 **Performance**: Identified **nearly 15 critical and high-severity vulnerabilities**, leading to full application compromise.
 
@@ -326,7 +326,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 #### 🚗 **OWASP crAPI** • [GitHub](https://github.com/OWASP/crAPI)
 
-*A modern, intentionally vulnerable API from OWASP, designed to benchmark a tool's effectiveness against the OWASP API Security Top 10.*
+_A modern, intentionally vulnerable API from OWASP, designed to benchmark a tool's effectiveness against the OWASP API Security Top 10._
 
 **Performance**: Identified **over 15 critical and high-severity vulnerabilities**, achieving full application compromise.
 
@@ -341,7 +341,7 @@ See Shannon's capabilities in action with real penetration test results from ind
 
 ---
 
-*These results demonstrate Shannon's ability to move beyond simple scanning, performing deep contextual exploitation with minimal false positives and actionable proof-of-concepts.*
+_These results demonstrate Shannon's ability to move beyond simple scanning, performing deep contextual exploitation with minimal false positives and actionable proof-of-concepts._
 
 ---
 
@@ -399,7 +399,6 @@ Continuing the parallel workflow to maintain speed, this phase is dedicated enti
 
 The final phase compiles all validated findings into a professional, actionable report. An agent consolidates the reconnaissance data and the successful exploit evidence, cleaning up any noise or hallucinated artifacts. Only verified vulnerabilities are included, complete with **reproducible, copy-and-paste Proof-of-Concepts**, delivering a final pentest-grade report focused exclusively on proven risks.
 
-
 ## 📋 Coverage and Roadmap
 
 For detailed information about Shannon's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
@@ -414,8 +413,7 @@ Please review the following guidelines carefully before using Shannon (Lite). As
 
 This is not a passive scanner. The exploitation agents are designed to **actively execute attacks** to confirm vulnerabilities. This process can have mutative effects on the target application and its data.
 
-> [!WARNING]
-> **⚠️ DO NOT run Shannon on production environments.**
+> [!WARNING] > **⚠️ DO NOT run Shannon on production environments.**
 >
 > - It is intended exclusively for use on sandboxed, staging, or local development environments where data integrity is not a concern.
 > - Potential mutative effects include, but are not limited to: creating new users, modifying or deleting data, compromising test accounts, and triggering unintended side effects from injection attacks.
@@ -424,8 +422,7 @@ This is not a passive scanner. The exploitation agents are designed to **activel
 
 Shannon is designed for legitimate security auditing purposes only.
 
-> [!CAUTION]
-> **You must have explicit, written authorization** from the owner of the target system before running Shannon.
+> [!CAUTION] > **You must have explicit, written authorization** from the owner of the target system before running Shannon.
 >
 > Unauthorized scanning and exploitation of systems you do not own is illegal and can be prosecuted under laws such as the Computer Fraud and Abuse Act (CFAA). Keygraph is not responsible for any misuse of Shannon.
 
@@ -436,7 +433,7 @@ Shannon is designed for legitimate security auditing purposes only.
 
 #### **4. Scope of Analysis**
 
-- **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of *exploitable* vulnerabilities:
+- **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of _exploitable_ vulnerabilities:
   - Broken Authentication & Authorization
   - Injection
   - Cross-Site Scripting (XSS)
@@ -452,17 +449,16 @@ Shannon is designed for legitimate security auditing purposes only.
 
 Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
 
-
 ## 📜 License
 
 Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
 Shannon is open source (AGPL v3). This license allows you to:
+
 - Use it freely for all internal security testing.
 - Modify the code privately for internal use without sharing your changes.
 
 The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
-
 
 ## 👥 Community & Support
 
@@ -477,8 +473,6 @@ The AGPL's sharing requirements primarily apply to organizations offering Shanno
 - 🐦 **Twitter**: [@KeygraphHQ](https://twitter.com/KeygraphHQ)
 - 💼 **LinkedIn**: [Keygraph](https://linkedin.com/company/keygraph)
 - 🌐 **Website**: [keygraph.io](https://keygraph.io)
-
-
 
 ## 💬 Get in Touch
 
