@@ -14,7 +14,7 @@ Every Claude (coder) deserves their Shannon.
 
 ---
 
-[Website](https://keygraph.io) • [Discord](https://discord.gg/u7DRRXrs7H)
+[Website](https://keygraph.io) • [Discord](https://discord.gg/KAqzSHHpRt)
 
 ---
 </div>
@@ -473,7 +473,7 @@ Issues are welcome for bug reports and feature requests.
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/keygraph/shannon/issues)
 - 💡 **Suggest features** in [Discussions](https://github.com/keygraph/shannon/discussions)
-- 💬 **Join our [Discord](https://discord.gg/u7DRRXrs7H)** for real-time community support
+- 💬 **Join our [Discord](https://discord.gg/KAqzSHHpRt)** for real-time community support
 
 ### Stay Connected
 
