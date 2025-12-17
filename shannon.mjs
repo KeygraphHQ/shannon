@@ -26,6 +26,9 @@ import { setupLocalRepo } from './src/setup/environment.js';
 import { runClaudePromptWithRetry } from './src/ai/claude-executor.js';
 import { loadPrompt } from './src/prompts/prompt-manager.js';
 
+// AI Provider Abstraction
+import { getCurrentProvider, displayProviderInfo, validateProviderConfig, getRunPromptWithRetry, AI_PROVIDERS } from './src/ai/ai-provider.js';
+
 // Phases
 import { executePreReconPhase } from './src/phases/pre-recon.js';
 import { assembleFinalReport } from './src/phases/reporting.js';
@@ -82,6 +85,18 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
   if (configPath) {
     console.log(chalk.cyan(`⚙️ Config: ${configPath}`));
   }
+
+  // Display and validate AI provider
+  displayProviderInfo();
+  const providerValidation = await validateProviderConfig();
+  if (!providerValidation.valid) {
+    console.log(chalk.red(`❌ AI provider validation failed: ${providerValidation.error}`));
+    process.exit(1);
+  }
+
+  // Get the appropriate executor based on provider
+  const runPromptWithRetry = await getRunPromptWithRetry();
+
   console.log(chalk.gray('─'.repeat(60)));
 
   // Parse configuration if provided
@@ -194,10 +209,10 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
 
   // Determine which phase to start from based on next agent
   const startPhase = nextAgent.name === 'pre-recon' ? 1
-                   : nextAgent.name === 'recon' ? 2
-                   : ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'].includes(nextAgent.name) ? 3
-                   : ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'].includes(nextAgent.name) ? 4
-                   : nextAgent.name === 'report' ? 5 : 1;
+    : nextAgent.name === 'recon' ? 2
+      : ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'].includes(nextAgent.name) ? 3
+        : ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'].includes(nextAgent.name) ? 4
+          : nextAgent.name === 'report' ? 5 : 1;
 
   // PHASE 1: PRE-RECONNAISSANCE
   if (startPhase <= 1) {
@@ -219,7 +234,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     console.log(chalk.magenta.bold('\n🔎 PHASE 2: RECONNAISSANCE'));
     console.log(chalk.magenta('Analyzing initial findings...'));
     const reconTimer = new Timer('phase-2-recon');
-    const recon = await runClaudePromptWithRetry(
+    const recon = await runPromptWithRetry(
       await loadPrompt('recon', variables, distributedConfig, pipelineTestingMode),
       sourceDir,
       '*',
@@ -241,7 +256,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     const vulnTimer = new Timer('phase-3-vulnerability-analysis');
     console.log(chalk.red.bold('\n🚨 PHASE 3: VULNERABILITY ANALYSIS'));
 
-    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runPromptWithRetry, loadPrompt);
 
     // Display vulnerability analysis summary
     const currentSession = await getSession(session.id);
@@ -261,7 +276,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
 
     // Get fresh session data to ensure we have latest vulnerability analysis results
     const freshSession = await getSession(session.id);
-    await runPhase('exploitation', freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    await runPhase('exploitation', freshSession, pipelineTestingMode, runPromptWithRetry, loadPrompt);
 
     // Display exploitation summary
     const finalSession = await getSession(session.id);
@@ -295,7 +310,7 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
 
     // Then run reporter agent to create executive summary and clean up hallucinations
     console.log(chalk.blue('📋 Generating executive summary and cleaning up report...'));
-    const execSummary = await runClaudePromptWithRetry(
+    const execSummary = await runPromptWithRetry(
       await loadPrompt('report-executive', variables, distributedConfig, pipelineTestingMode),
       sourceDir,
       '*',
@@ -371,6 +386,9 @@ if (args[0] && args[0].includes('shannon.mjs')) {
 let configPath = null;
 let pipelineTestingMode = false;
 let disableLoader = false;
+let useOllama = false;
+let ollamaModel = null;
+let ollamaHost = null;
 const nonFlagArgs = [];
 let developerCommand = null;
 const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
@@ -384,6 +402,27 @@ for (let i = 0; i < args.length; i++) {
       console.log(chalk.red('❌ --config flag requires a file path'));
       process.exit(1);
     }
+  } else if (args[i] === '--ollama') {
+    useOllama = true;
+    process.env.AI_PROVIDER = 'ollama';
+  } else if (args[i] === '--ollama-model') {
+    if (i + 1 < args.length) {
+      ollamaModel = args[i + 1];
+      process.env.OLLAMA_MODEL = ollamaModel;
+      i++;
+    } else {
+      console.log(chalk.red('❌ --ollama-model flag requires a model name'));
+      process.exit(1);
+    }
+  } else if (args[i] === '--ollama-host' || args[i] === '--ollama-baseurl') {
+    if (i + 1 < args.length) {
+      ollamaHost = args[i + 1];
+      process.env.OLLAMA_HOST = ollamaHost;
+      i++;
+    } else {
+      console.log(chalk.red('❌ --ollama-host/--ollama-baseurl flag requires a URL'));
+      process.exit(1);
+    }
   } else if (args[i] === '--pipeline-testing') {
     pipelineTestingMode = true;
   } else if (args[i] === '--disable-loader') {
@@ -391,7 +430,7 @@ for (let i = 0; i < args.length; i++) {
   } else if (developerCommands.includes(args[i])) {
     developerCommand = args[i];
     // Collect remaining args for the developer command
-    const remainingArgs = args.slice(i + 1).filter(arg => !arg.startsWith('--') || arg === '--pipeline-testing' || arg === '--disable-loader');
+    const remainingArgs = args.slice(i + 1).filter(arg => !arg.startsWith('--') || arg === '--pipeline-testing' || arg === '--disable-loader' || arg === '--ollama');
 
     // Check for --pipeline-testing in remaining args
     if (remainingArgs.includes('--pipeline-testing')) {
@@ -403,8 +442,14 @@ for (let i = 0; i < args.length; i++) {
       disableLoader = true;
     }
 
-    // Add non-flag args (excluding --pipeline-testing and --disable-loader)
-    nonFlagArgs.push(...remainingArgs.filter(arg => arg !== '--pipeline-testing' && arg !== '--disable-loader'));
+    // Check for --ollama in remaining args
+    if (remainingArgs.includes('--ollama')) {
+      useOllama = true;
+      process.env.AI_PROVIDER = 'ollama';
+    }
+
+    // Add non-flag args (excluding flags)
+    nonFlagArgs.push(...remainingArgs.filter(arg => arg !== '--pipeline-testing' && arg !== '--disable-loader' && arg !== '--ollama'));
     break; // Stop parsing after developer command
   } else if (!args[i].startsWith('-')) {
     nonFlagArgs.push(args[i]);
@@ -422,7 +467,13 @@ if (developerCommand) {
   // Set global flag for loader control in developer mode too
   global.SHANNON_DISABLE_LOADER = disableLoader;
 
-  await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+  // Get dynamic executor based on AI provider
+  const runPromptWithRetry = await getRunPromptWithRetry();
+
+  // Display provider info for developer mode
+  displayProviderInfo();
+
+  await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runPromptWithRetry, loadPrompt);
 
   process.exit(0);
 }

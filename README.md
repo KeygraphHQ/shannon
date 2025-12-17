@@ -119,6 +119,46 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
+### Local AI with Ollama (Optional)
+
+Shannon supports running with local AI models via [Ollama](https://ollama.com), providing a cost-free alternative to Claude.
+
+#### Prerequisites for Ollama
+
+1. **Install Ollama**: Download from [ollama.com](https://ollama.com)
+2. **Pull a model**:
+```bash
+ollama pull qwen3:32b  # Recommended for best results
+# or
+ollama pull llama3.3:70b  # Alternative option
+```
+
+#### Running with Ollama
+
+**Start Ollama server:**
+```bash
+ollama serve
+```
+
+**Run Shannon with Ollama:**
+```bash
+AI_PROVIDER=ollama OLLAMA_MODEL=qwen3:32b ./shannon.mjs "https://your-app.com/" "/path/to/repo"
+```
+
+#### Ollama Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AI_PROVIDER` | `claude` | Set to `ollama` to use local models |
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
+| `OLLAMA_MODEL` | `qwen3:32b` | Model to use for analysis |
+
+> [!WARNING]
+> **Limitations when using Ollama:**
+> - Browser automation (Playwright) is not available
+> - Local models may produce less accurate results than Claude
+> - Recommended to use larger models (32B+ parameters) for better analysis
+
 ### Quick Start with Docker
 
 #### Build the Container

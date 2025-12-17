@@ -27,6 +27,10 @@ export function showHelp() {
 
   console.log(chalk.yellow.bold('OPTIONS:'));
   console.log('  --config <file>      YAML configuration file for authentication and testing parameters');
+  console.log('  --ollama             Use local Ollama instead of Claude');
+  console.log('  --ollama-model <m>   Ollama model to use (default: qwen3:32b)');
+  console.log('  --ollama-host <url>  Ollama server URL (default: http://localhost:11434)');
+  console.log('  --ollama-baseurl     Alias for --ollama-host');
   console.log('  --pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)');
   console.log('  --disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)\n');
 
@@ -61,6 +65,9 @@ export function showHelp() {
 
   console.log(chalk.yellow.bold('ENVIRONMENT VARIABLES:'));
   console.log('  PENTEST_MAX_RETRIES    Number of retries for AI agents (default: 3)');
+  console.log('  AI_PROVIDER            AI provider to use: "claude" (default) or "ollama"');
+  console.log('  OLLAMA_HOST            Ollama server URL (default: http://localhost:11434)');
+  console.log('  OLLAMA_MODEL           Ollama model to use (default: qwen3:32b)');
 }
 
 // Export the splash screen function for use in main
