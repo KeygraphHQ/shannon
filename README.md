@@ -471,8 +471,8 @@ The AGPL's sharing requirements primarily apply to organizations offering Shanno
 **Contributing:** At this time, we’re not accepting external code contributions (PRs).  
 Issues are welcome for bug reports and feature requests.
 
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/keygraph/shannon/issues)
-- 💡 **Suggest features** in [Discussions](https://github.com/keygraph/shannon/discussions)
+- 🐛 **Report bugs** via [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)
+- 💡 **Suggest features** in [Discussions](https://github.com/KeygraphHQ/shannon/discussions)
 - 💬 **Join our [Discord](https://discord.gg/KAqzSHHpRt)** for real-time community support
 
 ### Stay Connected
