@@ -1,0 +1,64 @@
+# Shannon Pentest Docker Compose
+# Usage:
+#   # Set environment variables first:
+#   export SHANNON_TARGET_URL="https://api.example.com"
+#   export SHANNON_REPO_PATH="/app/repos/my-project"
+#
+#   # Or use .env file (see .env.example)
+#
+#   # Run:
+#   docker compose up
+#
+#   # Resume after crash:
+#   docker compose up  # Automatically resumes from checkpoint!
+
+services:
+  shannon:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: shannon:latest
+    container_name: shannon-pentest
+
+    # Network capabilities for scanning
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+    # Access host network services
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+    environment:
+      # OAuth token - set via environment or .env file
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN}
+      - CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+      # Docker detection for Playwright
+      - SHANNON_DOCKER=true
+
+    volumes:
+      # Source code + git checkpoints (REQUIRED)
+      - ./repos:/app/repos
+
+      # Session state - enables resume after crash (REQUIRED for persistence)
+      - ./sessions:/app/sessions
+
+      # Agent execution logs - detailed debugging (RECOMMENDED)
+      - ./agent-logs:/app/agent-logs
+
+      # Final deliverables/reports (OPTIONAL - also in repos/{project}/deliverables)
+      - ./deliverables:/app/deliverables
+
+    # Target URL and repo path passed as command
+    command: ["${SHANNON_TARGET_URL}", "${SHANNON_REPO_PATH}"]
+
+    # Keep running for debugging if needed
+    stdin_open: true
+    tty: true
+
+# Persistent volumes (alternative to bind mounts)
+# Uncomment to use Docker volumes instead of local folders
+# volumes:
+#   shannon-repos:
+#   shannon-sessions:
+#   shannon-logs:

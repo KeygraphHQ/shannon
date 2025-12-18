@@ -566,6 +566,109 @@ const runParallelExploit = async (session, pipelineTestingMode, runClaudePromptW
   return { completed, failed };
 };
 
+// STREAMING: Run vuln and exploit agents in a pipeline - each exploit starts immediately when its vuln finishes
+export const runStreamingVulnExploit = async (session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
+  const vulnTypes = ['injection', 'xss', 'auth', 'ssrf', 'authz'];
+
+  console.log(chalk.cyan.bold('\n🚀 STREAMING VULNERABILITY ANALYSIS + EXPLOITATION'));
+  console.log(chalk.cyan('Each exploit agent starts immediately when its vuln agent completes'));
+  console.log(chalk.gray('─'.repeat(80)));
+
+  const { getSession } = await import('./session-manager.js');
+  const { safeValidateQueueAndDeliverable } = await import('./queue-validation.js');
+
+  const startTime = Date.now();
+  const results = {
+    vuln: { completed: [], failed: [] },
+    exploit: { completed: [], failed: [], skipped: [] }
+  };
+
+  // Create a pipeline for each vulnerability type
+  const pipelines = vulnTypes.map(async (vulnType, index) => {
+    const vulnAgent = `${vulnType}-vuln`;
+    const exploitAgent = `${vulnType}-exploit`;
+
+    // Stagger start by 1 second to avoid API overwhelm
+    await new Promise(resolve => setTimeout(resolve, index * 1000));
+
+    // Get fresh session
+    let freshSession = await getSession(session.id);
+
+    // === PHASE 1: Run Vuln Agent ===
+    if (!freshSession.completedAgents.includes(vulnAgent)) {
+      console.log(chalk.yellow(`🔍 [${vulnType.toUpperCase()}] Starting vulnerability analysis...`));
+
+      try {
+        const vulnResult = await runSingleAgent(vulnAgent, freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true);
+        results.vuln.completed.push({ agent: vulnAgent, ...vulnResult });
+        console.log(chalk.green(`✅ [${vulnType.toUpperCase()}] Vuln analysis complete (${formatDuration(vulnResult.timing || 0)})`));
+      } catch (error) {
+        results.vuln.failed.push({ agent: vulnAgent, error: error.message });
+        console.log(chalk.red(`❌ [${vulnType.toUpperCase()}] Vuln analysis failed: ${error.message}`));
+        return; // Skip exploit if vuln failed
+      }
+    } else {
+      console.log(chalk.gray(`⏭️  [${vulnType.toUpperCase()}] Vuln already completed, checking exploit...`));
+    }
+
+    // === PHASE 2: Immediately start Exploit Agent ===
+    freshSession = await getSession(session.id); // Refresh session
+
+    if (freshSession.completedAgents.includes(exploitAgent)) {
+      console.log(chalk.gray(`⏭️  [${vulnType.toUpperCase()}] Exploit already completed`));
+      return;
+    }
+
+    // Check if vulnerabilities were found
+    const validation = await safeValidateQueueAndDeliverable(vulnType, freshSession.targetRepo);
+
+    if (!validation.success || !validation.data.shouldExploit) {
+      console.log(chalk.gray(`⏭️  [${vulnType.toUpperCase()}] No vulnerabilities found, skipping exploit`));
+      results.exploit.skipped.push(exploitAgent);
+      return;
+    }
+
+    console.log(chalk.red(`💥 [${vulnType.toUpperCase()}] Starting exploitation (${validation.data.vulnerabilityCount} vulns)...`));
+
+    try {
+      const exploitResult = await runSingleAgent(exploitAgent, freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true);
+      results.exploit.completed.push({ agent: exploitAgent, ...exploitResult });
+      console.log(chalk.green(`✅ [${vulnType.toUpperCase()}] Exploitation complete (${formatDuration(exploitResult.timing || 0)})`));
+    } catch (error) {
+      results.exploit.failed.push({ agent: exploitAgent, error: error.message });
+      console.log(chalk.red(`❌ [${vulnType.toUpperCase()}] Exploitation failed: ${error.message}`));
+    }
+  });
+
+  // Wait for all pipelines to complete
+  await Promise.all(pipelines);
+
+  const totalDuration = Date.now() - startTime;
+
+  // Summary
+  console.log(chalk.gray('\n' + '─'.repeat(80)));
+  console.log(chalk.cyan.bold('📊 STREAMING RESULTS'));
+  console.log(chalk.gray('─'.repeat(80)));
+
+  console.log(chalk.yellow(`Vulnerability Analysis: ${results.vuln.completed.length}/5 succeeded, ${results.vuln.failed.length} failed`));
+  console.log(chalk.red(`Exploitation: ${results.exploit.completed.length} succeeded, ${results.exploit.failed.length} failed, ${results.exploit.skipped.length} skipped`));
+  console.log(chalk.cyan(`Total Time: ${formatDuration(totalDuration)}`));
+
+  // Calculate time saved estimate
+  const vulnTime = results.vuln.completed.reduce((sum, r) => sum + (r.timing || 0), 0);
+  const exploitTime = results.exploit.completed.reduce((sum, r) => sum + (r.timing || 0), 0);
+  const sequentialEstimate = vulnTime + exploitTime;
+  const timeSaved = sequentialEstimate - totalDuration;
+
+  if (timeSaved > 0) {
+    console.log(chalk.green(`⚡ Time saved by streaming: ~${formatDuration(timeSaved)}`));
+  }
+
+  console.log(chalk.gray('─'.repeat(80)));
+
+  return results;
+};
+
 // Run all agents in a phase
 export const runPhase = async (phaseName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt) => {
   console.log(chalk.cyan(`\n📋 Running phase: ${phaseName} (parallel execution)`));
