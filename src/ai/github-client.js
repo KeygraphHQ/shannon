@@ -9,21 +9,86 @@ import path from 'path';
 import { saveDeliverableTool, generateTotpTool } from '../../mcp-server/src/index.js';
 
 /**
- * Enhanced GitHub Models Client (Generic MCP Support)
+ * Detect and configure LLM provider based on environment variables
+ * Priority: LLM_PROVIDER env var > auto-detect from available keys
  */
-export async function* query({ prompt, options }) {
-    const token = process.env.GITHUB_TOKEN;
-    console.log("DEBUG: Checking GITHUB_TOKEN:", !!token);
-    if (!token) {
-        throw new Error('GITHUB_TOKEN environment variable is required for GitHub Models');
+function getProviderConfig() {
+    const explicitProvider = process.env.LLM_PROVIDER?.toLowerCase();
+    const githubToken = process.env.GITHUB_TOKEN;
+    const openaiKey = process.env.OPENAI_API_KEY;
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    const modelOverride = process.env.LLM_MODEL;
+
+    // Explicit provider selection
+    if (explicitProvider) {
+        switch (explicitProvider) {
+            case 'github':
+                if (!githubToken) throw new Error('LLM_PROVIDER=github but GITHUB_TOKEN not set');
+                return {
+                    provider: 'github',
+                    baseURL: 'https://models.github.ai/inference',
+                    apiKey: githubToken,
+                    model: modelOverride || 'openai/gpt-4.1'
+                };
+            case 'openai':
+                if (!openaiKey) throw new Error('LLM_PROVIDER=openai but OPENAI_API_KEY not set');
+                return {
+                    provider: 'openai',
+                    baseURL: 'https://api.openai.com/v1',
+                    apiKey: openaiKey,
+                    model: modelOverride || 'gpt-4o'
+                };
+            case 'anthropic':
+                if (!anthropicKey) throw new Error('LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY not set');
+                // Note: Anthropic uses a different SDK, but OpenAI SDK can work via compatibility layer
+                throw new Error('Anthropic provider requires @anthropic-ai/sdk - use Claude Code or set LLM_PROVIDER=github/openai');
+            default:
+                throw new Error(`Unknown LLM_PROVIDER: ${explicitProvider}. Use: github, openai, or anthropic`);
+        }
     }
 
+    // Auto-detect based on available keys (priority order)
+    if (githubToken) {
+        console.log('🤖 Auto-detected provider: GitHub Models');
+        return {
+            provider: 'github',
+            baseURL: 'https://models.github.ai/inference',
+            apiKey: githubToken,
+            model: modelOverride || 'openai/gpt-4.1'
+        };
+    }
+
+    if (openaiKey) {
+        console.log('🤖 Auto-detected provider: OpenAI');
+        return {
+            provider: 'openai',
+            baseURL: 'https://api.openai.com/v1',
+            apiKey: openaiKey,
+            model: modelOverride || 'gpt-4o'
+        };
+    }
+
+    if (anthropicKey) {
+        throw new Error('Anthropic API key found but Anthropic provider requires @anthropic-ai/sdk. Set GITHUB_TOKEN or OPENAI_API_KEY instead.');
+    }
+
+    throw new Error('No LLM provider configured. Set GITHUB_TOKEN, OPENAI_API_KEY, or ANTHROPIC_API_KEY in your .env file');
+}
+
+/**
+ * Multi-Provider LLM Client (OpenAI SDK compatible)
+ * Supports: GitHub Models, OpenAI, (Anthropic via compatibility layer)
+ */
+export async function* query({ prompt, options }) {
+    const config = getProviderConfig();
+    console.log(`🤖 Using ${config.provider} with model: ${config.model}`);
+
     const client = new OpenAI({
-        baseURL: "https://models.github.ai/inference",
-        apiKey: token,
+        baseURL: config.baseURL,
+        apiKey: config.apiKey,
     });
 
-    const modelName = "openai/gpt-4.1";
+    const modelName = config.model;
 
     // 1. Initialize Tools List with Native Filesystem Tools (Replicating "Computer Use" basics)
     const tools = [
