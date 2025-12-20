@@ -6,7 +6,9 @@
   "scripts": {
     "start": "./shannon.mjs",
     "generate-source": "node local-source-generator.mjs",
-    "blackbox": "node local-source-generator.mjs"
+    "blackbox": "node local-source-generator.mjs",
+    "test": "node --test src/**/*.test.js",
+    "test:llm": "node --test src/ai/llm-client.test.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",

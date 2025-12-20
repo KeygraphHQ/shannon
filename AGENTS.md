@@ -87,6 +87,7 @@ Update if:
 | **P0** | Error handling & graceful degradation | 🚧 |
 | **P0** | Auto-detect black-box mode | ❌ |
 | **P0** | Multi-provider LLM support | ✅ |
+| **P0** | LLM & Proxy Infrastructure (Phase 1.1) | ✅ |
 | **P1** | YAML config support | 🚧 |
 | **P1** | Improve pseudo-source quality | ❌ |
 
@@ -106,12 +107,22 @@ Follow the phased approach in `LSG-TODO.md`:
 ### Environment Variables
 
 ```bash
-# Required (one of these)
+# Cloud Providers (one of these)
 GITHUB_TOKEN=ghp_...           # For GitHub Models
-ANTHROPIC_API_KEY=sk-ant-...   # For Claude
 OPENAI_API_KEY=sk-...          # For OpenAI
+ANTHROPIC_API_KEY=sk-ant-...   # For Claude (requires separate SDK)
+
+# Local Providers (no API key needed)
+LLM_PROVIDER=ollama            # Ollama (localhost:11434)
+LLM_PROVIDER=llamacpp          # llama.cpp (localhost:8080)
+LLM_PROVIDER=lmstudio          # LM Studio (localhost:1234)
+
+# Custom Endpoint
+LLM_PROVIDER=custom
+LLM_BASE_URL=https://your-endpoint.com/v1
 
 # Optional
+LLM_MODEL=codellama            # Override default model
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
@@ -119,18 +130,23 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 
 | File | Purpose |
 |:-----|:--------|
-| `src/ai/github-client.js` | GitHub Models integration (OpenAI SDK) |
+| `src/ai/llm-client.js` | Multi-provider LLM client (OpenAI SDK compatible) |
+| `src/ai/llm-client.test.js` | Unit tests for provider configuration |
 | `local-source-generator.mjs` | Black-box reconnaissance entry point |
 | `src/local-source-generator/` | LSG module components |
 | `src/prompts/prompt-manager.js` | Prompt loading and variable injection |
-| `prompts/pre-recon-code.txt` | Pre-reconnaissance prompt (compressed for token limits) |
+| `prompts/pre-recon-code.txt` | Pre-reconnaissance prompt |
 
-### GitHub Models Constraints
+### Supported LLM Providers
 
-- Model: `openai/gpt-4.1` (recommended)
-- Endpoint: `https://models.github.ai/inference`
-- Tool schemas must be OpenAI-compatible JSON Schema format
-- Rate limits apply based on your GitHub account tier
+| Provider | Default Endpoint | Default Model |
+|:---------|:-----------------|:--------------|
+| `github` | `models.github.ai/inference` | `openai/gpt-4.1` |
+| `openai` | `api.openai.com/v1` | `gpt-4o` |
+| `ollama` | `localhost:11434/v1` | `llama3.2` |
+| `llamacpp` | `localhost:8080/v1` | `local-model` |
+| `lmstudio` | `localhost:1234/v1` | `local-model` |
+| `custom` | *(requires LLM_BASE_URL)* | `default` |
 
 ---
 
@@ -174,4 +190,4 @@ If upstream accepts any of our features, we consider that a success.
 
 ---
 
-*Last updated: 2024-12-20*
+*Last updated: 2025-12-20*

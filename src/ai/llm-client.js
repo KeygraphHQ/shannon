@@ -23,7 +23,7 @@ import { saveDeliverableTool, generateTotpTool } from '../../mcp-server/src/inde
  * - llamacpp: Local llama.cpp server (http://localhost:8080/v1)
  * - custom: Any OpenAI-compatible endpoint (requires LLM_BASE_URL)
  */
-function getProviderConfig() {
+export function getProviderConfig() {
     const explicitProvider = process.env.LLM_PROVIDER?.toLowerCase();
     const customBaseURL = process.env.LLM_BASE_URL;
     const githubToken = process.env.GITHUB_TOKEN;
