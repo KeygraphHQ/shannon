@@ -10,14 +10,29 @@ import { saveDeliverableTool, generateTotpTool } from '../../mcp-server/src/inde
 
 /**
  * Detect and configure LLM provider based on environment variables
- * Priority: LLM_PROVIDER env var > auto-detect from available keys
+ * 
+ * Priority:
+ * 1. LLM_PROVIDER + LLM_BASE_URL (fully custom endpoint)
+ * 2. LLM_PROVIDER explicit selection
+ * 3. Auto-detect from available API keys
+ * 
+ * Supported providers:
+ * - github: GitHub Models (https://models.github.ai/inference)
+ * - openai: OpenAI API (https://api.openai.com/v1)
+ * - ollama: Local Ollama (http://localhost:11434/v1)
+ * - llamacpp: Local llama.cpp server (http://localhost:8080/v1)
+ * - custom: Any OpenAI-compatible endpoint (requires LLM_BASE_URL)
  */
 function getProviderConfig() {
     const explicitProvider = process.env.LLM_PROVIDER?.toLowerCase();
+    const customBaseURL = process.env.LLM_BASE_URL;
     const githubToken = process.env.GITHUB_TOKEN;
     const openaiKey = process.env.OPENAI_API_KEY;
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
     const modelOverride = process.env.LLM_MODEL;
+
+    // For local providers that don't need real API keys
+    const dummyKey = 'not-needed';
 
     // Explicit provider selection
     if (explicitProvider) {
@@ -26,24 +41,69 @@ function getProviderConfig() {
                 if (!githubToken) throw new Error('LLM_PROVIDER=github but GITHUB_TOKEN not set');
                 return {
                     provider: 'github',
-                    baseURL: 'https://models.github.ai/inference',
+                    baseURL: customBaseURL || 'https://models.github.ai/inference',
                     apiKey: githubToken,
                     model: modelOverride || 'openai/gpt-4.1'
                 };
+
             case 'openai':
                 if (!openaiKey) throw new Error('LLM_PROVIDER=openai but OPENAI_API_KEY not set');
                 return {
                     provider: 'openai',
-                    baseURL: 'https://api.openai.com/v1',
+                    baseURL: customBaseURL || 'https://api.openai.com/v1',
                     apiKey: openaiKey,
                     model: modelOverride || 'gpt-4o'
                 };
+
+            case 'ollama':
+                // Ollama exposes OpenAI-compatible API at /v1
+                // See: https://ollama.ai/blog/openai-compatibility
+                return {
+                    provider: 'ollama',
+                    baseURL: customBaseURL || 'http://localhost:11434/v1',
+                    apiKey: dummyKey,
+                    model: modelOverride || 'llama3.2'
+                };
+
+            case 'llamacpp':
+            case 'llama.cpp':
+            case 'llama-cpp':
+                // llama-cpp-python server exposes OpenAI-compatible API
+                // See: https://github.com/abetlen/llama-cpp-python#openai-compatible-web-server
+                return {
+                    provider: 'llamacpp',
+                    baseURL: customBaseURL || 'http://localhost:8080/v1',
+                    apiKey: dummyKey,
+                    model: modelOverride || 'local-model'
+                };
+
+            case 'lmstudio':
+                // LM Studio exposes OpenAI-compatible API
+                return {
+                    provider: 'lmstudio',
+                    baseURL: customBaseURL || 'http://localhost:1234/v1',
+                    apiKey: dummyKey,
+                    model: modelOverride || 'local-model'
+                };
+
+            case 'custom':
+                // Fully custom endpoint - requires LLM_BASE_URL
+                if (!customBaseURL) {
+                    throw new Error('LLM_PROVIDER=custom requires LLM_BASE_URL to be set');
+                }
+                return {
+                    provider: 'custom',
+                    baseURL: customBaseURL,
+                    apiKey: openaiKey || githubToken || dummyKey,
+                    model: modelOverride || 'default'
+                };
+
             case 'anthropic':
                 if (!anthropicKey) throw new Error('LLM_PROVIDER=anthropic but ANTHROPIC_API_KEY not set');
-                // Note: Anthropic uses a different SDK, but OpenAI SDK can work via compatibility layer
-                throw new Error('Anthropic provider requires @anthropic-ai/sdk - use Claude Code or set LLM_PROVIDER=github/openai');
+                throw new Error('Anthropic provider requires @anthropic-ai/sdk - use Claude Code or set LLM_PROVIDER=github/openai/ollama');
+
             default:
-                throw new Error(`Unknown LLM_PROVIDER: ${explicitProvider}. Use: github, openai, or anthropic`);
+                throw new Error(`Unknown LLM_PROVIDER: ${explicitProvider}. Supported: github, openai, ollama, llamacpp, lmstudio, custom`);
         }
     }
 
@@ -52,7 +112,7 @@ function getProviderConfig() {
         console.log('🤖 Auto-detected provider: GitHub Models');
         return {
             provider: 'github',
-            baseURL: 'https://models.github.ai/inference',
+            baseURL: customBaseURL || 'https://models.github.ai/inference',
             apiKey: githubToken,
             model: modelOverride || 'openai/gpt-4.1'
         };
@@ -62,7 +122,7 @@ function getProviderConfig() {
         console.log('🤖 Auto-detected provider: OpenAI');
         return {
             provider: 'openai',
-            baseURL: 'https://api.openai.com/v1',
+            baseURL: customBaseURL || 'https://api.openai.com/v1',
             apiKey: openaiKey,
             model: modelOverride || 'gpt-4o'
         };
@@ -72,7 +132,12 @@ function getProviderConfig() {
         throw new Error('Anthropic API key found but Anthropic provider requires @anthropic-ai/sdk. Set GITHUB_TOKEN or OPENAI_API_KEY instead.');
     }
 
-    throw new Error('No LLM provider configured. Set GITHUB_TOKEN, OPENAI_API_KEY, or ANTHROPIC_API_KEY in your .env file');
+    throw new Error(`No LLM provider configured. Set one of:
+  - GITHUB_TOKEN (for GitHub Models)
+  - OPENAI_API_KEY (for OpenAI)
+  - LLM_PROVIDER=ollama (for local Ollama)
+  - LLM_PROVIDER=llamacpp (for local llama.cpp)
+  - LLM_PROVIDER=custom + LLM_BASE_URL (for any OpenAI-compatible endpoint)`);
 }
 
 /**

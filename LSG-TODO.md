@@ -37,9 +37,9 @@ This document charts our path from "barely functional prototype" to "instrument 
 *Because intelligence should be plug-and-play.*
 
 - [x] Multi-provider support — OpenAI, Anthropic, and the local heroes (Ollama, Llama.cpp)
-- [ ] Web-to-Local API Proxies — bridging the gap between browser-based models and our CLI
+- [x] Web-to-Local API Proxies — bridging the gap between browser-based models and our CLI
 - [x] Unified API interface — because switching providers shouldn't require a rewrite
-- [ ] Custom endpoint configuration — for when you're running your own cluster in a basement
+- [x] Custom endpoint configuration — for when you're running your own cluster in a basement
 
 ### 1.2 Error Handling & Robustness
 

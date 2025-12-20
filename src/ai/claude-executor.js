@@ -7,7 +7,7 @@
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
 // import { query } from '@anthropic-ai/claude-agent-sdk';
-import { query } from './github-client.js';
+import { query } from './llm-client.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
