@@ -6,7 +6,8 @@
 
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+// import { query } from '@anthropic-ai/claude-agent-sdk';
+import { query } from './github-client.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
@@ -107,10 +108,10 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
   // Auto-detect execution mode to adjust logging behavior
   const isParallelExecution = description.includes('vuln agent') || description.includes('exploit agent');
   const useCleanOutput = description.includes('Pre-recon agent') ||
-                         description.includes('Recon agent') ||
-                         description.includes('Executive Summary and Report Cleanup') ||
-                         description.includes('vuln agent') ||
-                         description.includes('exploit agent');
+    description.includes('Recon agent') ||
+    description.includes('Executive Summary and Report Cleanup') ||
+    description.includes('vuln agent') ||
+    description.includes('exploit agent');
 
   // Disable status manager - using simple JSON filtering for all agents now
   const statusManager = null;
@@ -119,8 +120,8 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
   let progressIndicator = null;
   if (useCleanOutput && !global.SHANNON_DISABLE_LOADER) {
     const agentType = description.includes('Pre-recon') ? 'pre-reconnaissance' :
-                     description.includes('Recon') ? 'reconnaissance' :
-                     description.includes('Report') ? 'report generation' : 'analysis';
+      description.includes('Recon') ? 'reconnaissance' :
+        description.includes('Report') ? 'report generation' : 'analysis';
     progressIndicator = new ProgressIndicator(`Running ${agentType}...`);
   }
 
@@ -230,181 +231,181 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
           lastHeartbeat = now;
         }
 
-      if (message.type === "assistant") {
-        turnCount++;
+        if (message.type === "assistant") {
+          turnCount++;
 
-        const content = Array.isArray(message.message.content)
-          ? message.message.content.map(c => c.text || JSON.stringify(c)).join('\n')
-          : message.message.content;
+          const content = Array.isArray(message.message.content)
+            ? message.message.content.map(c => c.text || JSON.stringify(c)).join('\n')
+            : message.message.content;
 
-        if (statusManager) {
-          // Smart status updates for parallel execution
-          const toolUse = statusManager.parseToolUse(content);
-          statusManager.updateAgentStatus(description, {
-            tool_use: toolUse,
-            assistant_text: content,
-            turnCount
-          });
-        } else if (useCleanOutput) {
-          // Clean output for all agents: filter JSON tool calls but show meaningful text
-          const cleanedContent = filterJsonToolCalls(content);
-          if (cleanedContent.trim()) {
-            // Temporarily stop progress indicator to show output
-            if (progressIndicator) {
-              progressIndicator.stop();
-            }
+          if (statusManager) {
+            // Smart status updates for parallel execution
+            const toolUse = statusManager.parseToolUse(content);
+            statusManager.updateAgentStatus(description, {
+              tool_use: toolUse,
+              assistant_text: content,
+              turnCount
+            });
+          } else if (useCleanOutput) {
+            // Clean output for all agents: filter JSON tool calls but show meaningful text
+            const cleanedContent = filterJsonToolCalls(content);
+            if (cleanedContent.trim()) {
+              // Temporarily stop progress indicator to show output
+              if (progressIndicator) {
+                progressIndicator.stop();
+              }
 
-            if (isParallelExecution) {
-              // Compact output for parallel agents with prefixes
-              const prefix = getAgentPrefix(description);
-              console.log(colorFn(`${prefix} ${cleanedContent}`));
-            } else {
-              // Full turn output for single agents
-              console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`))
-              console.log(colorFn(`    ${cleanedContent}`));
-            }
-
-            // Restart progress indicator after output
-            if (progressIndicator) {
-              progressIndicator.start();
-            }
-          }
-        } else {
-          // Full streaming output - show complete messages with specialist color
-          console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`))
-          console.log(colorFn(`    ${content}`));
-        }
-
-        // Log to audit system (crash-safe, append-only)
-        if (auditSession) {
-          await auditSession.logEvent('llm_response', {
-            turn: turnCount,
-            content,
-            timestamp: new Date().toISOString()
-          });
-        }
-
-        messages.push(content);
-
-        // Check for API error patterns in assistant message content
-        if (content && typeof content === 'string') {
-          const lowerContent = content.toLowerCase();
-          if (lowerContent.includes('session limit reached')) {
-            throw new PentestError('Session limit reached', 'billing', false);
-          }
-          if (lowerContent.includes('api error') || lowerContent.includes('terminated')) {
-            apiErrorDetected = true;
-            console.log(chalk.red(`    ⚠️  API Error detected in assistant response: ${content.trim()}`));
-          }
-        }
-
-      } else if (message.type === "system" && message.subtype === "init") {
-        // Show useful system info only for verbose agents
-        if (!useCleanOutput) {
-          console.log(chalk.blue(`    ℹ️  Model: ${message.model}, Permission: ${message.permissionMode}`));
-          if (message.mcp_servers && message.mcp_servers.length > 0) {
-            const mcpStatus = message.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
-            console.log(chalk.blue(`    📦 MCP: ${mcpStatus}`));
-          }
-        }
-
-      } else if (message.type === "user") {
-        // Skip user messages (these are our own inputs echoed back)
-        continue;
-
-      } else if (message.type === "tool_use") {
-        console.log(chalk.yellow(`\n    🔧 Using Tool: ${message.name}`));
-        if (message.input && Object.keys(message.input).length > 0) {
-          console.log(chalk.gray(`    Input: ${JSON.stringify(message.input, null, 2)}`));
-        }
-
-        // Log tool start event
-        if (auditSession) {
-          await auditSession.logEvent('tool_start', {
-            toolName: message.name,
-            parameters: message.input,
-            timestamp: new Date().toISOString()
-          });
-        }
-      } else if (message.type === "tool_result") {
-        console.log(chalk.green(`    ✅ Tool Result:`));
-        if (message.content) {
-          // Show tool results but truncate if too long
-          const resultStr = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
-          if (resultStr.length > 500) {
-            console.log(chalk.gray(`    ${resultStr.slice(0, 500)}...\n    [Result truncated - ${resultStr.length} total chars]`));
-          } else {
-            console.log(chalk.gray(`    ${resultStr}`));
-          }
-        }
-
-        // Log tool end event
-        if (auditSession) {
-          await auditSession.logEvent('tool_end', {
-            result: message.content,
-            timestamp: new Date().toISOString()
-          });
-        }
-      } else if (message.type === "result") {
-        result = message.result;
-
-        if (!statusManager) {
-          if (useCleanOutput) {
-            // Clean completion output - just duration and cost
-            console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
-            const cost = message.total_cost_usd || 0;
-            console.log(chalk.gray(`    ⏱️  Duration: ${(message.duration_ms/1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
-
-            if (message.subtype === "error_max_turns") {
-              console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
-            } else if (message.subtype === "error_during_execution") {
-              console.log(chalk.red(`    ❌ Stopped: Execution error`));
-            }
-
-            if (message.permission_denials && message.permission_denials.length > 0) {
-              console.log(chalk.yellow(`    🚫 ${message.permission_denials.length} permission denials`));
-            }
-          } else {
-            // Full completion output for agents without clean output
-            console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
-            const cost = message.total_cost_usd || 0;
-            console.log(chalk.gray(`    ⏱️  Duration: ${(message.duration_ms/1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
-
-            if (message.subtype === "error_max_turns") {
-              console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
-            } else if (message.subtype === "error_during_execution") {
-              console.log(chalk.red(`    ❌ Stopped: Execution error`));
-            }
-
-            if (message.permission_denials && message.permission_denials.length > 0) {
-              console.log(chalk.yellow(`    🚫 ${message.permission_denials.length} permission denials`));
-            }
-
-            // Show result content (if it's reasonable length)
-            if (result && typeof result === 'string') {
-              if (result.length > 1000) {
-                console.log(chalk.magenta(`    📄 ${result.slice(0, 1000)}... [${result.length} total chars]`));
+              if (isParallelExecution) {
+                // Compact output for parallel agents with prefixes
+                const prefix = getAgentPrefix(description);
+                console.log(colorFn(`${prefix} ${cleanedContent}`));
               } else {
-                console.log(chalk.magenta(`    📄 ${result}`));
+                // Full turn output for single agents
+                console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`))
+                console.log(colorFn(`    ${cleanedContent}`));
+              }
+
+              // Restart progress indicator after output
+              if (progressIndicator) {
+                progressIndicator.start();
+              }
+            }
+          } else {
+            // Full streaming output - show complete messages with specialist color
+            console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`))
+            console.log(colorFn(`    ${content}`));
+          }
+
+          // Log to audit system (crash-safe, append-only)
+          if (auditSession) {
+            await auditSession.logEvent('llm_response', {
+              turn: turnCount,
+              content,
+              timestamp: new Date().toISOString()
+            });
+          }
+
+          messages.push(content);
+
+          // Check for API error patterns in assistant message content
+          if (content && typeof content === 'string') {
+            const lowerContent = content.toLowerCase();
+            if (lowerContent.includes('session limit reached')) {
+              throw new PentestError('Session limit reached', 'billing', false);
+            }
+            if (lowerContent.includes('api error') || lowerContent.includes('terminated')) {
+              apiErrorDetected = true;
+              console.log(chalk.red(`    ⚠️  API Error detected in assistant response: ${content.trim()}`));
+            }
+          }
+
+        } else if (message.type === "system" && message.subtype === "init") {
+          // Show useful system info only for verbose agents
+          if (!useCleanOutput) {
+            console.log(chalk.blue(`    ℹ️  Model: ${message.model}, Permission: ${message.permissionMode}`));
+            if (message.mcp_servers && message.mcp_servers.length > 0) {
+              const mcpStatus = message.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
+              console.log(chalk.blue(`    📦 MCP: ${mcpStatus}`));
+            }
+          }
+
+        } else if (message.type === "user") {
+          // Skip user messages (these are our own inputs echoed back)
+          continue;
+
+        } else if (message.type === "tool_use") {
+          console.log(chalk.yellow(`\n    🔧 Using Tool: ${message.name}`));
+          if (message.input && Object.keys(message.input).length > 0) {
+            console.log(chalk.gray(`    Input: ${JSON.stringify(message.input, null, 2)}`));
+          }
+
+          // Log tool start event
+          if (auditSession) {
+            await auditSession.logEvent('tool_start', {
+              toolName: message.name,
+              parameters: message.input,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } else if (message.type === "tool_result") {
+          console.log(chalk.green(`    ✅ Tool Result:`));
+          if (message.content) {
+            // Show tool results but truncate if too long
+            const resultStr = typeof message.content === 'string' ? message.content : JSON.stringify(message.content, null, 2);
+            if (resultStr.length > 500) {
+              console.log(chalk.gray(`    ${resultStr.slice(0, 500)}...\n    [Result truncated - ${resultStr.length} total chars]`));
+            } else {
+              console.log(chalk.gray(`    ${resultStr}`));
+            }
+          }
+
+          // Log tool end event
+          if (auditSession) {
+            await auditSession.logEvent('tool_end', {
+              result: message.content,
+              timestamp: new Date().toISOString()
+            });
+          }
+        } else if (message.type === "result") {
+          result = message.result;
+
+          if (!statusManager) {
+            if (useCleanOutput) {
+              // Clean completion output - just duration and cost
+              console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
+              const cost = message.total_cost_usd || 0;
+              console.log(chalk.gray(`    ⏱️  Duration: ${(message.duration_ms / 1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
+
+              if (message.subtype === "error_max_turns") {
+                console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
+              } else if (message.subtype === "error_during_execution") {
+                console.log(chalk.red(`    ❌ Stopped: Execution error`));
+              }
+
+              if (message.permission_denials && message.permission_denials.length > 0) {
+                console.log(chalk.yellow(`    🚫 ${message.permission_denials.length} permission denials`));
+              }
+            } else {
+              // Full completion output for agents without clean output
+              console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
+              const cost = message.total_cost_usd || 0;
+              console.log(chalk.gray(`    ⏱️  Duration: ${(message.duration_ms / 1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
+
+              if (message.subtype === "error_max_turns") {
+                console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
+              } else if (message.subtype === "error_during_execution") {
+                console.log(chalk.red(`    ❌ Stopped: Execution error`));
+              }
+
+              if (message.permission_denials && message.permission_denials.length > 0) {
+                console.log(chalk.yellow(`    🚫 ${message.permission_denials.length} permission denials`));
+              }
+
+              // Show result content (if it's reasonable length)
+              if (result && typeof result === 'string') {
+                if (result.length > 1000) {
+                  console.log(chalk.magenta(`    📄 ${result.slice(0, 1000)}... [${result.length} total chars]`));
+                } else {
+                  console.log(chalk.magenta(`    📄 ${result}`));
+                }
               }
             }
           }
+
+          // Track cost for all agents
+          const cost = message.total_cost_usd || 0;
+          const agentKey = description.toLowerCase().replace(/\s+/g, '-');
+          costResults.agents[agentKey] = cost;
+          costResults.total += cost;
+
+          // Store cost for return value and partial tracking
+          totalCost = cost;
+          partialCost = cost;
+          break;
+        } else {
+          // Log any other message types we might not be handling
+          console.log(chalk.gray(`    💬 ${message.type}: ${JSON.stringify(message, null, 2)}`));
         }
-
-        // Track cost for all agents
-        const cost = message.total_cost_usd || 0;
-        const agentKey = description.toLowerCase().replace(/\s+/g, '-');
-        costResults.agents[agentKey] = cost;
-        costResults.total += cost;
-
-        // Store cost for return value and partial tracking
-        totalCost = cost;
-        partialCost = cost;
-        break;
-      } else {
-        // Log any other message types we might not be handling
-        console.log(chalk.gray(`    💬 ${message.type}: ${JSON.stringify(message, null, 2)}`));
-      }
       }
     } catch (queryError) {
       throw queryError; // Re-throw to outer catch
@@ -433,8 +434,8 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
     if (progressIndicator) {
       // Single agents with progress indicator
       const agentType = description.includes('Pre-recon') ? 'Pre-recon analysis' :
-                       description.includes('Recon') ? 'Reconnaissance' :
-                       description.includes('Report') ? 'Report generation' : 'Analysis';
+        description.includes('Recon') ? 'Reconnaissance' :
+          description.includes('Report') ? 'Report generation' : 'Analysis';
       progressIndicator.finish(`${agentType} complete! (${turnCount} turns, ${formatDuration(duration)})`);
     } else if (isParallelExecution) {
       // Compact completion for parallel agents
@@ -488,8 +489,8 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       // Single agents with progress indicator
       progressIndicator.stop();
       const agentType = description.includes('Pre-recon') ? 'Pre-recon analysis' :
-                       description.includes('Recon') ? 'Reconnaissance' :
-                       description.includes('Report') ? 'Report generation' : 'Analysis';
+        description.includes('Recon') ? 'Reconnaissance' :
+          description.includes('Report') ? 'Report generation' : 'Analysis';
       console.log(chalk.red(`❌ ${agentType} failed (${formatDuration(duration)})`));
     } else if (isParallelExecution) {
       // Compact error for parallel agents

@@ -5,7 +5,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import { path, fs } from 'zx';
+import { path, fs, $ } from 'zx';
 import chalk from 'chalk';
 import dotenv from 'dotenv';
 
@@ -194,10 +194,10 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
 
   // Determine which phase to start from based on next agent
   const startPhase = nextAgent.name === 'pre-recon' ? 1
-                   : nextAgent.name === 'recon' ? 2
-                   : ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'].includes(nextAgent.name) ? 3
-                   : ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'].includes(nextAgent.name) ? 4
-                   : nextAgent.name === 'report' ? 5 : 1;
+    : nextAgent.name === 'recon' ? 2
+      : ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'].includes(nextAgent.name) ? 3
+        : ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'].includes(nextAgent.name) ? 4
+          : nextAgent.name === 'report' ? 5 : 1;
 
   // PHASE 1: PRE-RECONNAISSANCE
   if (startPhase <= 1) {

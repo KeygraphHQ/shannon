@@ -9,11 +9,14 @@ import chalk from 'chalk';
 import { PentestError, handlePromptError } from '../error-handling.js';
 import { MCP_AGENT_MAPPING } from '../constants.js';
 
+import { fileURLToPath } from 'url';
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(authentication) {
   try {
     // Load the login instructions template
-    const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
+    const loginInstructionsPath = path.join(__dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
 
     if (!await fs.pathExists(loginInstructionsPath)) {
       throw new PentestError(
@@ -194,7 +197,7 @@ export async function loadPrompt(promptName, variables, config = null, pipelineT
   try {
     // Use pipeline testing prompts if pipeline testing mode is enabled
     const baseDir = pipelineTestingMode ? 'prompts/pipeline-testing' : 'prompts';
-    const promptsDir = path.join(import.meta.dirname, '..', '..', baseDir);
+    const promptsDir = path.join(__dirname, '..', '..', baseDir);
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 
     // Debug message for pipeline testing mode

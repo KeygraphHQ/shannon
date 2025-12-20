@@ -4,22 +4,39 @@
   "type": "module",
   "main": "shannon.mjs",
   "scripts": {
-    "start": "./shannon.mjs"
+    "start": "./shannon.mjs",
+    "generate-source": "node local-source-generator.mjs",
+    "blackbox": "node local-source-generator.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@azure-rest/ai-inference": "^1.0.0-beta.6",
+    "@azure/core-auth": "^1.10.1",
+    "@modelcontextprotocol/sdk": "^1.25.1",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
+    "axios": "^1.13.2",
     "boxen": "^8.0.1",
     "chalk": "^5.0.0",
+    "cheerio": "^1.1.2",
+    "cli-progress": "^3.12.0",
+    "commander": "^14.0.2",
     "dotenv": "^16.4.5",
     "figlet": "^1.9.3",
     "gradient-string": "^3.0.0",
     "js-yaml": "^4.1.0",
+    "katana": "^0.3.3",
+    "openai": "^6.15.0",
+    "playwright": "^1.57.0",
     "zod": "^3.22.4",
     "zx": "^8.0.0"
   },
   "bin": {
-    "shannon": "./shannon.mjs"
-  }
+    "shannon": "./shannon.mjs",
+    "shannon-blackbox": "./local-source-generator.mjs"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.57.0"
+  },
+  "description": "Shannon - AI Penetration Testing with Black-Box Support"
 }

@@ -1,0 +1,38 @@
+# Shannon Black-Box Mode Configuration
+# Use this when you don't have source code access
+
+mode: black-box
+
+reconnaissance:
+  aggressive_crawling: true
+  javascript_analysis: true
+  api_schema_discovery: true
+  max_depth: 3
+  timeout: 30
+
+authentication:
+  login_type: form
+  login_url: "https://your-app.com/login"
+  credentials:
+    username: "test@example.com"
+    password: "testpassword"
+  
+  login_flow:
+    - "Type $username into the email field"
+    - "Type $password into the password field"
+    - "Click the 'Sign In' button"
+  
+  success_condition: 
+    type: url_contains
+    value: "/dashboard"
+
+rules:
+  avoid: 
+    - description: "Avoid logout to maintain session"
+      type: path
+      url_path: "/logout"
+  
+  focus:
+    - description: "Prioritize API endpoints"
+      type: path
+      url_path: "/api"

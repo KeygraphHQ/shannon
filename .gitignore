@@ -2,3 +2,20 @@ node_modules/
 .shannon-store.json
 agent-logs/
 /audit-logs/
+
+# Environment files
+.env
+.env.local
+
+# Test outputs and temporary files
+test-output*/
+breckland/
+models.json
+*.bak
+*.backup
+.DS_Store
+
+# IDE
+.idea/
+.vscode/
+*.swp
