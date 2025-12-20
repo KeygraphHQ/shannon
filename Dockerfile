@@ -121,11 +121,14 @@ RUN npm ci --only=production && \
 COPY . .
 
 # Create directories for session data and ensure proper permissions
-
-RUN mkdir -p /app/sessions /app/deliverables /app/repos && \
-    chown -R pentest:pentest /app /app/repos && \
+RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
+    mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
+    chmod 777 /app && \
+    chmod 777 /tmp/.cache && \
+    chmod 777 /tmp/.config && \
+    chmod 777 /tmp/.npm && \
+    chown -R pentest:pentest /app && \
     chmod +x /app/shannon.mjs
-
 
 # Switch to non-root user
 USER pentest
@@ -139,7 +142,10 @@ ENV PATH="/usr/local/bin:$PATH"
 ENV SHANNON_DOCKER=true
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
 ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
-
+ENV npm_config_cache=/tmp/.npm
+ENV HOME=/tmp
+ENV XDG_CACHE_HOME=/tmp/.cache
+ENV XDG_CONFIG_HOME=/tmp/.config
 
 # Set entrypoint
 ENTRYPOINT ["./shannon.mjs"]
