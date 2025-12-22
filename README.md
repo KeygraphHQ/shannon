@@ -192,6 +192,12 @@ docker run --rm -it \
       --config /app/configs/example-config.yaml
 ```
 
+#### Platform-Specific Instructions
+
+**For Linux (Native Docker):**
+
+Add the `--user $(id -u):$(id -g)` flag to the Docker commands above to avoid permission issues with volume mounts. Docker Desktop on macOS and Windows handles this automatically, but native Linux Docker requires explicit user mapping.
+
 **Network Capabilities:**
 
 - `--cap-add=NET_RAW` - Enables advanced port scanning with nmap
