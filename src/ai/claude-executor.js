@@ -15,7 +15,7 @@ import { ProgressIndicator } from '../progress-indicator.js';
 import { timingResults, costResults, Timer } from '../utils/metrics.js';
 import { formatDuration } from '../audit/utils.js';
 import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace } from '../utils/git-manager.js';
-import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
+import { AGENT_VALIDATORS, MCP_AGENT_MAPPING, AGENT_MODEL_MAPPING, DEFAULT_MODEL } from '../constants.js';
 import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';
 import { generateSessionLogPath } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
@@ -192,13 +192,23 @@ async function runClaudePrompt(prompt, sourceDir, allowedTools = 'Read', context
       };
     }
 
+    // Select model based on agent type - use faster models for simpler tasks
+    const selectedModel = agentName ? (AGENT_MODEL_MAPPING[agentName] || DEFAULT_MODEL) : DEFAULT_MODEL;
+
     const options = {
-      model: 'claude-sonnet-4-5-20250929', // Use latest Claude 4.5 Sonnet
+      model: selectedModel,
       maxTurns: 10_000, // Maximum turns for autonomous work
       cwd: sourceDir, // Set working directory using SDK option
       permissionMode: 'bypassPermissions', // Bypass all permission checks for pentesting
       mcpServers,
     };
+
+    // Log model selection for visibility
+    if (agentName && AGENT_MODEL_MAPPING[agentName]) {
+      const isHaiku = selectedModel.includes('haiku');
+      const modelShort = isHaiku ? 'Haiku (fast)' : 'Sonnet';
+      console.log(chalk.gray(`    🤖 Model: ${modelShort}`));
+    }
 
     // SDK Options only shown for verbose agents (not clean output)
     if (!useCleanOutput) {
@@ -589,9 +599,10 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
 
       // Validate output after successful run
       if (result.success) {
-        const validationPassed = await validateAgentOutput(result, agentName, sourceDir);
+        const validationResult = await validateAgentOutput(result, agentName, sourceDir);
 
-        if (validationPassed) {
+        // Handle full success
+        if (validationResult === true) {
           // Check if API error was detected but validation passed
           if (result.apiErrorDetected) {
             console.log(chalk.yellow(`📋 Validation: Ready for exploitation despite API error warnings`));
@@ -612,9 +623,90 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
           await commitGitSuccess(sourceDir, description);
           console.log(chalk.green.bold(`🎉 ${description} completed successfully on attempt ${attempt}/${maxRetries}`));
           return result;
-        } else {
+        }
+
+        // Handle partial success - try focused recovery instead of full retry
+        if (validationResult === 'partial') {
+          console.log(chalk.yellow(`⚠️ ${description} partially completed - attempting focused recovery`));
+
+          // Try a focused recovery prompt to generate the final deliverable
+          const recoveryPrompt = `
+IMPORTANT: Previous agent run completed data collection but failed to write the final deliverable due to output size limits.
+
+The intermediate analysis files already exist in the deliverables/ folder. Your ONLY task is to:
+1. Read the existing intermediate files in deliverables/
+2. Combine them into the final deliverable file: code_analysis_deliverable.md
+
+DO NOT re-run the analysis. Just consolidate the existing intermediate results.
+Keep the final report concise - focus on key findings, not exhaustive details.
+Write the output in CHUNKS if needed to avoid token limits.
+`;
+          console.log(chalk.cyan(`🔄 Running focused recovery to generate final deliverable...`));
+
+          try {
+            const recoveryResult = await runClaudePrompt(
+              recoveryPrompt,
+              sourceDir,
+              'Read',
+              '',
+              `${description} (recovery)`,
+              agentName,
+              colorFn,
+              sessionMetadata,
+              auditSession,
+              attempt
+            );
+
+            // Re-validate after recovery
+            const recoveryValidation = await validateAgentOutput(recoveryResult, agentName, sourceDir);
+            if (recoveryValidation === true) {
+              console.log(chalk.green.bold(`🎉 ${description} recovered successfully!`));
+              if (auditSession) {
+                await auditSession.endAgent(agentName, {
+                  attemptNumber: attempt,
+                  duration_ms: result.duration + (recoveryResult.duration || 0),
+                  cost_usd: (result.cost || 0) + (recoveryResult.cost || 0),
+                  success: true,
+                  checkpoint: await getGitCommitHash(sourceDir),
+                  recoveryUsed: true
+                });
+              }
+              await commitGitSuccess(sourceDir, description);
+              return { ...result, recoveryUsed: true, totalCost: (result.cost || 0) + (recoveryResult.cost || 0) };
+            }
+          } catch (recoveryError) {
+            console.log(chalk.yellow(`⚠️ Recovery attempt failed: ${recoveryError.message}`));
+          }
+
+          // If recovery failed, continue to next attempt but DON'T rollback (preserve intermediate work)
+          console.log(chalk.yellow(`⚠️ Recovery failed, will retry with preserved intermediate work`));
+          lastError = new Error('Partial completion - recovery failed');
+
+          if (attempt < maxRetries) {
+            // DON'T rollback - preserve intermediate work for next attempt
+            retryContext = `${context}\n\nNOTE: Previous attempt created intermediate files in deliverables/. You can READ these files and build upon them. Focus on creating the final deliverable: code_analysis_deliverable.md`;
+            continue;
+          }
+        }
+
+        // Handle full failure
+        if (!validationResult) {
           // Agent completed but output validation failed
           console.log(chalk.yellow(`⚠️ ${description} completed but output validation failed`));
+
+          // Check if there's any partial work in deliverables before rolling back
+          const deliverablesDir = path.join(sourceDir, 'deliverables');
+          let hasPartialWork = false;
+          try {
+            const files = await fs.readdir(deliverablesDir);
+            const mdFiles = files.filter(f => f.endsWith('.md'));
+            if (mdFiles.length > 0) {
+              hasPartialWork = true;
+              console.log(chalk.yellow(`    📁 Found ${mdFiles.length} partial deliverable files - preserving for retry`));
+            }
+          } catch (e) {
+            // No deliverables folder
+          }
 
           // Record failed validation attempt in audit system
           if (auditSession) {
@@ -637,8 +729,14 @@ export async function runClaudePromptWithRetry(prompt, sourceDir, allowedTools =
           }
 
           if (attempt < maxRetries) {
-            // Rollback contaminated workspace
-            await rollbackGitWorkspace(sourceDir, 'validation failure');
+            if (hasPartialWork) {
+              // DON'T rollback - preserve partial work for next attempt
+              console.log(chalk.yellow(`    ⚠️ Preserving partial work for retry attempt`));
+              retryContext = `${context}\n\nNOTE: Previous attempt created partial files in deliverables/. Read and build upon existing work.`;
+            } else {
+              // No partial work, safe to rollback
+              await rollbackGitWorkspace(sourceDir, 'validation failure');
+            }
             continue;
           } else {
             // FAIL FAST - Don't continue with broken pipeline

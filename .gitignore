@@ -2,3 +2,19 @@ node_modules/
 .shannon-store.json
 agent-logs/
 /audit-logs/
+
+# Environment files (contain secrets)
+.env
+.env.local
+
+# Session persistence (local state)
+sessions/
+sessions.json
+
+# Target repositories (user data)
+repos/
+
+# Temporary files
+/tmp/
+*.log
+*.tmp

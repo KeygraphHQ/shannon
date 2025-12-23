@@ -29,6 +29,39 @@ function createExploitValidator(vulnType) {
   };
 }
 
+// Model selection per agent - use faster models for simpler tasks
+// Available models:
+//   - 'claude-sonnet-4-5-20250929' (default) - Best balance of speed/quality
+//   - 'claude-haiku-4-5-20251001' - 3-5x faster, good for simpler analysis
+//   - 'claude-opus-4-5-20250929' - Most capable, for complex tasks (slower)
+export const AGENT_MODEL_MAPPING = Object.freeze({
+  // Phase 1: Pre-reconnaissance - needs deep code understanding
+  'pre-recon': 'claude-sonnet-4-5-20250929',
+
+  // Phase 2: Reconnaissance - mostly summarizing findings
+  'recon': 'claude-haiku-4-5-20251001',
+
+  // Phase 3: Vulnerability Analysis
+  'injection-vuln': 'claude-sonnet-4-5-20250929',  // Complex SQL/command injection tracing
+  'xss-vuln': 'claude-haiku-4-5-20251001',         // Simpler pattern matching
+  'auth-vuln': 'claude-sonnet-4-5-20250929',       // Complex auth logic
+  'ssrf-vuln': 'claude-haiku-4-5-20251001',        // URL pattern analysis
+  'authz-vuln': 'claude-sonnet-4-5-20250929',      // Complex permission logic
+
+  // Phase 4: Exploitation - needs careful testing
+  'injection-exploit': 'claude-sonnet-4-5-20250929',
+  'xss-exploit': 'claude-haiku-4-5-20251001',
+  'auth-exploit': 'claude-sonnet-4-5-20250929',
+  'ssrf-exploit': 'claude-haiku-4-5-20251001',
+  'authz-exploit': 'claude-sonnet-4-5-20250929',
+
+  // Phase 5: Reporting - needs good writing
+  'report': 'claude-sonnet-4-5-20250929'
+});
+
+// Default model if agent not in mapping
+export const DEFAULT_MODEL = 'claude-sonnet-4-5-20250929';
+
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 export const MCP_AGENT_MAPPING = Object.freeze({
   // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
@@ -62,9 +95,42 @@ export const MCP_AGENT_MAPPING = Object.freeze({
 // Direct agent-to-validator mapping - much simpler than pattern matching
 export const AGENT_VALIDATORS = Object.freeze({
   // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
+  // Now also accepts partial completion if intermediate sub-agent files exist
   'pre-recon': async (sourceDir) => {
     const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
-    return await fs.pathExists(codeAnalysisFile);
+    const mainFileExists = await fs.pathExists(codeAnalysisFile);
+
+    if (mainFileExists) {
+      return true;
+    }
+
+    // Check for intermediate sub-agent results (partial completion)
+    const deliverablesDir = path.join(sourceDir, 'deliverables');
+    const intermediateFiles = [
+      'architecture_analysis.md',
+      'entry_points.md',
+      'security_patterns.md',
+      'data_flow_analysis.md',
+      'input_validation.md',
+      'auth_mechanisms.md'
+    ];
+
+    let foundCount = 0;
+    for (const file of intermediateFiles) {
+      if (await fs.pathExists(path.join(deliverablesDir, file))) {
+        foundCount++;
+      }
+    }
+
+    // If at least 3 intermediate files exist, accept as partial success
+    // This prevents losing all work when only report generation fails
+    if (foundCount >= 3) {
+      console.log(chalk.yellow(`    ⚠️ Partial completion: Found ${foundCount}/${intermediateFiles.length} intermediate files`));
+      console.log(chalk.yellow(`    📝 Will attempt to generate final report from intermediate results`));
+      return 'partial'; // Signal partial completion
+    }
+
+    return false;
   },
 
   // Reconnaissance agent
