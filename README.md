@@ -290,11 +290,11 @@ All analysis results are saved to the `deliverables/` directory:
 
 ---
 
-## 📊 Sample Reports & Benchmarks
+## 📊 Sample Reports
 
-See Shannon's capabilities in action with real penetration test results from industry-standard vulnerable applications:
+> **Looking for quantitative benchmarks?** [See full benchmark methodology and results →](./xben-benchmark-results/README.md)
 
-### Benchmark Results
+See Shannon's capabilities in action with penetration test results from industry-standard vulnerable applications:
 
 #### 🧃 **OWASP Juice Shop** • [GitHub](https://github.com/juice-shop/juice-shop)
 
