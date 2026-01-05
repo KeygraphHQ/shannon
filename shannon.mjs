@@ -17,7 +17,7 @@ import { checkToolAvailability, handleMissingTools } from './src/tool-checker.js
 
 // Session and Checkpoints
 import { createSession, updateSession, getSession, AGENTS } from './src/session-manager.js';
-import { runPhase, getGitCommitHash } from './src/checkpoint-manager.js';
+import { runPhase, runStreamingVulnExploit, getGitCommitHash } from './src/checkpoint-manager.js';
 
 // Setup and Deliverables
 import { setupLocalRepo } from './src/setup/environment.js';
@@ -236,46 +236,29 @@ async function main(webUrl, repoPath, configPath = null, pipelineTestingMode = f
     await updateSessionProgress('recon');
   }
 
-  // PHASE 3: VULNERABILITY ANALYSIS
-  if (startPhase <= 3) {
-    const vulnTimer = new Timer('phase-3-vulnerability-analysis');
-    console.log(chalk.red.bold('\n🚨 PHASE 3: VULNERABILITY ANALYSIS'));
+  // PHASE 3+4: STREAMING VULNERABILITY ANALYSIS + EXPLOITATION
+  // Each exploit agent starts immediately when its corresponding vuln agent completes
+  // Handles both fresh start (startPhase <= 3) and resume from Phase 4
+  if (startPhase <= 4) {
+    const streamingTimer = new Timer('phase-3-4-streaming');
 
-    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    // Use streaming mode - vuln and exploit run in pipeline per vulnerability type
+    // Handles resume gracefully - skips already completed agents
+    const streamingResults = await runStreamingVulnExploit(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
 
-    // Display vulnerability analysis summary
+    const streamingDuration = streamingTimer.stop();
+    timingResults.phases['vulnerability-analysis'] = streamingDuration;
+    timingResults.phases['exploitation'] = 0; // Included in streaming
+
+    // Display summary
     const currentSession = await getSession(session.id);
     const vulnSummary = calculateVulnerabilityAnalysisSummary(currentSession);
-    console.log(chalk.blue(`\n📊 Vulnerability Analysis Summary: ${vulnSummary.totalAnalyses} analyses, ${vulnSummary.totalVulnerabilities} vulnerabilities found, ${vulnSummary.exploitationCandidates} ready for exploitation`));
+    const exploitSummary = calculateExploitationSummary(currentSession);
 
-    const vulnDuration = vulnTimer.stop();
-    timingResults.phases['vulnerability-analysis'] = vulnDuration;
-
-    console.log(chalk.green(`✅ Vulnerability analysis phase complete in ${formatDuration(vulnDuration)}`));
-  }
-
-  // PHASE 4: EXPLOITATION
-  if (startPhase <= 4) {
-    const exploitTimer = new Timer('phase-4-exploitation');
-    console.log(chalk.red.bold('\n💥 PHASE 4: EXPLOITATION'));
-
-    // Get fresh session data to ensure we have latest vulnerability analysis results
-    const freshSession = await getSession(session.id);
-    await runPhase('exploitation', freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
-
-    // Display exploitation summary
-    const finalSession = await getSession(session.id);
-    const exploitSummary = calculateExploitationSummary(finalSession);
-    if (exploitSummary.eligibleExploits > 0) {
-      console.log(chalk.blue(`\n🎯 Exploitation Summary: ${exploitSummary.totalAttempts}/${exploitSummary.eligibleExploits} attempted, ${exploitSummary.skippedExploits} skipped (no vulnerabilities)`));
-    } else {
-      console.log(chalk.gray(`\n🎯 Exploitation Summary: No exploitation attempts (no vulnerabilities found)`));
-    }
-
-    const exploitDuration = exploitTimer.stop();
-    timingResults.phases['exploitation'] = exploitDuration;
-
-    console.log(chalk.green(`✅ Exploitation phase complete in ${formatDuration(exploitDuration)}`));
+    console.log(chalk.blue(`\n📊 Combined Summary:`));
+    console.log(chalk.yellow(`   Vulnerability Analysis: ${streamingResults.vuln.completed.length}/5 completed`));
+    console.log(chalk.red(`   Exploitation: ${streamingResults.exploit.completed.length} completed, ${streamingResults.exploit.skipped.length} skipped`));
+    console.log(chalk.green(`✅ Streaming vuln+exploit complete in ${formatDuration(streamingDuration)}`));
   }
 
   // PHASE 5: REPORTING
