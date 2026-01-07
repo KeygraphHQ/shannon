@@ -2,9 +2,10 @@
   "name": "shannon",
   "version": "1.0.0",
   "type": "module",
-  "main": "shannon.mjs",
+  "main": "./dist/shannon.js",
   "scripts": {
-    "start": "./shannon.mjs"
+    "build": "tsc",
+    "start": "node ./dist/shannon.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
@@ -20,6 +21,11 @@
     "zx": "^8.0.0"
   },
   "bin": {
-    "shannon": "./shannon.mjs"
+    "shannon": "./dist/shannon.js"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.0.3",
+    "typescript": "^5.9.3"
   }
 }

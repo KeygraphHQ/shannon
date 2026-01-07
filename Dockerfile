@@ -108,17 +108,24 @@ RUN addgroup -g 1001 pentest && \
 # Set working directory
 WORKDIR /app
 
-# Copy package.json and package-lock.json first for better caching
+# Copy package files first for better caching
 COPY package*.json ./
+COPY mcp-server/package*.json ./mcp-server/
 
-# Install Node.js dependencies as root
-RUN npm ci --only=production && \
-    npm install -g zx && \
-    npm install -g @anthropic-ai/claude-agent-sdk && \
+# Install Node.js dependencies (including devDependencies for TypeScript build)
+RUN npm ci && \
+    cd mcp-server && npm ci && cd .. && \
     npm cache clean --force
 
-# Copy application code
+# Copy application source code
 COPY . .
+
+# Build TypeScript (mcp-server first, then main project)
+RUN cd mcp-server && npm run build && cd .. && npm run build
+
+# Remove devDependencies after build to reduce image size
+RUN npm prune --production && \
+    cd mcp-server && npm prune --production
 
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
@@ -127,8 +134,7 @@ RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
     chmod 777 /tmp/.cache && \
     chmod 777 /tmp/.config && \
     chmod 777 /tmp/.npm && \
-    chown -R pentest:pentest /app && \
-    chmod +x /app/shannon.mjs
+    chown -R pentest:pentest /app
 
 # Switch to non-root user
 USER pentest
@@ -148,4 +154,4 @@ ENV XDG_CACHE_HOME=/tmp/.cache
 ENV XDG_CONFIG_HOME=/tmp/.config
 
 # Set entrypoint
-ENTRYPOINT ["./shannon.mjs"]
+ENTRYPOINT ["node", "dist/shannon.js"]
