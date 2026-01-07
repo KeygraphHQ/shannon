@@ -25,7 +25,6 @@ import type { PromptName } from '../types/index.js';
 
 // Extend global for loader flag
 declare global {
-  // eslint-disable-next-line no-var
   var SHANNON_DISABLE_LOADER: boolean | undefined;
 }
 

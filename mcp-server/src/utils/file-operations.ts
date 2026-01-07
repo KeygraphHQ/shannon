@@ -15,7 +15,6 @@ import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __SHANNON_TARGET_DIR: string | undefined;
 }
 

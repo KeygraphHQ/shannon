@@ -95,12 +95,10 @@ const VULN_TYPE_CONFIG: VulnTypeConfig = Object.freeze({
 }) as VulnTypeConfig;
 
 // Functional composition utilities - async pipe for promise chain
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type PipeFunction = (x: any) => any | Promise<any>;
 
 const pipe =
   (...fns: PipeFunction[]) =>
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (x: any): Promise<any> =>
     fns.reduce(async (v, f) => f(await v), Promise.resolve(x));
 

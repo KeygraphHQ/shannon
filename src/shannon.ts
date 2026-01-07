@@ -56,7 +56,6 @@ import type { ToolAvailability } from './tool-checker.js';
 
 // Extend global namespace for SHANNON_DISABLE_LOADER
 declare global {
-  // eslint-disable-next-line no-var
   var SHANNON_DISABLE_LOADER: boolean | undefined;
 }
 

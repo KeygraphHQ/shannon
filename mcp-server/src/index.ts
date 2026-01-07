@@ -18,7 +18,6 @@ import { saveDeliverableTool } from './tools/save-deliverable.js';
 import { generateTotpTool } from './tools/generate-totp.js';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __SHANNON_TARGET_DIR: string | undefined;
 }
 
