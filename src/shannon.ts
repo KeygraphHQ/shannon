@@ -174,8 +174,8 @@ async function main(
   if (process.argv.includes('--setup-only')) {
     console.log(chalk.green('✅ Setup complete! Local repository setup and session created.'));
     console.log(chalk.gray('Use developer commands to run individual agents:'));
-    console.log(chalk.gray('  ./shannon.mjs --run-agent pre-recon'));
-    console.log(chalk.gray('  ./shannon.mjs --status'));
+    console.log(chalk.gray('  shannon --run-agent pre-recon'));
+    console.log(chalk.gray('  shannon --status'));
     process.exit(0);
   }
 
@@ -467,8 +467,8 @@ if (nonFlagArgs.length === 0) {
 // Handle insufficient arguments
 if (nonFlagArgs.length < 2) {
   console.log(chalk.red('❌ Both WEB_URL and REPO_PATH are required'));
-  console.log(chalk.gray('Usage: ./shannon.mjs <WEB_URL> <REPO_PATH> [--config config.yaml]'));
-  console.log(chalk.gray('Help:  ./shannon.mjs --help'));
+  console.log(chalk.gray('Usage: shannon <WEB_URL> <REPO_PATH> [--config config.yaml]'));
+  console.log(chalk.gray('Help:  shannon --help'));
   process.exit(1);
 }
 

@@ -14,20 +14,20 @@ export function showHelp(): void {
 
   console.log(chalk.yellow.bold('NORMAL MODE (Creates Sessions):'));
   console.log(
-    '  ./shannon.mjs <WEB_URL> <REPO_PATH> [--config config.yaml] [--pipeline-testing]'
+    '  shannon <WEB_URL> <REPO_PATH> [--config config.yaml] [--pipeline-testing]'
   );
   console.log(
-    '  ./shannon.mjs <WEB_URL> <REPO_PATH> --setup-only                     # Setup local repo and create session only\n'
+    '  shannon <WEB_URL> <REPO_PATH> --setup-only                     # Setup local repo and create session only\n'
   );
 
   console.log(chalk.yellow.bold('DEVELOPER MODE (Operates on Existing Sessions):'));
-  console.log('  ./shannon.mjs --run-phase <phase-name> [--pipeline-testing]');
-  console.log('  ./shannon.mjs --run-all [--pipeline-testing]');
-  console.log('  ./shannon.mjs --rollback-to <agent-name>');
-  console.log('  ./shannon.mjs --rerun <agent-name> [--pipeline-testing]');
-  console.log('  ./shannon.mjs --status');
-  console.log('  ./shannon.mjs --list-agents');
-  console.log('  ./shannon.mjs --cleanup [session-id]                      # Delete sessions\n');
+  console.log('  shannon --run-phase <phase-name> [--pipeline-testing]');
+  console.log('  shannon --run-all [--pipeline-testing]');
+  console.log('  shannon --rollback-to <agent-name>');
+  console.log('  shannon --rerun <agent-name> [--pipeline-testing]');
+  console.log('  shannon --status');
+  console.log('  shannon --list-agents');
+  console.log('  shannon --cleanup [session-id]                      # Delete sessions\n');
 
   console.log(chalk.yellow.bold('OPTIONS:'));
   console.log(
@@ -53,19 +53,19 @@ export function showHelp(): void {
 
   console.log(chalk.yellow.bold('EXAMPLES:'));
   console.log('  # Normal mode - create new session');
-  console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo"');
-  console.log('  ./shannon.mjs "https://example.com" "/path/to/local/repo" --config auth.yaml');
+  console.log('  shannon "https://example.com" "/path/to/local/repo"');
+  console.log('  shannon "https://example.com" "/path/to/local/repo" --config auth.yaml');
   console.log(
-    '  ./shannon.mjs "https://example.com" "/path/to/local/repo" --setup-only  # Setup only\n'
+    '  shannon "https://example.com" "/path/to/local/repo" --setup-only  # Setup only\n'
   );
 
   console.log('  # Developer mode - operate on existing session');
-  console.log('  ./shannon.mjs --status                    # Show session status');
-  console.log('  ./shannon.mjs --run-phase exploitation    # Run entire phase');
-  console.log('  ./shannon.mjs --run-all                   # Run all remaining agents');
-  console.log('  ./shannon.mjs --rerun xss-vuln           # Fix and rerun failed agent');
-  console.log('  ./shannon.mjs --cleanup                  # Delete all sessions');
-  console.log('  ./shannon.mjs --cleanup <session-id>    # Delete specific session\n');
+  console.log('  shannon --status                    # Show session status');
+  console.log('  shannon --run-phase exploitation    # Run entire phase');
+  console.log('  shannon --run-all                   # Run all remaining agents');
+  console.log('  shannon --rerun xss-vuln           # Fix and rerun failed agent');
+  console.log('  shannon --cleanup                  # Delete all sessions');
+  console.log('  shannon --cleanup <session-id>    # Delete specific session\n');
 
   console.log(chalk.yellow.bold('REQUIREMENTS:'));
   console.log('  • WEB_URL must start with http:// or https://');

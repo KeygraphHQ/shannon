@@ -15,13 +15,13 @@ npm install
 
 ### Running the Penetration Testing Agent
 ```bash
-./shannon.mjs <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
+shannon <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
 ```
 
 Example:
 ```bash
-./shannon.mjs "https://example.com" "/path/to/local/repo"
-./shannon.mjs "https://juice-shop.herokuapp.com" "/home/user/juice-shop" --config juice-shop-config.yaml
+shannon "https://example.com" "/path/to/local/repo"
+shannon "https://juice-shop.herokuapp.com" "/home/user/juice-shop" --config juice-shop-config.yaml
 ```
 
 ### Alternative Execution
@@ -32,7 +32,7 @@ npm start <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
 ### Configuration Validation
 ```bash
 # Configuration validation is built into the main script
-./shannon.mjs --help  # Shows usage and validates config on execution
+shannon --help  # Shows usage and validates config on execution
 ```
 
 ### Generate TOTP for Authentication
@@ -42,73 +42,73 @@ TOTP generation is now handled automatically via the `generate_totp` MCP tool du
 ```bash
 # No linting or testing commands available in this project
 # Development is done by running the agent in pipeline-testing mode
-./shannon.mjs <commands> --pipeline-testing
+shannon <commands> --pipeline-testing
 ```
 
 ### Session Management Commands
 ```bash
 # Setup session without running
-./shannon.mjs --setup-only <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
+shannon --setup-only <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
 
 # Check session status (shows progress, timing, costs)
-./shannon.mjs --status
+shannon --status
 
 # List all available agents by phase
-./shannon.mjs --list-agents
+shannon --list-agents
 
 # Show help
-./shannon.mjs --help
+shannon --help
 ```
 
 ### Execution Commands
 ```bash
 # Run all remaining agents to completion
-./shannon.mjs --run-all [--pipeline-testing]
+shannon --run-all [--pipeline-testing]
 
 # Run a specific agent
-./shannon.mjs --run-agent <agent-name> [--pipeline-testing]
+shannon --run-agent <agent-name> [--pipeline-testing]
 
 # Run a range of agents
-./shannon.mjs --run-agents <start-agent>:<end-agent> [--pipeline-testing]
+shannon --run-agents <start-agent>:<end-agent> [--pipeline-testing]
 
 # Run a specific phase
-./shannon.mjs --run-phase <phase-name> [--pipeline-testing]
+shannon --run-phase <phase-name> [--pipeline-testing]
 
 # Pipeline testing mode (minimal prompts for fast testing)
-./shannon.mjs <command> --pipeline-testing
+shannon <command> --pipeline-testing
 ```
 
 ### Rollback & Recovery Commands
 ```bash
 # Rollback to specific checkpoint
-./shannon.mjs --rollback-to <agent-name>
+shannon --rollback-to <agent-name>
 
 # Rollback and re-execute specific agent
-./shannon.mjs --rerun <agent-name> [--pipeline-testing]
+shannon --rerun <agent-name> [--pipeline-testing]
 ```
 
 ### Session Cleanup Commands
 ```bash
 # Delete all sessions (with confirmation)
-./shannon.mjs --cleanup
+shannon --cleanup
 
 # Delete specific session by ID
-./shannon.mjs --cleanup <session-id>
+shannon --cleanup <session-id>
 ```
 
 ## Architecture & Components
 
 ### Main Entry Point
-- `shannon.mjs` - Main orchestration script that coordinates the entire penetration testing workflow
+- `src/shannon.ts` - Main orchestration script that coordinates the entire penetration testing workflow (compiles to `dist/shannon.js`)
 
 ### Core Modules
-- `src/config-parser.js` - Handles YAML configuration parsing, validation, and distribution to agents
-- `src/error-handling.js` - Comprehensive error handling with retry logic and categorized error types
-- `src/tool-checker.js` - Validates availability of external security tools before execution
-- `src/session-manager.js` - Manages persistent session state and agent lifecycle
-- `src/checkpoint-manager.js` - Git-based checkpointing system for rollback capabilities
-- Pipeline orchestration is built into the main `shannon.mjs` script
-- `src/queue-validation.js` - Validates deliverables and agent prerequisites
+- `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
+- `src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
+- `src/tool-checker.ts` - Validates availability of external security tools before execution
+- `src/session-manager.ts` - Manages persistent session state and agent lifecycle
+- `src/checkpoint-manager.ts` - Git-based checkpointing system for rollback capabilities
+- Pipeline orchestration is built into the main `src/shannon.ts` script
+- `src/queue-validation.ts` - Validates deliverables and agent prerequisites
 
 ### Five-Phase Testing Workflow
 
@@ -259,25 +259,34 @@ The tool should only be used on systems you own or have explicit permission to t
 ## File Structure
 
 ```
-shannon.mjs                      # Main orchestration script
+src/                             # TypeScript source files
+├── shannon.ts                   # Main orchestration script (entry point)
+├── types/                       # TypeScript type definitions
+│   ├── index.ts                 # Barrel exports
+│   ├── agents.ts                # Agent type definitions
+│   ├── config.ts                # Configuration interfaces
+│   ├── errors.ts                # Error type definitions
+│   └── session.ts               # Session type definitions
+├── audit/                       # Unified audit system (v3.0)
+│   ├── index.ts                 # Public API
+│   ├── audit-session.ts         # Main facade (logger + metrics + mutex)
+│   ├── logger.ts                # Append-only crash-safe logging
+│   ├── metrics-tracker.ts       # Timing, cost, attempt tracking
+│   └── utils.ts                 # Path generation, atomic writes
+├── config-parser.ts             # Configuration handling
+├── error-handling.ts            # Error management
+├── tool-checker.ts              # Tool validation
+├── session-manager.ts           # Session state + reconciliation
+├── checkpoint-manager.ts        # Git-based checkpointing + rollback
+├── queue-validation.ts          # Deliverable validation
+├── ai/
+│   └── claude-executor.ts       # Claude Agent SDK integration
+└── utils/
+dist/                            # Compiled JavaScript output
+├── shannon.js                   # Compiled entry point
+└── ...                          # Other compiled files
 package.json                     # Node.js dependencies
 .shannon-store.json              # Orchestration state (minimal)
-src/                             # Core modules
-├── audit/                       # Unified audit system (v3.0)
-│   ├── index.js                 # Public API
-│   ├── audit-session.js         # Main facade (logger + metrics + mutex)
-│   ├── logger.js                # Append-only crash-safe logging
-│   ├── metrics-tracker.js       # Timing, cost, attempt tracking
-│   └── utils.js                 # Path generation, atomic writes
-├── config-parser.js             # Configuration handling
-├── error-handling.js            # Error management
-├── tool-checker.js              # Tool validation
-├── session-manager.js           # Session state + reconciliation
-├── checkpoint-manager.js        # Git-based checkpointing + rollback
-├── queue-validation.js          # Deliverable validation
-├── ai/
-│   └── claude-executor.js       # Claude Agent SDK integration
-└── utils/
 audit-logs/                      # Centralized audit data (v3.0)
 └── {hostname}_{sessionId}/
     ├── session.json             # Comprehensive metrics
