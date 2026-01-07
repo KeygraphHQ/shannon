@@ -2,3 +2,4 @@ node_modules/
 .shannon-store.json
 agent-logs/
 /audit-logs/
+dist/

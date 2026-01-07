@@ -2,7 +2,7 @@
   // Visit https://aka.ms/tsconfig to read more about this file
   "compilerOptions": {
     // File Layout
-    "rootDir": ".",
+    "rootDir": "./src",
     "outDir": "./dist",
 
     // Environment Settings
@@ -46,9 +46,7 @@
     "skipLibCheck": true,
   },
   "include": [
-    "src/**/*",
-    "scripts/**/*",
-    "shannon.ts"
+    "src/**/*"
   ],
   "exclude": [
     "node_modules",
