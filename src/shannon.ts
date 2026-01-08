@@ -91,13 +91,13 @@ async function consolidateOutputs(sourceDir: string, sessionPath: string): Promi
   try {
     if (await fs.pathExists(srcDeliverables)) {
       await fs.copy(srcDeliverables, destDeliverables, { overwrite: true });
-      console.log(chalk.gray(`    📄 Deliverables copied to session folder`));
+      console.log(chalk.gray(`📄 Deliverables copied to session folder`));
     } else {
-      console.log(chalk.yellow(`    ⚠️ No deliverables directory found at ${srcDeliverables}`));
+      console.log(chalk.yellow(`⚠️ No deliverables directory found at ${srcDeliverables}`));
     }
   } catch (error) {
     const err = error as Error;
-    console.log(chalk.yellow(`    ⚠️ Failed to consolidate deliverables: ${err.message}`));
+    console.log(chalk.yellow(`⚠️ Failed to consolidate deliverables: ${err.message}`));
   }
 }
 
