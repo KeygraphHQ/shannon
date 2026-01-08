@@ -290,7 +290,7 @@ docker run --rm shannon:latest --status
 
 ### Output and Results
 
-All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory.
+All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory. If using `--output`, ensure that path is mounted to an accessible host directory (e.g., `-v "$(pwd)/custom-directory:/app/reports"`).
 
 - **Pre-reconnaissance reports** - External scan results
 - **Vulnerability assessments** - Potential vulnerabilities from thorough code analysis and network mapping

@@ -191,7 +191,7 @@ async function main(
   const variables: PromptVariables = { webUrl, repoPath, sourceDir };
 
   // Create session for tracking (in normal mode)
-  const session: Session = await createSession(webUrl, repoPath, configPath, sourceDir);
+  const session: Session = await createSession(webUrl, repoPath, configPath, sourceDir, outputPath);
   console.log(chalk.blue(`📝 Session created: ${session.id.substring(0, 8)}...`));
 
   // If setup-only mode, exit after session creation
@@ -268,7 +268,8 @@ async function main(
       distributedConfig,
       toolAvailability,
       pipelineTestingMode,
-      session.id  // Pass session ID for logging
+      session.id,  // Pass session ID for logging
+      outputPath   // Pass output path for audit logging
     );
     timingResults.phases['pre-recon'] = preReconDuration;
     await updateSessionProgress('pre-recon');
