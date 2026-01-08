@@ -169,10 +169,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
       --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 **With Anthropic API Key:**
@@ -186,10 +191,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
       --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 #### Platform-Specific Instructions
@@ -217,10 +227,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "http://host.docker.internal:3000" \
       "/app/repos/your-app" \
       --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 ### Configuration (Optional)
@@ -281,7 +296,7 @@ docker run --rm shannon:latest --status
 
 ### Output and Results
 
-All analysis results are saved to the `deliverables/` directory:
+All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory. If using `--output`, ensure that path is mounted to an accessible host directory (e.g., `-v "$(pwd)/custom-directory:/app/reports"`).
 
 - **Pre-reconnaissance reports** - External scan results
 - **Vulnerability assessments** - Potential vulnerabilities from thorough code analysis and network mapping

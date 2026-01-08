@@ -293,7 +293,7 @@ const runSingleAgent = async (
       AGENTS[agentName]!.displayName,
       agentName,
       getAgentColor(agentName),
-      { id: currentSession.id, webUrl: currentSession.webUrl, repoPath: currentSession.repoPath }
+      { id: currentSession.id, webUrl: currentSession.webUrl, repoPath: currentSession.repoPath, ...(currentSession.outputPath && { outputPath: currentSession.outputPath }) }
     );
 
     if (!result.success) {
@@ -727,7 +727,8 @@ export const rollbackTo = async (targetAgent: string, session: Session): Promise
     const sessionMetadata: SessionMetadata = {
       id: session.id,
       webUrl: session.webUrl,
-      repoPath: session.repoPath
+      repoPath: session.repoPath,
+      ...(session.outputPath && { outputPath: session.outputPath })
     };
     const auditSession = new AuditSession(sessionMetadata);
     await auditSession.initialize();

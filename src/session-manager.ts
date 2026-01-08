@@ -41,6 +41,7 @@ export interface Session {
   repoPath: string;
   configFile: string | null;
   targetRepo: string;
+  outputPath: string | null;
   status: 'in-progress' | 'completed' | 'failed';
   completedAgents: AgentName[];
   failedAgents: AgentName[];
@@ -265,7 +266,8 @@ export const createSession = async (
   webUrl: string,
   repoPath: string,
   configFile: string | null = null,
-  targetRepo: string | null = null
+  targetRepo: string | null = null,
+  outputPath: string | null = null
 ): Promise<Session> => {
   // Use targetRepo if provided, otherwise use repoPath
   const resolvedTargetRepo = targetRepo || repoPath;
@@ -279,9 +281,12 @@ export const createSession = async (
       console.log(chalk.blue(`📝 Reusing existing session: ${existingSession.id.substring(0, 8)}...`));
       console.log(chalk.gray(`   Progress: ${existingSession.completedAgents.length}/${Object.keys(AGENTS).length} agents completed`));
 
-      // Update last activity timestamp
-      await updateSession(existingSession.id, { lastActivity: new Date().toISOString() });
-      return existingSession;
+      // Update last activity timestamp and outputPath if provided
+      await updateSession(existingSession.id, {
+        lastActivity: new Date().toISOString(),
+        ...(outputPath && { outputPath })
+      });
+      return { ...existingSession, ...(outputPath && { outputPath }) };
     }
 
     // If completed, create a new session (allows re-running after completion)
@@ -298,6 +303,7 @@ export const createSession = async (
     repoPath,
     configFile,
     targetRepo: resolvedTargetRepo,
+    outputPath,
     status: 'in-progress',
     completedAgents: [],
     failedAgents: [],
