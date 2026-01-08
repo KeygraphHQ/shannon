@@ -169,10 +169,13 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
+      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
+      --config /app/configs/example-config.yaml \
+      # --output /app/reports  # Optional: custom output directory
 ```
 
 **With Anthropic API Key:**
@@ -186,10 +189,13 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
+      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
+      --config /app/configs/example-config.yaml \
+      # --output /app/reports  # Optional: custom output directory
 ```
 
 #### Platform-Specific Instructions
@@ -217,10 +223,13 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
+      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
+      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
       shannon:latest \
       "http://host.docker.internal:3000" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
+      --config /app/configs/example-config.yaml \
+      # --output /app/reports  # Optional: custom output directory
 ```
 
 ### Configuration (Optional)
@@ -281,7 +290,7 @@ docker run --rm shannon:latest --status
 
 ### Output and Results
 
-All analysis results are saved to the `deliverables/` directory:
+All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory.
 
 - **Pre-reconnaissance reports** - External scan results
 - **Vulnerability assessments** - Potential vulnerabilities from thorough code analysis and network mapping
