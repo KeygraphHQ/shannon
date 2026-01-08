@@ -169,13 +169,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
-      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
-      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml \
-      # --output /app/reports  # Optional: custom output directory
+      --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 **With Anthropic API Key:**
@@ -189,13 +191,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
-      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
-      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "https://your-app.com/" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml \
-      # --output /app/reports  # Optional: custom output directory
+      --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 #### Platform-Specific Instructions
@@ -223,13 +227,15 @@ docker run --rm -it \
       -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
       -v "$(pwd)/repos:/app/repos" \
       -v "$(pwd)/configs:/app/configs" \
-      -v "$(pwd)/audit-logs:/app/audit-logs" \  # Comment out if using custom output directory
-      # -v "$(pwd)/reports:/app/reports" \  # Optional: for custom output directory
+      # Comment below line if using custom output directory
+      -v "$(pwd)/audit-logs:/app/audit-logs" \
       shannon:latest \
       "http://host.docker.internal:3000" \
       "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml \
-      # --output /app/reports  # Optional: custom output directory
+      --config /app/configs/example-config.yaml
+      # Optional: uncomment below for custom output directory
+      # -v "$(pwd)/reports:/app/reports" \
+      # --output /app/reports
 ```
 
 ### Configuration (Optional)
