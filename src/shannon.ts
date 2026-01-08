@@ -80,6 +80,27 @@ interface MainResult {
 // Configure zx to disable timeouts (let tools run as long as needed)
 $.timeout = 0;
 
+/**
+ * Consolidate deliverables from target repo into the session folder
+ * Copies deliverables directory from source repo to session audit path
+ */
+async function consolidateOutputs(sourceDir: string, sessionPath: string): Promise<void> {
+  const srcDeliverables = path.join(sourceDir, 'deliverables');
+  const destDeliverables = path.join(sessionPath, 'deliverables');
+
+  try {
+    if (await fs.pathExists(srcDeliverables)) {
+      await fs.copy(srcDeliverables, destDeliverables, { overwrite: true });
+      console.log(chalk.gray(`📄 Deliverables copied to session folder`));
+    } else {
+      console.log(chalk.yellow(`⚠️ No deliverables directory found at ${srcDeliverables}`));
+    }
+  } catch (error) {
+    const err = error as Error;
+    console.log(chalk.yellow(`⚠️ Failed to consolidate deliverables: ${err.message}`));
+  }
+}
+
 // Setup graceful cleanup on process signals
 process.on('SIGINT', async () => {
   console.log(chalk.yellow('\n⚠️ Received SIGINT, cleaning up...'));
@@ -99,7 +120,8 @@ async function main(
   repoPath: string,
   configPath: string | null = null,
   pipelineTestingMode: boolean = false,
-  disableLoader: boolean = false
+  disableLoader: boolean = false,
+  outputPath: string | null = null
 ): Promise<MainResult> {
   // Set global flag for loader control
   global.SHANNON_DISABLE_LOADER = disableLoader;
@@ -115,6 +137,9 @@ async function main(
   console.log(chalk.cyan(`📁 Source: ${repoPath}`));
   if (configPath) {
     console.log(chalk.cyan(`⚙️ Config: ${configPath}`));
+  }
+  if (outputPath) {
+    console.log(chalk.cyan(`📂 Output: ${outputPath}`));
   }
   console.log(chalk.gray('─'.repeat(60)));
 
@@ -166,7 +191,7 @@ async function main(
   const variables: PromptVariables = { webUrl, repoPath, sourceDir };
 
   // Create session for tracking (in normal mode)
-  const session: Session = await createSession(webUrl, repoPath, configPath, sourceDir);
+  const session: Session = await createSession(webUrl, repoPath, configPath, sourceDir, outputPath);
   console.log(chalk.blue(`📝 Session created: ${session.id.substring(0, 8)}...`));
 
   // If setup-only mode, exit after session creation
@@ -243,7 +268,8 @@ async function main(
       distributedConfig,
       toolAvailability,
       pipelineTestingMode,
-      session.id  // Pass session ID for logging
+      session.id,  // Pass session ID for logging
+      outputPath   // Pass output path for audit logging
     );
     timingResults.phases['pre-recon'] = preReconDuration;
     await updateSessionProgress('pre-recon');
@@ -262,7 +288,7 @@ async function main(
       AGENTS['recon'].displayName,
       'recon',  // Agent name for snapshot creation
       chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
     const reconDuration = reconTimer.stop();
     timingResults.phases['recon'] = reconDuration;
@@ -345,7 +371,7 @@ async function main(
       'Executive Summary and Report Cleanup',
       'report',  // Agent name for snapshot creation
       chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
     );
 
     const reportDuration = reportTimer.stop();
@@ -380,7 +406,11 @@ async function main(
   console.log(chalk.gray('─'.repeat(60)));
 
   // Calculate audit logs path
-  const auditLogsPath = generateAuditPath({ id: session.id, webUrl: session.webUrl, repoPath: session.repoPath });
+  const auditLogsPath = generateAuditPath({ id: session.id, webUrl: session.webUrl, repoPath: session.repoPath, ...(outputPath && { outputPath }) });
+
+  // Consolidate deliverables into the session folder
+  await consolidateOutputs(sourceDir, auditLogsPath);
+  console.log(chalk.green(`\n📂 All outputs consolidated: ${auditLogsPath}`));
 
   // Return final report path and audit logs path for clickable output
   return {
@@ -398,6 +428,7 @@ if (args[0] && args[0].includes('shannon')) {
 
 // Parse flags and arguments
 let configPath: string | null = null;
+let outputPath: string | null = null;
 let pipelineTestingMode = false;
 let disableLoader = false;
 const nonFlagArgs: string[] = [];
@@ -411,6 +442,14 @@ for (let i = 0; i < args.length; i++) {
       i++; // Skip the next argument
     } else {
       console.log(chalk.red('❌ --config flag requires a file path'));
+      process.exit(1);
+    }
+  } else if (args[i] === '--output') {
+    if (i + 1 < args.length) {
+      outputPath = path.resolve(args[i + 1]!);
+      i++; // Skip the next argument
+    } else {
+      console.log(chalk.red('❌ --output flag requires a directory path'));
       process.exit(1);
     }
   } else if (args[i] === '--pipeline-testing') {
@@ -494,6 +533,9 @@ console.log(chalk.green('✅ Input validation passed:'));
 console.log(chalk.gray(`   Target Web URL: ${webUrl}`));
 console.log(chalk.gray(`   Target Repository: ${repoPathValidation.path}\n`));
 console.log(chalk.gray(`   Config Path: ${configPath}\n`));
+if (outputPath) {
+  console.log(chalk.gray(`   Output Path: ${outputPath}\n`));
+}
 if (pipelineTestingMode) {
   console.log(chalk.yellow('⚡ PIPELINE TESTING MODE ENABLED - Using minimal test prompts for fast pipeline validation\n'));
 }
@@ -502,7 +544,7 @@ if (disableLoader) {
 }
 
 try {
-  const result = await main(webUrl!, repoPathValidation.path!, configPath, pipelineTestingMode, disableLoader);
+  const result = await main(webUrl!, repoPathValidation.path!, configPath, pipelineTestingMode, disableLoader, outputPath);
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(result.reportPath));
   console.log(chalk.green.bold('\n📂 AUDIT LOGS AVAILABLE:'));

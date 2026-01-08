@@ -26,6 +26,7 @@ export interface SessionMetadata {
   id: string;
   webUrl: string;
   repoPath?: string;
+  outputPath?: string;
   [key: string]: unknown;
 }
 
@@ -40,10 +41,12 @@ export function generateSessionIdentifier(sessionMetadata: SessionMetadata): str
 
 /**
  * Generate path to audit log directory for a session
+ * Uses custom outputPath if provided, otherwise defaults to AUDIT_LOGS_DIR
  */
 export function generateAuditPath(sessionMetadata: SessionMetadata): string {
   const sessionIdentifier = generateSessionIdentifier(sessionMetadata);
-  return path.join(AUDIT_LOGS_DIR, sessionIdentifier);
+  const baseDir = sessionMetadata.outputPath || AUDIT_LOGS_DIR;
+  return path.join(baseDir, sessionIdentifier);
 }
 
 /**

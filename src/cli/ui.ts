@@ -34,6 +34,9 @@ export function showHelp(): void {
     '  --config <file>      YAML configuration file for authentication and testing parameters'
   );
   console.log(
+    '  --output <path>      Custom output directory for session folder (default: ./audit-logs/)'
+  );
+  console.log(
     '  --pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)'
   );
   console.log(
@@ -55,6 +58,7 @@ export function showHelp(): void {
   console.log('  # Normal mode - create new session');
   console.log('  shannon "https://example.com" "/path/to/local/repo"');
   console.log('  shannon "https://example.com" "/path/to/local/repo" --config auth.yaml');
+  console.log('  shannon "https://example.com" "/path/to/local/repo" --output /path/to/reports');
   console.log(
     '  shannon "https://example.com" "/path/to/local/repo" --setup-only  # Setup only\n'
   );

@@ -15,13 +15,14 @@ npm install
 
 ### Running the Penetration Testing Agent
 ```bash
-shannon <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
+shannon <WEB_URL> <REPO_PATH> [--config <CONFIG_FILE>] [--output <OUTPUT_DIR>]
 ```
 
 Example:
 ```bash
 shannon "https://example.com" "/path/to/local/repo"
 shannon "https://juice-shop.herokuapp.com" "/home/user/juice-shop" --config juice-shop-config.yaml
+shannon "https://example.com" "/path/to/repo" --output /path/to/reports
 ```
 
 ### Alternative Execution
@@ -194,10 +195,11 @@ The agent implements a sophisticated checkpoint system using git:
 The agent implements a crash-safe, self-healing audit system (v3.0) with the following guarantees:
 
 **Architecture:**
-- **audit-logs/**: Centralized metrics and forensic logs (source of truth)
+- **audit-logs/** (or custom `--output` path): Centralized metrics and forensic logs (source of truth)
   - `{hostname}_{sessionId}/session.json` - Comprehensive metrics with attempt-level detail
   - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
   - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
+  - `{hostname}_{sessionId}/deliverables/` - Security reports and findings
 - **.shannon-store.json**: Minimal orchestration state (completedAgents, checkpoints)
 
 **Crash Safety:**
@@ -287,13 +289,15 @@ dist/                            # Compiled JavaScript output
 └── ...                          # Other compiled files
 package.json                     # Node.js dependencies
 .shannon-store.json              # Orchestration state (minimal)
-audit-logs/                      # Centralized audit data (v3.0)
+audit-logs/                      # Centralized audit data (default, or use --output)
 └── {hostname}_{sessionId}/
     ├── session.json             # Comprehensive metrics
     ├── prompts/                 # Prompt snapshots
     │   └── {agent}.md
-    └── agents/                  # Agent execution logs
-        └── {timestamp}_{agent}_attempt-{N}.log
+    ├── agents/                  # Agent execution logs
+    │   └── {timestamp}_{agent}_attempt-{N}.log
+    └── deliverables/            # Security reports and findings
+        └── ...
 configs/                         # Configuration files
 ├── config-schema.json           # JSON Schema validation
 ├── example-config.yaml          # Template configuration
