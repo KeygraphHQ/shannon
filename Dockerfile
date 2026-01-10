@@ -153,5 +153,8 @@ ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache
 ENV XDG_CONFIG_HOME=/tmp/.config
 
+#Set the base url (this will override the anthropic base url)
+# ENV ANTHROPIC_BASE_URL=https://api-route-base-url.xxx
+
 # Set entrypoint
 ENTRYPOINT ["node", "dist/shannon.js"]

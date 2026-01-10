@@ -98,10 +98,13 @@ Shannon is available in two editions:
 
 ### Prerequisites
 
-- **Claude Console account with credits** - Required for AI-powered analysis
 - **Docker installed** - Primary deployment method
 
-### Authentication Setup
+#### LLM Model - Required for AI-powered analysis
+- **Claude Console account with credits**  (Recommend)
+- **Other API**
+
+### Authentication Setup (For claude)
 
 You need either a **Claude Code OAuth token** or an **Anthropic API key** to run Shannon. Get your token from the [Anthropic Console](https://console.anthropic.com) and pass it to Docker via the `-e` flag.
 
@@ -117,6 +120,13 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 **For Docker runs:**
 ```bash
 -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+### Authentication Setup (For other APIs LLM)
+
+You need to set in ENV **Dockerfile** (Just uncomment that line and put the base url)
+```bash
+ENV ANTHROPIC_BASE_URL=https://api-route-base-url.xxx
 ```
 
 ### Quick Start with Docker
@@ -178,6 +188,8 @@ docker run --rm -it \
       # Optional: uncomment below for custom output directory
       # -v "$(pwd)/reports:/app/reports" \
       # --output /app/reports
+      # Optional:uncomment below for Custom model (defult is claude-opus-4-5-20251101)
+      # --model claude-opus-4-5-20251101 #Change claude-opus-4-5-20251101 to your model nae
 ```
 
 **With Anthropic API Key:**
@@ -200,6 +212,8 @@ docker run --rm -it \
       # Optional: uncomment below for custom output directory
       # -v "$(pwd)/reports:/app/reports" \
       # --output /app/reports
+      # Optional:uncomment below for Custom model (defult is claude-opus-4-5-20251101)
+      # --model claude-opus-4-5-20251101 #Change claude-opus-4-5-20251101 to your model nae
 ```
 
 #### Platform-Specific Instructions
@@ -236,6 +250,8 @@ docker run --rm -it \
       # Optional: uncomment below for custom output directory
       # -v "$(pwd)/reports:/app/reports" \
       # --output /app/reports
+      # Optional:uncomment below for Custom model (defult is claude-opus-4-5-20251101)
+      # --model claude-opus-4-5-20251101 #Change claude-opus-4-5-20251101 to your model nae
 ```
 
 ### Configuration (Optional)
