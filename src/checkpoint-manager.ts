@@ -38,7 +38,8 @@ type RunClaudePromptWithRetry = (
   description: string,
   agentName: string | null,
   colorFn: ChalkInstance,
-  sessionMetadata: SessionMetadata | null
+  sessionMetadata: SessionMetadata | null,
+  model: string
 ) => Promise<AgentResult>;
 
 type LoadPrompt = (
@@ -197,7 +198,8 @@ const runSingleAgent = async (
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
   loadPrompt: LoadPrompt,
   allowRerun: boolean = false,
-  skipWorkspaceClean: boolean = false
+  skipWorkspaceClean: boolean = false,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<SingleAgentResult> => {
   // Validate agent first
   const agent = validateAgent(agentName);
@@ -293,7 +295,8 @@ const runSingleAgent = async (
       AGENTS[agentName]!.displayName,
       agentName,
       getAgentColor(agentName),
-      { id: currentSession.id, webUrl: currentSession.webUrl, repoPath: currentSession.repoPath, ...(currentSession.outputPath && { outputPath: currentSession.outputPath }) }
+      { id: currentSession.id, webUrl: currentSession.webUrl, repoPath: currentSession.repoPath, ...(currentSession.outputPath && { outputPath: currentSession.outputPath }) },
+      model
     );
 
     if (!result.success) {
@@ -407,7 +410,8 @@ const runParallelVuln = async (
   session: Session,
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<ParallelResult> => {
   const vulnAgents: AgentName[] = ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'];
   const activeAgents = vulnAgents.filter(agent => !session.completedAgents.includes(agent));
@@ -436,7 +440,7 @@ const runParallelVuln = async (
       while (attempts < maxAttempts) {
         attempts++;
         try {
-          const result = await runSingleAgent(agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true);
+          const result = await runSingleAgent(agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true, model);
           return { ...result, attempts };
         } catch (error) {
           lastError = error as Error;
@@ -509,7 +513,8 @@ const runParallelExploit = async (
   session: Session,
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<ParallelResult> => {
   const exploitAgents: AgentName[] = ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'];
 
@@ -576,7 +581,7 @@ const runParallelExploit = async (
       while (attempts < maxAttempts) {
         attempts++;
         try {
-          const result = await runSingleAgent(agentName, freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true);
+          const result = await runSingleAgent(agentName, freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, true, model);
           return { ...result, attempts };
         } catch (error) {
           lastError = error as Error;
@@ -649,13 +654,14 @@ export const runPhase = async (
   session: Session,
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<void> => {
   console.log(chalk.cyan(`\n📋 Running phase: ${phaseName} (parallel execution)`));
 
   if (phaseName === 'vulnerability-analysis') {
     console.log(chalk.cyan('🚀 Using parallel execution for 5x faster vulnerability analysis'));
-    const results = await runParallelVuln(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    const results = await runParallelVuln(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
 
     if (results.failed.length > 0) {
       console.log(chalk.yellow(`⚠️  ${results.failed.length} agents failed, but phase continues`));
@@ -670,7 +676,7 @@ export const runPhase = async (
 
   if (phaseName === 'exploitation') {
     console.log(chalk.cyan('🎯 Using parallel execution for 5x faster exploitation'));
-    const results = await runParallelExploit(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    const results = await runParallelExploit(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
 
     if (results.failed.length > 0) {
       console.log(chalk.yellow(`⚠️  ${results.failed.length} agents failed, but phase continues`));
@@ -692,7 +698,7 @@ export const runPhase = async (
       return;
     }
 
-    await runSingleAgent(agent.name, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    await runSingleAgent(agent.name, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, false, model);
     console.log(chalk.green(`✅ Phase '${phaseName}' completed successfully`));
   } else {
     throw new PentestError(`Phase '${phaseName}' has multiple agents but no parallel execution defined`, 'validation', false);
@@ -756,7 +762,8 @@ export const rerunAgent = async (
   session: Session,
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<void> => {
   console.log(chalk.cyan(`🔁 Rerunning agent: ${agentName}`));
 
@@ -792,7 +799,7 @@ export const rerunAgent = async (
     }
   }
 
-  await runSingleAgent(agent.name, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, true);
+  await runSingleAgent(agent.name, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, true, false, model);
 
   console.log(chalk.green(`✅ Agent '${agentName}' rerun completed successfully`));
 };
@@ -802,7 +809,8 @@ export const runAll = async (
   session: Session,
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<void> => {
   const allAgentNames = Object.keys(AGENTS) as AgentName[];
 
@@ -822,7 +830,7 @@ export const runAll = async (
   console.log();
 
   for (const agentName of remainingAgents) {
-    await runSingleAgent(agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    await runSingleAgent(agentName, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, false, false, model);
   }
 
   console.log(chalk.green(`\n🎉 All agents completed successfully! Session marked as completed.`));

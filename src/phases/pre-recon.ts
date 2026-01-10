@@ -138,7 +138,8 @@ async function runPreReconWave1(
   config: DistributedConfig | null,
   pipelineTestingMode: boolean = false,
   sessionId: string | null = null,
-  outputPath: string | null = null
+  outputPath: string | null = null,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<Wave1Results> {
   console.log(chalk.blue('    → Launching Wave 1 operations in parallel...'));
 
@@ -156,7 +157,8 @@ async function runPreReconWave1(
         AGENTS['pre-recon'].displayName,
         'pre-recon',  // Agent name for snapshot creation
         chalk.cyan,
-        { id: sessionId!, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+        { id: sessionId!, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) },  // Session metadata for audit logging (STANDARD: use 'id' field)
+        model
       )
     );
     const [codeAnalysis] = await Promise.all(operations);
@@ -179,7 +181,8 @@ async function runPreReconWave1(
         AGENTS['pre-recon'].displayName,
         'pre-recon',  // Agent name for snapshot creation
         chalk.cyan,
-        { id: sessionId!, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+        { id: sessionId!, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) },  // Session metadata for audit logging (STANDARD: use 'id' field)
+        model
       )
     );
   }
@@ -359,13 +362,14 @@ export async function executePreReconPhase(
   toolAvailability: ToolAvailability,
   pipelineTestingMode: boolean,
   sessionId: string | null = null,
-  outputPath: string | null = null
+  outputPath: string | null = null,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<PreReconResult> {
   console.log(chalk.yellow.bold('\n🔍 PHASE 1: PRE-RECONNAISSANCE'));
   const timer = new Timer('phase-1-pre-recon');
 
   console.log(chalk.yellow('Wave 1: Initial footprinting...'));
-  const wave1Results = await runPreReconWave1(webUrl, sourceDir, variables, config, pipelineTestingMode, sessionId, outputPath);
+  const wave1Results = await runPreReconWave1(webUrl, sourceDir, variables, config, pipelineTestingMode, sessionId, outputPath, model);
   console.log(chalk.green('  ✅ Wave 1 operations completed'));
 
   console.log(chalk.yellow('Wave 2: Additional scanning...'));

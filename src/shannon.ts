@@ -121,7 +121,8 @@ async function main(
   configPath: string | null = null,
   pipelineTestingMode: boolean = false,
   disableLoader: boolean = false,
-  outputPath: string | null = null
+  outputPath: string | null = null,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<MainResult> {
   // Set global flag for loader control
   global.SHANNON_DISABLE_LOADER = disableLoader;
@@ -140,6 +141,9 @@ async function main(
   }
   if (outputPath) {
     console.log(chalk.cyan(`📂 Output: ${outputPath}`));
+  }
+  if (model !== 'claude-sonnet-4-5-20250929') {
+    console.log(chalk.cyan(`🤖 Model: ${model}`));
   }
   console.log(chalk.gray('─'.repeat(60)));
 
@@ -269,7 +273,8 @@ async function main(
       toolAvailability,
       pipelineTestingMode,
       session.id,  // Pass session ID for logging
-      outputPath   // Pass output path for audit logging
+      outputPath,  // Pass output path for audit logging
+      model  // Pass model for agent execution
     );
     timingResults.phases['pre-recon'] = preReconDuration;
     await updateSessionProgress('pre-recon');
@@ -288,7 +293,8 @@ async function main(
       AGENTS['recon'].displayName,
       'recon',  // Agent name for snapshot creation
       chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) },  // Session metadata for audit logging (STANDARD: use 'id' field)
+      model  // Pass model for agent execution
     );
     const reconDuration = reconTimer.stop();
     timingResults.phases['recon'] = reconDuration;
@@ -302,7 +308,7 @@ async function main(
     const vulnTimer = new Timer('phase-3-vulnerability-analysis');
     console.log(chalk.red.bold('\n🚨 PHASE 3: VULNERABILITY ANALYSIS'));
 
-    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
 
     // Display vulnerability analysis summary
     const currentSession = await getSession(session.id);
@@ -325,7 +331,7 @@ async function main(
     // Get fresh session data to ensure we have latest vulnerability analysis results
     const freshSession = await getSession(session.id);
     if (freshSession) {
-      await runPhase('exploitation', freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+      await runPhase('exploitation', freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
     }
 
     // Display exploitation summary
@@ -371,7 +377,8 @@ async function main(
       'Executive Summary and Report Cleanup',
       'report',  // Agent name for snapshot creation
       chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) },  // Session metadata for audit logging (STANDARD: use 'id' field)
+      model  // Pass model for agent execution
     );
 
     const reportDuration = reportTimer.stop();
@@ -431,6 +438,7 @@ let configPath: string | null = null;
 let outputPath: string | null = null;
 let pipelineTestingMode = false;
 let disableLoader = false;
+let model = 'claude-sonnet-4-5-20250929';  // Default model
 const nonFlagArgs: string[] = [];
 let developerCommand: string | null = null;
 const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
@@ -450,6 +458,14 @@ for (let i = 0; i < args.length; i++) {
       i++; // Skip the next argument
     } else {
       console.log(chalk.red('❌ --output flag requires a directory path'));
+      process.exit(1);
+    }
+  } else if (args[i] === '--model') {
+    if (i + 1 < args.length) {
+      model = args[i + 1]!;
+      i++; // Skip the next argument
+    } else {
+      console.log(chalk.red('❌ --model flag requires a model name'));
       process.exit(1);
     }
   } else if (args[i] === '--pipeline-testing') {
@@ -490,7 +506,7 @@ if (developerCommand) {
   // Set global flag for loader control in developer mode too
   global.SHANNON_DISABLE_LOADER = disableLoader;
 
-  await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+  await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
 
   process.exit(0);
 }
@@ -536,6 +552,9 @@ console.log(chalk.gray(`   Config Path: ${configPath}\n`));
 if (outputPath) {
   console.log(chalk.gray(`   Output Path: ${outputPath}\n`));
 }
+if (model !== 'claude-sonnet-4-5-20250929') {
+  console.log(chalk.gray(`   Model: ${model}\n`));
+}
 if (pipelineTestingMode) {
   console.log(chalk.yellow('⚡ PIPELINE TESTING MODE ENABLED - Using minimal test prompts for fast pipeline validation\n'));
 }
@@ -544,7 +563,7 @@ if (disableLoader) {
 }
 
 try {
-  const result = await main(webUrl!, repoPathValidation.path!, configPath, pipelineTestingMode, disableLoader, outputPath);
+  const result = await main(webUrl!, repoPathValidation.path!, configPath, pipelineTestingMode, disableLoader, outputPath, model);
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(result.reportPath));
   console.log(chalk.green.bold('\n📂 AUDIT LOGS AVAILABLE:'));

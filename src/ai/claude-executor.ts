@@ -139,7 +139,8 @@ async function runClaudePrompt(
   colorFn: ChalkInstance = chalk.cyan,
   sessionMetadata: SessionMetadata | null = null,
   auditSession: AuditSession | null = null,
-  attemptNumber: number = 1
+  attemptNumber: number = 1,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<ClaudePromptResult> {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
@@ -238,7 +239,7 @@ async function runClaudePrompt(
     }
 
     const options = {
-      model: 'claude-sonnet-4-5-20250929', // Use latest Claude 4.5 Sonnet
+      model, // Use specified model (default: claude-sonnet-4-5-20250929)
       maxTurns: 10_000, // Maximum turns for autonomous work
       cwd: sourceDir, // Set working directory using SDK option
       permissionMode: 'bypassPermissions' as const, // Bypass all permission checks for pentesting
@@ -587,7 +588,8 @@ export async function runClaudePromptWithRetry(
   description: string = 'Claude analysis',
   agentName: string | null = null,
   colorFn: ChalkInstance = chalk.cyan,
-  sessionMetadata: SessionMetadata | null = null
+  sessionMetadata: SessionMetadata | null = null,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<ClaudePromptResult> {
   const maxRetries = 3;
   let lastError: Error | undefined;
@@ -613,7 +615,7 @@ export async function runClaudePromptWithRetry(
     }
 
     try {
-      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, agentName, colorFn, sessionMetadata, auditSession, attempt);
+      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, agentName, colorFn, sessionMetadata, auditSession, attempt, model);
 
       // Validate output after successful run
       if (result.success) {

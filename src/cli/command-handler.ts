@@ -29,7 +29,8 @@ type RunClaudePromptWithRetry = (
   description: string,
   agentName: string | null,
   colorFn: ChalkInstance,
-  sessionMetadata: SessionMetadata | null
+  sessionMetadata: SessionMetadata | null,
+  model: string
 ) => Promise<AgentResult>;
 
 type LoadPrompt = (
@@ -45,7 +46,8 @@ export async function handleDeveloperCommand(
   args: string[],
   pipelineTestingMode: boolean,
   runClaudePromptWithRetry: RunClaudePromptWithRetry,
-  loadPrompt: LoadPrompt
+  loadPrompt: LoadPrompt,
+  model: string = 'claude-sonnet-4-5-20250929'
 ): Promise<void> {
   try {
     let session: Session | null;
@@ -140,11 +142,11 @@ export async function handleDeveloperCommand(
     switch (command) {
 
       case '--run-phase':
-        await runPhase(args[0]!, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+        await runPhase(args[0]!, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
         break;
 
       case '--run-all':
-        await runAll(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+        await runAll(session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
         break;
 
       case '--rollback-to':
@@ -152,7 +154,7 @@ export async function handleDeveloperCommand(
         break;
 
       case '--rerun':
-        await rerunAgent(args[0]!, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
+        await rerunAgent(args[0]!, session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt, model);
         break;
 
       case '--status':
