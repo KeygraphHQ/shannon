@@ -167,6 +167,11 @@ export async function pentestPipelineWorkflow(
     // === Phase 5: Reporting ===
     state.currentPhase = 'reporting';
     state.currentAgent = 'report';
+
+    // First, assemble the concatenated report from exploitation evidence files
+    await acts.assembleReportActivity(activityInput);
+
+    // Then run the report agent to add executive summary and clean up
     state.agentMetrics['report'] = await acts.runReportAgent(activityInput);
     state.completedAgents.push('report');
 

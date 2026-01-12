@@ -58,6 +58,7 @@ import {
   rollbackGitWorkspace,
   getGitCommitHash,
 } from '../utils/git-manager.js';
+import { assembleFinalReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
 import type { AgentName } from '../types/agents.js';
@@ -304,4 +305,20 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('report', input);
+}
+
+/**
+ * Assemble the final report by concatenating exploitation evidence files.
+ * This must be called BEFORE runReportAgent to create the file that the report agent will modify.
+ */
+export async function assembleReportActivity(input: ActivityInput): Promise<void> {
+  const { repoPath } = input;
+  console.log(chalk.blue('📝 Assembling deliverables from specialist agents...'));
+  try {
+    await assembleFinalReport(repoPath);
+  } catch (error) {
+    const err = error as Error;
+    console.log(chalk.yellow(`⚠️ Error assembling final report: ${err.message}`));
+    // Don't throw - the report agent can still create content even if no exploitation files exist
+  }
 }
