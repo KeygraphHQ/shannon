@@ -30,6 +30,15 @@ shannon "https://example.com" "/path/to/repo" --output /path/to/reports
 npm start <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
 ```
 
+### Options
+```bash
+--config <file>      YAML configuration file for authentication and testing parameters
+--output <path>      Custom output directory for session folder (default: ./audit-logs/)
+--pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)
+--disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)
+--help               Show help message
+```
+
 ### Configuration Validation
 ```bash
 # Configuration validation is built into the main script
@@ -43,58 +52,7 @@ TOTP generation is now handled automatically via the `generate_totp` MCP tool du
 ```bash
 # No linting or testing commands available in this project
 # Development is done by running the agent in pipeline-testing mode
-shannon <commands> --pipeline-testing
-```
-
-### Session Management Commands
-```bash
-# Setup session without running
-shannon --setup-only <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
-
-# Check session status (shows progress, timing, costs)
-shannon --status
-
-# List all available agents by phase
-shannon --list-agents
-
-# Show help
-shannon --help
-```
-
-### Execution Commands
-```bash
-# Run all remaining agents to completion
-shannon --run-all [--pipeline-testing]
-
-# Run a specific agent
-shannon --run-agent <agent-name> [--pipeline-testing]
-
-# Run a range of agents
-shannon --run-agents <start-agent>:<end-agent> [--pipeline-testing]
-
-# Run a specific phase
-shannon --run-phase <phase-name> [--pipeline-testing]
-
-# Pipeline testing mode (minimal prompts for fast testing)
-shannon <command> --pipeline-testing
-```
-
-### Rollback & Recovery Commands
-```bash
-# Rollback to specific checkpoint
-shannon --rollback-to <agent-name>
-
-# Rollback and re-execute specific agent
-shannon --rerun <agent-name> [--pipeline-testing]
-```
-
-### Session Cleanup Commands
-```bash
-# Delete all sessions (with confirmation)
-shannon --cleanup
-
-# Delete specific session by ID
-shannon --cleanup <session-id>
+shannon <WEB_URL> <REPO_PATH> --pipeline-testing
 ```
 
 ## Architecture & Components
@@ -106,22 +64,20 @@ shannon --cleanup <session-id>
 - `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
 - `src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
 - `src/tool-checker.ts` - Validates availability of external security tools before execution
-- `src/session-manager.ts` - Manages persistent session state and agent lifecycle
-- `src/checkpoint-manager.ts` - Git-based checkpointing system for rollback capabilities
-- Pipeline orchestration is built into the main `src/shannon.ts` script
+- `src/session-manager.ts` - Agent definitions, execution order, and parallel groups
 - `src/queue-validation.ts` - Validates deliverables and agent prerequisites
 
 ### Five-Phase Testing Workflow
 
 1. **Pre-Reconnaissance** (`pre-recon`) - External tool scans (nmap, subfinder, whatweb) + source code analysis
 2. **Reconnaissance** (`recon`) - Analysis of initial findings and attack surface mapping  
-3. **Vulnerability Analysis** (5 agents)
+3. **Vulnerability Analysis** (5 agents run in parallel)
    - `injection-vuln` - SQL injection, command injection
    - `xss-vuln` - Cross-site scripting 
    - `auth-vuln` - Authentication bypasses
    - `authz-vuln` - Authorization flaws
    - `ssrf-vuln` - Server-side request forgery
-4. **Exploitation** (5 agents)
+4. **Exploitation** (5 agents run in parallel, only if vulnerabilities found)
    - `injection-exploit` - Exploit injection vulnerabilities
    - `xss-exploit` - Exploit XSS vulnerabilities  
    - `auth-exploit` - Exploit authentication issues
@@ -182,45 +138,25 @@ The agent integrates with external security tools:
 
 Tools are validated for availability before execution using the tool-checker module.
 
-### Git-Based Checkpointing System
-The agent implements a sophisticated checkpoint system using git:
-- Every agent creates a git checkpoint before execution
-- Rollback to any previous agent state using `--rollback-to` or `--rerun`
-- Failed agents don't affect completed work
-- Rolled-back agents marked in audit system with status: "rolled-back"
-- Reconciliation automatically syncs Shannon store with audit logs after rollback
-- Fail-fast safety prevents accidental re-execution of completed agents
-
-### Unified Audit & Metrics System
-The agent implements a crash-safe, self-healing audit system (v3.0) with the following guarantees:
+### Audit & Metrics System
+The agent implements a crash-safe audit system with the following features:
 
 **Architecture:**
-- **audit-logs/** (or custom `--output` path): Centralized metrics and forensic logs (source of truth)
+- **audit-logs/** (or custom `--output` path): Centralized metrics and forensic logs
   - `{hostname}_{sessionId}/session.json` - Comprehensive metrics with attempt-level detail
   - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
   - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
   - `{hostname}_{sessionId}/deliverables/` - Security reports and findings
-- **.shannon-store.json**: Minimal orchestration state (completedAgents, checkpoints)
+- **.shannon-store.json**: Minimal session lock file (prevents concurrent runs)
 
 **Crash Safety:**
 - Append-only logging with immediate flush (survives kill -9)
 - Atomic writes for session.json (no partial writes)
-- Event-based logging (tool_start, tool_end, llm_response) closes data loss windows
-
-**Self-Healing:**
-- Automatic reconciliation before every CLI command
-- Recovers from crashes during rollback
-- Audit logs are source of truth; Shannon store follows
-
-**Forensic Completeness:**
-- All retry attempts logged with errors, costs, durations
-- Rolled-back agents preserved with status: "rolled-back"
-- Partial cost capture for failed attempts
-- Complete event trail for debugging
+- Event-based logging (tool_start, tool_end, llm_response)
 
 **Concurrency Safety:**
 - SessionMutex prevents race conditions during parallel agent execution
-- Safe parallel execution of vulnerability and exploitation phases
+- 5x faster execution with parallel vulnerability and exploitation phases
 
 **Metrics & Reporting:**
 - Export metrics to CSV with `./scripts/export-metrics.js`
@@ -238,16 +174,20 @@ For detailed design, see `docs/unified-audit-system-design.md`.
 - **SDK-First Approach**: Heavy reliance on Claude Agent SDK for autonomous AI operations
 - **Progressive Analysis**: Each phase builds on previous phase results
 - **Local Repository Setup**: Target applications are accessed directly from user-provided local directories
+- **Fire-and-Forget Execution**: Single entry point, runs all phases to completion
 
 ### Error Handling Strategy
 The application uses a comprehensive error handling system with:
 - Categorized error types (PentestError, ConfigError, NetworkError, etc.)
-- Automatic retry logic for transient failures
+- Automatic retry logic for transient failures (3 attempts per agent)
 - Graceful degradation when external tools are unavailable
 - Detailed error logging and user-friendly error messages
 
 ### Testing Mode
-The agent includes a testing mode that skips external tool execution for faster development cycles.
+The agent includes a testing mode that skips external tool execution for faster development cycles:
+```bash
+shannon <WEB_URL> <REPO_PATH> --pipeline-testing
+```
 
 ### Security Focus
 This is explicitly designed as a **defensive security tool** for:
@@ -263,32 +203,48 @@ The tool should only be used on systems you own or have explicit permission to t
 ```
 src/                             # TypeScript source files
 ├── shannon.ts                   # Main orchestration script (entry point)
+├── constants.ts                 # Shared constants
+├── config-parser.ts             # Configuration handling
+├── error-handling.ts            # Error management
+├── tool-checker.ts              # Tool validation
+├── session-manager.ts           # Agent definitions, order, and parallel groups
+├── queue-validation.ts          # Deliverable validation
+├── splash-screen.ts             # ASCII art splash screen
+├── progress-indicator.ts        # Progress display utilities
 ├── types/                       # TypeScript type definitions
 │   ├── index.ts                 # Barrel exports
 │   ├── agents.ts                # Agent type definitions
 │   ├── config.ts                # Configuration interfaces
 │   ├── errors.ts                # Error type definitions
 │   └── session.ts               # Session type definitions
-├── audit/                       # Unified audit system (v3.0)
+├── audit/                       # Audit system
 │   ├── index.ts                 # Public API
 │   ├── audit-session.ts         # Main facade (logger + metrics + mutex)
 │   ├── logger.ts                # Append-only crash-safe logging
 │   ├── metrics-tracker.ts       # Timing, cost, attempt tracking
 │   └── utils.ts                 # Path generation, atomic writes
-├── config-parser.ts             # Configuration handling
-├── error-handling.ts            # Error management
-├── tool-checker.ts              # Tool validation
-├── session-manager.ts           # Session state + reconciliation
-├── checkpoint-manager.ts        # Git-based checkpointing + rollback
-├── queue-validation.ts          # Deliverable validation
 ├── ai/
 │   └── claude-executor.ts       # Claude Agent SDK integration
+├── phases/
+│   ├── pre-recon.ts             # Pre-reconnaissance phase
+│   └── reporting.ts             # Final report assembly
+├── prompts/
+│   └── prompt-manager.ts        # Prompt loading and variable substitution
+├── setup/
+│   └── environment.ts           # Local repository setup
+├── cli/
+│   ├── ui.ts                    # Help text display
+│   └── input-validator.ts       # URL and path validation
 └── utils/
+    ├── git-manager.ts           # Git operations
+    ├── metrics.ts               # Timing utilities
+    ├── output-formatter.ts      # Output formatting utilities
+    └── concurrency.ts           # SessionMutex for parallel execution
 dist/                            # Compiled JavaScript output
 ├── shannon.js                   # Compiled entry point
 └── ...                          # Other compiled files
 package.json                     # Node.js dependencies
-.shannon-store.json              # Orchestration state (minimal)
+.shannon-store.json              # Session lock file
 audit-logs/                      # Centralized audit data (default, or use --output)
 └── {hostname}_{sessionId}/
     ├── session.json             # Comprehensive metrics
@@ -329,11 +285,9 @@ docs/                            # Documentation
 ## Troubleshooting
 
 ### Common Issues
-- **"Agent already completed"**: Use `--rerun <agent>` for explicit re-execution
-- **"Missing prerequisites"**: Check `--status` and run prerequisite agents first  
-- **"No sessions found"**: Create a session with `--setup-only` first
+- **"A session is already running"**: Wait for the current session to complete, or delete `.shannon-store.json`
 - **"Repository not found"**: Ensure target local directory exists and is accessible
-- **"Too many test sessions"**: Use `--cleanup` to remove old sessions and free disk space
+- **Concurrent runs blocked**: Only one session can run at a time per target
 
 ### External Tool Dependencies
 Missing tools can be skipped using `--pipeline-testing` mode during development:

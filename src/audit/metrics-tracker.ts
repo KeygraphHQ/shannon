@@ -20,7 +20,6 @@ import {
   calculatePercentage,
   type SessionMetadata,
 } from './utils.js';
-import type { AgentName, PhaseName } from '../types/index.js';
 
 interface AttemptData {
   attempt_number: number;
@@ -32,12 +31,11 @@ interface AttemptData {
 }
 
 interface AgentMetrics {
-  status: 'in-progress' | 'success' | 'failed' | 'rolled-back';
+  status: 'in-progress' | 'success' | 'failed';
   attempts: AttemptData[];
   final_duration_ms: number;
   total_cost_usd: number;
   checkpoint?: string;
-  rolled_back_at?: string;
 }
 
 interface PhaseMetrics {
@@ -209,42 +207,6 @@ export class MetricsTracker {
   }
 
   /**
-   * Mark agent as rolled back
-   */
-  async markRolledBack(agentName: string): Promise<void> {
-    if (!this.data || !this.data.metrics.agents[agentName]) {
-      return; // Agent not tracked
-    }
-
-    const agent = this.data.metrics.agents[agentName]!;
-    agent.status = 'rolled-back';
-    agent.rolled_back_at = formatTimestamp();
-
-    // Recalculate aggregations (exclude rolled-back agents)
-    this.recalculateAggregations();
-
-    await this.save();
-  }
-
-  /**
-   * Mark multiple agents as rolled back
-   */
-  async markMultipleRolledBack(agentNames: string[]): Promise<void> {
-    if (!this.data) return;
-
-    for (const agentName of agentNames) {
-      if (this.data.metrics.agents[agentName]) {
-        const agent = this.data.metrics.agents[agentName]!;
-        agent.status = 'rolled-back';
-        agent.rolled_back_at = formatTimestamp();
-      }
-    }
-
-    this.recalculateAggregations();
-    await this.save();
-  }
-
-  /**
    * Update session status
    */
   async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed'): Promise<void> {
@@ -267,7 +229,7 @@ export class MetricsTracker {
 
     const agents = this.data.metrics.agents;
 
-    // Only count successful agents (not rolled-back or failed)
+    // Only count successful agents
     const successfulAgents = Object.entries(agents).filter(
       ([, data]) => data.status === 'success'
     );

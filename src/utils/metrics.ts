@@ -30,22 +30,12 @@ export class Timer {
   }
 }
 
-interface TimingResultsPhases {
-  [key: string]: number;
-}
-
-interface TimingResultsCommands {
-  [key: string]: number;
-}
-
 interface TimingResultsAgents {
   [key: string]: number;
 }
 
 interface TimingResults {
   total: Timer | null;
-  phases: TimingResultsPhases;
-  commands: TimingResultsCommands;
   agents: TimingResultsAgents;
 }
 
@@ -61,8 +51,6 @@ interface CostResults {
 // Global timing and cost tracker
 export const timingResults: TimingResults = {
   total: null,
-  phases: {},
-  commands: {},
   agents: {},
 };
 
@@ -86,44 +74,6 @@ export const displayTimingSummary = (): void => {
   // Total execution time
   console.log(chalk.cyan(`📊 Total Execution Time: ${formatDuration(totalDuration)}`));
   console.log();
-
-  // Phase breakdown
-  if (Object.keys(timingResults.phases).length > 0) {
-    console.log(chalk.yellow.bold('🔍 Phase Breakdown:'));
-    let phaseTotal = 0;
-    for (const [phase, duration] of Object.entries(timingResults.phases)) {
-      const percentage = ((duration / totalDuration) * 100).toFixed(1);
-      console.log(
-        chalk.yellow(`  ${phase.padEnd(20)} ${formatDuration(duration).padStart(8)} (${percentage}%)`)
-      );
-      phaseTotal += duration;
-    }
-    console.log(
-      chalk.gray(
-        `  ${'Phases Total'.padEnd(20)} ${formatDuration(phaseTotal).padStart(8)} (${((phaseTotal / totalDuration) * 100).toFixed(1)}%)`
-      )
-    );
-    console.log();
-  }
-
-  // Command breakdown
-  if (Object.keys(timingResults.commands).length > 0) {
-    console.log(chalk.blue.bold('🖥️  Command Breakdown:'));
-    let commandTotal = 0;
-    for (const [command, duration] of Object.entries(timingResults.commands)) {
-      const percentage = ((duration / totalDuration) * 100).toFixed(1);
-      console.log(
-        chalk.blue(`  ${command.padEnd(20)} ${formatDuration(duration).padStart(8)} (${percentage}%)`)
-      );
-      commandTotal += duration;
-    }
-    console.log(
-      chalk.gray(
-        `  ${'Commands Total'.padEnd(20)} ${formatDuration(commandTotal).padStart(8)} (${((commandTotal / totalDuration) * 100).toFixed(1)}%)`
-      )
-    );
-    console.log();
-  }
 
   // Agent breakdown
   if (Object.keys(timingResults.agents).length > 0) {
