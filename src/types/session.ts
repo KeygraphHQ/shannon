@@ -8,45 +8,17 @@
  * Session type definitions
  */
 
-import type { AgentName, AgentStatus } from './agents.js';
-
-export type PhaseName =
-  | 'pre-reconnaissance'
-  | 'reconnaissance'
-  | 'vulnerability-analysis'
-  | 'exploitation'
-  | 'reporting';
-
-export interface AgentInfo {
-  name: AgentName;
-  displayName: string;
-  phase: PhaseName;
-  order: number;
-  prerequisites: AgentName[];
-}
-
-export type AgentDefinitions = Record<AgentName, AgentInfo>;
-
-export type PhaseDefinitions = Record<PhaseName, AgentName[]>;
-
-export interface AgentState {
-  status: AgentStatus;
-  startedAt?: string;
-  completedAt?: string;
-  error?: string;
-  attempts?: number;
-}
+import type { AgentName } from './agents.js';
 
 export interface Session {
   id: string;
-  targetUrl: string;
+  webUrl: string;
   repoPath: string;
-  configPath?: string;
-  createdAt: string;
-  updatedAt: string;
-  completedAgents: AgentName[];
-  agentStates: Record<AgentName, AgentState>;
-  checkpoints: Record<AgentName, string>;
+  targetRepo: string;
+  configFile: string | null;
+  outputPath: string | null;
+  status: 'running' | 'completed' | 'failed';
+  startedAt: string;
 }
 
 export interface SessionStore {
@@ -55,9 +27,8 @@ export interface SessionStore {
 
 export interface SessionSummary {
   id: string;
-  targetUrl: string;
+  webUrl: string;
   repoPath: string;
-  createdAt: string;
-  completedAgents: number;
-  totalAgents: number;
+  startedAt: string;
+  status: 'running' | 'completed' | 'failed';
 }
