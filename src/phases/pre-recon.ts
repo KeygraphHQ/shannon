@@ -6,7 +6,7 @@
 
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
-import { Timer, timingResults } from '../utils/metrics.js';
+import { Timer } from '../utils/metrics.js';
 import { formatDuration } from '../audit/utils.js';
 import { handleToolError, PentestError } from '../error-handling.js';
 import { AGENTS } from '../session-manager.js';
@@ -14,7 +14,14 @@ import { runClaudePromptWithRetry } from '../ai/claude-executor.js';
 import { loadPrompt } from '../prompts/prompt-manager.js';
 import type { ToolAvailability } from '../tool-checker.js';
 import type { DistributedConfig } from '../types/config.js';
-import type { AgentResult } from '../checkpoint-manager.js';
+
+interface AgentResult {
+  success: boolean;
+  duration: number;
+  cost?: number;
+  error?: string;
+  retryable?: boolean;
+}
 
 type ToolName = 'nmap' | 'subfinder' | 'whatweb' | 'schemathesis';
 type ToolStatus = 'success' | 'skipped' | 'error';
@@ -61,7 +68,6 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
         const nmapHostname = new URL(target).hostname;
         result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`nmap -sV -sC ${nmapHostname}`;
         const duration = timer.stop();
-        timingResults.commands[tool] = duration;
         console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(duration)}`));
         return { tool: 'nmap', output: result.stdout, status: 'success', duration };
       }
@@ -70,7 +76,6 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
         const hostname = new URL(target).hostname;
         result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`subfinder -d ${hostname}`;
         const subfinderDuration = timer.stop();
-        timingResults.commands[tool] = subfinderDuration;
         console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(subfinderDuration)}`));
         return { tool: 'subfinder', output: result.stdout, status: 'success', duration: subfinderDuration };
       }
@@ -80,7 +85,6 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
         console.log(chalk.gray(`    Command: ${command}`));
         result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`whatweb --open-timeout 30 --read-timeout 60 ${target}`;
         const whatwebDuration = timer.stop();
-        timingResults.commands[tool] = whatwebDuration;
         console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(whatwebDuration)}`));
         return { tool: 'whatweb', output: result.stdout, status: 'success', duration: whatwebDuration };
       }
@@ -107,7 +111,6 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
             }
 
             const schemaDuration = timer.stop();
-            timingResults.commands[tool] = schemaDuration;
             console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(schemaDuration)}`));
             return { tool: 'schemathesis', output: allResults.join('\n\n'), status: 'success', duration: schemaDuration };
           } else {
@@ -124,7 +127,6 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
     }
   } catch (error) {
     const duration = timer.stop();
-    timingResults.commands[tool] = duration;
     console.log(chalk.red(`    ❌ ${tool} failed in ${formatDuration(duration)}`));
     return handleToolError(tool, error as Error & { code?: string }) as TerminalScanResult;
   }

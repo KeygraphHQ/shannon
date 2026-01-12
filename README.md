@@ -286,14 +286,6 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
-### Check Status
-
-View progress of previous runs:
-
-```bash
-docker run --rm shannon:latest --status
-```
-
 ### Output and Results
 
 All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory. If using `--output`, ensure that path is mounted to an accessible host directory (e.g., `-v "$(pwd)/custom-directory:/app/reports"`).

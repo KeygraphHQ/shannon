@@ -51,23 +51,15 @@ export type AgentValidatorMap = Record<AgentName, AgentValidator>;
 
 export type McpAgentMapping = Record<PromptName, PlaywrightAgent>;
 
-export type AgentPhase =
-  | 'pre-recon'
-  | 'recon'
-  | 'vuln'
-  | 'exploit'
-  | 'report';
-
-export interface AgentDefinition {
-  name: AgentName;
-  promptName: PromptName;
-  phase: AgentPhase;
-  dependencies?: AgentName[];
-}
-
 export type AgentStatus =
   | 'pending'
   | 'in_progress'
   | 'completed'
   | 'failed'
   | 'rolled-back';
+
+export interface AgentDefinition {
+  name: AgentName;
+  displayName: string;
+  prerequisites: AgentName[];
+}

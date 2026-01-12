@@ -156,21 +156,6 @@ export class AuditSession {
   }
 
   /**
-   * Mark multiple agents as rolled back
-   */
-  async markMultipleRolledBack(agentNames: string[]): Promise<void> {
-    await this.ensureInitialized();
-
-    const unlock = await sessionMutex.lock(this.sessionId);
-    try {
-      await this.metricsTracker.reload();
-      await this.metricsTracker.markMultipleRolledBack(agentNames);
-    } finally {
-      unlock();
-    }
-  }
-
-  /**
    * Update session status
    */
   async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed'): Promise<void> {

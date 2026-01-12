@@ -6,7 +6,7 @@
 // as published by the Free Software Foundation.
 
 import { path, fs, $ } from 'zx';
-import chalk from 'chalk';
+import chalk, { type ChalkInstance } from 'chalk';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -15,11 +15,9 @@ dotenv.config();
 import { parseConfig, distributeConfig } from './config-parser.js';
 import { checkToolAvailability, handleMissingTools } from './tool-checker.js';
 
-// Session and Checkpoints
-import { createSession, updateSession, getSession, AGENTS } from './session-manager.js';
-import type { Session } from './session-manager.js';
-import type { AgentName } from './types/index.js';
-import { runPhase, getGitCommitHash } from './checkpoint-manager.js';
+// Session
+import { AGENTS, getParallelGroups } from './session-manager.js';
+import type { AgentName, PromptName } from './types/index.js';
 
 // Setup and Deliverables
 import { setupLocalRepo } from './setup/environment.js';
@@ -33,30 +31,100 @@ import { executePreReconPhase } from './phases/pre-recon.js';
 import { assembleFinalReport } from './phases/reporting.js';
 
 // Utils
-import { timingResults, costResults, displayTimingSummary, Timer } from './utils/metrics.js';
+import { timingResults, displayTimingSummary, Timer } from './utils/metrics.js';
 import { formatDuration, generateAuditPath } from './audit/utils.js';
+import type { SessionMetadata } from './audit/utils.js';
+import { AuditSession } from './audit/audit-session.js';
 
 // CLI
-import { handleDeveloperCommand } from './cli/command-handler.js';
 import { showHelp, displaySplashScreen } from './cli/ui.js';
 import { validateWebUrl, validateRepoPath } from './cli/input-validator.js';
 
 // Error Handling
 import { PentestError, logError } from './error-handling.js';
 
-// Session Manager Functions
-import {
-  calculateVulnerabilityAnalysisSummary,
-  calculateExploitationSummary,
-  getNextAgent
-} from './session-manager.js';
-
 import type { DistributedConfig } from './types/config.js';
 import type { ToolAvailability } from './tool-checker.js';
+import { safeValidateQueueAndDeliverable } from './queue-validation.js';
 
 // Extend global namespace for SHANNON_DISABLE_LOADER
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
+}
+
+// Session Lock File Management
+const STORE_PATH = path.join(process.cwd(), '.shannon-store.json');
+
+interface Session {
+  id: string;
+  webUrl: string;
+  repoPath: string;
+  status: 'in-progress' | 'completed' | 'failed';
+  startedAt: string;
+}
+
+interface SessionStore {
+  sessions: Session[];
+}
+
+function generateSessionId(): string {
+  return crypto.randomUUID();
+}
+
+async function loadSessions(): Promise<SessionStore> {
+  try {
+    if (await fs.pathExists(STORE_PATH)) {
+      return await fs.readJson(STORE_PATH) as SessionStore;
+    }
+  } catch {
+    // Corrupted file, start fresh
+  }
+  return { sessions: [] };
+}
+
+async function saveSessions(store: SessionStore): Promise<void> {
+  await fs.writeJson(STORE_PATH, store, { spaces: 2 });
+}
+
+async function createSession(webUrl: string, repoPath: string): Promise<Session> {
+  const store = await loadSessions();
+
+  // Check for existing in-progress session
+  const existing = store.sessions.find(
+    s => s.repoPath === repoPath && s.status === 'in-progress'
+  );
+  if (existing) {
+    throw new PentestError(
+      `Session already in progress for ${repoPath}`,
+      'validation',
+      false,
+      { sessionId: existing.id }
+    );
+  }
+
+  const session: Session = {
+    id: generateSessionId(),
+    webUrl,
+    repoPath,
+    status: 'in-progress',
+    startedAt: new Date().toISOString()
+  };
+
+  store.sessions.push(session);
+  await saveSessions(store);
+  return session;
+}
+
+async function updateSessionStatus(
+  sessionId: string,
+  status: 'in-progress' | 'completed' | 'failed'
+): Promise<void> {
+  const store = await loadSessions();
+  const session = store.sessions.find(s => s.id === sessionId);
+  if (session) {
+    session.status = status;
+    await saveSessions(store);
+  }
 }
 
 interface PromptVariables {
@@ -65,24 +133,71 @@ interface PromptVariables {
   sourceDir: string;
 }
 
-interface SessionUpdates {
-  completedAgents?: AgentName[];
-  failedAgents?: AgentName[];
-  status?: 'in-progress' | 'completed' | 'failed';
-  checkpoints?: Record<AgentName, string>;
-}
-
 interface MainResult {
   reportPath: string;
   auditLogsPath: string;
 }
 
+interface AgentResult {
+  success: boolean;
+  duration: number;
+  cost?: number;
+  error?: string;
+  retryable?: boolean;
+}
+
+interface ParallelAgentResult {
+  agentName: AgentName;
+  success: boolean;
+  timing?: number | undefined;
+  cost?: number | undefined;
+  attempts: number;
+  error?: string | undefined;
+}
+
 // Configure zx to disable timeouts (let tools run as long as needed)
 $.timeout = 0;
 
+// Helper function to get prompt name from agent name
+const getPromptName = (agentName: AgentName): PromptName => {
+  const mappings: Record<AgentName, PromptName> = {
+    'pre-recon': 'pre-recon-code',
+    'recon': 'recon',
+    'injection-vuln': 'vuln-injection',
+    'xss-vuln': 'vuln-xss',
+    'auth-vuln': 'vuln-auth',
+    'ssrf-vuln': 'vuln-ssrf',
+    'authz-vuln': 'vuln-authz',
+    'injection-exploit': 'exploit-injection',
+    'xss-exploit': 'exploit-xss',
+    'auth-exploit': 'exploit-auth',
+    'ssrf-exploit': 'exploit-ssrf',
+    'authz-exploit': 'exploit-authz',
+    'report': 'report-executive'
+  };
+
+  return mappings[agentName] || agentName as PromptName;
+};
+
+// Get color function for agent
+const getAgentColor = (agentName: AgentName): ChalkInstance => {
+  const colorMap: Partial<Record<AgentName, ChalkInstance>> = {
+    'injection-vuln': chalk.red,
+    'injection-exploit': chalk.red,
+    'xss-vuln': chalk.yellow,
+    'xss-exploit': chalk.yellow,
+    'auth-vuln': chalk.blue,
+    'auth-exploit': chalk.blue,
+    'ssrf-vuln': chalk.magenta,
+    'ssrf-exploit': chalk.magenta,
+    'authz-vuln': chalk.green,
+    'authz-exploit': chalk.green
+  };
+  return colorMap[agentName] || chalk.cyan;
+};
+
 /**
  * Consolidate deliverables from target repo into the session folder
- * Copies deliverables directory from source repo to session audit path
  */
 async function consolidateOutputs(sourceDir: string, sessionPath: string): Promise<void> {
   const srcDeliverables = path.join(sourceDir, 'deliverables');
@@ -99,6 +214,316 @@ async function consolidateOutputs(sourceDir: string, sessionPath: string): Promi
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Failed to consolidate deliverables: ${err.message}`));
   }
+}
+
+/**
+ * Run a single agent
+ */
+async function runAgent(
+  agentName: AgentName,
+  sourceDir: string,
+  variables: PromptVariables,
+  distributedConfig: DistributedConfig | null,
+  pipelineTestingMode: boolean,
+  sessionMetadata: SessionMetadata
+): Promise<AgentResult> {
+  const agent = AGENTS[agentName];
+  const promptName = getPromptName(agentName);
+  const prompt = await loadPrompt(promptName, variables, distributedConfig, pipelineTestingMode);
+
+  return await runClaudePromptWithRetry(
+    prompt,
+    sourceDir,
+    '*',
+    '',
+    agent.displayName,
+    agentName,
+    getAgentColor(agentName),
+    sessionMetadata
+  );
+}
+
+/**
+ * Run vulnerability agents in parallel
+ */
+async function runParallelVuln(
+  sourceDir: string,
+  variables: PromptVariables,
+  distributedConfig: DistributedConfig | null,
+  pipelineTestingMode: boolean,
+  sessionMetadata: SessionMetadata
+): Promise<ParallelAgentResult[]> {
+  const { vuln: vulnAgents } = getParallelGroups();
+
+  console.log(chalk.cyan(`\nStarting ${vulnAgents.length} vulnerability analysis specialists in parallel...`));
+  console.log(chalk.gray('    Specialists: ' + vulnAgents.join(', ')));
+  console.log();
+
+  const startTime = Date.now();
+
+  const results = await Promise.allSettled(
+    vulnAgents.map(async (agentName, index) => {
+      // Add 2-second stagger to prevent API overwhelm
+      await new Promise(resolve => setTimeout(resolve, index * 2000));
+
+      let lastError: Error | undefined;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        try {
+          const result = await runAgent(
+            agentName,
+            sourceDir,
+            variables,
+            distributedConfig,
+            pipelineTestingMode,
+            sessionMetadata
+          );
+
+          // Validate vulnerability analysis results
+          const vulnType = agentName.replace('-vuln', '');
+          try {
+            const validation = await safeValidateQueueAndDeliverable(vulnType as 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz', sourceDir);
+
+            if (validation.success && validation.data) {
+              console.log(chalk.blue(`${agentName}: ${validation.data.shouldExploit ? `Ready for exploitation (${validation.data.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
+            }
+          } catch {
+            // Validation failure is non-critical
+          }
+
+          return {
+            agentName,
+            success: result.success,
+            timing: result.duration,
+            cost: result.cost,
+            attempts
+          };
+        } catch (error) {
+          lastError = error as Error;
+          if (attempts < maxAttempts) {
+            console.log(chalk.yellow(`Warning: ${agentName} failed attempt ${attempts}/${maxAttempts}, retrying...`));
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        }
+      }
+
+      return {
+        agentName,
+        success: false,
+        attempts,
+        error: lastError?.message || 'Unknown error'
+      };
+    })
+  );
+
+  const totalDuration = Date.now() - startTime;
+
+  // Process and display results
+  console.log(chalk.cyan('\nVulnerability Analysis Results'));
+  console.log(chalk.gray('-'.repeat(80)));
+  console.log(chalk.bold('Agent                  Status     Attempt  Duration    Cost'));
+  console.log(chalk.gray('-'.repeat(80)));
+
+  const processedResults: ParallelAgentResult[] = [];
+
+  results.forEach((result, index) => {
+    const agentName = vulnAgents[index]!;
+    const agentDisplay = agentName.padEnd(22);
+
+    if (result.status === 'fulfilled') {
+      const data = result.value;
+      processedResults.push(data);
+
+      if (data.success) {
+        const duration = formatDuration(data.timing || 0);
+        const cost = `$${(data.cost || 0).toFixed(4)}`;
+
+        console.log(
+          `${chalk.green(agentDisplay)} ${chalk.green('Success')}    ` +
+          `${data.attempts}/3      ${duration.padEnd(11)} ${cost}`
+        );
+      } else {
+        console.log(
+          `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
+          `${data.attempts}/3      -           -`
+        );
+        if (data.error) {
+          console.log(chalk.gray(`  Error: ${data.error.substring(0, 60)}...`));
+        }
+      }
+    } else {
+      processedResults.push({
+        agentName,
+        success: false,
+        attempts: 3,
+        error: String(result.reason)
+      });
+
+      console.log(
+        `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
+        `3/3      -           -`
+      );
+    }
+  });
+
+  console.log(chalk.gray('-'.repeat(80)));
+  const successCount = processedResults.filter(r => r.success).length;
+  console.log(chalk.cyan(`Summary: ${successCount}/${vulnAgents.length} succeeded in ${formatDuration(totalDuration)}`));
+
+  return processedResults;
+}
+
+/**
+ * Run exploitation agents in parallel
+ */
+async function runParallelExploit(
+  sourceDir: string,
+  variables: PromptVariables,
+  distributedConfig: DistributedConfig | null,
+  pipelineTestingMode: boolean,
+  sessionMetadata: SessionMetadata
+): Promise<ParallelAgentResult[]> {
+  const { exploit: exploitAgents, vuln: vulnAgents } = getParallelGroups();
+
+  // Load validation module
+  const { safeValidateQueueAndDeliverable } = await import('./queue-validation.js');
+
+  // Check eligibility
+  const eligibilityChecks = await Promise.all(
+    exploitAgents.map(async (agentName) => {
+      const vulnAgentName = agentName.replace('-exploit', '-vuln') as AgentName;
+      const vulnType = vulnAgentName.replace('-vuln', '') as 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+
+      const validation = await safeValidateQueueAndDeliverable(vulnType, sourceDir);
+
+      if (!validation.success || !validation.data?.shouldExploit) {
+        console.log(chalk.gray(`Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
+        return { agentName, eligible: false };
+      }
+
+      console.log(chalk.blue(`${agentName} eligible (${validation.data.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
+      return { agentName, eligible: true };
+    })
+  );
+
+  const eligibleAgents = eligibilityChecks
+    .filter(check => check.eligible)
+    .map(check => check.agentName);
+
+  if (eligibleAgents.length === 0) {
+    console.log(chalk.gray('No exploitation agents eligible (no vulnerabilities found)'));
+    return [];
+  }
+
+  console.log(chalk.cyan(`\nStarting ${eligibleAgents.length} exploitation specialists in parallel...`));
+  console.log(chalk.gray('    Specialists: ' + eligibleAgents.join(', ')));
+  console.log();
+
+  const startTime = Date.now();
+
+  const results = await Promise.allSettled(
+    eligibleAgents.map(async (agentName, index) => {
+      await new Promise(resolve => setTimeout(resolve, index * 2000));
+
+      let lastError: Error | undefined;
+      let attempts = 0;
+      const maxAttempts = 3;
+
+      while (attempts < maxAttempts) {
+        attempts++;
+        try {
+          const result = await runAgent(
+            agentName,
+            sourceDir,
+            variables,
+            distributedConfig,
+            pipelineTestingMode,
+            sessionMetadata
+          );
+
+          return {
+            agentName,
+            success: result.success,
+            timing: result.duration,
+            cost: result.cost,
+            attempts
+          };
+        } catch (error) {
+          lastError = error as Error;
+          if (attempts < maxAttempts) {
+            console.log(chalk.yellow(`Warning: ${agentName} failed attempt ${attempts}/${maxAttempts}, retrying...`));
+            await new Promise(resolve => setTimeout(resolve, 5000));
+          }
+        }
+      }
+
+      return {
+        agentName,
+        success: false,
+        attempts,
+        error: lastError?.message || 'Unknown error'
+      };
+    })
+  );
+
+  const totalDuration = Date.now() - startTime;
+
+  // Process and display results
+  console.log(chalk.cyan('\nExploitation Results'));
+  console.log(chalk.gray('-'.repeat(80)));
+  console.log(chalk.bold('Agent                  Status     Attempt  Duration    Cost'));
+  console.log(chalk.gray('-'.repeat(80)));
+
+  const processedResults: ParallelAgentResult[] = [];
+
+  results.forEach((result, index) => {
+    const agentName = eligibleAgents[index]!;
+    const agentDisplay = agentName.padEnd(22);
+
+    if (result.status === 'fulfilled') {
+      const data = result.value;
+      processedResults.push(data);
+
+      if (data.success) {
+        const duration = formatDuration(data.timing || 0);
+        const cost = `$${(data.cost || 0).toFixed(4)}`;
+
+        console.log(
+          `${chalk.green(agentDisplay)} ${chalk.green('Success')}    ` +
+          `${data.attempts}/3      ${duration.padEnd(11)} ${cost}`
+        );
+      } else {
+        console.log(
+          `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
+          `${data.attempts}/3      -           -`
+        );
+        if (data.error) {
+          console.log(chalk.gray(`  Error: ${data.error.substring(0, 60)}...`));
+        }
+      }
+    } else {
+      processedResults.push({
+        agentName,
+        success: false,
+        attempts: 3,
+        error: String(result.reason)
+      });
+
+      console.log(
+        `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
+        `3/3      -           -`
+      );
+    }
+  });
+
+  console.log(chalk.gray('-'.repeat(80)));
+  const successCount = processedResults.filter(r => r.success).length;
+  console.log(chalk.cyan(`Summary: ${successCount}/${eligibleAgents.length} succeeded in ${formatDuration(totalDuration)}`));
+
+  return processedResults;
 }
 
 // Setup graceful cleanup on process signals
@@ -190,40 +615,16 @@ async function main(
 
   const variables: PromptVariables = { webUrl, repoPath, sourceDir };
 
-  // Create session for tracking (in normal mode)
-  const session: Session = await createSession(webUrl, repoPath, configPath, sourceDir, outputPath);
-  console.log(chalk.blue(`📝 Session created: ${session.id.substring(0, 8)}...`));
+  // Create session (acts as lock file)
+  const session: Session = await createSession(webUrl, repoPath);
+  console.log(chalk.blue(`Session created: ${session.id.substring(0, 8)}...`));
 
-  // If setup-only mode, exit after session creation
-  if (process.argv.includes('--setup-only')) {
-    console.log(chalk.green('✅ Setup complete! Local repository setup and session created.'));
-    console.log(chalk.gray('Use developer commands to run individual agents:'));
-    console.log(chalk.gray('  shannon --run-agent pre-recon'));
-    console.log(chalk.gray('  shannon --status'));
-    process.exit(0);
-  }
-
-  // Helper function to update session progress
-  const updateSessionProgress = async (agentName: AgentName, commitHash: string | null = null): Promise<void> => {
-    try {
-      const updates: SessionUpdates = {
-        completedAgents: [...new Set([...session.completedAgents, agentName])] as AgentName[],
-        failedAgents: session.failedAgents.filter(name => name !== agentName),
-        status: 'in-progress'
-      };
-
-      if (commitHash) {
-        updates.checkpoints = { ...session.checkpoints, [agentName]: commitHash };
-      }
-
-      await updateSession(session.id, updates);
-      // Update local session object for subsequent updates
-      Object.assign(session, updates);
-      console.log(chalk.gray(`    📝 Session updated: ${agentName} completed`));
-    } catch (error) {
-      const err = error as Error;
-      console.log(chalk.yellow(`    ⚠️ Failed to update session: ${err.message}`));
-    }
+  // Session metadata for audit logging
+  const sessionMetadata: SessionMetadata = {
+    id: session.id,
+    webUrl,
+    repoPath: sourceDir,
+    ...(outputPath && { outputPath })
   };
 
   // Create outputs directory in source directory
@@ -242,25 +643,8 @@ async function main(
     );
   }
 
-  // Check if we should continue from where session left off
-  const nextAgent = getNextAgent(session);
-  if (!nextAgent) {
-    console.log(chalk.green(`✅ All agents completed! Session is finished.`));
-    displayTimingSummary();
-    process.exit(0);
-  }
-
-  console.log(chalk.blue(`🔄 Continuing from ${nextAgent.displayName} (${session.completedAgents.length}/${Object.keys(AGENTS).length} agents completed)`));
-
-  // Determine which phase to start from based on next agent
-  const startPhase = nextAgent.name === 'pre-recon' ? 1
-                   : nextAgent.name === 'recon' ? 2
-                   : ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'].includes(nextAgent.name) ? 3
-                   : ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'].includes(nextAgent.name) ? 4
-                   : nextAgent.name === 'report' ? 5 : 1;
-
+  try {
   // PHASE 1: PRE-RECONNAISSANCE
-  if (startPhase <= 1) {
     const { duration: preReconDuration } = await executePreReconPhase(
       webUrl,
       sourceDir,
@@ -268,92 +652,64 @@ async function main(
       distributedConfig,
       toolAvailability,
       pipelineTestingMode,
-      session.id,  // Pass session ID for logging
-      outputPath   // Pass output path for audit logging
+      session.id,
+      outputPath
     );
-    timingResults.phases['pre-recon'] = preReconDuration;
-    await updateSessionProgress('pre-recon');
-  }
+    console.log(chalk.green(`Pre-reconnaissance complete in ${formatDuration(preReconDuration)}`));
 
   // PHASE 2: RECONNAISSANCE
-  if (startPhase <= 2) {
     console.log(chalk.magenta.bold('\n🔎 PHASE 2: RECONNAISSANCE'));
     console.log(chalk.magenta('Analyzing initial findings...'));
     const reconTimer = new Timer('phase-2-recon');
-    await runClaudePromptWithRetry(
-      await loadPrompt('recon', variables, distributedConfig, pipelineTestingMode),
+
+    await runAgent(
+      'recon',
       sourceDir,
-      '*',
-      '',
-      AGENTS['recon'].displayName,
-      'recon',  // Agent name for snapshot creation
-      chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      variables,
+      distributedConfig,
+      pipelineTestingMode,
+      sessionMetadata
     );
     const reconDuration = reconTimer.stop();
-    timingResults.phases['recon'] = reconDuration;
-
     console.log(chalk.green(`✅ Reconnaissance complete in ${formatDuration(reconDuration)}`));
-    await updateSessionProgress('recon');
-  }
 
   // PHASE 3: VULNERABILITY ANALYSIS
-  if (startPhase <= 3) {
     const vulnTimer = new Timer('phase-3-vulnerability-analysis');
     console.log(chalk.red.bold('\n🚨 PHASE 3: VULNERABILITY ANALYSIS'));
 
-    await runPhase('vulnerability-analysis', session, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
-
-    // Display vulnerability analysis summary
-    const currentSession = await getSession(session.id);
-    if (currentSession) {
-      const vulnSummary = calculateVulnerabilityAnalysisSummary(currentSession);
-      console.log(chalk.blue(`\n📊 Vulnerability Analysis Summary: ${vulnSummary.totalAnalyses} analyses, ${vulnSummary.totalVulnerabilities} vulnerabilities found, ${vulnSummary.exploitationCandidates} ready for exploitation`));
-    }
+    const vulnResults = await runParallelVuln(
+      sourceDir,
+      variables,
+      distributedConfig,
+      pipelineTestingMode,
+      sessionMetadata
+    );
 
     const vulnDuration = vulnTimer.stop();
-    timingResults.phases['vulnerability-analysis'] = vulnDuration;
-
     console.log(chalk.green(`✅ Vulnerability analysis phase complete in ${formatDuration(vulnDuration)}`));
-  }
 
   // PHASE 4: EXPLOITATION
-  if (startPhase <= 4) {
     const exploitTimer = new Timer('phase-4-exploitation');
     console.log(chalk.red.bold('\n💥 PHASE 4: EXPLOITATION'));
 
-    // Get fresh session data to ensure we have latest vulnerability analysis results
-    const freshSession = await getSession(session.id);
-    if (freshSession) {
-      await runPhase('exploitation', freshSession, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
-    }
-
-    // Display exploitation summary
-    const finalSession = await getSession(session.id);
-    if (finalSession) {
-      const exploitSummary = calculateExploitationSummary(finalSession);
-      if (exploitSummary.eligibleExploits > 0) {
-        console.log(chalk.blue(`\n🎯 Exploitation Summary: ${exploitSummary.totalAttempts}/${exploitSummary.eligibleExploits} attempted, ${exploitSummary.skippedExploits} skipped (no vulnerabilities)`));
-      } else {
-        console.log(chalk.gray(`\n🎯 Exploitation Summary: No exploitation attempts (no vulnerabilities found)`));
-      }
-    }
+    const exploitResults = await runParallelExploit(
+      sourceDir,
+      variables,
+      distributedConfig,
+      pipelineTestingMode,
+      sessionMetadata
+    );
 
     const exploitDuration = exploitTimer.stop();
-    timingResults.phases['exploitation'] = exploitDuration;
-
     console.log(chalk.green(`✅ Exploitation phase complete in ${formatDuration(exploitDuration)}`));
-  }
 
   // PHASE 5: REPORTING
-  if (startPhase <= 5) {
     console.log(chalk.greenBright.bold('\n📊 PHASE 5: REPORTING'));
     console.log(chalk.greenBright('Generating executive summary and assembling final report...'));
     const reportTimer = new Timer('phase-5-reporting');
 
-    // First, assemble all deliverables into a single concatenated report
+    // Assemble all deliverables into a single concatenated report
     console.log(chalk.blue('📝 Assembling deliverables from specialist agents...'));
-
     try {
       await assembleFinalReport(sourceDir);
     } catch (error) {
@@ -361,62 +717,58 @@ async function main(
       console.log(chalk.red(`❌ Error assembling final report: ${err.message}`));
     }
 
-    // Then run reporter agent to create executive summary and clean up hallucinations
-    console.log(chalk.blue('📋 Generating executive summary and cleaning up report...'));
-    await runClaudePromptWithRetry(
-      await loadPrompt('report-executive', variables, distributedConfig, pipelineTestingMode),
+    // Run reporter agent to create executive summary
+    console.log(chalk.blue('Generating executive summary and cleaning up report...'));
+    await runAgent(
+      'report',
       sourceDir,
-      '*',
-      '',
-      'Executive Summary and Report Cleanup',
-      'report',  // Agent name for snapshot creation
-      chalk.cyan,
-      { id: session.id, webUrl, repoPath: sourceDir, ...(outputPath && { outputPath }) }  // Session metadata for audit logging (STANDARD: use 'id' field)
+      variables,
+      distributedConfig,
+      pipelineTestingMode,
+      sessionMetadata
     );
 
     const reportDuration = reportTimer.stop();
-    timingResults.phases['reporting'] = reportDuration;
-
     console.log(chalk.green(`✅ Final report generated in ${formatDuration(reportDuration)}`));
 
-    // Get the commit hash after successful report generation for checkpoint
-    try {
-      const reportCommitHash = await getGitCommitHash(sourceDir);
-      await updateSessionProgress('report', reportCommitHash);
-      console.log(chalk.gray(`    📍 Report checkpoint saved: ${reportCommitHash.substring(0, 8)}`));
-    } catch (error) {
-      const err = error as Error;
-      console.log(chalk.yellow(`    ⚠️ Failed to save report checkpoint: ${err.message}`));
-      await updateSessionProgress('report'); // Fallback without checkpoint
-    }
-  }
+    // Calculate final timing
+    timingResults.total.stop();
 
-  // Calculate final timing and cost data
-  timingResults.total.stop();
+    // Mark session as completed in both stores
+    await updateSessionStatus(session.id, 'completed');
 
-  // Mark session as completed
-  await updateSession(session.id, {
-    status: 'completed'
-  });
+    // Update audit system's session.json status
+    const auditSession = new AuditSession(sessionMetadata);
+    await auditSession.updateSessionStatus('completed');
 
-  // Display comprehensive timing summary
-  displayTimingSummary();
+    // Display comprehensive timing summary
+    displayTimingSummary();
 
   console.log(chalk.cyan.bold('\n🎉 PENETRATION TESTING COMPLETE!'));
   console.log(chalk.gray('─'.repeat(60)));
 
   // Calculate audit logs path
-  const auditLogsPath = generateAuditPath({ id: session.id, webUrl: session.webUrl, repoPath: session.repoPath, ...(outputPath && { outputPath }) });
+    const auditLogsPath = generateAuditPath(sessionMetadata);
 
   // Consolidate deliverables into the session folder
   await consolidateOutputs(sourceDir, auditLogsPath);
   console.log(chalk.green(`\n📂 All outputs consolidated: ${auditLogsPath}`));
 
-  // Return final report path and audit logs path for clickable output
-  return {
-    reportPath: path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md'),
-    auditLogsPath
-  };
+    return {
+      reportPath: path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md'),
+      auditLogsPath
+    };
+
+  } catch (error) {
+    // Mark session as failed in both stores
+    await updateSessionStatus(session.id, 'failed');
+
+    // Update audit system's session.json status
+    const auditSession = new AuditSession(sessionMetadata);
+    await auditSession.updateSessionStatus('failed');
+
+    throw error;
+  }
 }
 
 // Entry point - handle both direct node execution and shebang execution
@@ -432,8 +784,6 @@ let outputPath: string | null = null;
 let pipelineTestingMode = false;
 let disableLoader = false;
 const nonFlagArgs: string[] = [];
-let developerCommand: string | null = null;
-const developerCommands = ['--run-phase', '--run-all', '--rollback-to', '--rerun', '--status', '--list-agents', '--cleanup'];
 
 for (let i = 0; i < args.length; i++) {
   if (args[i] === '--config') {
@@ -456,24 +806,6 @@ for (let i = 0; i < args.length; i++) {
     pipelineTestingMode = true;
   } else if (args[i] === '--disable-loader') {
     disableLoader = true;
-  } else if (developerCommands.includes(args[i]!)) {
-    developerCommand = args[i]!;
-    // Collect remaining args for the developer command
-    const remainingArgs = args.slice(i + 1).filter(arg => !arg.startsWith('--') || arg === '--pipeline-testing' || arg === '--disable-loader');
-
-    // Check for --pipeline-testing in remaining args
-    if (remainingArgs.includes('--pipeline-testing')) {
-      pipelineTestingMode = true;
-    }
-
-    // Check for --disable-loader in remaining args
-    if (remainingArgs.includes('--disable-loader')) {
-      disableLoader = true;
-    }
-
-    // Add non-flag args (excluding --pipeline-testing and --disable-loader)
-    nonFlagArgs.push(...remainingArgs.filter(arg => arg !== '--pipeline-testing' && arg !== '--disable-loader'));
-    break; // Stop parsing after developer command
   } else if (!args[i]!.startsWith('-')) {
     nonFlagArgs.push(args[i]!);
   }
@@ -482,16 +814,6 @@ for (let i = 0; i < args.length; i++) {
 // Handle help flag
 if (args.includes('--help') || args.includes('-h') || args.includes('help')) {
   showHelp();
-  process.exit(0);
-}
-
-// Handle developer commands
-if (developerCommand) {
-  // Set global flag for loader control in developer mode too
-  global.SHANNON_DISABLE_LOADER = disableLoader;
-
-  await handleDeveloperCommand(developerCommand, nonFlagArgs, pipelineTestingMode, runClaudePromptWithRetry, loadPrompt);
-
   process.exit(0);
 }
 

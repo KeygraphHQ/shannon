@@ -12,22 +12,8 @@ export function showHelp(): void {
   console.log(chalk.cyan.bold('AI Penetration Testing Agent'));
   console.log(chalk.gray('Automated security assessment tool\n'));
 
-  console.log(chalk.yellow.bold('NORMAL MODE (Creates Sessions):'));
-  console.log(
-    '  shannon <WEB_URL> <REPO_PATH> [--config config.yaml] [--pipeline-testing]'
-  );
-  console.log(
-    '  shannon <WEB_URL> <REPO_PATH> --setup-only                     # Setup local repo and create session only\n'
-  );
-
-  console.log(chalk.yellow.bold('DEVELOPER MODE (Operates on Existing Sessions):'));
-  console.log('  shannon --run-phase <phase-name> [--pipeline-testing]');
-  console.log('  shannon --run-all [--pipeline-testing]');
-  console.log('  shannon --rollback-to <agent-name>');
-  console.log('  shannon --rerun <agent-name> [--pipeline-testing]');
-  console.log('  shannon --status');
-  console.log('  shannon --list-agents');
-  console.log('  shannon --cleanup [session-id]                      # Delete sessions\n');
+  console.log(chalk.yellow.bold('USAGE:'));
+  console.log('  shannon <WEB_URL> <REPO_PATH> [--config config.yaml] [--output /path/to/reports]\n');
 
   console.log(chalk.yellow.bold('OPTIONS:'));
   console.log(
@@ -40,42 +26,20 @@ export function showHelp(): void {
     '  --pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)'
   );
   console.log(
-    '  --disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)\n'
+    '  --disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)'
   );
-
-  console.log(chalk.yellow.bold('DEVELOPER COMMANDS:'));
-  console.log(
-    '  --run-phase          Run all agents in a phase (parallel execution for 5x speedup)'
-  );
-  console.log('  --run-all            Run all remaining agents to completion (parallel execution)');
-  console.log('  --rollback-to        Rollback git workspace to agent checkpoint');
-  console.log('  --rerun              Rollback and rerun specific agent');
-  console.log('  --status             Show current session status and progress');
-  console.log('  --list-agents        List all available agents and phases');
-  console.log('  --cleanup            Delete all sessions or specific session by ID\n');
+  console.log('  --help               Show this help message\n');
 
   console.log(chalk.yellow.bold('EXAMPLES:'));
-  console.log('  # Normal mode - create new session');
   console.log('  shannon "https://example.com" "/path/to/local/repo"');
   console.log('  shannon "https://example.com" "/path/to/local/repo" --config auth.yaml');
   console.log('  shannon "https://example.com" "/path/to/local/repo" --output /path/to/reports');
-  console.log(
-    '  shannon "https://example.com" "/path/to/local/repo" --setup-only  # Setup only\n'
-  );
-
-  console.log('  # Developer mode - operate on existing session');
-  console.log('  shannon --status                    # Show session status');
-  console.log('  shannon --run-phase exploitation    # Run entire phase');
-  console.log('  shannon --run-all                   # Run all remaining agents');
-  console.log('  shannon --rerun xss-vuln           # Fix and rerun failed agent');
-  console.log('  shannon --cleanup                  # Delete all sessions');
-  console.log('  shannon --cleanup <session-id>    # Delete specific session\n');
+  console.log('  shannon "https://example.com" "/path/to/local/repo" --pipeline-testing\n');
 
   console.log(chalk.yellow.bold('REQUIREMENTS:'));
   console.log('  • WEB_URL must start with http:// or https://');
   console.log('  • REPO_PATH must be an accessible local directory');
-  console.log('  • Only test systems you own or have permission to test');
-  console.log('  • Developer mode requires existing pentest session\n');
+  console.log('  • Only test systems you own or have permission to test\n');
 
   console.log(chalk.yellow.bold('ENVIRONMENT VARIABLES:'));
   console.log('  PENTEST_MAX_RETRIES    Number of retries for AI agents (default: 3)');
