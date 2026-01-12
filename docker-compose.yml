@@ -15,17 +15,18 @@ services:
       start_period: 30s
 
   worker:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.worker
+    build: .
+    entrypoint: ["node", "dist/temporal/worker.js"]
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - CLAUDE_CODE_MAX_OUTPUT_TOKENS=${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-64000}
     depends_on:
       temporal:
         condition: service_healthy
     volumes:
-      - ../prompts:/app/prompts
+      - ./prompts:/app/prompts
       - ${TARGET_REPO:-/tmp/target-repo}:/target-repo
     shm_size: 2gb
     ipc: host
