@@ -68,7 +68,7 @@ interface SessionStore {
 }
 
 function generateSessionId(): string {
-  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+  return crypto.randomUUID();
 }
 
 async function loadSessions(): Promise<SessionStore> {
