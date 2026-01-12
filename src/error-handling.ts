@@ -14,6 +14,12 @@ import type {
   PromptErrorResult,
 } from './types/errors.js';
 
+// Temporal error classification for ApplicationFailure wrapping
+export interface TemporalErrorClassification {
+  type: string;
+  retryable: boolean;
+}
+
 // Custom error class for pentest operations
 export class PentestError extends Error {
   name = 'PentestError' as const;
@@ -189,4 +195,109 @@ export function getRetryDelay(error: Error, attempt: number): number {
   const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
   const jitter = Math.random() * 1000; // 0-1s random
   return Math.min(baseDelay + jitter, 30000); // Max 30s
+}
+
+/**
+ * Classifies errors for Temporal workflow retry behavior.
+ * Returns error type and whether Temporal should retry.
+ *
+ * Used by activities to wrap errors in ApplicationFailure:
+ * - Retryable errors: Temporal retries with configured backoff
+ * - Non-retryable errors: Temporal fails immediately
+ */
+export function classifyErrorForTemporal(error: unknown): TemporalErrorClassification {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+
+  // === BILLING ERRORS (Retryable with long backoff) ===
+  // Anthropic returns billing as 400 invalid_request_error
+  // Human can add credits, so retry with 5-30 min backoff
+  if (
+    message.includes('billing_error') ||
+    message.includes('credit balance is too low') ||
+    message.includes('insufficient credits') ||
+    message.includes('usage is blocked due to insufficient credits') ||
+    message.includes('please visit plans & billing') ||
+    message.includes('please visit plans and billing') ||
+    message.includes('usage limit reached') ||
+    message.includes('quota exceeded') ||
+    message.includes('daily rate limit') ||
+    message.includes('limit will reset')
+  ) {
+    return { type: 'BillingError', retryable: true };
+  }
+
+  // === PERMANENT ERRORS (Non-retryable) ===
+
+  // Authentication (401) - bad API key won't fix itself
+  if (
+    message.includes('authentication') ||
+    message.includes('api key') ||
+    message.includes('401') ||
+    message.includes('authentication_error')
+  ) {
+    return { type: 'AuthenticationError', retryable: false };
+  }
+
+  // Permission (403) - access won't be granted
+  if (
+    message.includes('permission') ||
+    message.includes('forbidden') ||
+    message.includes('403')
+  ) {
+    return { type: 'PermissionError', retryable: false };
+  }
+
+  // Invalid Request (400) - malformed request is permanent
+  // Note: Checked AFTER billing since Anthropic billing is 400
+  if (
+    message.includes('invalid_request_error') ||
+    message.includes('malformed') ||
+    message.includes('validation')
+  ) {
+    return { type: 'InvalidRequestError', retryable: false };
+  }
+
+  // Request Too Large (413) - won't fit no matter how many retries
+  if (
+    message.includes('request_too_large') ||
+    message.includes('too large') ||
+    message.includes('413')
+  ) {
+    return { type: 'RequestTooLargeError', retryable: false };
+  }
+
+  // Configuration errors - missing files need manual fix
+  if (
+    message.includes('enoent') ||
+    message.includes('no such file') ||
+    message.includes('cli not installed')
+  ) {
+    return { type: 'ConfigurationError', retryable: false };
+  }
+
+  // Execution limits - max turns/budget reached
+  if (
+    message.includes('max turns') ||
+    message.includes('budget') ||
+    message.includes('execution limit') ||
+    message.includes('error_max_turns') ||
+    message.includes('error_max_budget')
+  ) {
+    return { type: 'ExecutionLimitError', retryable: false };
+  }
+
+  // Invalid target URL - bad URL format won't fix itself
+  if (
+    message.includes('invalid url') ||
+    message.includes('invalid target') ||
+    message.includes('malformed url') ||
+    message.includes('invalid uri')
+  ) {
+    return { type: 'InvalidTargetError', retryable: false };
+  }
+
+  // === TRANSIENT ERRORS (Retryable) ===
+  // Rate limits (429), server errors (5xx), network issues
+  // Let Temporal retry with configured backoff
+  return { type: 'TransientError', retryable: true };
 }

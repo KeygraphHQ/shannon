@@ -1,0 +1,20 @@
+services:
+  temporal:
+    image: temporalio/auto-setup:latest
+    environment:
+      - DB=sqlite
+      - SQLITE_DB_PATH=/var/lib/temporal/temporal.db
+    ports:
+      - "7233:7233"   # gRPC
+      - "8233:8233"   # Web UI
+    volumes:
+      - temporal-data:/var/lib/temporal
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+volumes:
+  temporal-data:
