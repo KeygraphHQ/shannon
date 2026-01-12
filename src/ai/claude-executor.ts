@@ -31,7 +31,7 @@ declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
 }
 
-interface ClaudePromptResult {
+export interface ClaudePromptResult {
   result?: string | null;
   success: boolean;
   duration: number;
@@ -148,7 +148,7 @@ async function writeErrorLog(
   }
 }
 
-async function validateAgentOutput(
+export async function validateAgentOutput(
   result: ClaudePromptResult,
   agentName: string | null,
   sourceDir: string
@@ -193,7 +193,8 @@ async function validateAgentOutput(
 }
 
 // Low-level SDK execution. Handles message streaming, progress, and audit logging.
-async function runClaudePrompt(
+// Exported for Temporal activities to call single-attempt execution.
+export async function runClaudePrompt(
   prompt: string,
   sourceDir: string,
   context: string = '',
