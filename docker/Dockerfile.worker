@@ -12,8 +12,8 @@ RUN apk add --no-cache \
     bash \
     curl
 
-# Install uvx for browser-use
-RUN pip install uvx --break-system-packages
+# Install uv (includes uvx command) for browser-use
+RUN pip install uv --break-system-packages
 
 # Create non-root user
 RUN adduser -D -u 1000 pentest
@@ -28,6 +28,8 @@ RUN npm ci --omit=dev
 # Copy application code
 COPY dist/ ./dist/
 COPY prompts/ ./prompts/
+COPY mcp-server/ ./mcp-server/
+COPY configs/ ./configs/
 
 # Set ownership
 RUN chown -R pentest:pentest /app
