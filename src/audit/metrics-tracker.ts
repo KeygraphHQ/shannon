@@ -13,13 +13,12 @@
 
 import {
   generateSessionJsonPath,
-  atomicWrite,
-  readJson,
-  fileExists,
-  formatTimestamp,
-  calculatePercentage,
   type SessionMetadata,
 } from './utils.js';
+import { atomicWrite, readJson, fileExists } from '../utils/file-io.js';
+import { formatTimestamp, calculatePercentage } from '../utils/formatting.js';
+import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
+import type { AgentName } from '../types/index.js';
 
 interface AttemptData {
   attempt_number: number;
@@ -152,16 +151,14 @@ export class MetricsTracker {
     }
 
     // Initialize agent metrics if not exists
-    if (!this.data.metrics.agents[agentName]) {
-      this.data.metrics.agents[agentName] = {
-        status: 'in-progress',
-        attempts: [],
-        final_duration_ms: 0,
-        total_cost_usd: 0,
-      };
-    }
-
-    const agent = this.data.metrics.agents[agentName]!;
+    const existingAgent = this.data.metrics.agents[agentName];
+    const agent = existingAgent ?? {
+      status: 'in-progress' as const,
+      attempts: [],
+      final_duration_ms: 0,
+      total_cost_usd: 0,
+    };
+    this.data.metrics.agents[agentName] = agent;
 
     // Add attempt to array
     const attempt: AttemptData = {
@@ -255,36 +252,19 @@ export class MetricsTracker {
   private calculatePhaseMetrics(
     successfulAgents: Array<[string, AgentMetrics]>
   ): Record<string, PhaseMetrics> {
-    const phases: Record<string, AgentMetrics[]> = {
+    const phases: Record<PhaseName, AgentMetrics[]> = {
       'pre-recon': [],
-      recon: [],
+      'recon': [],
       'vulnerability-analysis': [],
-      exploitation: [],
-      reporting: [],
+      'exploitation': [],
+      'reporting': [],
     };
 
-    // Map agents to phases
-    const agentPhaseMap: Record<string, string> = {
-      'pre-recon': 'pre-recon',
-      recon: 'recon',
-      'injection-vuln': 'vulnerability-analysis',
-      'xss-vuln': 'vulnerability-analysis',
-      'auth-vuln': 'vulnerability-analysis',
-      'authz-vuln': 'vulnerability-analysis',
-      'ssrf-vuln': 'vulnerability-analysis',
-      'injection-exploit': 'exploitation',
-      'xss-exploit': 'exploitation',
-      'auth-exploit': 'exploitation',
-      'authz-exploit': 'exploitation',
-      'ssrf-exploit': 'exploitation',
-      report: 'reporting',
-    };
-
-    // Group agents by phase
+    // Group agents by phase using imported AGENT_PHASE_MAP
     for (const [agentName, agentData] of successfulAgents) {
-      const phase = agentPhaseMap[agentName];
-      if (phase && phases[phase]) {
-        phases[phase]!.push(agentData);
+      const phase = AGENT_PHASE_MAP[agentName as AgentName];
+      if (phase) {
+        phases[phase].push(agentData);
       }
     }
 
@@ -296,7 +276,6 @@ export class MetricsTracker {
       if (agentList.length === 0) continue;
 
       const phaseDuration = agentList.reduce((sum, agent) => sum + agent.final_duration_ms, 0);
-
       const phaseCost = agentList.reduce((sum, agent) => sum + agent.total_cost_usd, 0);
 
       phaseMetrics[phaseName] = {

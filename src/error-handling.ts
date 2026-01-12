@@ -37,11 +37,11 @@ export class PentestError extends Error {
 }
 
 // Centralized error logging function
-export const logError = async (
+export async function logError(
   error: Error & { type?: PentestErrorType; retryable?: boolean; context?: PentestErrorContext },
   contextMsg: string,
   sourceDir: string | null = null
-): Promise<LogEntry> => {
+): Promise<LogEntry> {
   const timestamp = new Date().toISOString();
   const logEntry: LogEntry = {
     timestamp,
@@ -80,13 +80,13 @@ export const logError = async (
   }
 
   return logEntry;
-};
+}
 
 // Handle tool execution errors
-export const handleToolError = (
+export function handleToolError(
   toolName: string,
   error: Error & { code?: string }
-): ToolErrorResult => {
+): ToolErrorResult {
   const isRetryable =
     error.code === 'ECONNRESET' ||
     error.code === 'ETIMEDOUT' ||
@@ -105,13 +105,13 @@ export const handleToolError = (
       { toolName, originalError: error.message, errorCode: error.code }
     ),
   };
-};
+}
 
 // Handle prompt loading errors
-export const handlePromptError = (
+export function handlePromptError(
   promptName: string,
   error: Error
-): PromptErrorResult => {
+): PromptErrorResult {
   return {
     success: false,
     error: new PentestError(
@@ -121,78 +121,63 @@ export const handlePromptError = (
       { promptName, originalError: error.message }
     ),
   };
-};
+}
 
-// Check if an error should trigger a retry for Claude agents
-export const isRetryableError = (error: Error): boolean => {
+// Patterns that indicate retryable errors
+const RETRYABLE_PATTERNS = [
+  // Network and connection errors
+  'network',
+  'connection',
+  'timeout',
+  'econnreset',
+  'enotfound',
+  'econnrefused',
+  // Rate limiting
+  'rate limit',
+  '429',
+  'too many requests',
+  // Server errors
+  'server error',
+  '5xx',
+  'internal server error',
+  'service unavailable',
+  'bad gateway',
+  // Claude API errors
+  'mcp server',
+  'model unavailable',
+  'service temporarily unavailable',
+  'api error',
+  'terminated',
+  // Max turns
+  'max turns',
+  'maximum turns',
+];
+
+// Patterns that indicate non-retryable errors (checked before default)
+const NON_RETRYABLE_PATTERNS = [
+  'authentication',
+  'invalid prompt',
+  'out of memory',
+  'permission denied',
+  'session limit reached',
+  'invalid api key',
+];
+
+// Conservative retry classification - unknown errors don't retry (fail-safe default)
+export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
 
-  // Network and connection errors - always retryable
-  if (
-    message.includes('network') ||
-    message.includes('connection') ||
-    message.includes('timeout') ||
-    message.includes('econnreset') ||
-    message.includes('enotfound') ||
-    message.includes('econnrefused')
-  ) {
-    return true;
-  }
-
-  // Rate limiting - retryable with longer backoff
-  if (
-    message.includes('rate limit') ||
-    message.includes('429') ||
-    message.includes('too many requests')
-  ) {
-    return true;
-  }
-
-  // Server errors - retryable
-  if (
-    message.includes('server error') ||
-    message.includes('5xx') ||
-    message.includes('internal server error') ||
-    message.includes('service unavailable') ||
-    message.includes('bad gateway')
-  ) {
-    return true;
-  }
-
-  // Claude API specific errors - retryable
-  if (
-    message.includes('mcp server') ||
-    message.includes('model unavailable') ||
-    message.includes('service temporarily unavailable') ||
-    message.includes('api error') ||
-    message.includes('terminated')
-  ) {
-    return true;
-  }
-
-  // Max turns without completion - retryable once
-  if (message.includes('max turns') || message.includes('maximum turns')) {
-    return true;
-  }
-
-  // Non-retryable errors
-  if (
-    message.includes('authentication') ||
-    message.includes('invalid prompt') ||
-    message.includes('out of memory') ||
-    message.includes('permission denied') ||
-    message.includes('session limit reached') ||
-    message.includes('invalid api key')
-  ) {
+  // Check for explicit non-retryable patterns first
+  if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
     return false;
   }
 
-  // Default to non-retryable for unknown errors
-  return false;
-};
+  // Check for retryable patterns
+  return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
+}
 
-// Get retry delay based on error type and attempt number
-export const getRetryDelay = (error: Error, attempt: number): number => {
+// Rate limit errors get longer base delay (30s) vs standard exponential backoff (2s)
+export function getRetryDelay(error: Error, attempt: number): number {
   const message = error.message.toLowerCase();
 
   // Rate limiting gets longer delays
@@ -204,4 +189,4 @@ export const getRetryDelay = (error: Error, attempt: number): number => {
   const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
   const jitter = Math.random() * 1000; // 0-1s random
   return Math.min(baseDelay + jitter, 30000); // Max 30s
-};
+}

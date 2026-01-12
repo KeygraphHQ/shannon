@@ -13,7 +13,8 @@
 
 import { AgentLogger } from './logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
-import { initializeAuditStructure, formatTimestamp, type SessionMetadata } from './utils.js';
+import { initializeAuditStructure, type SessionMetadata } from './utils.js';
+import { formatTimestamp } from '../utils/formatting.js';
 import { SessionMutex } from '../utils/concurrency.js';
 
 // Global mutex instance
@@ -145,7 +146,7 @@ export class AuditSession {
     // Mutex-protected update to session.json
     const unlock = await sessionMutex.lock(this.sessionId);
     try {
-      // Reload metrics (in case of parallel updates)
+      // Reload inside mutex to prevent lost updates during parallel exploitation phase
       await this.metricsTracker.reload();
 
       // Update metrics

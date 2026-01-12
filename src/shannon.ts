@@ -17,6 +17,7 @@ import { checkToolAvailability, handleMissingTools } from './tool-checker.js';
 
 // Session
 import { AGENTS, getParallelGroups } from './session-manager.js';
+import { getPromptNameForAgent } from './types/agents.js';
 import type { AgentName, PromptName } from './types/index.js';
 
 // Setup and Deliverables
@@ -32,7 +33,8 @@ import { assembleFinalReport } from './phases/reporting.js';
 
 // Utils
 import { timingResults, displayTimingSummary, Timer } from './utils/metrics.js';
-import { formatDuration, generateAuditPath } from './audit/utils.js';
+import { formatDuration } from './utils/formatting.js';
+import { generateAuditPath } from './audit/utils.js';
 import type { SessionMetadata } from './audit/utils.js';
 import { AuditSession } from './audit/audit-session.js';
 
@@ -86,6 +88,7 @@ async function saveSessions(store: SessionStore): Promise<void> {
   await fs.writeJson(STORE_PATH, store, { spaces: 2 });
 }
 
+// Session prevents concurrent runs on same repo - different repos can run in parallel
 async function createSession(webUrl: string, repoPath: string): Promise<Session> {
   const store = await loadSessions();
 
@@ -155,32 +158,26 @@ interface ParallelAgentResult {
   error?: string | undefined;
 }
 
+type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+
+interface ParallelAgentConfig {
+  phaseType: 'vuln' | 'exploit';
+  headerText: string;
+  specialistLabel: string;
+}
+
+interface AgentExecutionContext {
+  sourceDir: string;
+  variables: PromptVariables;
+  distributedConfig: DistributedConfig | null;
+  pipelineTestingMode: boolean;
+  sessionMetadata: SessionMetadata;
+}
+
 // Configure zx to disable timeouts (let tools run as long as needed)
 $.timeout = 0;
 
-// Helper function to get prompt name from agent name
-const getPromptName = (agentName: AgentName): PromptName => {
-  const mappings: Record<AgentName, PromptName> = {
-    'pre-recon': 'pre-recon-code',
-    'recon': 'recon',
-    'injection-vuln': 'vuln-injection',
-    'xss-vuln': 'vuln-xss',
-    'auth-vuln': 'vuln-auth',
-    'ssrf-vuln': 'vuln-ssrf',
-    'authz-vuln': 'vuln-authz',
-    'injection-exploit': 'exploit-injection',
-    'xss-exploit': 'exploit-xss',
-    'auth-exploit': 'exploit-auth',
-    'ssrf-exploit': 'exploit-ssrf',
-    'authz-exploit': 'exploit-authz',
-    'report': 'report-executive'
-  };
-
-  return mappings[agentName] || agentName as PromptName;
-};
-
-// Get color function for agent
-const getAgentColor = (agentName: AgentName): ChalkInstance => {
+function getAgentColor(agentName: AgentName): ChalkInstance {
   const colorMap: Partial<Record<AgentName, ChalkInstance>> = {
     'injection-vuln': chalk.red,
     'injection-exploit': chalk.red,
@@ -194,11 +191,9 @@ const getAgentColor = (agentName: AgentName): ChalkInstance => {
     'authz-exploit': chalk.green
   };
   return colorMap[agentName] || chalk.cyan;
-};
+}
 
-/**
- * Consolidate deliverables from target repo into the session folder
- */
+// Non-fatal copy - failure logs warning but doesn't halt pipeline
 async function consolidateOutputs(sourceDir: string, sessionPath: string): Promise<void> {
   const srcDeliverables = path.join(sourceDir, 'deliverables');
   const destDeliverables = path.join(sessionPath, 'deliverables');
@@ -228,7 +223,7 @@ async function runAgent(
   sessionMetadata: SessionMetadata
 ): Promise<AgentResult> {
   const agent = AGENTS[agentName];
-  const promptName = getPromptName(agentName);
+  const promptName = getPromptNameForAgent(agentName);
   const prompt = await loadPrompt(promptName, variables, distributedConfig, pipelineTestingMode);
 
   return await runClaudePromptWithRetry(
@@ -244,85 +239,68 @@ async function runAgent(
 }
 
 /**
- * Run vulnerability agents in parallel
+ * Execute a single agent with retry logic
  */
-async function runParallelVuln(
-  sourceDir: string,
-  variables: PromptVariables,
-  distributedConfig: DistributedConfig | null,
-  pipelineTestingMode: boolean,
-  sessionMetadata: SessionMetadata
-): Promise<ParallelAgentResult[]> {
-  const { vuln: vulnAgents } = getParallelGroups();
+async function executeAgentWithRetry(
+  agentName: AgentName,
+  context: AgentExecutionContext,
+  onSuccess?: (agentName: AgentName) => Promise<void>
+): Promise<ParallelAgentResult> {
+  const { sourceDir, variables, distributedConfig, pipelineTestingMode, sessionMetadata } = context;
+  const maxAttempts = 3;
+  let lastError: Error | undefined;
+  let attempts = 0;
 
-  console.log(chalk.cyan(`\nStarting ${vulnAgents.length} vulnerability analysis specialists in parallel...`));
-  console.log(chalk.gray('    Specialists: ' + vulnAgents.join(', ')));
-  console.log();
+  while (attempts < maxAttempts) {
+    attempts++;
+    try {
+      const result = await runAgent(
+        agentName,
+        sourceDir,
+        variables,
+        distributedConfig,
+        pipelineTestingMode,
+        sessionMetadata
+      );
 
-  const startTime = Date.now();
-
-  const results = await Promise.allSettled(
-    vulnAgents.map(async (agentName, index) => {
-      // Add 2-second stagger to prevent API overwhelm
-      await new Promise(resolve => setTimeout(resolve, index * 2000));
-
-      let lastError: Error | undefined;
-      let attempts = 0;
-      const maxAttempts = 3;
-
-      while (attempts < maxAttempts) {
-        attempts++;
-        try {
-          const result = await runAgent(
-            agentName,
-            sourceDir,
-            variables,
-            distributedConfig,
-            pipelineTestingMode,
-            sessionMetadata
-          );
-
-          // Validate vulnerability analysis results
-          const vulnType = agentName.replace('-vuln', '');
-          try {
-            const validation = await safeValidateQueueAndDeliverable(vulnType as 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz', sourceDir);
-
-            if (validation.success && validation.data) {
-              console.log(chalk.blue(`${agentName}: ${validation.data.shouldExploit ? `Ready for exploitation (${validation.data.vulnerabilityCount} vulnerabilities)` : 'No vulnerabilities found'}`));
-            }
-          } catch {
-            // Validation failure is non-critical
-          }
-
-          return {
-            agentName,
-            success: result.success,
-            timing: result.duration,
-            cost: result.cost,
-            attempts
-          };
-        } catch (error) {
-          lastError = error as Error;
-          if (attempts < maxAttempts) {
-            console.log(chalk.yellow(`Warning: ${agentName} failed attempt ${attempts}/${maxAttempts}, retrying...`));
-            await new Promise(resolve => setTimeout(resolve, 5000));
-          }
-        }
+      if (onSuccess) {
+        await onSuccess(agentName);
       }
 
       return {
         agentName,
-        success: false,
-        attempts,
-        error: lastError?.message || 'Unknown error'
+        success: result.success,
+        timing: result.duration,
+        cost: result.cost,
+        attempts
       };
-    })
-  );
+    } catch (error) {
+      lastError = error as Error;
+      if (attempts < maxAttempts) {
+        console.log(chalk.yellow(`Warning: ${agentName} failed attempt ${attempts}/${maxAttempts}, retrying...`));
+        await new Promise(resolve => setTimeout(resolve, 5000));
+      }
+    }
+  }
 
-  const totalDuration = Date.now() - startTime;
+  return {
+    agentName,
+    success: false,
+    attempts,
+    error: lastError?.message || 'Unknown error'
+  };
+}
 
-  // Process and display results
-  console.log(chalk.cyan('\nVulnerability Analysis Results'));
+/**
+ * Display results table for parallel agent execution
+ */
+function displayParallelResults(
+  results: PromiseSettledResult<ParallelAgentResult>[],
+  agents: AgentName[],
+  headerText: string,
+  totalDuration: number
+): ParallelAgentResult[] {
+  console.log(chalk.cyan(`\n${headerText}`));
   console.log(chalk.gray('-'.repeat(80)));
   console.log(chalk.bold('Agent                  Status     Attempt  Duration    Cost'));
   console.log(chalk.gray('-'.repeat(80)));
@@ -330,7 +308,7 @@ async function runParallelVuln(
   const processedResults: ParallelAgentResult[] = [];
 
   results.forEach((result, index) => {
-    const agentName = vulnAgents[index]!;
+    const agentName = agents[index]!;
     const agentDisplay = agentName.padEnd(22);
 
     if (result.status === 'fulfilled') {
@@ -371,159 +349,90 @@ async function runParallelVuln(
 
   console.log(chalk.gray('-'.repeat(80)));
   const successCount = processedResults.filter(r => r.success).length;
-  console.log(chalk.cyan(`Summary: ${successCount}/${vulnAgents.length} succeeded in ${formatDuration(totalDuration)}`));
+  console.log(chalk.cyan(`Summary: ${successCount}/${agents.length} succeeded in ${formatDuration(totalDuration)}`));
 
   return processedResults;
 }
 
 /**
- * Run exploitation agents in parallel
+ * Run agents in parallel with retry logic and result display
  */
-async function runParallelExploit(
-  sourceDir: string,
-  variables: PromptVariables,
-  distributedConfig: DistributedConfig | null,
-  pipelineTestingMode: boolean,
-  sessionMetadata: SessionMetadata
+async function runParallelAgents(
+  context: AgentExecutionContext,
+  config: ParallelAgentConfig
 ): Promise<ParallelAgentResult[]> {
-  const { exploit: exploitAgents, vuln: vulnAgents } = getParallelGroups();
+  const { sourceDir } = context;
+  const { phaseType, headerText, specialistLabel } = config;
+  const parallelGroups = getParallelGroups();
+  const allAgents = parallelGroups[phaseType];
 
-  // Load validation module
-  const { safeValidateQueueAndDeliverable } = await import('./queue-validation.js');
+  // For exploit phase, filter to only eligible agents
+  let agents: AgentName[];
+  if (phaseType === 'exploit') {
+    const eligibilityChecks = await Promise.all(
+      allAgents.map(async (agentName) => {
+        const vulnAgentName = agentName.replace('-exploit', '-vuln') as AgentName;
+        const vulnType = vulnAgentName.replace('-vuln', '') as VulnType;
 
-  // Check eligibility
-  const eligibilityChecks = await Promise.all(
-    exploitAgents.map(async (agentName) => {
-      const vulnAgentName = agentName.replace('-exploit', '-vuln') as AgentName;
-      const vulnType = vulnAgentName.replace('-vuln', '') as 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+        const validation = await safeValidateQueueAndDeliverable(vulnType, sourceDir);
 
-      const validation = await safeValidateQueueAndDeliverable(vulnType, sourceDir);
+        if (!validation.success || !validation.data?.shouldExploit) {
+          console.log(chalk.gray(`Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
+          return { agentName, eligible: false };
+        }
 
-      if (!validation.success || !validation.data?.shouldExploit) {
-        console.log(chalk.gray(`Skipping ${agentName} (no vulnerabilities found in ${vulnAgentName})`));
-        return { agentName, eligible: false };
-      }
+        console.log(chalk.blue(`${agentName} eligible (${validation.data.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
+        return { agentName, eligible: true };
+      })
+    );
 
-      console.log(chalk.blue(`${agentName} eligible (${validation.data.vulnerabilityCount} vulnerabilities from ${vulnAgentName})`));
-      return { agentName, eligible: true };
-    })
-  );
+    agents = eligibilityChecks
+      .filter(check => check.eligible)
+      .map(check => check.agentName);
 
-  const eligibleAgents = eligibilityChecks
-    .filter(check => check.eligible)
-    .map(check => check.agentName);
-
-  if (eligibleAgents.length === 0) {
-    console.log(chalk.gray('No exploitation agents eligible (no vulnerabilities found)'));
-    return [];
+    if (agents.length === 0) {
+      console.log(chalk.gray('No exploitation agents eligible (no vulnerabilities found)'));
+      return [];
+    }
+  } else {
+    agents = allAgents;
   }
 
-  console.log(chalk.cyan(`\nStarting ${eligibleAgents.length} exploitation specialists in parallel...`));
-  console.log(chalk.gray('    Specialists: ' + eligibleAgents.join(', ')));
+  console.log(chalk.cyan(`\nStarting ${agents.length} ${specialistLabel} in parallel...`));
+  console.log(chalk.gray('    Specialists: ' + agents.join(', ')));
   console.log();
 
   const startTime = Date.now();
 
-  const results = await Promise.allSettled(
-    eligibleAgents.map(async (agentName, index) => {
-      await new Promise(resolve => setTimeout(resolve, index * 2000));
-
-      let lastError: Error | undefined;
-      let attempts = 0;
-      const maxAttempts = 3;
-
-      while (attempts < maxAttempts) {
-        attempts++;
+  // Build onSuccess callback for vuln phase (validation logging)
+  const onSuccess = phaseType === 'vuln'
+    ? async (agentName: AgentName): Promise<void> => {
+        const vulnType = agentName.replace('-vuln', '') as VulnType;
         try {
-          const result = await runAgent(
-            agentName,
-            sourceDir,
-            variables,
-            distributedConfig,
-            pipelineTestingMode,
-            sessionMetadata
-          );
-
-          return {
-            agentName,
-            success: result.success,
-            timing: result.duration,
-            cost: result.cost,
-            attempts
-          };
-        } catch (error) {
-          lastError = error as Error;
-          if (attempts < maxAttempts) {
-            console.log(chalk.yellow(`Warning: ${agentName} failed attempt ${attempts}/${maxAttempts}, retrying...`));
-            await new Promise(resolve => setTimeout(resolve, 5000));
+          const validation = await safeValidateQueueAndDeliverable(vulnType, sourceDir);
+          if (validation.success && validation.data) {
+            const message = validation.data.shouldExploit
+              ? `Ready for exploitation (${validation.data.vulnerabilityCount} vulnerabilities)`
+              : 'No vulnerabilities found';
+            console.log(chalk.blue(`${agentName}: ${message}`));
           }
+        } catch {
+          // Validation failure is non-critical
         }
       }
+    : undefined;
 
-      return {
-        agentName,
-        success: false,
-        attempts,
-        error: lastError?.message || 'Unknown error'
-      };
+  const results = await Promise.allSettled(
+    agents.map(async (agentName, index) => {
+      // Add 2-second stagger to prevent API overwhelm
+      await new Promise(resolve => setTimeout(resolve, index * 2000));
+      return executeAgentWithRetry(agentName, context, onSuccess);
     })
   );
 
   const totalDuration = Date.now() - startTime;
 
-  // Process and display results
-  console.log(chalk.cyan('\nExploitation Results'));
-  console.log(chalk.gray('-'.repeat(80)));
-  console.log(chalk.bold('Agent                  Status     Attempt  Duration    Cost'));
-  console.log(chalk.gray('-'.repeat(80)));
-
-  const processedResults: ParallelAgentResult[] = [];
-
-  results.forEach((result, index) => {
-    const agentName = eligibleAgents[index]!;
-    const agentDisplay = agentName.padEnd(22);
-
-    if (result.status === 'fulfilled') {
-      const data = result.value;
-      processedResults.push(data);
-
-      if (data.success) {
-        const duration = formatDuration(data.timing || 0);
-        const cost = `$${(data.cost || 0).toFixed(4)}`;
-
-        console.log(
-          `${chalk.green(agentDisplay)} ${chalk.green('Success')}    ` +
-          `${data.attempts}/3      ${duration.padEnd(11)} ${cost}`
-        );
-      } else {
-        console.log(
-          `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
-          `${data.attempts}/3      -           -`
-        );
-        if (data.error) {
-          console.log(chalk.gray(`  Error: ${data.error.substring(0, 60)}...`));
-        }
-      }
-    } else {
-      processedResults.push({
-        agentName,
-        success: false,
-        attempts: 3,
-        error: String(result.reason)
-      });
-
-      console.log(
-        `${chalk.red(agentDisplay)} ${chalk.red('Failed ')}    ` +
-        `3/3      -           -`
-      );
-    }
-  });
-
-  console.log(chalk.gray('-'.repeat(80)));
-  const successCount = processedResults.filter(r => r.success).length;
-  console.log(chalk.cyan(`Summary: ${successCount}/${eligibleAgents.length} succeeded in ${formatDuration(totalDuration)}`));
-
-  return processedResults;
+  return displayParallelResults(results, agents, headerText, totalDuration);
 }
 
 // Setup graceful cleanup on process signals
@@ -677,13 +586,19 @@ async function main(
     const vulnTimer = new Timer('phase-3-vulnerability-analysis');
     console.log(chalk.red.bold('\n🚨 PHASE 3: VULNERABILITY ANALYSIS'));
 
-    const vulnResults = await runParallelVuln(
+    const executionContext: AgentExecutionContext = {
       sourceDir,
       variables,
       distributedConfig,
       pipelineTestingMode,
       sessionMetadata
-    );
+    };
+
+    const vulnResults = await runParallelAgents(executionContext, {
+      phaseType: 'vuln',
+      headerText: 'Vulnerability Analysis Results',
+      specialistLabel: 'vulnerability analysis specialists'
+    });
 
     const vulnDuration = vulnTimer.stop();
     console.log(chalk.green(`✅ Vulnerability analysis phase complete in ${formatDuration(vulnDuration)}`));
@@ -692,13 +607,11 @@ async function main(
     const exploitTimer = new Timer('phase-4-exploitation');
     console.log(chalk.red.bold('\n💥 PHASE 4: EXPLOITATION'));
 
-    const exploitResults = await runParallelExploit(
-      sourceDir,
-      variables,
-      distributedConfig,
-      pipelineTestingMode,
-      sessionMetadata
-    );
+    const exploitResults = await runParallelAgents(executionContext, {
+      phaseType: 'exploit',
+      headerText: 'Exploitation Results',
+      specialistLabel: 'exploitation specialists'
+    });
 
     const exploitDuration = exploitTimer.stop();
     console.log(chalk.green(`✅ Exploitation phase complete in ${formatDuration(exploitDuration)}`));
