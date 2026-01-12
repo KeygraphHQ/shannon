@@ -16,8 +16,7 @@ import { parseConfig, distributeConfig } from './config-parser.js';
 import { checkToolAvailability, handleMissingTools } from './tool-checker.js';
 
 // Session
-import { createSession, updateSessionStatus, AGENTS, getParallelGroups } from './session-manager.js';
-import type { Session } from './session-manager.js';
+import { AGENTS, getParallelGroups } from './session-manager.js';
 import type { AgentName, PromptName } from './types/index.js';
 
 // Setup and Deliverables
@@ -51,6 +50,81 @@ import { safeValidateQueueAndDeliverable } from './queue-validation.js';
 // Extend global namespace for SHANNON_DISABLE_LOADER
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
+}
+
+// Session Lock File Management
+const STORE_PATH = path.join(process.cwd(), '.shannon-store.json');
+
+interface Session {
+  id: string;
+  webUrl: string;
+  repoPath: string;
+  status: 'in-progress' | 'completed' | 'failed';
+  startedAt: string;
+}
+
+interface SessionStore {
+  sessions: Session[];
+}
+
+function generateSessionId(): string {
+  return `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+}
+
+async function loadSessions(): Promise<SessionStore> {
+  try {
+    if (await fs.pathExists(STORE_PATH)) {
+      return await fs.readJson(STORE_PATH) as SessionStore;
+    }
+  } catch {
+    // Corrupted file, start fresh
+  }
+  return { sessions: [] };
+}
+
+async function saveSessions(store: SessionStore): Promise<void> {
+  await fs.writeJson(STORE_PATH, store, { spaces: 2 });
+}
+
+async function createSession(webUrl: string, repoPath: string): Promise<Session> {
+  const store = await loadSessions();
+
+  // Check for existing in-progress session
+  const existing = store.sessions.find(
+    s => s.repoPath === repoPath && s.status === 'in-progress'
+  );
+  if (existing) {
+    throw new PentestError(
+      `Session already in progress for ${repoPath}`,
+      'validation',
+      false,
+      { sessionId: existing.id }
+    );
+  }
+
+  const session: Session = {
+    id: generateSessionId(),
+    webUrl,
+    repoPath,
+    status: 'in-progress',
+    startedAt: new Date().toISOString()
+  };
+
+  store.sessions.push(session);
+  await saveSessions(store);
+  return session;
+}
+
+async function updateSessionStatus(
+  sessionId: string,
+  status: 'in-progress' | 'completed' | 'failed'
+): Promise<void> {
+  const store = await loadSessions();
+  const session = store.sessions.find(s => s.id === sessionId);
+  if (session) {
+    session.status = status;
+    await saveSessions(store);
+  }
 }
 
 interface PromptVariables {
