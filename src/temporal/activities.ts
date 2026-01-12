@@ -21,6 +21,29 @@
 import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
 import chalk from 'chalk';
 
+// Max lengths to prevent Temporal protobuf buffer overflow
+const MAX_ERROR_MESSAGE_LENGTH = 2000;
+const MAX_STACK_TRACE_LENGTH = 1000;
+
+/**
+ * Truncate error message to prevent buffer overflow in Temporal serialization.
+ */
+function truncateErrorMessage(message: string): string {
+  if (message.length <= MAX_ERROR_MESSAGE_LENGTH) {
+    return message;
+  }
+  return message.slice(0, MAX_ERROR_MESSAGE_LENGTH - 20) + '\n[truncated]';
+}
+
+/**
+ * Truncate stack trace on an ApplicationFailure to prevent buffer overflow.
+ */
+function truncateStackTrace(failure: ApplicationFailure): void {
+  if (failure.stack && failure.stack.length > MAX_STACK_TRACE_LENGTH) {
+    failure.stack = failure.stack.slice(0, MAX_STACK_TRACE_LENGTH) + '\n[stack truncated]';
+  }
+}
+
 import {
   runClaudePrompt,
   validateAgentOutput,
@@ -202,20 +225,26 @@ async function runAgentActivity(
 
     // Classify error for Temporal retry behavior
     const classified = classifyErrorForTemporal(error);
-    const message = error instanceof Error ? error.message : String(error);
+    // Truncate message to prevent protobuf buffer overflow
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = truncateErrorMessage(rawMessage);
 
     if (classified.retryable) {
       // Temporal will retry with configured backoff
-      throw ApplicationFailure.create({
+      const failure = ApplicationFailure.create({
         message,
         type: classified.type,
         details: [{ agentName, attemptNumber, elapsed: Date.now() - startTime }],
       });
+      truncateStackTrace(failure);
+      throw failure;
     } else {
       // Fail immediately - no retry
-      throw ApplicationFailure.nonRetryable(message, classified.type, [
+      const failure = ApplicationFailure.nonRetryable(message, classified.type, [
         { agentName, attemptNumber, elapsed: Date.now() - startTime },
       ]);
+      truncateStackTrace(failure);
+      throw failure;
     }
   } finally {
     clearInterval(heartbeatInterval);

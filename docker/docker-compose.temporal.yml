@@ -1,12 +1,10 @@
 services:
   temporal:
-    image: temporalio/auto-setup:latest
-    environment:
-      - DB=sqlite
-      - SQLITE_DB_PATH=/var/lib/temporal/temporal.db
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--db-filename", "/var/lib/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
       - "7233:7233"   # gRPC
-      - "8233:8233"   # Web UI
+      - "8233:8233"   # Web UI (built-in)
     volumes:
       - temporal-data:/var/lib/temporal
     healthcheck:
@@ -15,6 +13,24 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
+
+  worker:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.worker
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      temporal:
+        condition: service_healthy
+    volumes:
+      - ../deliverables:/app/deliverables
+      - ../prompts:/app/prompts
+    shm_size: 2gb
+    ipc: host
+    security_opt:
+      - seccomp:unconfined
 
 volumes:
   temporal-data:

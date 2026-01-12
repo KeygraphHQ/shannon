@@ -1,0 +1,43 @@
+# Wolfi-based worker for Shannon AI pentester
+FROM cgr.dev/chainguard/wolfi-base:latest
+
+# Install Node.js 22, Python 3.12, Chromium, and dependencies
+RUN apk add --no-cache \
+    nodejs-22 \
+    npm \
+    python-3.12 \
+    py3.12-pip \
+    chromium \
+    git \
+    bash \
+    curl
+
+# Install uvx for browser-use
+RUN pip install uvx --break-system-packages
+
+# Create non-root user
+RUN adduser -D -u 1000 pentest
+WORKDIR /app
+
+# Copy package files first for better caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm ci --omit=dev
+
+# Copy application code
+COPY dist/ ./dist/
+COPY prompts/ ./prompts/
+
+# Set ownership
+RUN chown -R pentest:pentest /app
+
+# Switch to non-root user
+USER pentest
+
+# Set Chromium path for Playwright
+ENV CHROME_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Entry point
+CMD ["node", "dist/temporal/worker.js"]

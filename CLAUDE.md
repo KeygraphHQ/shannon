@@ -167,6 +167,26 @@ For detailed design, see `docs/unified-audit-system-design.md`.
 
 ## Development Notes
 
+### Learning from Reference Implementations
+
+A working POC exists at `/Users/arjunmalleswaran/Code/shannon-pocs` that demonstrates the ideal Temporal + Claude Agent SDK integration. When implementing Temporal features, agents can ask questions in the chat, and the user will relay them to another Claude Code session working in that POC directory.
+
+**How to use this approach:**
+1. When stuck or unsure about Temporal patterns, write a specific question in the chat
+2. The user will ask an agent working on the POC to answer
+3. The user relays the answer (code snippets, patterns, explanations) back
+4. Apply the learned patterns to Shannon's codebase
+
+**Example questions to ask:**
+- "How does the POC structure its workflow to handle parallel activities?"
+- "Show me how heartbeats are implemented in the POC's activities"
+- "What retry configuration does the POC use for long-running agent activities?"
+- "How does the POC integrate Claude Agent SDK calls within Temporal activities?"
+
+**Current reference implementations:**
+- **Temporal + Claude Agent SDK**: `/Users/arjunmalleswaran/Code/shannon-pocs` - working implementation demonstrating workflows, activities, worker setup, and SDK integration
+- **Implementation plan**: `docs/temporal-implementation-plan.md` - detailed plan for Shannon integration
+
 ### Key Design Patterns
 - **Configuration-Driven Architecture**: YAML configs with JSON Schema validation
 - **Modular Error Handling**: Categorized error types with retry logic

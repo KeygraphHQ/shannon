@@ -7,6 +7,19 @@
 import { $ } from 'zx';
 import chalk from 'chalk';
 
+/**
+ * Check if a directory is a git repository.
+ * Returns true if the directory contains a .git folder or is inside a git repo.
+ */
+export async function isGitRepository(dir: string): Promise<boolean> {
+  try {
+    await $`cd ${dir} && git rev-parse --git-dir`.quiet();
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 interface GitOperationResult {
   success: boolean;
   hadChanges?: boolean;
@@ -146,6 +159,12 @@ export async function rollbackGitWorkspace(
   sourceDir: string,
   reason: string = 'retry preparation'
 ): Promise<GitOperationResult> {
+  // Skip git operations if not a git repository
+  if (!(await isGitRepository(sourceDir))) {
+    console.log(chalk.gray(`    ⏭️  Skipping git rollback (not a git repository)`));
+    return { success: true };
+  }
+
   console.log(chalk.yellow(`    🔄 Rolling back workspace for ${reason}`));
   try {
     const changes = await getChangedFiles(sourceDir, 'status check for rollback');
@@ -182,6 +201,12 @@ export async function createGitCheckpoint(
   description: string,
   attempt: number
 ): Promise<GitOperationResult> {
+  // Skip git operations if not a git repository
+  if (!(await isGitRepository(sourceDir))) {
+    console.log(chalk.gray(`    ⏭️  Skipping git checkpoint (not a git repository)`));
+    return { success: true };
+  }
+
   console.log(chalk.blue(`    📍 Creating checkpoint for ${description} (attempt ${attempt})`));
   try {
     // First attempt: preserve existing deliverables. Retries: clean workspace to prevent pollution
@@ -221,6 +246,12 @@ export async function commitGitSuccess(
   sourceDir: string,
   description: string
 ): Promise<GitOperationResult> {
+  // Skip git operations if not a git repository
+  if (!(await isGitRepository(sourceDir))) {
+    console.log(chalk.gray(`    ⏭️  Skipping git commit (not a git repository)`));
+    return { success: true };
+  }
+
   console.log(chalk.green(`    💾 Committing successful results for ${description}`));
   try {
     const changes = await getChangedFiles(sourceDir, 'status check for success commit');
@@ -252,9 +283,13 @@ export async function commitGitSuccess(
 }
 
 /**
- * Get current git commit hash
+ * Get current git commit hash.
+ * Returns null if not a git repository.
  */
 export async function getGitCommitHash(sourceDir: string): Promise<string | null> {
+  if (!(await isGitRepository(sourceDir))) {
+    return null;
+  }
   try {
     const result = await $`cd ${sourceDir} && git rev-parse HEAD`;
     return result.stdout.trim();
