@@ -263,7 +263,7 @@ audit-logs/{hostname}_{sessionId}/
 ├── agents/               # Per-agent execution logs
 ├── prompts/              # Prompt snapshots for reproducibility
 └── deliverables/
-    └── executive-report.md   # Final comprehensive security report
+    └── comprehensive_security_assessment_report.md   # Final comprehensive security report
 ```
 
 ---
