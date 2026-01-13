@@ -1,5 +1,1 @@
-# This Source Code Form is subject to the terms of the AGPL, v. 3.0
-# This section above is metadata and not part of the prompt.
-=== PROMPT ===
-
 Read `deliverables/comprehensive_security_assessment_report.md`, prepend "# Security Assessment Report\n\n**Target:** {{WEB_URL}}\n\n" to the content, and save it back. Say "Done".
