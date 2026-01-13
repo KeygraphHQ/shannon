@@ -20,7 +20,7 @@
  *   --output <path>       Output directory for audit logs
  *   --pipeline-testing    Use minimal prompts for fast testing
  *   --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)
- *   --no-wait             Start workflow and exit without waiting
+ *   --wait                Wait for workflow completion with progress polling
  *
  * Environment:
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
@@ -29,6 +29,7 @@
 import { Connection, Client } from '@temporalio/client';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
+import { displaySplashScreen } from '../splash-screen.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -51,7 +52,7 @@ function showUsage(): void {
   console.log(
     '  --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)'
   );
-  console.log('  --no-wait             Start workflow and exit without waiting\n');
+  console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log(chalk.yellow('Examples:'));
   console.log('  node dist/temporal/client.js https://example.com /path/to/repo');
   console.log(
@@ -74,7 +75,7 @@ async function startPipeline(): Promise<void> {
   let outputPath: string | undefined;
   let pipelineTestingMode = false;
   let customWorkflowId: string | undefined;
-  let waitForCompletion = true;
+  let waitForCompletion = false;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -98,8 +99,8 @@ async function startPipeline(): Promise<void> {
       }
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
-    } else if (arg === '--no-wait') {
-      waitForCompletion = false;
+    } else if (arg === '--wait') {
+      waitForCompletion = true;
     } else if (arg && !arg.startsWith('-')) {
       if (!webUrl) {
         webUrl = arg;
@@ -115,8 +116,11 @@ async function startPipeline(): Promise<void> {
     process.exit(1);
   }
 
+  // Display splash screen
+  await displaySplashScreen();
+
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
-  console.log(chalk.cyan(`Connecting to Temporal at ${address}...`));
+  console.log(chalk.gray(`Connecting to Temporal at ${address}...`));
 
   const connection = await Connection.connect({ address });
   const client = new Client({ connection });
@@ -132,14 +136,17 @@ async function startPipeline(): Promise<void> {
       ...(pipelineTestingMode && { pipelineTestingMode }),
     };
 
-    console.log(chalk.green(`\nStarting workflow: ${workflowId}`));
-    console.log(chalk.gray(`Target: ${webUrl}`));
-    console.log(chalk.gray(`Repository: ${repoPath}`));
-    console.log(
-      chalk.blue(
-        `Web UI: http://localhost:8233/namespaces/default/workflows/${workflowId}\n`
-      )
-    );
+    console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
+    console.log();
+    console.log(chalk.white('  Target:     ') + chalk.cyan(webUrl));
+    console.log(chalk.white('  Repository: ') + chalk.cyan(repoPath));
+    if (configPath) {
+      console.log(chalk.white('  Config:     ') + chalk.cyan(configPath));
+    }
+    if (pipelineTestingMode) {
+      console.log(chalk.white('  Mode:       ') + chalk.yellow('Pipeline Testing'));
+    }
+    console.log();
 
     // Start workflow by name (not by importing the function)
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
@@ -152,10 +159,11 @@ async function startPipeline(): Promise<void> {
     );
 
     if (!waitForCompletion) {
-      console.log(
-        chalk.yellow('Workflow started in background. Use query tool to check progress.')
-      );
-      console.log(chalk.gray(`  npm run temporal:query -- ${workflowId}`));
+      console.log(chalk.bold('Monitor progress:'));
+      console.log(chalk.white('  Web UI:  ') + chalk.blue(`http://localhost:8233/namespaces/default/workflows/${workflowId}`));
+      console.log(chalk.white('  Logs:    ') + chalk.gray('task logs'));
+      console.log(chalk.white('  Query:   ') + chalk.gray(`task query ID=${workflowId}`));
+      console.log();
       return;
     }
 

@@ -1,5 +1,6 @@
 node_modules/
 .shannon-store.json
+.env
 agent-logs/
 /audit-logs/
 dist/

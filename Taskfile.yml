@@ -1,0 +1,83 @@
+version: '3'
+
+dotenv: ['.env']
+
+vars:
+  COMPOSE_FILE: docker-compose.yml
+
+tasks:
+  default:
+    silent: true
+    cmds: [task help]
+
+  help:
+    desc: Show usage information
+    silent: true
+    cmds:
+      - |
+        echo "Shannon - AI Penetration Testing Framework"
+        echo ""
+        echo "Usage:"
+        echo "  task start URL=<url> REPO=<path>   Start a pentest workflow"
+        echo "  task logs                          View real-time worker logs"
+        echo "  task query ID=<workflow-id>        Query workflow progress"
+        echo "  task stop                          Stop all containers"
+        echo "  task help                          Show this help message"
+        echo ""
+        echo "Examples:"
+        echo "  task start URL=https://example.com REPO=/path/to/repo"
+        echo "  task start URL=https://example.com REPO=/path/to/repo -- --pipeline-testing"
+        echo "  task start URL=https://example.com REPO=/path/to/repo -- --config ./config.yaml"
+        echo "  task query ID=shannon-1234567890"
+        echo ""
+        echo "Monitor workflows at http://localhost:8233"
+
+  start:
+    desc: Start a pentest workflow
+    silent: true
+    requires:
+      vars: [URL, REPO]
+    cmds:
+      - |
+        if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+          echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
+          exit 1
+        fi
+      - TARGET_REPO={{.REPO}} docker compose -f {{.COMPOSE_FILE}} up -d --build
+      - |
+        for i in $(seq 1 30); do
+          docker compose -f {{.COMPOSE_FILE}} exec -T temporal \
+            temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING" && break
+          [ $i -eq 30 ] && echo "Timeout waiting for Temporal" && exit 1
+          sleep 2
+        done
+      - |
+        docker compose -f {{.COMPOSE_FILE}} exec -T worker \
+          node dist/temporal/client.js "{{.URL}}" "/target-repo" {{.CLI_ARGS}}
+
+  logs:
+    desc: View real-time worker logs
+    silent: true
+    cmds:
+      - docker compose -f {{.COMPOSE_FILE}} logs -f worker {{.CLI_ARGS}}
+
+  query:
+    desc: Query workflow progress
+    silent: true
+    requires:
+      vars: [ID]
+    cmds:
+      - |
+        docker compose -f {{.COMPOSE_FILE}} exec -T worker \
+          node dist/temporal/query.js "{{.ID}}"
+
+  stop:
+    desc: Stop all containers
+    silent: true
+    cmds:
+      - |
+        if [ "{{.CLI_ARGS}}" = "--clean" ]; then
+          docker compose -f {{.COMPOSE_FILE}} down -v
+        else
+          docker compose -f {{.COMPOSE_FILE}} down
+        fi
