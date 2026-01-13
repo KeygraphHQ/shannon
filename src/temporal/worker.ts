@@ -9,7 +9,7 @@
  * Temporal worker for Shannon pentest pipeline.
  *
  * Polls the 'shannon-pipeline' task queue and executes activities.
- * Handles up to 5 concurrent activities to support parallel agent execution.
+ * Handles up to 25 concurrent activities to support multiple parallel workflows.
  *
  * Usage:
  *   npm run temporal:worker
@@ -49,7 +49,7 @@ async function runWorker(): Promise<void> {
     workflowBundle,
     activities,
     taskQueue: 'shannon-pipeline',
-    maxConcurrentActivityTaskExecutions: 5, // Match parallel agent count
+    maxConcurrentActivityTaskExecutions: 25, // Support multiple parallel workflows (5 agents × ~5 workflows)
   });
 
   // Graceful shutdown handling

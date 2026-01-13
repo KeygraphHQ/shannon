@@ -27,7 +27,8 @@ services:
         condition: service_healthy
     volumes:
       - ./prompts:/app/prompts
-      - ${TARGET_REPO:-/tmp/target-repo}:/target-repo
+      - ${TARGET_REPO:-.}:/target-repo
+      - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb
     ipc: host
     security_opt:

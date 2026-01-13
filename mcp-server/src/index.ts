@@ -11,22 +11,25 @@
  * for Shannon penetration testing agents.
  *
  * Replaces bash script invocations with native tool access.
+ *
+ * Uses factory pattern to create tools with targetDir captured in closure,
+ * ensuring thread-safety when multiple workflows run in parallel.
  */
 
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
-import { saveDeliverableTool } from './tools/save-deliverable.js';
+import { createSaveDeliverableTool } from './tools/save-deliverable.js';
 import { generateTotpTool } from './tools/generate-totp.js';
-
-declare global {
-  var __SHANNON_TARGET_DIR: string | undefined;
-}
 
 /**
  * Create Shannon Helper MCP Server with target directory context
+ *
+ * Each workflow should create its own MCP server instance with its targetDir.
+ * The save_deliverable tool captures targetDir in a closure, preventing race
+ * conditions when multiple workflows run in parallel.
  */
 export function createShannonHelperServer(targetDir: string): ReturnType<typeof createSdkMcpServer> {
-  // Store target directory for tool access
-  global.__SHANNON_TARGET_DIR = targetDir;
+  // Create save_deliverable tool with targetDir in closure (no global variable)
+  const saveDeliverableTool = createSaveDeliverableTool(targetDir);
 
   return createSdkMcpServer({
     name: 'shannon-helper',
@@ -35,8 +38,9 @@ export function createShannonHelperServer(targetDir: string): ReturnType<typeof 
   });
 }
 
-// Export tools for direct usage if needed
-export { saveDeliverableTool, generateTotpTool };
+// Export factory for direct usage if needed
+export { createSaveDeliverableTool } from './tools/save-deliverable.js';
+export { generateTotpTool } from './tools/generate-totp.js';
 
 // Export types for external use
 export * from './types/index.js';

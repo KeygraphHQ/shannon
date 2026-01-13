@@ -46,9 +46,10 @@ Examples:
 
 ### Options
 ```bash
-CONFIG=<file>        YAML configuration file for authentication and testing parameters
-OUTPUT=<path>        Custom output directory for session folder (default: ./audit-logs/)
-PIPELINE_TESTING=true  Use minimal prompts for fast pipeline testing
+CONFIG=<file>          YAML configuration file for authentication and testing parameters
+OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
+PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
+REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
 ```
 
 ### Generate TOTP for Authentication

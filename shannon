@@ -52,7 +52,45 @@ parse_args() {
       ID=*) ID="${arg#ID=}" ;;
       CLEAN=*) CLEAN="${arg#CLEAN=}" ;;
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
+      REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
     esac
+  done
+}
+
+# Check if Temporal is running and healthy
+is_temporal_ready() {
+  docker compose -f "$COMPOSE_FILE" exec -T temporal \
+    temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"
+}
+
+# Ensure containers are running
+ensure_containers() {
+  # Quick check: if Temporal is already healthy, we're good
+  if is_temporal_ready; then
+    return 0
+  fi
+
+  # Need to start containers
+  echo "Starting Shannon containers..."
+  if [ "$REBUILD" = "true" ]; then
+    # Force rebuild without cache (use when code changes aren't being picked up)
+    echo "Rebuilding with --no-cache..."
+    docker compose -f "$COMPOSE_FILE" build --no-cache worker
+  fi
+  docker compose -f "$COMPOSE_FILE" up -d --build
+
+  # Wait for Temporal to be ready
+  echo "Waiting for Temporal to be ready..."
+  for i in $(seq 1 30); do
+    if is_temporal_ready; then
+      echo "Temporal is ready!"
+      return 0
+    fi
+    if [ "$i" -eq 30 ]; then
+      echo "Timeout waiting for Temporal"
+      exit 1
+    fi
+    sleep 2
   done
 }
 
@@ -72,22 +110,22 @@ cmd_start() {
     exit 1
   fi
 
-  # Start containers
-  TARGET_REPO="$REPO" docker compose -f "$COMPOSE_FILE" up -d --build
+  # Determine container path for REPO
+  # - If REPO is already a container path (/benchmarks/*, /target-repo), use as-is
+  # - Otherwise, it's a host path - mount to /target-repo and use that
+  case "$REPO" in
+    /benchmarks/*|/target-repo|/target-repo/*)
+      CONTAINER_REPO="$REPO"
+      ;;
+    *)
+      # Host path - export for docker-compose mount
+      export TARGET_REPO="$REPO"
+      CONTAINER_REPO="/target-repo"
+      ;;
+  esac
 
-  # Wait for Temporal to be ready
-  echo "Waiting for Temporal to be ready..."
-  for i in $(seq 1 30); do
-    if docker compose -f "$COMPOSE_FILE" exec -T temporal \
-      temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"; then
-      break
-    fi
-    if [ "$i" -eq 30 ]; then
-      echo "Timeout waiting for Temporal"
-      exit 1
-    fi
-    sleep 2
-  done
+  # Ensure containers are running (starts them if needed)
+  ensure_containers
 
   # Build optional args
   ARGS=""
@@ -95,9 +133,9 @@ cmd_start() {
   [ -n "$OUTPUT" ] && ARGS="$ARGS --output $OUTPUT"
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
 
-  # Run the client
+  # Run the client to submit workflow
   docker compose -f "$COMPOSE_FILE" exec -T worker \
-    node dist/temporal/client.js "$URL" "/target-repo" $ARGS
+    node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
 }
 
 cmd_logs() {

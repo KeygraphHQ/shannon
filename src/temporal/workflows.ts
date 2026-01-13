@@ -35,31 +35,54 @@ import {
   type PipelineProgress,
 } from './shared.js';
 
-// Activity proxy with retry configuration
+// Retry configuration for production (long intervals for billing recovery)
+const PRODUCTION_RETRY = {
+  initialInterval: '5 minutes',
+  maximumInterval: '30 minutes',
+  backoffCoefficient: 2,
+  maximumAttempts: 50,
+  nonRetryableErrorTypes: [
+    'AuthenticationError',
+    'PermissionError',
+    'InvalidRequestError',
+    'RequestTooLargeError',
+    'ConfigurationError',
+    'InvalidTargetError',
+    'ExecutionLimitError',
+  ],
+};
+
+// Retry configuration for pipeline testing (fast iteration)
+const TESTING_RETRY = {
+  initialInterval: '10 seconds',
+  maximumInterval: '30 seconds',
+  backoffCoefficient: 2,
+  maximumAttempts: 5,
+  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
+};
+
+// Activity proxy with production retry configuration (default)
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
   heartbeatTimeout: '30 seconds',
-  retry: {
-    initialInterval: '5 minutes',
-    maximumInterval: '30 minutes',
-    backoffCoefficient: 2,
-    maximumAttempts: 50,
-    nonRetryableErrorTypes: [
-      'AuthenticationError',
-      'PermissionError',
-      'InvalidRequestError',
-      'RequestTooLargeError',
-      'ConfigurationError',
-      'InvalidTargetError',
-      'ExecutionLimitError',
-    ],
-  },
+  retry: PRODUCTION_RETRY,
+});
+
+// Activity proxy with testing retry configuration (fast)
+const testActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '10 minutes',
+  heartbeatTimeout: '30 seconds',
+  retry: TESTING_RETRY,
 });
 
 export async function pentestPipelineWorkflow(
   input: PipelineInput
 ): Promise<PipelineState> {
   const { workflowId } = workflowInfo();
+
+  // Select activity proxy based on testing mode
+  // Pipeline testing uses fast retry intervals (10s) for quick iteration
+  const a = input.pipelineTestingMode ? testActs : acts;
 
   // Workflow state (queryable)
   const state: PipelineState = {
@@ -99,13 +122,13 @@ export async function pentestPipelineWorkflow(
     state.currentPhase = 'pre-recon';
     state.currentAgent = 'pre-recon';
     state.agentMetrics['pre-recon'] =
-      await acts.runPreReconAgent(activityInput);
+      await a.runPreReconAgent(activityInput);
     state.completedAgents.push('pre-recon');
 
     // === Phase 2: Reconnaissance ===
     state.currentPhase = 'recon';
     state.currentAgent = 'recon';
-    state.agentMetrics['recon'] = await acts.runReconAgent(activityInput);
+    state.agentMetrics['recon'] = await a.runReconAgent(activityInput);
     state.completedAgents.push('recon');
 
     // === Phase 3: Vulnerability Analysis (Parallel) ===
@@ -113,11 +136,11 @@ export async function pentestPipelineWorkflow(
     state.currentAgent = 'vuln-agents';
 
     const vulnResults = await Promise.all([
-      acts.runInjectionVulnAgent(activityInput),
-      acts.runXssVulnAgent(activityInput),
-      acts.runAuthVulnAgent(activityInput),
-      acts.runSsrfVulnAgent(activityInput),
-      acts.runAuthzVulnAgent(activityInput),
+      a.runInjectionVulnAgent(activityInput),
+      a.runXssVulnAgent(activityInput),
+      a.runAuthVulnAgent(activityInput),
+      a.runSsrfVulnAgent(activityInput),
+      a.runAuthzVulnAgent(activityInput),
     ]);
 
     const vulnAgents = [
@@ -141,11 +164,11 @@ export async function pentestPipelineWorkflow(
     state.currentAgent = 'exploit-agents';
 
     const exploitResults = await Promise.all([
-      acts.runInjectionExploitAgent(activityInput),
-      acts.runXssExploitAgent(activityInput),
-      acts.runAuthExploitAgent(activityInput),
-      acts.runSsrfExploitAgent(activityInput),
-      acts.runAuthzExploitAgent(activityInput),
+      a.runInjectionExploitAgent(activityInput),
+      a.runXssExploitAgent(activityInput),
+      a.runAuthExploitAgent(activityInput),
+      a.runSsrfExploitAgent(activityInput),
+      a.runAuthzExploitAgent(activityInput),
     ]);
 
     const exploitAgents = [
@@ -169,10 +192,10 @@ export async function pentestPipelineWorkflow(
     state.currentAgent = 'report';
 
     // First, assemble the concatenated report from exploitation evidence files
-    await acts.assembleReportActivity(activityInput);
+    await a.assembleReportActivity(activityInput);
 
     // Then run the report agent to add executive summary and clean up
-    state.agentMetrics['report'] = await acts.runReportAgent(activityInput);
+    state.agentMetrics['report'] = await a.runReportAgent(activityInput);
     state.completedAgents.push('report');
 
     // === Complete ===

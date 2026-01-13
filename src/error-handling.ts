@@ -247,8 +247,18 @@ export function classifyErrorForTemporal(error: unknown): TemporalErrorClassific
     return { type: 'PermissionError', retryable: false };
   }
 
+  // === OUTPUT VALIDATION ERRORS (Retryable) ===
+  // Agent didn't produce expected deliverables - retry may succeed
+  // IMPORTANT: Must come BEFORE generic 'validation' check below
+  if (
+    message.includes('failed output validation') ||
+    message.includes('output validation failed')
+  ) {
+    return { type: 'OutputValidationError', retryable: true };
+  }
+
   // Invalid Request (400) - malformed request is permanent
-  // Note: Checked AFTER billing since Anthropic billing is 400
+  // Note: Checked AFTER billing and AFTER output validation
   if (
     message.includes('invalid_request_error') ||
     message.includes('malformed') ||

@@ -25,6 +25,10 @@ import chalk from 'chalk';
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
 const MAX_STACK_TRACE_LENGTH = 1000;
 
+// Max retries for output validation errors (agent didn't save deliverables)
+// Lower than default 50 since this is unlikely to self-heal
+const MAX_OUTPUT_VALIDATION_RETRIES = 3;
+
 /**
  * Truncate error message to prevent buffer overflow in Temporal serialization.
  */
@@ -193,6 +197,16 @@ async function runAgentActivity(
         success: false,
         error: 'Output validation failed',
       });
+
+      // Limit output validation retries (unlikely to self-heal)
+      if (attemptNumber >= MAX_OUTPUT_VALIDATION_RETRIES) {
+        throw ApplicationFailure.nonRetryable(
+          `Agent ${agentName} failed output validation after ${attemptNumber} attempts`,
+          'OutputValidationError',
+          [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
+        );
+      }
+      // Let Temporal retry (will be classified as OutputValidationError)
       throw new Error(`Agent ${agentName} failed output validation`);
     }
 
@@ -222,6 +236,12 @@ async function runAgentActivity(
     } catch (rollbackErr) {
       // Log but don't fail - rollback is best-effort
       console.error(`Failed to rollback git workspace for ${agentName}:`, rollbackErr);
+    }
+
+    // If error is already an ApplicationFailure (e.g., from our retry limit logic),
+    // re-throw it directly without re-classifying
+    if (error instanceof ApplicationFailure) {
+      throw error;
     }
 
     // Classify error for Temporal retry behavior
