@@ -51,13 +51,6 @@ OUTPUT=<path>        Custom output directory for session folder (default: ./audi
 PIPELINE_TESTING=true  Use minimal prompts for fast pipeline testing
 ```
 
-### Direct CLI (Local Development)
-For development without Docker/Temporal:
-```bash
-npm install
-shannon <WEB_URL> <REPO_PATH> [--config <CONFIG_FILE>] [--output <OUTPUT_DIR>]
-```
-
 ### Generate TOTP for Authentication
 TOTP generation is handled automatically via the `generate_totp` MCP tool during authentication flows.
 
@@ -71,9 +64,6 @@ npm run build
 ```
 
 ## Architecture & Components
-
-### Main Entry Point
-- `src/shannon.ts` - Main orchestration script that coordinates the entire penetration testing workflow (compiles to `dist/shannon.js`)
 
 ### Core Modules
 - `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
@@ -177,7 +167,6 @@ The agent implements a crash-safe audit system with the following features:
   - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
   - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
   - `{hostname}_{sessionId}/deliverables/` - Security reports and findings
-- **.shannon-store.json**: Minimal session lock file (prevents concurrent runs)
 
 **Crash Safety:**
 - Append-only logging with immediate flush (survives kill -9)
@@ -189,7 +178,6 @@ The agent implements a crash-safe audit system with the following features:
 - 5x faster execution with parallel vulnerability and exploitation phases
 
 **Metrics & Reporting:**
-- Export metrics to CSV with `./scripts/export-metrics.js`
 - Phase-level and agent-level timing/cost aggregations
 - Validation results integrated with metrics
 
@@ -257,7 +245,6 @@ The tool should only be used on systems you own or have explicit permission to t
 ## Key Files & Directories
 
 **Entry Points:**
-- `src/shannon.ts` - Main orchestration (direct CLI)
 - `src/temporal/workflows.ts` - Temporal workflow definition
 - `src/temporal/activities.ts` - Activity implementations with heartbeats
 - `src/temporal/worker.ts` - Worker process entry point
@@ -281,9 +268,7 @@ The tool should only be used on systems you own or have explicit permission to t
 ## Troubleshooting
 
 ### Common Issues
-- **"A session is already running"**: Wait for the current session to complete, or delete `.shannon-store.json`
 - **"Repository not found"**: Ensure target local directory exists and is accessible
-- **Concurrent runs blocked**: Only one session can run at a time per target
 
 ### Temporal & Docker Issues
 - **"Temporal not ready"**: Wait for health check or run `docker compose logs temporal`
@@ -300,11 +285,6 @@ Missing tools can be skipped using `PIPELINE_TESTING=true` mode during developme
 
 ### Diagnostic & Utility Scripts
 ```bash
-# Export metrics to CSV
-./scripts/export-metrics.js --session-id <id> --output metrics.csv
-
 # View Temporal workflow history
 open http://localhost:8233
 ```
-
-Note: For recovery from corrupted state, simply delete `.shannon-store.json` or run `./shannon stop CLEAN=true`.

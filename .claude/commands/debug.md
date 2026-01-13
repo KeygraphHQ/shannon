@@ -31,26 +31,18 @@ ls -lt audit-logs/<session>/agents/
 cat audit-logs/<session>/agents/<latest>.log
 ```
 
-**Check for lock file issues:**
-```bash
-# Session lock file (prevents concurrent runs)
-cat .shannon-store.json
-
-# Remove if stale (no active session)
-rm .shannon-store.json
-```
-
 ## Step 3: Trace the Call Path
 
 For Shannon, trace through these layers:
 
-1. **CLI Entry** → `src/shannon.ts` - Argument parsing, session setup
-2. **Config** → `src/config-parser.ts` - YAML loading, schema validation
-3. **Session** → `src/session-manager.ts` - Agent definitions, execution order
-4. **Audit** → `src/audit/audit-session.ts` - Logging facade, metrics tracking
-5. **Executor** → `src/ai/claude-executor.ts` - SDK calls, MCP setup, retry logic
-6. **Phases** → `src/phases/pre-recon.ts`, `reporting.ts` - Phase-specific logic
-7. **Validation** → `src/queue-validation.ts` - Deliverable checks
+1. **Temporal Client** → `src/temporal/client.ts` - Workflow initiation
+2. **Workflow** → `src/temporal/workflows.ts` - Pipeline orchestration
+3. **Activities** → `src/temporal/activities.ts` - Agent execution with heartbeats
+4. **Config** → `src/config-parser.ts` - YAML loading, schema validation
+5. **Session** → `src/session-manager.ts` - Agent definitions, execution order
+6. **Audit** → `src/audit/audit-session.ts` - Logging facade, metrics tracking
+7. **Executor** → `src/ai/claude-executor.ts` - SDK calls, MCP setup, retry logic
+8. **Validation** → `src/queue-validation.ts` - Deliverable checks
 
 ## Step 4: Identify Root Cause
 
@@ -58,7 +50,6 @@ For Shannon, trace through these layers:
 
 | Symptom | Likely Cause | Fix |
 |---------|--------------|-----|
-| "A session is already running" | Stale `.shannon-store.json` | Delete the lock file |
 | Agent hangs indefinitely | MCP server crashed, Playwright timeout | Check Playwright logs in `/tmp/playwright-*` |
 | "Validation failed: Missing deliverable" | Agent didn't create expected file | Check `deliverables/` dir, review prompt |
 | Git checkpoint fails | Uncommitted changes, git lock | Run `git status`, remove `.git/index.lock` |

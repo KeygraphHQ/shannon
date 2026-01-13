@@ -2,10 +2,8 @@
   "name": "shannon",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/shannon.js",
   "scripts": {
     "build": "tsc",
-    "start": "node ./dist/shannon.js",
     "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
     "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
     "temporal:worker": "node dist/temporal/worker.js",
@@ -28,9 +26,6 @@
     "js-yaml": "^4.1.0",
     "zod": "^3.22.4",
     "zx": "^8.0.0"
-  },
-  "bin": {
-    "shannon": "./dist/shannon.js"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
