@@ -126,10 +126,4 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'report': 'reporting',
 });
 
-// Generate a session-based log folder path (used by claude-executor.ts)
-export const generateSessionLogPath = (webUrl: string, sessionId: string): string => {
-  const hostname = new URL(webUrl).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-  const sessionFolderName = `${hostname}_${sessionId}`;
-  return path.join(process.cwd(), 'agent-logs', sessionFolderName);
-};
 

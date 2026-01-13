@@ -15,7 +15,6 @@ import { timingResults, Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace, getGitCommitHash } from '../utils/git-manager.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
-import { generateSessionLogPath } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
 import type { SessionMetadata } from '../audit/utils.js';
@@ -39,7 +38,6 @@ export interface ClaudePromptResult {
   cost: number;
   partialCost?: number;
   apiErrorDetected?: boolean;
-  logFile?: string;
   error?: string;
   errorType?: string;
   prompt?: string;
@@ -215,10 +213,7 @@ export async function runClaudePrompt(
   );
   const auditLogger = createAuditLogger(auditSession);
 
-  const logFilePath = buildLogFilePath(sessionMetadata, execContext.agentKey, attemptNumber);
-  if (!logFilePath) {
-    console.log(chalk.blue(`  Running Claude Code: ${description}...`));
-  }
+  console.log(chalk.blue(`  Running Claude Code: ${description}...`));
 
   const mcpServers = buildMcpServers(sourceDir, agentName);
   const options = {
@@ -262,7 +257,7 @@ export async function runClaudePrompt(
 
     progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
 
-    const returnData: ClaudePromptResult = {
+    return {
       result,
       success: true,
       duration,
@@ -271,10 +266,6 @@ export async function runClaudePrompt(
       partialCost: totalCost,
       apiErrorDetected
     };
-    if (logFilePath) {
-      returnData.logFile = logFilePath;
-    }
-    return returnData;
 
   } catch (error) {
     const duration = timer.stop();
@@ -299,18 +290,6 @@ export async function runClaudePrompt(
   }
 }
 
-function buildLogFilePath(
-  sessionMetadata: SessionMetadata | null,
-  agentKey: string,
-  attemptNumber: number
-): string | null {
-  if (!sessionMetadata || !sessionMetadata.webUrl || !sessionMetadata.id) {
-    return null;
-  }
-  const timestamp = formatTimestamp().replace(/T/, '_').replace(/[:.]/g, '-').slice(0, 19);
-  const logDir = generateSessionLogPath(sessionMetadata.webUrl, sessionMetadata.id);
-  return path.join(logDir, `${timestamp}_${agentKey}_attempt-${attemptNumber}.log`);
-}
 
 interface MessageLoopResult {
   turnCount: number;

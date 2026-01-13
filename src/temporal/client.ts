@@ -30,6 +30,7 @@ import { Connection, Client } from '@temporalio/client';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import { displaySplashScreen } from '../splash-screen.js';
+import { sanitizeHostname } from '../audit/utils.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -126,7 +127,8 @@ async function startPipeline(): Promise<void> {
   const client = new Client({ connection });
 
   try {
-    const workflowId = customWorkflowId || `shannon-${Date.now()}`;
+    const hostname = sanitizeHostname(webUrl);
+    const workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
 
     const input: PipelineInput = {
       webUrl,

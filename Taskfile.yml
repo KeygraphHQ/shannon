@@ -24,11 +24,18 @@ tasks:
         echo "  task stop                          Stop all containers"
         echo "  task help                          Show this help message"
         echo ""
+        echo "Options for 'start':"
+        echo "  CONFIG=<path>   Configuration file (YAML)"
+        echo "  OUTPUT=<path>   Output directory for reports"
+        echo ""
+        echo "Options for 'stop':"
+        echo "  CLEAN=true      Remove all data including volumes"
+        echo ""
         echo "Examples:"
         echo "  task start URL=https://example.com REPO=/path/to/repo"
-        echo "  task start URL=https://example.com REPO=/path/to/repo -- --pipeline-testing"
-        echo "  task start URL=https://example.com REPO=/path/to/repo -- --config ./config.yaml"
+        echo "  task start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml"
         echo "  task query ID=shannon-1234567890"
+        echo "  task stop CLEAN=true"
         echo ""
         echo "Monitor workflows at http://localhost:8233"
 
@@ -52,8 +59,12 @@ tasks:
           sleep 2
         done
       - |
+        ARGS=""
+        {{if .CONFIG}}ARGS="$ARGS --config {{.CONFIG}}"{{end}}
+        {{if .OUTPUT}}ARGS="$ARGS --output {{.OUTPUT}}"{{end}}
+        {{if eq .PIPELINE_TESTING "true"}}ARGS="$ARGS --pipeline-testing"{{end}}
         docker compose -f {{.COMPOSE_FILE}} exec -T worker \
-          node dist/temporal/client.js "{{.URL}}" "/target-repo" {{.CLI_ARGS}}
+          node dist/temporal/client.js "{{.URL}}" "/target-repo" $ARGS {{.CLI_ARGS}}
 
   logs:
     desc: View real-time worker logs
@@ -76,8 +87,8 @@ tasks:
     silent: true
     cmds:
       - |
-        if [ "{{.CLI_ARGS}}" = "--clean" ]; then
-          docker compose -f {{.COMPOSE_FILE}} down -v
-        else
-          docker compose -f {{.COMPOSE_FILE}} down
-        fi
+        {{if eq .CLEAN "true"}}
+        docker compose -f {{.COMPOSE_FILE}} down -v
+        {{else}}
+        docker compose -f {{.COMPOSE_FILE}} down
+        {{end}}

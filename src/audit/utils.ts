@@ -31,12 +31,18 @@ export interface SessionMetadata {
 }
 
 /**
- * Generate standardized session identifier: {hostname}_{sessionId}
+ * Extract and sanitize hostname from URL for use in identifiers
+ */
+export function sanitizeHostname(url: string): string {
+  return new URL(url).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
+}
+
+/**
+ * Generate standardized session identifier from workflow ID
+ * Workflow IDs already contain hostname, so we use them directly
  */
 export function generateSessionIdentifier(sessionMetadata: SessionMetadata): string {
-  const { id, webUrl } = sessionMetadata;
-  const hostname = new URL(webUrl).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-  return `${hostname}_${id}`;
+  return sessionMetadata.id;
 }
 
 /**
