@@ -57,7 +57,7 @@ import { loadPrompt } from '../prompts/prompt-manager.js';
 import { parseConfig, distributeConfig } from '../config-parser.js';
 import { classifyErrorForTemporal } from '../error-handling.js';
 import {
-  validateQueueAndDeliverable,
+  safeValidateQueueAndDeliverable,
   type VulnType,
   type ExploitationDecision,
 } from '../queue-validation.js';
@@ -354,6 +354,10 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  *
  * This activity allows the workflow to skip exploit agents entirely
  * when no vulnerabilities were found, saving API calls and time.
+ *
+ * Error handling:
+ * - Retryable errors (missing files, invalid JSON): re-throw for Temporal retry
+ * - Non-retryable errors: skip exploitation gracefully
  */
 export async function checkExploitationQueue(
   input: ActivityInput,
@@ -361,24 +365,34 @@ export async function checkExploitationQueue(
 ): Promise<ExploitationDecision> {
   const { repoPath } = input;
 
-  try {
-    const decision = await validateQueueAndDeliverable(vulnType, repoPath);
+  const result = await safeValidateQueueAndDeliverable(vulnType, repoPath);
+
+  if (result.success && result.data) {
+    const { shouldExploit, vulnerabilityCount } = result.data;
     console.log(
       chalk.blue(
-        `🔍 ${vulnType}: ${decision.shouldExploit ? `${decision.vulnerabilityCount} vulnerabilities found` : 'no vulnerabilities, skipping exploitation'}`
+        `🔍 ${vulnType}: ${shouldExploit ? `${vulnerabilityCount} vulnerabilities found` : 'no vulnerabilities, skipping exploitation'}`
       )
     );
-    return decision;
-  } catch (error) {
-    // If validation fails (missing files, invalid JSON), log and skip exploitation
-    // This is safer than crashing - the vuln agent likely failed or found nothing
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.log(chalk.yellow(`⚠️ ${vulnType}: Queue validation failed (${errMsg}), skipping exploitation`));
-    return {
-      shouldExploit: false,
-      shouldRetry: false,
-      vulnerabilityCount: 0,
-      vulnType,
-    };
+    return result.data;
   }
+
+  // Validation failed - check if we should retry or skip
+  const error = result.error;
+  if (error?.retryable) {
+    // Re-throw retryable errors so Temporal can retry the vuln agent
+    console.log(chalk.yellow(`⚠️ ${vulnType}: ${error.message} (retrying)`));
+    throw error;
+  }
+
+  // Non-retryable error - skip exploitation gracefully
+  console.log(
+    chalk.yellow(`⚠️ ${vulnType}: ${error?.message ?? 'Unknown error'}, skipping exploitation`)
+  );
+  return {
+    shouldExploit: false,
+    shouldRetry: false,
+    vulnerabilityCount: 0,
+    vulnType,
+  };
 }
