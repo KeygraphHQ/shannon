@@ -190,18 +190,11 @@ async function startPipeline(): Promise<void> {
       clearInterval(progressInterval);
 
       console.log(chalk.green.bold('\nPipeline completed successfully!'));
-      console.log(
-        chalk.gray(`Duration: ${Math.floor((Date.now() - result.startTime) / 1000)}s`)
-      );
-      console.log(chalk.gray(`Agents completed: ${result.completedAgents.length}`));
-
-      // Show cost summary if available
-      const totalCost = Object.values(result.agentMetrics).reduce(
-        (sum, m) => sum + (m.costUsd ?? 0),
-        0
-      );
-      if (totalCost > 0) {
-        console.log(chalk.gray(`Total cost: $${totalCost.toFixed(4)}`));
+      if (result.summary) {
+        console.log(chalk.gray(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`));
+        console.log(chalk.gray(`Agents completed: ${result.summary.agentCount}`));
+        console.log(chalk.gray(`Total turns: ${result.summary.totalTurns}`));
+        console.log(chalk.gray(`Total cost: $${result.summary.totalCostUsd.toFixed(4)}`));
       }
     } catch (error) {
       clearInterval(progressInterval);

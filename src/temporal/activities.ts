@@ -57,6 +57,11 @@ import { loadPrompt } from '../prompts/prompt-manager.js';
 import { parseConfig, distributeConfig } from '../config-parser.js';
 import { classifyErrorForTemporal } from '../error-handling.js';
 import {
+  validateQueueAndDeliverable,
+  type VulnType,
+  type ExploitationDecision,
+} from '../queue-validation.js';
+import {
   createGitCheckpoint,
   commitGitSuccess,
   rollbackGitWorkspace,
@@ -340,5 +345,40 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Error assembling final report: ${err.message}`));
     // Don't throw - the report agent can still create content even if no exploitation files exist
+  }
+}
+
+/**
+ * Check if exploitation should run for a given vulnerability type.
+ * Reads the vulnerability queue file and returns the decision.
+ *
+ * This activity allows the workflow to skip exploit agents entirely
+ * when no vulnerabilities were found, saving API calls and time.
+ */
+export async function checkExploitationQueue(
+  input: ActivityInput,
+  vulnType: VulnType
+): Promise<ExploitationDecision> {
+  const { repoPath } = input;
+
+  try {
+    const decision = await validateQueueAndDeliverable(vulnType, repoPath);
+    console.log(
+      chalk.blue(
+        `🔍 ${vulnType}: ${decision.shouldExploit ? `${decision.vulnerabilityCount} vulnerabilities found` : 'no vulnerabilities, skipping exploitation'}`
+      )
+    );
+    return decision;
+  } catch (error) {
+    // If validation fails (missing files, invalid JSON), log and skip exploitation
+    // This is safer than crashing - the vuln agent likely failed or found nothing
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.log(chalk.yellow(`⚠️ ${vulnType}: Queue validation failed (${errMsg}), skipping exploitation`));
+    return {
+      shouldExploit: false,
+      shouldRetry: false,
+      vulnerabilityCount: 0,
+      vulnType,
+    };
   }
 }
