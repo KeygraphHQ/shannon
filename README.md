@@ -100,7 +100,6 @@ Shannon is available in two editions:
 ### Prerequisites
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
-- **Task** - Task runner for simplified commands ([Install Task](https://taskfile.dev/installation/))
 - **Anthropic API key or Claude Code OAuth token** - Get from [Anthropic Console](https://console.anthropic.com)
 
 ### Quick Start
@@ -123,7 +122,7 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
 # 3. Run a pentest
-task start URL=https://your-app.com REPO=/path/to/your/repo
+./shannon start URL=https://your-app.com REPO=/path/to/your/repo
 ```
 
 Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
@@ -132,10 +131,10 @@ Shannon will build the containers, start the workflow, and return a workflow ID.
 
 ```bash
 # View real-time worker logs
-task logs
+./shannon logs
 
 # Query a specific workflow's progress
-task query ID=shannon-1234567890
+./shannon query ID=shannon-1234567890
 
 # Open the Temporal Web UI for detailed monitoring
 open http://localhost:8233
@@ -145,23 +144,23 @@ open http://localhost:8233
 
 ```bash
 # Stop all containers (preserves workflow data)
-task stop
+./shannon stop
 
 # Full cleanup (removes all data)
-task stop CLEAN=true
+./shannon stop CLEAN=true
 ```
 
 ### Usage Examples
 
 ```bash
 # Basic pentest
-task start URL=https://example.com REPO=/path/to/repo
+./shannon start URL=https://example.com REPO=/path/to/repo
 
 # With a configuration file
-task start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
+./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
 
 # Custom output directory
-task start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
 ```
 
 ### Prepare Your Repository
@@ -191,7 +190,7 @@ git clone https://github.com/your-org/api.git
 
 **For Linux (Native Docker):**
 
-You may need to run Task commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
+You may need to run commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
 
 **For macOS:**
 
@@ -202,7 +201,7 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-task start URL=http://host.docker.internal:3000 REPO=/path/to/repo
+./shannon start URL=http://host.docker.internal:3000 REPO=/path/to/repo
 ```
 
 ### Configuration (Optional)

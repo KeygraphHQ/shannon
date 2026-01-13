@@ -10,7 +10,6 @@ This is an AI-powered penetration testing agent designed for defensive security 
 
 ### Prerequisites
 - **Docker** - Container runtime
-- **Task** - Task runner ([Install Task](https://taskfile.dev/installation/))
 - **Anthropic API key** - Set in `.env` file
 
 ### Running the Penetration Testing Agent (Docker + Temporal)
@@ -22,27 +21,27 @@ cp .env.example .env
 #   CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000  # Prevents token limits during long reports
 
 # Start a pentest workflow
-task start URL=<url> REPO=<path>
+./shannon start URL=<url> REPO=<path>
 ```
 
 Examples:
 ```bash
-task start URL=https://example.com REPO=/path/to/repo
-task start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
-task start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+./shannon start URL=https://example.com REPO=/path/to/repo
+./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
+./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
 ```
 
 ### Monitoring Progress
 ```bash
-task logs                      # View real-time worker logs
-task query ID=<workflow-id>    # Query specific workflow progress
+./shannon logs                      # View real-time worker logs
+./shannon query ID=<workflow-id>    # Query specific workflow progress
 # Temporal Web UI available at http://localhost:8233
 ```
 
 ### Stopping Shannon
 ```bash
-task stop                      # Stop containers (preserves workflow data)
-task stop CLEAN=true           # Full cleanup including volumes
+./shannon stop                      # Stop containers (preserves workflow data)
+./shannon stop CLEAN=true           # Full cleanup including volumes
 ```
 
 ### Options
@@ -68,7 +67,7 @@ TOTP generation is handled automatically via the `generate_totp` MCP tool during
 npm run build
 
 # Run with pipeline testing mode (fast, minimal deliverables)
-task start URL=<url> REPO=<path> PIPELINE_TESTING=true
+./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
 ```
 
 ## Architecture & Components
@@ -94,7 +93,7 @@ Shannon uses Temporal for durable workflow orchestration:
 
 Key features:
 - **Crash recovery** - Workflows resume automatically after worker restart
-- **Queryable progress** - Real-time status via `task query` or Temporal Web UI
+- **Queryable progress** - Real-time status via `./shannon query` or Temporal Web UI
 - **Intelligent retry** - Distinguishes transient vs permanent errors
 - **Parallel execution** - 5 concurrent agents in vulnerability/exploitation phases
 
@@ -243,7 +242,7 @@ The application uses a comprehensive error handling system with:
 ### Testing Mode
 The agent includes a testing mode that skips external tool execution for faster development cycles:
 ```bash
-task start URL=<url> REPO=<path> PIPELINE_TESTING=true
+./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
 ```
 
 ### Security Focus
@@ -271,7 +270,7 @@ The tool should only be used on systems you own or have explicit permission to t
 - `src/audit/` - Crash-safe logging and metrics system
 
 **Configuration:**
-- `Taskfile.yml` - Task runner commands
+- `shannon` - CLI script for running pentests
 - `docker-compose.yml` - Temporal server + worker containers
 - `configs/` - YAML configs with `config-schema.json` for validation
 - `prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
@@ -289,7 +288,7 @@ The tool should only be used on systems you own or have explicit permission to t
 ### Temporal & Docker Issues
 - **"Temporal not ready"**: Wait for health check or run `docker compose logs temporal`
 - **Worker not processing**: Ensure worker container is running with `docker compose ps`
-- **Reset workflow state**: `task stop CLEAN=true` removes all Temporal data and volumes
+- **Reset workflow state**: `./shannon stop CLEAN=true` removes all Temporal data and volumes
 - **Local apps unreachable**: Use `host.docker.internal` instead of `localhost` for URLs
 - **Container permissions**: On Linux, may need `sudo` for docker commands
 
@@ -308,4 +307,4 @@ Missing tools can be skipped using `PIPELINE_TESTING=true` mode during developme
 open http://localhost:8233
 ```
 
-Note: For recovery from corrupted state, simply delete `.shannon-store.json` or run `task stop CLEAN=true`.
+Note: For recovery from corrupted state, simply delete `.shannon-store.json` or run `./shannon stop CLEAN=true`.

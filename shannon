@@ -1,0 +1,151 @@
+#!/bin/bash
+# Shannon CLI - AI Penetration Testing Framework
+
+set -e
+
+COMPOSE_FILE="docker-compose.yml"
+
+# Load .env if present
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
+show_help() {
+  cat << 'EOF'
+Shannon - AI Penetration Testing Framework
+
+Usage:
+  ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
+  ./shannon logs                          View real-time worker logs
+  ./shannon query ID=<workflow-id>        Query workflow progress
+  ./shannon stop                          Stop all containers
+  ./shannon help                          Show this help message
+
+Options for 'start':
+  CONFIG=<path>          Configuration file (YAML)
+  OUTPUT=<path>          Output directory for reports
+  PIPELINE_TESTING=true  Use minimal prompts for fast testing
+
+Options for 'stop':
+  CLEAN=true      Remove all data including volumes
+
+Examples:
+  ./shannon start URL=https://example.com REPO=/path/to/repo
+  ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
+  ./shannon query ID=shannon-1234567890
+  ./shannon stop CLEAN=true
+
+Monitor workflows at http://localhost:8233
+EOF
+}
+
+# Parse KEY=value arguments into variables
+parse_args() {
+  for arg in "$@"; do
+    case "$arg" in
+      URL=*) URL="${arg#URL=}" ;;
+      REPO=*) REPO="${arg#REPO=}" ;;
+      CONFIG=*) CONFIG="${arg#CONFIG=}" ;;
+      OUTPUT=*) OUTPUT="${arg#OUTPUT=}" ;;
+      ID=*) ID="${arg#ID=}" ;;
+      CLEAN=*) CLEAN="${arg#CLEAN=}" ;;
+      PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
+    esac
+  done
+}
+
+cmd_start() {
+  parse_args "$@"
+
+  # Validate required vars
+  if [ -z "$URL" ] || [ -z "$REPO" ]; then
+    echo "ERROR: URL and REPO are required"
+    echo "Usage: ./shannon start URL=<url> REPO=<path>"
+    exit 1
+  fi
+
+  # Check for API key
+  if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+    echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
+    exit 1
+  fi
+
+  # Start containers
+  TARGET_REPO="$REPO" docker compose -f "$COMPOSE_FILE" up -d --build
+
+  # Wait for Temporal to be ready
+  echo "Waiting for Temporal to be ready..."
+  for i in $(seq 1 30); do
+    if docker compose -f "$COMPOSE_FILE" exec -T temporal \
+      temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"; then
+      break
+    fi
+    if [ "$i" -eq 30 ]; then
+      echo "Timeout waiting for Temporal"
+      exit 1
+    fi
+    sleep 2
+  done
+
+  # Build optional args
+  ARGS=""
+  [ -n "$CONFIG" ] && ARGS="$ARGS --config $CONFIG"
+  [ -n "$OUTPUT" ] && ARGS="$ARGS --output $OUTPUT"
+  [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
+
+  # Run the client
+  docker compose -f "$COMPOSE_FILE" exec -T worker \
+    node dist/temporal/client.js "$URL" "/target-repo" $ARGS
+}
+
+cmd_logs() {
+  docker compose -f "$COMPOSE_FILE" logs -f worker "$@"
+}
+
+cmd_query() {
+  parse_args "$@"
+
+  if [ -z "$ID" ]; then
+    echo "ERROR: ID is required"
+    echo "Usage: ./shannon query ID=<workflow-id>"
+    exit 1
+  fi
+
+  docker compose -f "$COMPOSE_FILE" exec -T worker \
+    node dist/temporal/query.js "$ID"
+}
+
+cmd_stop() {
+  parse_args "$@"
+
+  if [ "$CLEAN" = "true" ]; then
+    docker compose -f "$COMPOSE_FILE" down -v
+  else
+    docker compose -f "$COMPOSE_FILE" down
+  fi
+}
+
+# Main command dispatch
+case "${1:-help}" in
+  start)
+    shift
+    cmd_start "$@"
+    ;;
+  logs)
+    shift
+    cmd_logs "$@"
+    ;;
+  query)
+    shift
+    cmd_query "$@"
+    ;;
+  stop)
+    shift
+    cmd_stop "$@"
+    ;;
+  help|--help|-h|*)
+    show_help
+    ;;
+esac
