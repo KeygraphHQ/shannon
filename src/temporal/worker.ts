@@ -39,7 +39,6 @@ async function runWorker(): Promise<void> {
   const connection = await NativeConnection.connect({ address });
 
   // Initialize telemetry for activity execution
-  // Worker doesn't know pipelineTestingMode until activity runs, so default to false
   telemetry.initialize();
 
   // Bundle workflows for Temporal's V8 isolate

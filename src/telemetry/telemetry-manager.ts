@@ -118,7 +118,6 @@ class TelemetryManager {
   private config: TelemetryConfig;
   private distinctId: string;
   private initialized = false;
-  private pipelineTestingMode = false;
 
   constructor() {
     this.config = loadTelemetryConfig();
@@ -137,16 +136,13 @@ class TelemetryManager {
   /**
    * Initialize PostHog client.
    * Safe: never throws, logs warning on failure.
-   *
-   * @param pipelineTestingMode - Whether running in testing mode
    */
-  initialize(pipelineTestingMode = false): void {
+  initialize(): void {
     try {
       if (this.initialized) {
         return;
       }
 
-      this.pipelineTestingMode = pipelineTestingMode;
       this.initialized = true;
 
       if (!this.config.enabled) {
@@ -187,7 +183,6 @@ class TelemetryManager {
 
       // Build base properties
       const baseProps: BaseTelemetryProperties & Record<string, unknown> = {
-        pipeline_testing_mode: this.pipelineTestingMode,
         os_platform: process.platform,
         node_version: process.version,
         $lib: 'shannon',

@@ -135,7 +135,7 @@ async function startPipeline(): Promise<void> {
     const installationId = await getInstallationId();
 
     // Initialize telemetry with installation ID as distinct ID (for unique user tracking)
-    telemetry.initialize(pipelineTestingMode);
+    telemetry.initialize();
     telemetry.setDistinctId(installationId);
 
     const input: PipelineInput = {
@@ -172,7 +172,6 @@ async function startPipeline(): Promise<void> {
     // Track workflow start
     telemetry.track(TelemetryEvent.WORKFLOW_START, {
       has_config: !!configPath,
-      pipeline_testing_mode: pipelineTestingMode,
       target_hash: hashTargetUrl(webUrl),
       workflow_id: workflowId,
     });
