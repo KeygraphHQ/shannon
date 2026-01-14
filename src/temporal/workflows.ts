@@ -70,14 +70,14 @@ const TESTING_RETRY = {
 // Activity proxy with production retry configuration (default)
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '30 seconds',
+  heartbeatTimeout: '10 minutes', // Long timeout for resource-constrained workers with many concurrent activities
   retry: PRODUCTION_RETRY,
 });
 
 // Activity proxy with testing retry configuration (fast)
 const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '10 minutes',
-  heartbeatTimeout: '30 seconds',
+  heartbeatTimeout: '5 minutes', // Shorter for testing but still tolerant of resource contention
   retry: TESTING_RETRY,
 });
 

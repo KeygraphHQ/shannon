@@ -75,7 +75,7 @@ import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
 import type { SessionMetadata } from '../audit/utils.js';
 
-const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (30s)
+const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min production, 5min testing)
 
 /**
  * Input for all agent activities.
