@@ -29,6 +29,7 @@ services:
       - ./prompts:/app/prompts
       - ${TARGET_REPO:-.}:/target-repo
       - ${BENCHMARKS_BASE:-.}:/benchmarks
+      - ${HOME}/.shannon:/tmp/.shannon
     shm_size: 2gb
     ipc: host
     security_opt:

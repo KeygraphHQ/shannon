@@ -31,6 +31,7 @@ import dotenv from 'dotenv';
 import chalk from 'chalk';
 import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
+import { telemetry, TelemetryEvent, hashTargetUrl, getInstallationId } from '../telemetry/index.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -130,12 +131,20 @@ async function startPipeline(): Promise<void> {
     const hostname = sanitizeHostname(webUrl);
     const workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
 
+    // Get persistent installation ID for unique installation counting
+    const installationId = await getInstallationId();
+
+    // Initialize telemetry with installation ID as distinct ID (for unique user tracking)
+    telemetry.initialize(pipelineTestingMode);
+    telemetry.setDistinctId(installationId);
+
     const input: PipelineInput = {
       webUrl,
       repoPath,
       ...(configPath && { configPath }),
       ...(outputPath && { outputPath }),
       ...(pipelineTestingMode && { pipelineTestingMode }),
+      installationId,
     };
 
     console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
@@ -159,6 +168,14 @@ async function startPipeline(): Promise<void> {
         args: [input],
       }
     );
+
+    // Track workflow start
+    telemetry.track(TelemetryEvent.WORKFLOW_START, {
+      has_config: !!configPath,
+      pipeline_testing_mode: pipelineTestingMode,
+      target_hash: hashTargetUrl(webUrl),
+      workflow_id: workflowId,
+    });
 
     if (!waitForCompletion) {
       console.log(chalk.bold('Monitor progress:'));
@@ -202,6 +219,7 @@ async function startPipeline(): Promise<void> {
       process.exit(1);
     }
   } finally {
+    await telemetry.shutdown();
     await connection.close();
   }
 }

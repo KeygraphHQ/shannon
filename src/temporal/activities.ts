@@ -70,6 +70,7 @@ import {
 import { assembleFinalReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
+import { telemetry, TelemetryEvent, hashTargetUrl } from '../telemetry/index.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
@@ -88,6 +89,14 @@ export interface ActivityInput {
   outputPath?: string;
   pipelineTestingMode?: boolean;
   workflowId: string;
+  workflowStartTime?: number; // Epoch ms, used for total workflow duration in telemetry
+  installationId?: string; // Persistent anonymous ID for counting unique installations
+  // Workflow stats for telemetry (only passed to report agent)
+  workflowStats?: {
+    totalAgents: number;
+    agentsSucceeded: number;
+    agentsFailed: number;
+  };
 }
 
 /**
@@ -115,12 +124,25 @@ async function runAgentActivity(
     outputPath,
     pipelineTestingMode = false,
     workflowId,
+    installationId,
   } = input;
 
   const startTime = Date.now();
 
   // Get attempt number from Temporal context (tracks retries automatically)
   const attemptNumber = Context.current().info.attempt;
+
+  // Set installationId as distinct ID for unique user tracking
+  if (installationId) {
+    telemetry.setDistinctId(installationId);
+  }
+
+  // Track agent start
+  telemetry.track(TelemetryEvent.AGENT_START, {
+    agent_name: agentName,
+    attempt_number: attemptNumber,
+    workflow_id: workflowId,
+  });
 
   // Heartbeat loop - signals worker is alive to Temporal server
   const heartbeatInterval = setInterval(() => {
@@ -226,6 +248,15 @@ async function runAgentActivity(
     });
     await commitGitSuccess(repoPath, agentName);
 
+    // Track agent completion
+    telemetry.track(TelemetryEvent.AGENT_COMPLETE, {
+      agent_name: agentName,
+      attempt_number: attemptNumber,
+      duration_ms: Date.now() - startTime,
+      cost_usd: result.cost ?? undefined,
+      workflow_id: workflowId,
+    });
+
     // 10. Return metrics
     return {
       durationMs: Date.now() - startTime,
@@ -246,6 +277,17 @@ async function runAgentActivity(
     // If error is already an ApplicationFailure (e.g., from our retry limit logic),
     // re-throw it directly without re-classifying
     if (error instanceof ApplicationFailure) {
+      // Track retry or failure based on retryability
+      telemetry.track(
+        error.nonRetryable ? TelemetryEvent.AGENT_FAILED : TelemetryEvent.AGENT_RETRY,
+        {
+          agent_name: agentName,
+          attempt_number: attemptNumber,
+          duration_ms: Date.now() - startTime,
+          error_type: error.type || 'UnknownError',
+          workflow_id: workflowId,
+        }
+      );
       throw error;
     }
 
@@ -254,6 +296,18 @@ async function runAgentActivity(
     // Truncate message to prevent protobuf buffer overflow
     const rawMessage = error instanceof Error ? error.message : String(error);
     const message = truncateErrorMessage(rawMessage);
+
+    // Track retry or failure based on classification
+    telemetry.track(
+      classified.retryable ? TelemetryEvent.AGENT_RETRY : TelemetryEvent.AGENT_FAILED,
+      {
+        agent_name: agentName,
+        attempt_number: attemptNumber,
+        duration_ms: Date.now() - startTime,
+        error_type: classified.type,
+        workflow_id: workflowId,
+      }
+    );
 
     if (classified.retryable) {
       // Temporal will retry with configured backoff
@@ -329,7 +383,42 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 }
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('report', input);
+  // Use workflow start time for total duration if available, otherwise fall back to now
+  const workflowStartTime = input.workflowStartTime ?? Date.now();
+  const stats = input.workflowStats;
+  const targetHash = hashTargetUrl(input.webUrl);
+  const workflowId = input.workflowId;
+  try {
+    const metrics = await runAgentActivity('report', input);
+    // Report agent success = workflow complete
+    telemetry.track(TelemetryEvent.WORKFLOW_COMPLETE, {
+      total_duration_ms: Date.now() - workflowStartTime,
+      total_cost_usd: metrics.costUsd ?? undefined,
+      total_agents: stats?.totalAgents,
+      agents_succeeded: stats?.agentsSucceeded,
+      agents_failed: stats?.agentsFailed,
+      target_hash: targetHash,
+      workflow_id: workflowId,
+    });
+    return metrics;
+  } catch (error) {
+    // Report agent failure = workflow failed
+    const errorType =
+      error instanceof ApplicationFailure
+        ? error.type || 'UnknownError'
+        : classifyErrorForTemporal(error).type;
+    telemetry.track(TelemetryEvent.WORKFLOW_FAILED, {
+      total_duration_ms: Date.now() - workflowStartTime,
+      error_type: errorType,
+      last_agent: 'report',
+      total_agents: stats?.totalAgents,
+      agents_succeeded: stats?.agentsSucceeded,
+      agents_failed: stats?.agentsFailed,
+      target_hash: targetHash,
+      workflow_id: workflowId,
+    });
+    throw error;
+  }
 }
 
 /**

@@ -89,6 +89,7 @@ Shannon is available in two editions:
 - [Architecture](#-architecture)
 - [Coverage and Roadmap](#-coverage-and-roadmap)
 - [Disclaimers](#-disclaimers)
+- [Telemetry](#-telemetry)
 - [License](#-license)
 - [Community & Support](#-community--support)
 - [Get in Touch](#-get-in-touch)
@@ -435,6 +436,42 @@ Shannon is designed for legitimate security auditing purposes only.
 #### **6. Windows Antivirus False Positives**
 
 Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
+
+
+## 📊 Telemetry
+
+Shannon collects anonymous usage telemetry to help improve the tool.
+
+### What We Collect
+
+- Workflow and agent lifecycle events (start, complete, fail)
+- Timing and cost metrics (duration, API costs)
+- Error types (NOT error messages or stack traces)
+
+### What We DO NOT Collect
+
+- Target URLs, repository paths, or configuration
+- Vulnerability findings or security reports
+- Error messages, stack traces, or debugging info
+- Any personally identifiable information (PII)
+
+### Opting Out
+
+Telemetry is enabled by default. To disable it, set one of:
+
+```bash
+# Standard opt-out
+export DO_NOT_TRACK=1
+
+# Shannon-specific opt-out
+export SHANNON_TELEMETRY=off
+```
+
+Or add to your `.env` file:
+
+```env
+DO_NOT_TRACK=1
+```
 
 
 ## 📜 License
