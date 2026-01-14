@@ -1,7 +1,7 @@
 services:
   temporal:
     image: temporalio/temporal:latest
-    command: ["server", "start-dev", "--db-filename", "/var/lib/temporal/temporal.db", "--ip", "0.0.0.0"]
+    command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
       - "7233:7233"   # gRPC
       - "8233:8233"   # Web UI (built-in)
