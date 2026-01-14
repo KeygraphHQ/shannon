@@ -6,7 +6,7 @@ services:
       - "7233:7233"   # gRPC
       - "8233:8233"   # Web UI (built-in)
     volumes:
-      - temporal-data:/var/lib/temporal
+      - temporal-data:/home/temporal
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
       interval: 10s
