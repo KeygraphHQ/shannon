@@ -55,7 +55,35 @@ export function detectApiError(content: string): ApiErrorDetection {
 
   const lowerContent = content.toLowerCase();
 
-  // Fatal error - should throw immediately
+  // === BILLING/SPENDING CAP ERRORS (Retryable with long backoff) ===
+  // When Claude Code hits its spending cap, it returns a short message like
+  // "Spending cap reached resets 8am" instead of throwing an error.
+  // These should retry with 5-30 min backoff so workflows can recover when cap resets.
+  const BILLING_PATTERNS = [
+    'spending cap',
+    'spending limit',
+    'cap reached',
+    'budget exceeded',
+    'usage limit',
+  ];
+
+  const isBillingError = BILLING_PATTERNS.some((pattern) =>
+    lowerContent.includes(pattern)
+  );
+
+  if (isBillingError) {
+    return {
+      detected: true,
+      shouldThrow: new PentestError(
+        `Billing limit reached: ${content.slice(0, 100)}`,
+        'billing',
+        true // RETRYABLE - Temporal will use 5-30 min backoff
+      ),
+    };
+  }
+
+  // === SESSION LIMIT (Non-retryable) ===
+  // Different from spending cap - usually means something is fundamentally wrong
   if (lowerContent.includes('session limit reached')) {
     return {
       detected: true,

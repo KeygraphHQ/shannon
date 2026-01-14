@@ -210,7 +210,7 @@ export function classifyErrorForTemporal(error: unknown): TemporalErrorClassific
 
   // === BILLING ERRORS (Retryable with long backoff) ===
   // Anthropic returns billing as 400 invalid_request_error
-  // Human can add credits, so retry with 5-30 min backoff
+  // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
   if (
     message.includes('billing_error') ||
     message.includes('credit balance is too low') ||
@@ -221,7 +221,13 @@ export function classifyErrorForTemporal(error: unknown): TemporalErrorClassific
     message.includes('usage limit reached') ||
     message.includes('quota exceeded') ||
     message.includes('daily rate limit') ||
-    message.includes('limit will reset')
+    message.includes('limit will reset') ||
+    // Claude Code spending cap patterns (returns short message instead of error)
+    message.includes('spending cap') ||
+    message.includes('spending limit') ||
+    message.includes('cap reached') ||
+    message.includes('budget exceeded') ||
+    message.includes('billing limit reached')
   ) {
     return { type: 'BillingError', retryable: true };
   }

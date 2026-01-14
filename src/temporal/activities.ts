@@ -178,6 +178,26 @@ async function runAgentActivity(
       attemptNumber
     );
 
+    // 6.5. Sanity check: Detect spending cap that slipped through all detection layers
+    // Defense-in-depth: A successful agent execution should never have ≤2 turns with $0 cost
+    if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
+      const resultText = result.result || '';
+      const looksLikeBillingError = /spending|cap|limit|budget|resets/i.test(resultText);
+
+      if (looksLikeBillingError) {
+        await rollbackGitWorkspace(repoPath, 'spending cap detected');
+        await auditSession.endAgent(agentName, {
+          attemptNumber,
+          duration_ms: result.duration,
+          cost_usd: 0,
+          success: false,
+          error: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
+        });
+        // Throw as billing error so Temporal retries with long backoff
+        throw new Error(`Spending cap likely reached: ${resultText.slice(0, 100)}`);
+      }
+    }
+
     // 7. Handle execution failure
     if (!result.success) {
       await rollbackGitWorkspace(repoPath, 'execution failure');

@@ -248,6 +248,26 @@ export async function runClaudePrompt(
     apiErrorDetected = messageLoopResult.apiErrorDetected;
     totalCost = messageLoopResult.cost;
 
+    // === SPENDING CAP SAFEGUARD ===
+    // Defense-in-depth: Detect spending cap that slipped through detectApiError().
+    // When spending cap is hit, Claude returns a short message with $0 cost.
+    // Legitimate agent work NEVER costs $0 with only 1-2 turns.
+    if (turnCount <= 2 && totalCost === 0) {
+      const resultLower = (result || '').toLowerCase();
+      const BILLING_KEYWORDS = ['spending', 'cap', 'limit', 'budget', 'resets'];
+      const looksLikeBillingError = BILLING_KEYWORDS.some((kw) =>
+        resultLower.includes(kw)
+      );
+
+      if (looksLikeBillingError) {
+        throw new PentestError(
+          `Spending cap likely reached (turns=${turnCount}, cost=$0): ${result?.slice(0, 100)}`,
+          'billing',
+          true // Retryable - Temporal will use 5-30 min backoff
+        );
+      }
+    }
+
     const duration = timer.stop();
     timingResults.agents[execContext.agentKey] = duration;
 
