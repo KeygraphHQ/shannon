@@ -467,11 +467,7 @@ export DO_NOT_TRACK=1
 export SHANNON_TELEMETRY=off
 ```
 
-Or add to your `.env` file:
-
-```env
-DO_NOT_TRACK=1
-```
+Or add `DO_NOT_TRACK=1` to your `.env` file.
 
 
 ## 📜 License
