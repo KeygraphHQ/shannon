@@ -19,7 +19,24 @@ import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
 import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';
 import { generateSessionLogPath } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
-import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
+// Dynamic import for optional MCP server (may not be built yet)
+// Uses SDK's createSdkMcpServer which returns McpSdkServerConfigWithInstance
+type SdkMcpServerResult = {
+  type: 'sdk';
+  name: string;
+  instance: unknown;
+};
+
+type ShannonHelperServerFactory = (sourceDir: string) => SdkMcpServerResult;
+
+let createShannonHelperServer: ShannonHelperServerFactory | undefined;
+try {
+  // @ts-expect-error - Module may not exist if mcp-server is not built
+  const mcpModule = await import('../../mcp-server/dist/index.js');
+  createShannonHelperServer = mcpModule.createShannonHelperServer as ShannonHelperServerFactory;
+} catch {
+  // MCP server not built, will be undefined
+}
 import type { SessionMetadata } from '../audit/utils.js';
 import type { PromptName } from '../types/index.js';
 
@@ -55,7 +72,7 @@ interface StdioMcpServer {
   env: Record<string, string>;
 }
 
-type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
+type McpServer = SdkMcpServerResult | StdioMcpServer;
 
 /**
  * Convert agent name to prompt name for MCP_AGENT_MAPPING lookup
@@ -181,8 +198,8 @@ async function runClaudePrompt(
   let turnCount = 0;
 
   try {
-    // Create MCP server with target directory context
-    const shannonHelperServer = createShannonHelperServer(sourceDir);
+    // Create MCP server with target directory context (if available)
+    const shannonHelperServer = createShannonHelperServer?.(sourceDir);
 
     // Look up agent's assigned Playwright MCP server
     let playwrightMcpName: string | null = null;
@@ -196,9 +213,12 @@ async function runClaudePrompt(
     }
 
     // Configure MCP servers: shannon-helper (SDK) + playwright-agentN (stdio)
-    const mcpServers: Record<string, McpServer> = {
-      'shannon-helper': shannonHelperServer,
-    };
+    const mcpServers: Record<string, McpServer> = {};
+
+    // Add shannon-helper server if available (built from mcp-server/)
+    if (shannonHelperServer) {
+      mcpServers['shannon-helper'] = shannonHelperServer;
+    }
 
     // Add Playwright MCP server if this agent needs browser automation
     if (playwrightMcpName) {

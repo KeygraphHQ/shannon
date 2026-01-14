@@ -1,8 +1,8 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://example.com/pentest-config-schema.json",
-  "title": "Penetration Testing Configuration Schema",
-  "description": "Schema for YAML configuration files used in the penetration testing agent",
+  "$id": "https://shannon.security/config-schema.json",
+  "title": "Shannon Security Configuration Schema",
+  "description": "Schema for YAML configuration files used in Shannon AI security testing framework",
   "type": "object",
   "properties": {
     "authentication": {
@@ -85,17 +85,13 @@
         "avoid": {
           "type": "array",
           "description": "Rules defining areas to avoid during testing",
-          "items": {
-            "$ref": "#/$defs/rule"
-          },
+          "items": { "$ref": "#/$defs/rule" },
           "maxItems": 50
         },
         "focus": {
           "type": "array",
           "description": "Rules defining areas to focus on during testing",
-          "items": {
-            "$ref": "#/$defs/rule"
-          },
+          "items": { "$ref": "#/$defs/rule" },
           "maxItems": 50
         }
       },
@@ -105,12 +101,234 @@
       "type": "object",
       "description": "Deprecated: Use 'authentication' section instead",
       "deprecated": true
+    },
+    "ci": {
+      "type": "object",
+      "description": "CI/CD integration settings for GitHub Actions and GitLab CI",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable CI/CD mode with exit codes and artifact generation"
+        },
+        "platforms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["github", "gitlab"]
+          },
+          "minItems": 1,
+          "default": ["github", "gitlab"],
+          "description": "Target CI/CD platforms for report generation"
+        },
+        "fail_on": {
+          "type": "string",
+          "enum": ["Critical", "High", "Medium", "Low", "Info"],
+          "default": "High",
+          "description": "Minimum severity to trigger pipeline failure"
+        },
+        "generate_sarif": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate SARIF report for GitHub Code Scanning"
+        },
+        "generate_gitlab_sast": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate GitLab SAST report format"
+        }
+      },
+      "additionalProperties": false
+    },
+    "api": {
+      "type": "object",
+      "description": "Local API server settings for programmatic access",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable API server mode"
+        },
+        "host": {
+          "type": "string",
+          "default": "127.0.0.1",
+          "description": "Host to bind API server (use 127.0.0.1 for local only)"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "default": 8080,
+          "description": "Port for API server"
+        },
+        "api_key": {
+          "type": "string",
+          "minLength": 32,
+          "description": "API key for authentication (min 32 chars, use 'shannon generate-key' to create)"
+        },
+        "rate_limit": {
+          "type": "object",
+          "properties": {
+            "requests_per_minute": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000,
+              "default": 60
+            },
+            "scan_requests_per_hour": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100,
+              "default": 10
+            }
+          },
+          "additionalProperties": false
+        },
+        "webhooks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/webhook_secure" },
+          "description": "Webhooks for API events (require signing secret)"
+        }
+      },
+      "additionalProperties": false
+    },
+    "integrations": {
+      "type": "object",
+      "description": "Third-party integrations for notifications and issue tracking",
+      "properties": {
+        "slack": {
+          "type": "object",
+          "properties": {
+            "webhook_url": {
+              "type": "string",
+              "format": "uri",
+              "pattern": "^https://hooks\\.slack\\.com/",
+              "description": "Slack incoming webhook URL (must be from hooks.slack.com)"
+            },
+            "bot_token": {
+              "type": "string",
+              "pattern": "^xoxb-",
+              "minLength": 50,
+              "description": "Slack bot token (starts with xoxb-)"
+            },
+            "channel": {
+              "type": "string",
+              "pattern": "^[#@]",
+              "minLength": 2,
+              "description": "Slack channel (#channel) or user (@user)"
+            },
+            "notify_on": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["run.started", "run.completed", "run.failed", "finding.created"]
+              },
+              "default": ["run.completed"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "jira": {
+          "type": "object",
+          "properties": {
+            "base_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "Jira instance URL (e.g., https://company.atlassian.net)"
+            },
+            "email": {
+              "type": "string",
+              "format": "email",
+              "description": "Jira account email"
+            },
+            "api_token": {
+              "type": "string",
+              "minLength": 24,
+              "description": "Jira API token (create at id.atlassian.com)"
+            },
+            "project_key": {
+              "type": "string",
+              "pattern": "^[A-Z][A-Z0-9]{1,9}$",
+              "description": "Jira project key (e.g., SEC)"
+            },
+            "issue_type": {
+              "type": "string",
+              "minLength": 1,
+              "default": "Bug",
+              "description": "Issue type for created tickets"
+            },
+            "labels": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": ["shannon", "security"]
+            },
+            "priority_mapping": {
+              "type": "object",
+              "description": "Map finding severity to Jira priority",
+              "properties": {
+                "Critical": { "type": "string" },
+                "High": { "type": "string" },
+                "Medium": { "type": "string" },
+                "Low": { "type": "string" },
+                "Info": { "type": "string" }
+              },
+              "additionalProperties": false
+            }
+          },
+          "required": ["base_url", "email", "api_token", "project_key", "issue_type"],
+          "additionalProperties": false
+        },
+        "webhooks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/webhook_secure" },
+          "description": "Generic webhooks for integration events"
+        }
+      },
+      "additionalProperties": false
+    },
+    "compliance": {
+      "type": "object",
+      "description": "Compliance framework mapping for findings",
+      "properties": {
+        "frameworks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["owasp_top10_2021", "pci_dss_v4", "soc2_tsc", "hipaa", "nist_csf"]
+          },
+          "minItems": 1,
+          "description": "Compliance frameworks to map findings against"
+        },
+        "generate_report": {
+          "type": "boolean",
+          "default": true,
+          "description": "Generate compliance mapping report"
+        }
+      },
+      "additionalProperties": false
     }
   },
   "anyOf": [
-    {"required": ["authentication"]},
-    {"required": ["rules"]},
-    {"required": ["authentication", "rules"]}
+    {
+      "required": ["authentication"],
+      "description": "Config with authentication enables authenticated scanning"
+    },
+    {
+      "required": ["rules"],
+      "description": "Config with rules enables scoped scanning"
+    },
+    {
+      "allOf": [
+        { "required": ["ci"] },
+        {
+          "anyOf": [
+            { "required": ["authentication"] },
+            { "required": ["rules"] }
+          ]
+        }
+      ],
+      "description": "CI config must be combined with authentication or rules"
+    }
   ],
   "additionalProperties": false,
   "$defs": {
@@ -137,6 +355,67 @@
         }
       },
       "required": ["description", "type", "url_path"],
+      "additionalProperties": false
+    },
+    "webhook_secure": {
+      "type": "object",
+      "description": "Secure webhook configuration with required signing secret",
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Webhook URL (HTTPS required)"
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["run.started", "run.completed", "run.failed", "finding.created"]
+          },
+          "description": "Events to trigger webhook"
+        },
+        "secret": {
+          "type": "string",
+          "minLength": 32,
+          "description": "HMAC signing secret (min 32 chars)"
+        },
+        "timeout_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 60000,
+          "default": 30000,
+          "description": "Request timeout in milliseconds"
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 3
+        }
+      },
+      "required": ["url", "secret"],
+      "additionalProperties": false
+    },
+    "webhook": {
+      "type": "object",
+      "description": "Legacy webhook config (deprecated, use webhook_secure)",
+      "deprecated": true,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "events": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "secret": {
+          "type": "string",
+          "minLength": 8
+        }
+      },
+      "required": ["url"],
       "additionalProperties": false
     }
   }

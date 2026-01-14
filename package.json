@@ -1,11 +1,17 @@
 {
   "name": "shannon",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "./dist/shannon.js",
+  "description": "AI-powered security testing framework with Claude",
   "scripts": {
     "build": "tsc",
-    "start": "node ./dist/shannon.js"
+    "start": "node ./dist/shannon.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "tsc --noEmit",
+    "generate-key": "node -e \"console.log(require('crypto').randomBytes(32).toString('base64url'))\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
@@ -26,6 +32,10 @@
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.0.3",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }

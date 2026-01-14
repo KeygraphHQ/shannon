@@ -21,7 +21,8 @@ export type AgentName =
   | 'auth-exploit'
   | 'ssrf-exploit'
   | 'authz-exploit'
-  | 'report';
+  | 'report'
+  | 'report-findings';
 
 export type PromptName =
   | 'pre-recon-code'
@@ -36,7 +37,8 @@ export type PromptName =
   | 'exploit-auth'
   | 'exploit-ssrf'
   | 'exploit-authz'
-  | 'report-executive';
+  | 'report-executive'
+  | 'report-findings';
 
 export type PlaywrightAgent =
   | 'playwright-agent1'

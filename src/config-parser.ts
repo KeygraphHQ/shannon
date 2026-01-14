@@ -10,6 +10,14 @@ import yaml from 'js-yaml';
 import { Ajv, type ValidateFunction } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
 import { PentestError } from './error-handling.js';
+import {
+  validateApiKey,
+  validateSlackBotToken,
+  validateJiraApiToken,
+  validateSlackWebhookUrl,
+  validateJiraUrl,
+  validateWebhookUrl,
+} from './security/index.js';
 import type {
   Config,
   Rule,
@@ -52,6 +60,23 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /javascript:/i, // JavaScript URLs
   /data:/i, // Data URLs
   /file:/i, // File URLs
+  /vbscript:/i, // VBScript URLs
+  /\$\{.*\}/, // Template injection
+  /\{\{.*\}\}/, // Template injection
+  /%00/, // Null byte injection
+];
+
+// Blocked internal hostnames for SSRF protection
+const INTERNAL_HOSTNAME_PATTERNS = [
+  /^localhost$/i,
+  /^127\.\d+\.\d+\.\d+$/,
+  /^10\.\d+\.\d+\.\d+$/,
+  /^172\.(1[6-9]|2\d|3[01])\.\d+\.\d+$/,
+  /^192\.168\.\d+\.\d+$/,
+  /^169\.254\.\d+\.\d+$/,
+  /metadata\.google/i,
+  /\.internal$/i,
+  /\.local$/i,
 ];
 
 // Parse and load YAML configuration file with enhanced safety
@@ -100,6 +125,9 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     // Validate the configuration structure and content
     validateConfig(config as Config);
 
+    // Perform deep security validation
+    await performDeepSecurityValidation(config as Config);
+
     return config as Config;
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
@@ -108,7 +136,8 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       errMsg.startsWith('Configuration file not found') ||
       errMsg.startsWith('YAML parsing failed') ||
       errMsg.includes('must be') ||
-      errMsg.includes('exceeds maximum')
+      errMsg.includes('exceeds maximum') ||
+      errMsg.includes('validation failed')
     ) {
       // These are already well-formatted errors, re-throw as-is
       throw error;
@@ -149,14 +178,16 @@ const validateConfig = (config: Config): void => {
     console.warn('⚠️  The "login" section is deprecated. Please use "authentication" instead.');
   }
 
-  // Ensure at least some configuration is provided
-  if (!config.rules && !config.authentication) {
+  // Ensure at least some meaningful configuration is provided
+  const hasActionableConfig = Boolean(
+    config.authentication ||
+    (config.rules && (config.rules.avoid?.length || config.rules.focus?.length))
+  );
+
+  if (!hasActionableConfig) {
     console.warn(
-      '⚠️  Configuration file contains no rules or authentication. The pentest will run without any scoping restrictions or login capabilities.'
-    );
-  } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
-    console.warn(
-      '⚠️  Configuration file contains no rules. The pentest will run without any scoping restrictions.'
+      '⚠️  Configuration file contains no actionable rules or authentication. ' +
+      'The pentest will run without any scoping restrictions or login capabilities.'
     );
   }
 };
@@ -207,6 +238,114 @@ const performSecurityValidation = (config: Config): void => {
     checkForDuplicates(config.rules.focus || [], 'focus');
     checkForConflicts(config.rules.avoid, config.rules.focus);
   }
+
+  // Validate integration URLs for dangerous patterns (sync check)
+  if (config.integrations?.slack?.webhook_url) {
+    validateStringSafety(config.integrations.slack.webhook_url, 'integrations.slack.webhook_url');
+  }
+  if (config.integrations?.jira?.base_url) {
+    validateStringSafety(config.integrations.jira.base_url, 'integrations.jira.base_url');
+  }
+  if (config.integrations?.webhooks) {
+    config.integrations.webhooks.forEach((hook, index) => {
+      validateStringSafety(hook.url, `integrations.webhooks[${index}].url`);
+    });
+  }
+  if (config.api?.webhooks) {
+    config.api.webhooks.forEach((hook, index) => {
+      validateStringSafety(hook.url, `api.webhooks[${index}].url`);
+    });
+  }
+};
+
+// Deep security validation with async URL/secret checks
+const performDeepSecurityValidation = async (config: Config): Promise<void> => {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  // Validate API key if present
+  if (config.api?.api_key) {
+    const apiKeyResult = validateApiKey(config.api.api_key, { minLength: 32 });
+    if (!apiKeyResult.valid) {
+      errors.push(`api.api_key: ${apiKeyResult.error}`);
+    } else if (apiKeyResult.strength === 'weak') {
+      warnings.push('api.api_key has weak entropy - consider using a stronger key');
+    }
+    warnings.push(...apiKeyResult.warnings.map(w => `api.api_key: ${w}`));
+  }
+
+  // Validate Slack configuration
+  if (config.integrations?.slack) {
+    const slack = config.integrations.slack;
+
+    if (slack.webhook_url) {
+      const urlResult = await validateSlackWebhookUrl(slack.webhook_url);
+      if (!urlResult.valid) {
+        errors.push(`integrations.slack.webhook_url: ${urlResult.error}`);
+      }
+      warnings.push(...urlResult.warnings.map(w => `integrations.slack.webhook_url: ${w}`));
+    }
+
+    if (slack.bot_token) {
+      const tokenResult = validateSlackBotToken(slack.bot_token);
+      if (!tokenResult.valid) {
+        errors.push(`integrations.slack.bot_token: ${tokenResult.error}`);
+      }
+    }
+  }
+
+  // Validate Jira configuration
+  if (config.integrations?.jira) {
+    const jira = config.integrations.jira;
+
+    const urlResult = await validateJiraUrl(jira.base_url);
+    if (!urlResult.valid) {
+      errors.push(`integrations.jira.base_url: ${urlResult.error}`);
+    }
+    warnings.push(...urlResult.warnings.map(w => `integrations.jira.base_url: ${w}`));
+
+    const tokenResult = validateJiraApiToken(jira.api_token);
+    if (!tokenResult.valid) {
+      errors.push(`integrations.jira.api_token: ${tokenResult.error}`);
+    }
+    warnings.push(...tokenResult.warnings.map(w => `integrations.jira.api_token: ${w}`));
+  }
+
+  // Validate webhooks
+  const allWebhooks = [
+    ...(config.integrations?.webhooks || []).map((h, i) => ({ hook: h, path: `integrations.webhooks[${i}]` })),
+    ...(config.api?.webhooks || []).map((h, i) => ({ hook: h, path: `api.webhooks[${i}]` })),
+  ];
+
+  for (const { hook, path } of allWebhooks) {
+    // URL validation
+    const urlResult = await validateWebhookUrl(hook.url);
+    if (!urlResult.valid) {
+      errors.push(`${path}.url: ${urlResult.error}`);
+    }
+    warnings.push(...urlResult.warnings.map(w => `${path}.url: ${w}`));
+
+    // Secret requirement check
+    if (!hook.secret) {
+      errors.push(`${path}.secret: Webhook secret is required for security (HMAC signing)`);
+    } else {
+      const secretResult = validateApiKey(hook.secret, { minLength: 32 });
+      if (!secretResult.valid) {
+        errors.push(`${path}.secret: ${secretResult.error}`);
+      }
+      warnings.push(...secretResult.warnings.map(w => `${path}.secret: ${w}`));
+    }
+  }
+
+  // Log warnings
+  for (const warning of warnings) {
+    console.warn(`⚠️  ${warning}`);
+  }
+
+  // Throw if there are errors
+  if (errors.length > 0) {
+    throw new Error(`Security validation failed:\n  - ${errors.join('\n  - ')}`);
+  }
 };
 
 // Validate rules for security issues
@@ -231,6 +370,29 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
     // Type-specific validation
     validateRuleTypeSpecific(rule, ruleType, index);
   });
+};
+
+const validateStringSafety = (value: string, label: string): void => {
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(value)) {
+      throw new Error(`${label} contains potentially dangerous pattern: ${pattern.source}`);
+    }
+  }
+
+  // Check for internal hostnames (SSRF)
+  try {
+    const url = new URL(value);
+    for (const hostPattern of INTERNAL_HOSTNAME_PATTERNS) {
+      if (hostPattern.test(url.hostname)) {
+        throw new Error(`${label} contains internal/private hostname: ${url.hostname}`);
+      }
+    }
+  } catch (e) {
+    // Not a valid URL, that's fine for non-URL fields
+    if (value.startsWith('http://') || value.startsWith('https://')) {
+      throw new Error(`${label} appears to be a malformed URL`);
+    }
+  }
 };
 
 // Validate rule based on its specific type

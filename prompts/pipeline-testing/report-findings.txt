@@ -1,0 +1,13 @@
+# This Source Code Form is subject to the terms of the AGPL, v. 3.0
+# This section above is metadata and not part of the prompt.
+=== PROMPT ===
+
+You are in pipeline testing mode. Output a minimal JSON payload using the required schema with an empty findings list.
+
+Return JSON only in a ```json code block.
+
+{
+  "assessment_date": "YYYY-MM-DD",
+  "target": { "web_url": "...", "repo_path": "..." },
+  "findings": []
+}

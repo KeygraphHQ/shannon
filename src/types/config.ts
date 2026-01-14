@@ -54,10 +54,65 @@ export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   login?: unknown; // Deprecated
+  ci?: CiConfig;
+  api?: ApiConfig;
+  integrations?: IntegrationsConfig;
+  compliance?: ComplianceConfig;
 }
 
 export interface DistributedConfig {
   avoid: Rule[];
   focus: Rule[];
   authentication: Authentication | null;
+}
+
+export type CiPlatform = 'github' | 'gitlab';
+
+export interface CiConfig {
+  enabled?: boolean;
+  platforms?: CiPlatform[];
+  fail_on?: 'Critical' | 'High' | 'Medium' | 'Low' | 'Info';
+  generate_sarif?: boolean;
+  generate_gitlab_sast?: boolean;
+}
+
+export interface WebhookConfig {
+  url: string;
+  events?: string[];
+  secret?: string;
+}
+
+export interface ApiConfig {
+  enabled?: boolean;
+  host?: string;
+  port?: number;
+  api_key?: string;
+  webhooks?: WebhookConfig[];
+}
+
+export interface SlackConfig {
+  webhook_url?: string;
+  bot_token?: string;
+  channel?: string;
+  notify_on?: string[];
+}
+
+export interface JiraConfig {
+  base_url: string;
+  email: string;
+  api_token: string;
+  project_key: string;
+  issue_type: string;
+  labels?: string[];
+  priority_mapping?: Record<string, string>;
+}
+
+export interface IntegrationsConfig {
+  slack?: SlackConfig;
+  jira?: JiraConfig;
+  webhooks?: WebhookConfig[];
+}
+
+export interface ComplianceConfig {
+  frameworks?: string[];
 }

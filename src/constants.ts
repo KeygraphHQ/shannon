@@ -59,6 +59,7 @@ export const MCP_AGENT_MAPPING: Record<PromptName, PlaywrightAgent> = Object.fre
   // NOTE: Report generation is typically text-based and doesn't use browser automation,
   // but assigning MCP server anyway for potential screenshot inclusion or future needs
   'report-executive': 'playwright-agent3',
+  'report-findings': 'playwright-agent3',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
@@ -107,4 +108,6 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
     return reportExists;
   },
+  // Findings normalization agent (validation handled in post-processing)
+  'report-findings': async (): Promise<boolean> => true,
 });

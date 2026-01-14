@@ -1,45 +1,158 @@
-# Example configuration file for pentest-agent
-# Copy this file and modify it for your specific testing needs
+# Shannon Security Configuration
+# ===============================
+# This is an EXAMPLE configuration file. DO NOT use in production without:
+# 1. Replacing all placeholder values (marked with YOUR_...)
+# 2. Using environment variables or secrets manager for sensitive data
+# 3. Reviewing all settings for your specific use case
 
+# Authentication Configuration
+# ----------------------------
+# Required for testing authenticated areas of your application
 authentication:
-  login_type: form  # Options: 'form' or 'sso'
+  login_type: form  # Options: form, sso, api, basic
   login_url: "https://example.com/login"
   credentials:
-    username: "testuser"
-    password: "testpassword"
-    totp_secret: "JBSWY3DPEHPK3PXP"  # Optional TOTP secret for 2FA
-  
-  # Natural language instructions for login flow
+    username: "${SHANNON_AUTH_USER}"     # Set via environment variable
+    password: "${SHANNON_AUTH_PASS}"     # Set via environment variable
+    # totp_secret: "${SHANNON_TOTP_SECRET}"  # Optional: for 2FA (Base32)
   login_flow:
-    - "Type $username into the email field"
-    - "Type $password into the password field"
-    - "Click the 'Sign In' button"
-    - "Enter $totp in the verification code field"
-    - "Click 'Verify'"
-  
+    - "Navigate to the login page"
+    - "Enter username in the #username field"
+    - "Enter password in the #password field"
+    - "Click the Login button"
+    - "Wait for redirect to dashboard"
   success_condition:
-    type: url_contains  # Options: 'url_contains' or 'element_present'
+    type: url_contains  # Options: url_contains, element_present, url_equals_exactly, text_contains
     value: "/dashboard"
 
+# Scope Rules
+# -----------
+# Control which areas Shannon will focus on or avoid during testing
 rules:
+  # Areas to AVOID (sensitive/production data)
   avoid:
-    - description: "Do not test the marketing site subdomain"
-      type: subdomain
-      url_path: "www"
-    
-    - description: "Skip logout functionality"
+    - description: "Skip admin panel to prevent lockouts"
       type: path
-      url_path: "/logout"
+      url_path: "/admin"
     
-    - description: "No DELETE operations on user API"
+    - description: "Avoid payment processing in testing"
       type: path
-      url_path: "/api/v1/users/*"
-  
+      url_path: "/api/v2/payments"
+    
+    - description: "Skip third-party OAuth endpoints"
+      type: path
+      url_path: "/oauth"
+    
+    - description: "Avoid production database endpoints"
+      type: domain
+      url_path: "prod-db.example.com"
+
+  # Areas to FOCUS testing efforts
   focus:
-    - description: "Prioritize beta admin panel subdomain"
-      type: subdomain
-      url_path: "beta-admin"
+    - description: "Test user authentication flows"
+      type: path
+      url_path: "/api/v2/auth"
     
     - description: "Focus on user profile updates"
       type: path
       url_path: "/api/v2/user-profile"
+    
+    - description: "Test file upload functionality"
+      type: path
+      url_path: "/api/v2/upload"
+
+# CI/CD Integration
+# -----------------
+# Enable for automated security testing in pipelines
+ci:
+  enabled: false  # Set to true for CI/CD runs
+  platforms: ["github", "gitlab"]
+  fail_on: "High"  # Options: Critical, High, Medium, Low, Info
+  generate_sarif: true      # GitHub Code Scanning
+  generate_gitlab_sast: true # GitLab SAST reports
+
+# Third-Party Integrations
+# ------------------------
+# IMPORTANT: Use environment variables for ALL secrets
+integrations:
+  # Slack notifications
+  slack:
+    # Option 1: Incoming webhook (simpler)
+    webhook_url: "${SHANNON_SLACK_WEBHOOK}"  # https://hooks.slack.com/services/...
+    
+    # Option 2: Bot API (more features)
+    # bot_token: "${SHANNON_SLACK_BOT_TOKEN}"  # xoxb-your-token
+    # channel: "#security-alerts"
+    
+    notify_on:
+      - "run.completed"
+      - "run.failed"
+      # - "finding.created"  # Uncomment for per-finding alerts
+
+  # Jira ticket creation
+  # jira:
+  #   base_url: "${SHANNON_JIRA_URL}"         # https://company.atlassian.net
+  #   email: "${SHANNON_JIRA_EMAIL}"          # your-email@company.com
+  #   api_token: "${SHANNON_JIRA_TOKEN}"      # API token from id.atlassian.com
+  #   project_key: "SEC"                       # Your Jira project key
+  #   issue_type: "Bug"
+  #   labels: ["shannon", "security", "automated"]
+  #   priority_mapping:                        # Map severity to Jira priority
+  #     Critical: "Highest"
+  #     High: "High"
+  #     Medium: "Medium"
+  #     Low: "Low"
+  #     Info: "Lowest"
+
+  # Generic webhooks (for custom integrations)
+  # webhooks:
+  #   - url: "${SHANNON_WEBHOOK_URL}"         # Your webhook endpoint (HTTPS required)
+  #     secret: "${SHANNON_WEBHOOK_SECRET}"   # HMAC signing secret (min 32 chars)
+  #     events: ["run.completed", "finding.created"]
+
+# API Server Configuration
+# ------------------------
+# Enable to run Shannon as a REST API service
+# api:
+#   enabled: false
+#   host: "127.0.0.1"       # Use 127.0.0.1 for local-only access
+#   port: 8080
+#   api_key: "${SHANNON_API_KEY}"  # Generate with: shannon generate-key
+#   rate_limit:
+#     requests_per_minute: 60
+#     scan_requests_per_hour: 10
+
+# Compliance Mapping
+# ------------------
+# Map findings to compliance frameworks
+compliance:
+  frameworks:
+    - "owasp_top10_2021"
+    - "pci_dss_v4"
+    - "soc2_tsc"
+  generate_report: true
+
+# Environment Variables Reference
+# ===============================
+# Set these in your environment or CI/CD secrets:
+#
+# Required for authentication:
+#   SHANNON_AUTH_USER     - Login username
+#   SHANNON_AUTH_PASS     - Login password
+#   SHANNON_TOTP_SECRET   - TOTP secret for 2FA (optional)
+#
+# For Slack integration:
+#   SHANNON_SLACK_WEBHOOK     - Slack incoming webhook URL
+#   SHANNON_SLACK_BOT_TOKEN   - Slack bot token (alternative)
+#
+# For Jira integration:
+#   SHANNON_JIRA_URL      - Jira instance URL
+#   SHANNON_JIRA_EMAIL    - Jira account email
+#   SHANNON_JIRA_TOKEN    - Jira API token
+#
+# For custom webhooks:
+#   SHANNON_WEBHOOK_URL    - Your webhook endpoint
+#   SHANNON_WEBHOOK_SECRET - HMAC signing secret
+#
+# For API server:
+#   SHANNON_API_KEY       - API authentication key

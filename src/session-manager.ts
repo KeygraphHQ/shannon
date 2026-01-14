@@ -80,6 +80,11 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     name: 'report',
     displayName: 'Report agent',
     prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit']
+  },
+  'report-findings': {
+    name: 'report-findings',
+    displayName: 'Findings normalization agent',
+    prerequisites: ['report']
   }
 });
 
@@ -97,7 +102,8 @@ export const AGENT_ORDER: readonly AgentName[] = Object.freeze([
   'auth-exploit',
   'ssrf-exploit',
   'authz-exploit',
-  'report'
+  'report',
+  'report-findings'
 ] as const);
 
 // Parallel execution groups
@@ -112,4 +118,3 @@ export const generateSessionLogPath = (webUrl: string, sessionId: string): strin
   const sessionFolderName = `${hostname}_${sessionId}`;
   return path.join(process.cwd(), 'agent-logs', sessionFolderName);
 };
-

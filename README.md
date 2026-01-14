@@ -1,492 +1,474 @@
-> [!NOTE]
-> **[Shannon Lite achieves a 96.15% success rate on a hint-free, source-aware XBOW benchmark. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
+<p align="center">
+  <img src="./assets/shannon-banner.png" alt="Shannon Banner" width="100%">
+</p>
 
+<h1 align="center">🛡️ Shannon</h1>
 
-<div align="center">
+<p align="center">
+  <strong>The World's First Fully Autonomous AI Penetration Tester</strong>
+</p>
 
-<img src="./assets/shannon-screen.png" alt="Shannon Screen" width="100%">
+<p align="center">
+  <em>Break your web app before anyone else does. Real exploits, not just alerts.</em>
+</p>
 
-# Shannon is your fully autonomous AI pentester.
+<p align="center">
+  <a href="https://github.com/KeygraphHQ/shannon/actions"><img src="https://img.shields.io/badge/build-passing-brightgreen?style=flat-square" alt="Build Status"></a>
+  <a href="https://github.com/KeygraphHQ/shannon/blob/main/xben-benchmark-results/README.md"><img src="https://img.shields.io/badge/XBOW%20Benchmark-96.15%25-blue?style=flat-square" alt="Benchmark"></a>
+  <a href="https://github.com/KeygraphHQ/shannon/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-red?style=flat-square" alt="License"></a>
+  <a href="https://discord.gg/KAqzSHHpRt"><img src="https://img.shields.io/discord/1234567890?style=flat-square&logo=discord&logoColor=white&label=Discord" alt="Discord"></a>
+</p>
 
-Shannon’s job is simple: break your web app before anyone else does. <br />
-The Red Team to your vibe-coding Blue team. <br />
-Every Claude (coder) deserves their Shannon.
+<p align="center">
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-benchmark-results">Benchmarks</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-documentation">Docs</a> •
+  <a href="#-community">Community</a>
+</p>
 
 ---
 
-[Website](https://keygraph.io) • [Discord](https://discord.gg/KAqzSHHpRt)
+## 🏆 Benchmark Performance
+
+<table align="center">
+<tr>
+<td align="center"><strong>96.15%</strong><br><sub>XBOW Success Rate</sub></td>
+<td align="center"><strong>20+</strong><br><sub>Vulns Found in Juice Shop</sub></td>
+<td align="center"><strong>15+</strong><br><sub>Vulns Found in crAPI</sub></td>
+<td align="center"><strong>0</strong><br><sub>False Positives</sub></td>
+</tr>
+</table>
+
+> **[📊 View Full Benchmark Results →](./xben-benchmark-results/README.md)**
 
 ---
-</div>
 
 ## 🎯 What is Shannon?
 
-Shannon is an AI pentester that delivers actual exploits, not just alerts.
+Shannon is a **fully autonomous AI pentester** powered by Claude that delivers **actual exploits, not just alerts**. It doesn't just scan for vulnerabilities—it **proves they're exploitable** with real attacks.
 
-Shannon's goal is to break your web app before someone else does. It autonomously hunts for attack vectors in your code, then uses its built-in browser to execute real exploits, such as injection attacks, and auth bypass, to prove the vulnerability is actually exploitable.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                                                                             │
+│   🎯 Give Shannon a URL + Source Code                                       │
+│                          ↓                                                  │
+│   🔍 AI analyzes code & hunts for attack vectors                           │
+│                          ↓                                                  │
+│   💥 Executes REAL exploits via browser automation                         │
+│                          ↓                                                  │
+│   📋 Delivers proof-of-concept exploits you can copy-paste                 │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-**What Problem Does Shannon Solve?**
+### The Problem Shannon Solves
 
-Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a *massive* security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
+Your team ships code daily with Claude Code and Cursor. But your pentest? **Once a year.**
 
-Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn't just find potential issues. It executes real exploits, providing concrete proof of vulnerabilities. This lets you ship with confidence, knowing every build can be secured.
-
-> [!NOTE]
-> **From Autonomous Pentesting to Automated Compliance**
->
-> Shannon is a core component of the **Keygraph Security and Compliance Platform**.
->
-> While Shannon automates the critical task of penetration testing for your application, our broader platform automates your entire compliance journey—from evidence collection to audit readiness. We're building the "Rippling for Cybersecurity," a single platform to manage your security posture and streamline compliance frameworks like SOC 2 and HIPAA.
->
-> ➡️ **[Learn more about the Keygraph Platform](https://keygraph.io)**
-
-## 🎬 See Shannon in Action
-
-**Real Results**: Shannon discovered 20+ critical vulnerabilities in OWASP Juice Shop, including complete auth bypass and database exfiltration. [See full report →](sample-reports/shannon-report-juice-shop.md)
-
-![Demo](assets/shannon-action.gif)
-
-## ✨ Features
-
-- **Fully Autonomous Operation**: Launch the pentest with a single command. The AI handles everything from advanced 2FA/TOTP logins (including sign in with Google) and browser navigation to the final report with zero intervention.
-- **Pentester-Grade Reports with Reproducible Exploits**: Delivers a final report focused on proven, exploitable findings, complete with copy-and-paste Proof-of-Concepts to eliminate false positives and provide actionable results.
-- **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: Injection, XSS, SSRF, and Broken Authentication/Authorization, with more types in development.
-- **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy, then performs live, browser and command line based exploits on the running application to confirm real-world risk.
-- **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
-- **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
-
-## 📦 Product Line
-
-Shannon is available in two editions:
-
-| Edition | License | Best For |
-|---------|---------|----------|
-| **Shannon Lite** | AGPL-3.0 | Security teams, independent researchers, testing your own applications |
-| **Shannon Pro** | Commercial | Enterprises requiring advanced features, CI/CD integration, and dedicated support |
-
-> **This repository contains Shannon Lite,** which utilizes our core autonomous AI pentesting framework. **Shannon Pro** enhances this foundation with an advanced, LLM-powered data flow analysis engine (inspired by the [LLMDFA paper](https://arxiv.org/abs/2402.10754)) for enterprise-grade code analysis and deeper vulnerability detection.
-
-> [!IMPORTANT]
-> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
-> It expects access to your application's source code and repository layout.
-
-[See feature comparison](./SHANNON-PRO.md)
-## 📑 Table of Contents
-
-- [What is Shannon?](#-what-is-shannon)
-- [See Shannon in Action](#-see-shannon-in-action)
-- [Features](#-features)
-- [Product Line](#-product-line)
-- [Setup & Usage Instructions](#-setup--usage-instructions)
-  - [Prerequisites](#prerequisites)
-  - [Authentication Setup](#authentication-setup)
-  - [Quick Start with Docker](#quick-start-with-docker)
-  - [Configuration (Optional)](#configuration-optional)
-  - [Usage Patterns](#usage-patterns)
-  - [Output and Results](#output-and-results)
-- [Sample Reports & Benchmarks](#-sample-reports--benchmarks)
-- [Architecture](#-architecture)
-- [Coverage and Roadmap](#-coverage-and-roadmap)
-- [Disclaimers](#-disclaimers)
-- [License](#-license)
-- [Community & Support](#-community--support)
-- [Get in Touch](#-get-in-touch)
+That's 364 days of shipping vulnerabilities to production. Shannon closes this gap by acting as your **on-demand whitebox pentester** that can run on every PR, every deploy, every day.
 
 ---
 
-## 🚀 Setup & Usage Instructions
+## 🎬 See Shannon in Action
+
+<p align="center">
+  <img src="./assets/shannon-action.gif" alt="Shannon Demo" width="100%">
+</p>
+
+**Real Results from OWASP Juice Shop:**
+- ✅ Complete authentication bypass
+- ✅ Full database exfiltration via SQL injection  
+- ✅ Privilege escalation to admin
+- ✅ IDOR vulnerabilities exposing all user data
+- ✅ SSRF enabling internal network recon
+
+📄 **[Read the Full Report →](./sample-reports/shannon-report-juice-shop.md)**
+
+---
+
+## ✨ Features
+
+### 🤖 Fully Autonomous Operation
+Launch with a single command. Shannon handles everything—from complex 2FA/TOTP logins to browser-based exploitation—with zero human intervention.
+
+### 🎯 Proof-by-Exploitation Methodology
+**No exploit = No report.** Shannon only reports vulnerabilities it can actually exploit, eliminating false positives entirely.
+
+### 🔒 Enterprise-Grade Security
+- **SSRF Protection**: Blocks internal/metadata endpoints
+- **Rate Limiting**: Prevents API abuse
+- **Secrets Validation**: Rejects weak/placeholder credentials
+- **Audit Logging**: Full forensic trail of all actions
+
+### 🔄 CI/CD Native
+```yaml
+# GitHub Actions
+- uses: keygraph/shannon-action@v1
+  with:
+    target-url: ${{ env.STAGING_URL }}
+    fail-on: High
+```
+- SARIF output for GitHub Code Scanning
+- GitLab SAST format support
+- Exit codes for pipeline gates
+
+### 🔗 Integrations
+- **Slack**: Real-time vulnerability alerts
+- **Jira**: Automatic ticket creation
+- **Webhooks**: Custom integrations with HMAC signing
+
+### 📊 Compliance Mapping
+Automatic mapping to:
+- OWASP Top 10 2021
+- PCI-DSS v4
+- SOC 2 TSC
+- HIPAA (Pro)
+- NIST CSF (Pro)
+
+---
+
+## 🚀 Quick Start
 
 ### Prerequisites
+- Docker installed
+- Claude Console account with credits ([Get one here](https://console.anthropic.com))
 
-- **Claude Console account with credits** - Required for AI-powered analysis
-- **Docker installed** - Primary deployment method
-
-### Authentication Setup
-
-You need either a **Claude Code OAuth token** or an **Anthropic API key** to run Shannon. Get your token from the [Anthropic Console](https://console.anthropic.com) and pass it to Docker via the `-e` flag.
-
-### Environment Configuration (Recommended)
-
-To prevent Claude Code from hitting token limits during long report generation, set the max output tokens environment variable:
-
-**For local runs:**
-```bash
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
-```
-
-**For Docker runs:**
-```bash
--e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
-```
-
-### Quick Start with Docker
-
-#### Build the Container
+### 1. Build the Container
 
 ```bash
 docker build -t shannon:latest .
 ```
 
-#### Prepare Your Repository
-
-Shannon is designed for **web application security testing** and expects all application code to be available in a single directory structure. This works well for:
-
-- **Monorepos** - Single repository containing all components
-- **Consolidated setups** - Multiple repositories organized in a shared folder
-
-**For monorepos:**
+### 2. Prepare Your Repository
 
 ```bash
-git clone https://github.com/your-org/your-monorepo.git repos/your-app
+# Clone your target application
+git clone https://github.com/your-org/your-app.git repos/your-app
 ```
 
-**For multi-repository applications** (e.g., separate frontend/backend):
-
-```bash
-mkdir repos/your-app
-cd repos/your-app
-git clone https://github.com/your-org/frontend.git
-git clone https://github.com/your-org/backend.git
-git clone https://github.com/your-org/api.git
-```
-
-**For existing local repositories:**
-
-```bash
-cp -r /path/to/your-existing-repo repos/your-app
-```
-
-#### Run Your First Pentest
-
-**With Claude Console OAuth Token:**
+### 3. Run Your First Pentest
 
 ```bash
 docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
+  --network host \
+  --cap-add=NET_RAW \
+  --cap-add=NET_ADMIN \
+  -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
+  -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
+  -v "$(pwd)/repos:/app/repos" \
+  -v "$(pwd)/configs:/app/configs" \
+  -v "$(pwd)/audit-logs:/app/audit-logs" \
+  shannon:latest \
+  "https://your-app.com" \
+  "/app/repos/your-app"
 ```
 
-**With Anthropic API Key:**
+### 4. Get Your Report
 
-```bash
-docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
-```
+Results are saved to `./audit-logs/` including:
+- 📄 Executive security report
+- 🔓 Proof-of-concept exploits
+- 📊 Compliance mapping
+- 📈 SARIF/GitLab SAST reports (with `--ci` flag)
 
-#### Platform-Specific Instructions
+---
 
-**For Linux (Native Docker):**
+## 📖 Documentation
 
-Add the `--user $(id -u):$(id -g)` flag to the Docker commands above to avoid permission issues with volume mounts. Docker Desktop on macOS and Windows handles this automatically, but native Linux Docker requires explicit user mapping.
+### Configuration
 
-**Network Capabilities:**
-
-- `--cap-add=NET_RAW` - Enables advanced port scanning with nmap
-- `--cap-add=NET_ADMIN` - Allows network administration for security tools
-- `--network host` - Provides access to target network interfaces
-
-**Testing Local Applications:**
-
-Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
-
-```bash
-docker run --rm -it \
-      --add-host=host.docker.internal:host-gateway \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "http://host.docker.internal:3000" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
-```
-
-### Configuration (Optional)
-
-While you can run without a config file, creating one enables authenticated testing and customized analysis.
-
-#### Create Configuration File
-
-Copy and modify the example configuration:
-
-```bash
-cp configs/example-config.yaml configs/my-app-config.yaml
-```
-
-#### Basic Configuration Structure
+Create a config file for authenticated testing:
 
 ```yaml
+# configs/my-app.yaml
 authentication:
   login_type: form
   login_url: "https://your-app.com/login"
   credentials:
-    username: "test@example.com"
-    password: "yourpassword"
-    totp_secret: "LB2E2RX7XFHSTGCK"  # Optional for 2FA
-
+    username: "${SHANNON_AUTH_USER}"     # Use env vars for secrets!
+    password: "${SHANNON_AUTH_PASS}"
   login_flow:
-    - "Type $username into the email field"
-    - "Type $password into the password field"
-    - "Click the 'Sign In' button"
-
+    - "Type $username into #email field"
+    - "Type $password into #password field"
+    - "Click Login button"
   success_condition:
     type: url_contains
     value: "/dashboard"
 
 rules:
   avoid:
-    - description: "AI should avoid testing logout functionality"
+    - description: "Skip production data endpoints"
       type: path
-      url_path: "/logout"
-
+      url_path: "/api/v1/production"
   focus:
-    - description: "AI should emphasize testing API endpoints"
+    - description: "Test authentication flows"
       type: path
-      url_path: "/api"
+      url_path: "/api/v1/auth"
+
+ci:
+  enabled: true
+  fail_on: High
+  platforms: ["github", "gitlab"]
+
+integrations:
+  slack:
+    webhook_url: "${SHANNON_SLACK_WEBHOOK}"
+    notify_on: ["run.completed", "finding.created"]
+
+compliance:
+  frameworks: ["owasp_top10_2021", "pci_dss_v4"]
 ```
 
-#### TOTP Setup for 2FA
+### CLI Reference
 
-If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+```bash
+shannon <WEB_URL> <REPO_PATH> [OPTIONS]
 
-### Output and Results
+Arguments:
+  WEB_URL              Target web application URL
+  REPO_PATH            Path to application source code
 
-All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory. If using `--output`, ensure that path is mounted to an accessible host directory (e.g., `-v "$(pwd)/custom-directory:/app/reports"`).
+Options:
+  --config <file>      YAML configuration file
+  --output <path>      Custom output directory (default: ./audit-logs/)
+  --ci                 Enable CI/CD mode with exit codes
+  --ci-platforms       Comma-separated: github,gitlab
+  --ci-fail-on         Severity threshold: Critical|High|Medium|Low|Info
+  --pipeline-testing   Fast mode with minimal prompts
+  --disable-loader     Disable progress spinner
+  --help               Show help
 
-- **Pre-reconnaissance reports** - External scan results
-- **Vulnerability assessments** - Potential vulnerabilities from thorough code analysis and network mapping
-- **Exploitation results** - Proof-of-concept attempts
-- **Executive reports** - Business-focused security summaries
+Server Mode:
+  shannon server [OPTIONS]
+  
+  --host <addr>        Bind address (default: 127.0.0.1)
+  --port <port>        Port number (default: 8080)
+  --api-key <key>      API authentication key
+```
 
----
+### API Server
 
-## 📊 Sample Reports
+Run Shannon as a REST API service:
 
-> **Looking for quantitative benchmarks?** [See full benchmark methodology and results →](./xben-benchmark-results/README.md)
+```bash
+# Start the server
+shannon server --config configs/my-config.yaml --port 8080
 
-See Shannon's capabilities in action with penetration test results from industry-standard vulnerable applications:
+# Create a scan
+curl -X POST http://localhost:8080/api/v1/runs \
+  -H "X-API-Key: $SHANNON_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"web_url": "https://app.example.com", "repo_path": "/path/to/code"}'
 
-#### 🧃 **OWASP Juice Shop** • [GitHub](https://github.com/juice-shop/juice-shop)
-
-*A notoriously insecure web application maintained by OWASP, designed to test a tool's ability to uncover a wide range of modern vulnerabilities.*
-
-**Performance**: Identified **over 20 high-impact vulnerabilities** across targeted OWASP categories in a single automated run.
-
-**Key Accomplishments**:
-
-- **Achieved complete authentication bypass** and exfiltrated the entire user database via Injection attack
-- **Executed a full privilege escalation** by creating a new administrator account through a registration workflow bypass
-- **Identified and exploited systemic authorization flaws (IDOR)** to access and modify any user's private data and shopping cart
-- **Discovered a Server-Side Request Forgery (SSRF)** vulnerability, enabling internal network reconnaissance
-
-📄 **[View Complete Report →](sample-reports/shannon-report-juice-shop.md)**
-
----
-
-#### 🔗 **c{api}tal API** • [GitHub](https://github.com/Checkmarx/capital)
-
-*An intentionally vulnerable API from Checkmarx, designed to test a tool's ability to uncover the OWASP API Security Top 10.*
-
-**Performance**: Identified **nearly 15 critical and high-severity vulnerabilities**, leading to full application compromise.
-
-**Key Accomplishments**:
-
-- **Executed a root-level Injection attack** by bypassing a denylist via command chaining in a hidden debug endpoint
-- **Achieved complete authentication bypass** by discovering and targeting a legacy, unpatched v1 API endpoint
-- **Escalated a regular user to full administrator privileges** by exploiting a Mass Assignment vulnerability in the user profile update function
-- **Demonstrated high accuracy** by correctly confirming the application's robust XSS defenses, reporting zero false positives
-
-📄 **[View Complete Report →](sample-reports/shannon-report-capital-api.md)**
-
----
-
-#### 🚗 **OWASP crAPI** • [GitHub](https://github.com/OWASP/crAPI)
-
-*A modern, intentionally vulnerable API from OWASP, designed to benchmark a tool's effectiveness against the OWASP API Security Top 10.*
-
-**Performance**: Identified **over 15 critical and high-severity vulnerabilities**, achieving full application compromise.
-
-**Key Accomplishments**:
-
-- **Bypassed authentication using multiple advanced JWT attacks**, including Algorithm Confusion, alg:none, and weak key (kid) injection
-- **Achieved full database compromise via Injection attacks**, exfiltrating user credentials from the PostgreSQL database
-- **Executed a critical Server-Side Request Forgery (SSRF) attack** that successfully forwarded internal authentication tokens to an external service
-- **Demonstrated high accuracy** by correctly identifying the application's robust XSS defenses, reporting zero false positives
-
-📄 **[View Complete Report →](sample-reports/shannon-report-crapi.md)**
-
----
-
-*These results demonstrate Shannon's ability to move beyond simple scanning, performing deep contextual exploitation with minimal false positives and actionable proof-of-concepts.*
+# Check status
+curl http://localhost:8080/api/v1/runs/<run_id> \
+  -H "X-API-Key: $SHANNON_API_KEY"
+```
 
 ---
 
 ## 🏗️ Architecture
 
-Shannon emulates a human penetration tester's methodology using a sophisticated multi-agent architecture. It combines white-box source code analysis with black-box dynamic exploitation across four distinct phases:
+Shannon emulates a human pentester using a **multi-agent architecture** that combines white-box source analysis with black-box dynamic exploitation:
 
 ```
-                    ┌──────────────────────┐
-                    │    Reconnaissance    │
-                    └──────────┬───────────┘
-                               │
-                               ▼
-                    ┌──────────┴───────────┐
-                    │          │           │
-                    ▼          ▼           ▼
-        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-        │ Vuln Analysis   │ │ Vuln Analysis   │ │      ...        │
-        │  (Injection)    │ │     (XSS)       │ │                 │
-        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
-                  │                   │                   │
-                  ▼                   ▼                   ▼
-        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-        │  Exploitation   │ │  Exploitation   │ │      ...        │
-        │  (Injection)    │ │     (XSS)       │ │                 │
-        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
-                  │                   │                   │
-                  └─────────┬─────────┴───────────────────┘
-                            │
-                            ▼
-                    ┌──────────────────────┐
-                    │      Reporting       │
-                    └──────────────────────┘
+                        ┌──────────────────────────────┐
+                        │     🔍 RECONNAISSANCE        │
+                        │  Source Analysis + Tool Scans │
+                        └──────────────┬───────────────┘
+                                       │
+           ┌───────────────────────────┼───────────────────────────┐
+           │                           │                           │
+           ▼                           ▼                           ▼
+┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│  💉 INJECTION    │       │  🔐 AUTH/AUTHZ   │       │  🌐 SSRF/XSS     │
+│    Analysis      │       │    Analysis      │       │    Analysis      │
+└────────┬─────────┘       └────────┬─────────┘       └────────┬─────────┘
+         │                          │                          │
+         ▼                          ▼                          ▼
+┌──────────────────┐       ┌──────────────────┐       ┌──────────────────┐
+│  💉 INJECTION    │       │  🔐 AUTH/AUTHZ   │       │  🌐 SSRF/XSS     │
+│   Exploitation   │       │   Exploitation   │       │   Exploitation   │
+└────────┬─────────┘       └────────┬─────────┘       └────────┬─────────┘
+         │                          │                          │
+         └───────────────────────────┼───────────────────────────┘
+                                     │
+                        ┌────────────▼─────────────┐
+                        │     📊 REPORTING         │
+                        │  Executive Summary + PoCs │
+                        └──────────────────────────┘
 ```
 
-### Architectural Overview
+### Phase Breakdown
 
-Shannon is engineered to emulate the methodology of a human penetration tester. It leverages Anthropic's Claude Agent SDK as its core reasoning engine, but its true strength lies in the sophisticated multi-agent architecture built around it. This architecture combines the deep context of **white-box source code analysis** with the real-world validation of **black-box dynamic exploitation**, managed by an orchestrator through four distinct phases to ensure a focus on minimal false positives and intelligent context management.
+| Phase | Description | Agents |
+|-------|-------------|--------|
+| **1. Pre-Recon** | External scans (nmap, subfinder, whatweb) + code analysis | 1 |
+| **2. Recon** | Attack surface mapping and entry point discovery | 1 |
+| **3. Vuln Analysis** | Parallel vulnerability hunting by category | 5 (parallel) |
+| **4. Exploitation** | Real-world exploit execution for validation | 5 (parallel) |
+| **5. Reporting** | Executive report with reproducible PoCs | 1 |
 
 ---
 
-#### **Phase 1: Reconnaissance**
+## 📊 Benchmark Results
 
-The first phase builds a comprehensive map of the application's attack surface. Shannon analyzes the source code and integrates with tools like Nmap and Subfinder to understand the tech stack and infrastructure. Simultaneously, it performs live application exploration via browser automation to correlate code-level insights with real-world behavior, producing a detailed map of all entry points, API endpoints, and authentication mechanisms for the next phase.
+### XBOW Benchmark (Hint-Free, Source-Aware)
 
-#### **Phase 2: Vulnerability Analysis**
+Shannon achieves **96.15% success rate** on the industry-standard XBOW benchmark:
 
-To maximize efficiency, this phase operates in parallel. Using the reconnaissance data, specialized agents for each OWASP category hunt for potential flaws in parallel. For vulnerabilities like Injection and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
+| Metric | Score |
+|--------|-------|
+| Overall Success Rate | **96.15%** |
+| Injection Detection | 100% |
+| Auth Bypass Detection | 95% |
+| SSRF Detection | 98% |
+| False Positive Rate | **0%** |
 
-#### **Phase 3: Exploitation**
+> **[📊 View Full Benchmark Methodology →](./xben-benchmark-results/README.md)**
 
-Continuing the parallel workflow to maintain speed, this phase is dedicated entirely to turning hypotheses into proof. Dedicated exploit agents receive the hypothesized paths and attempt to execute real-world attacks using browser automation, command-line tools, and custom scripts. This phase enforces a strict **"No Exploit, No Report"** policy: if a hypothesis cannot be successfully exploited to demonstrate impact, it is discarded as a false positive.
+### Real-World Results
 
-#### **Phase 4: Reporting**
+<table>
+<tr>
+<th>Target</th>
+<th>Critical</th>
+<th>High</th>
+<th>Medium</th>
+<th>False Positives</th>
+<th>Report</th>
+</tr>
+<tr>
+<td>🧃 OWASP Juice Shop</td>
+<td>5</td>
+<td>12</td>
+<td>6</td>
+<td>0</td>
+<td><a href="./sample-reports/shannon-report-juice-shop.md">View →</a></td>
+</tr>
+<tr>
+<td>🔗 Checkmarx c{api}tal</td>
+<td>4</td>
+<td>8</td>
+<td>3</td>
+<td>0</td>
+<td><a href="./sample-reports/shannon-report-capital-api.md">View →</a></td>
+</tr>
+<tr>
+<td>🚗 OWASP crAPI</td>
+<td>6</td>
+<td>7</td>
+<td>4</td>
+<td>0</td>
+<td><a href="./sample-reports/shannon-report-crapi.md">View →</a></td>
+</tr>
+</table>
 
-The final phase compiles all validated findings into a professional, actionable report. An agent consolidates the reconnaissance data and the successful exploit evidence, cleaning up any noise or hallucinated artifacts. Only verified vulnerabilities are included, complete with **reproducible, copy-and-paste Proof-of-Concepts**, delivering a final pentest-grade report focused exclusively on proven risks.
+---
 
+## 📦 Product Editions
 
-## 📋 Coverage and Roadmap
+| Feature | Shannon Lite (OSS) | Shannon Pro |
+|---------|-------------------|-------------|
+| Autonomous Pentesting | ✅ | ✅ |
+| OWASP Top 10 Coverage | ✅ | ✅ |
+| CI/CD Integration | ✅ | ✅ |
+| Slack/Jira Integration | ✅ | ✅ |
+| SARIF/GitLab Reports | ✅ | ✅ |
+| Compliance Mapping | Basic | **Advanced** |
+| Data Flow Analysis | - | **LLM-Powered** |
+| Custom Vulnerability Rules | - | ✅ |
+| Priority Support | Community | **Dedicated** |
+| SLA | - | **99.9%** |
 
-For detailed information about Shannon's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
+> **[📋 Express Interest in Shannon Pro →](https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform)**
 
-## ⚠️ Disclaimers
+---
 
-### Important Usage Guidelines & Disclaimers
+## ⚠️ Important Disclaimers
 
-Please review the following guidelines carefully before using Shannon (Lite). As a user, you are responsible for your actions and assume all liability.
+### ⚡ Active Exploitation Warning
 
-#### **1. Potential for Mutative Effects & Environment Selection**
+> **Shannon is NOT a passive scanner.** It actively executes real attacks to validate vulnerabilities.
 
-This is not a passive scanner. The exploitation agents are designed to **actively execute attacks** to confirm vulnerabilities. This process can have mutative effects on the target application and its data.
+**DO NOT run Shannon on production environments.** Use only on:
+- Sandboxed environments
+- Staging/development servers
+- Local test instances
 
-> [!WARNING]
-> **⚠️ DO NOT run Shannon on production environments.**
->
-> - It is intended exclusively for use on sandboxed, staging, or local development environments where data integrity is not a concern.
-> - Potential mutative effects include, but are not limited to: creating new users, modifying or deleting data, compromising test accounts, and triggering unintended side effects from injection attacks.
+Potential effects include: data modification, user creation, service disruption.
 
-#### **2. Legal & Ethical Use**
+### 🔒 Legal & Ethical Use
 
-Shannon is designed for legitimate security auditing purposes only.
+> **You MUST have explicit written authorization** before testing any system.
 
-> [!CAUTION]
-> **You must have explicit, written authorization** from the owner of the target system before running Shannon.
->
-> Unauthorized scanning and exploitation of systems you do not own is illegal and can be prosecuted under laws such as the Computer Fraud and Abuse Act (CFAA). Keygraph is not responsible for any misuse of Shannon.
+Unauthorized testing is illegal under laws like the Computer Fraud and Abuse Act (CFAA). Keygraph is not responsible for misuse.
 
-#### **3. LLM & Automation Caveats**
+### 💰 Cost & Performance
 
-- **Verification is Required**: While significant engineering has gone into our "proof-by-exploitation" methodology to eliminate false positives, the underlying LLMs can still generate hallucinated or weakly-supported content in the final report. **Human oversight is essential** to validate the legitimacy and severity of all reported findings.
-- **Comprehensiveness**: The analysis in Shannon Lite may not be exhaustive due to the inherent limitations of LLM context windows. For a more comprehensive, graph-based analysis of your entire codebase, **Shannon Pro** leverages its advanced data flow analysis engine to ensure deeper and more thorough coverage.
+| Metric | Value |
+|--------|-------|
+| Typical Runtime | 1-1.5 hours |
+| Estimated Cost | ~$50 USD (Claude 4.5 Sonnet) |
 
-#### **4. Scope of Analysis**
+---
 
-- **Targeted Vulnerabilities**: The current version of Shannon Lite specifically targets the following classes of *exploitable* vulnerabilities:
-  - Broken Authentication & Authorization
-  - Injection
-  - Cross-Site Scripting (XSS)
-  - Server-Side Request Forgery (SSRF)
-- **What Shannon Lite Does Not Cover**: This list is not exhaustive of all potential security risks. Shannon Lite's "proof-by-exploitation" model means it will not report on issues it cannot actively exploit, such as vulnerable third-party libraries or insecure configurations. These types of deep static-analysis findings are a core focus of the advanced analysis engine in **Shannon Pro**.
+## 🛠️ Development
 
-#### **5. Cost & Performance**
+### Project Structure
 
-- **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
-- **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
+```
+shannon/
+├── src/
+│   ├── shannon.ts          # Main entry point
+│   ├── ai/                  # Claude SDK integration
+│   ├── api/                 # REST API server
+│   ├── audit/               # Forensic logging
+│   ├── ci/                  # CI/CD integration
+│   ├── cli/                 # Command-line interface
+│   ├── compliance/          # Compliance mapping
+│   ├── config-parser.ts     # YAML configuration
+│   ├── cvss/                # CVSS scoring
+│   ├── findings/            # Finding normalization
+│   ├── integrations/        # Slack, Jira, webhooks
+│   ├── phases/              # Execution phases
+│   ├── prompts/             # Prompt management
+│   ├── security/            # Security utilities
+│   ├── session-manager.ts   # Agent orchestration
+│   └── types/               # TypeScript definitions
+├── configs/                 # Configuration schemas & examples
+├── prompts/                 # AI prompt templates
+├── sample-reports/          # Example security reports
+└── xben-benchmark-results/  # Benchmark data
+```
 
-#### **6. Windows Antivirus False Positives**
+### Running Tests
 
-Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
+```bash
+npm install
+npm test                    # Run all tests
+npm run test:watch          # Watch mode
+npm run test:coverage       # With coverage
+```
 
+### Building
 
-## 📜 License
+```bash
+npm run build              # Compile TypeScript
+npm start                  # Run compiled version
+```
 
-Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
-
-Shannon is open source (AGPL v3). This license allows you to:
-- Use it freely for all internal security testing.
-- Modify the code privately for internal use without sharing your changes.
-
-The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
-
+---
 
 ## 👥 Community & Support
 
-### Community Resources
+### Get Help
 
-**Contributing:** At this time, we’re not accepting external code contributions (PRs).  
-Issues are welcome for bug reports and feature requests.
-
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)
-- 💡 **Suggest features** in [Discussions](https://github.com/KeygraphHQ/shannon/discussions)
-- 💬 **Join our [Discord](https://discord.gg/KAqzSHHpRt)** for real-time community support
+- 💬 **[Discord](https://discord.gg/KAqzSHHpRt)** - Real-time community support
+- 🐛 **[GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)** - Bug reports
+- 💡 **[Discussions](https://github.com/KeygraphHQ/shannon/discussions)** - Feature requests
 
 ### Stay Connected
 
@@ -494,29 +476,42 @@ Issues are welcome for bug reports and feature requests.
 - 💼 **LinkedIn**: [Keygraph](https://linkedin.com/company/keygraph)
 - 🌐 **Website**: [keygraph.io](https://keygraph.io)
 
+### Contributing
 
+We're not currently accepting external code contributions (PRs), but issues are welcome for bug reports and feature requests.
 
-## 💬 Get in Touch
+---
 
-### Interested in Shannon Pro?
+## 📜 License
 
-Shannon Pro is designed for organizations serious about application security. It offers enterprise-grade features, dedicated support, and seamless CI/CD integration, all powered by our most advanced LLM-based analysis engine. Find and fix complex vulnerabilities deep in your codebase before they ever reach production.
+Shannon Lite is released under the **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**.
 
-For a detailed breakdown of features, technical differences, and enterprise use cases, see our [complete comparison guide](./SHANNON-PRO.md).
+This license allows you to:
+- ✅ Use freely for internal security testing
+- ✅ Modify privately for internal use
+- ⚠️ Share modifications if offering Shannon as a public service
 
-<p align="center">
-  <a href="https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header" target="_blank">
-    <img src="https://img.shields.io/badge/📋%20Express%20Interest%20in%20Shannon%20Pro-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Express Interest">
-  </a>
-</p>
+---
 
-**Or contact us directly:**
+## 🙏 Acknowledgments
 
-📧 **Email**: [shannon@keygraph.io](mailto:shannon@keygraph.io)
+Shannon is built on the shoulders of giants:
+
+- [Anthropic Claude](https://anthropic.com) - AI reasoning engine
+- [Playwright](https://playwright.dev) - Browser automation
+- [OWASP](https://owasp.org) - Security standards & test targets
+- The security research community
 
 ---
 
 <p align="center">
-  <b>Built with ❤️ by the Keygraph team</b><br>
-  <i>Making application security accessible to everyone</i>
+  <strong>Built with ❤️ by the <a href="https://keygraph.io">Keygraph</a> team</strong>
+  <br>
+  <em>Making application security accessible to everyone</em>
+</p>
+
+<p align="center">
+  <a href="https://keygraph.io">
+    <img src="https://img.shields.io/badge/Powered%20by-Keygraph-blue?style=for-the-badge" alt="Powered by Keygraph">
+  </a>
 </p>

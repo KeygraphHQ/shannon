@@ -29,6 +29,7 @@ import { loadPrompt } from './prompts/prompt-manager.js';
 // Phases
 import { executePreReconPhase } from './phases/pre-recon.js';
 import { assembleFinalReport } from './phases/reporting.js';
+import { generateFindingsArtifacts } from './findings/runner.js';
 
 // Utils
 import { timingResults, displayTimingSummary, Timer } from './utils/metrics.js';
@@ -44,8 +45,11 @@ import { validateWebUrl, validateRepoPath } from './cli/input-validator.js';
 import { PentestError, logError } from './error-handling.js';
 
 import type { DistributedConfig } from './types/config.js';
+import type { Config } from './types/config.js';
 import type { ToolAvailability } from './tool-checker.js';
 import { safeValidateQueueAndDeliverable } from './queue-validation.js';
+import { computeCiExitCode, resolveCiOptions, type CiOptions } from './ci/index.js';
+import { runIntegrations } from './integrations/index.js';
 
 // Extend global namespace for SHANNON_DISABLE_LOADER
 declare global {
@@ -136,6 +140,11 @@ interface PromptVariables {
 interface MainResult {
   reportPath: string;
   auditLogsPath: string;
+  findingsPath?: string;
+  compliancePath?: string;
+  sarifPath?: string;
+  gitlabPath?: string;
+  ciExitCode?: number;
 }
 
 interface AgentResult {
@@ -173,7 +182,8 @@ const getPromptName = (agentName: AgentName): PromptName => {
     'auth-exploit': 'exploit-auth',
     'ssrf-exploit': 'exploit-ssrf',
     'authz-exploit': 'exploit-authz',
-    'report': 'report-executive'
+    'report': 'report-executive',
+    'report-findings': 'report-findings'
   };
 
   return mappings[agentName] || agentName as PromptName;
@@ -546,7 +556,8 @@ async function main(
   configPath: string | null = null,
   pipelineTestingMode: boolean = false,
   disableLoader: boolean = false,
-  outputPath: string | null = null
+  outputPath: string | null = null,
+  ciCliOptions: Partial<CiOptions> = {}
 ): Promise<MainResult> {
   // Set global flag for loader control
   global.SHANNON_DISABLE_LOADER = disableLoader;
@@ -570,6 +581,7 @@ async function main(
 
   // Parse configuration if provided
   let distributedConfig: DistributedConfig | null = null;
+  let fullConfig: Config | null = null;
   if (configPath) {
     try {
       // Resolve config path - check configs folder if relative path
@@ -584,12 +596,18 @@ async function main(
       }
 
       const config = await parseConfig(resolvedConfigPath);
+      fullConfig = config;
       distributedConfig = distributeConfig(config);
       console.log(chalk.green(`✅ Configuration loaded successfully`));
     } catch (error) {
       await logError(error as Error, `Configuration loading from ${configPath}`);
       throw error; // Let the main error boundary handle it
     }
+  }
+
+  const ciOptions = resolveCiOptions(fullConfig?.ci, ciCliOptions);
+  if (ciOptions.enabled) {
+    console.log(chalk.yellow(`⚙️  CI/CD mode enabled (platforms: ${ciOptions.platforms.join(', ')})`));
   }
 
   // Check tool availability
@@ -626,6 +644,10 @@ async function main(
     repoPath: sourceDir,
     ...(outputPath && { outputPath })
   };
+
+  // Initialize audit session once and reuse (avoid race conditions)
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
 
   // Create outputs directory in source directory
   try {
@@ -728,6 +750,51 @@ async function main(
       sessionMetadata
     );
 
+    let findingsArtifacts: Awaited<ReturnType<typeof generateFindingsArtifacts>> | null = null;
+    try {
+      findingsArtifacts = await generateFindingsArtifacts(
+        sourceDir,
+        variables,
+        distributedConfig,
+        pipelineTestingMode,
+        sessionMetadata,
+        ciOptions
+      );
+    } catch (error) {
+      const err = error as Error;
+      console.log(chalk.yellow(`⚠️ Findings enrichment failed: ${err.message}`));
+      if (ciOptions.enabled) {
+        throw error;
+      }
+    }
+
+    // Run integrations (Slack, Jira, webhooks) if configured
+    if (findingsArtifacts && (fullConfig?.integrations || fullConfig?.api?.webhooks)) {
+      console.log(chalk.blue('🔗 Running integrations...'));
+      try {
+        const integrationResult = await runIntegrations(
+          fullConfig?.integrations,
+          findingsArtifacts.report,
+          fullConfig?.api?.webhooks
+        );
+        // Log integration results to audit (reuse existing session)
+        await auditSession.logEvent('integrations', {
+          jiraIssueCount: integrationResult.jiraIssueKeys.length,
+          jiraIssues: integrationResult.jiraIssueKeys,
+          slackSuccess: integrationResult.slackSuccess,
+          webhookCount: integrationResult.webhookResults.size,
+          errors: integrationResult.errors,
+        });
+        if (integrationResult.errors.length > 0) {
+          console.log(chalk.yellow(`⚠️ ${integrationResult.errors.length} integration errors (see audit log)`));
+        }
+      } catch (error) {
+        const err = error as Error;
+        console.log(chalk.yellow(`⚠️ Integrations failed: ${err.message}`));
+        await auditSession.logEvent('integrations_error', { error: err.message });
+      }
+    }
+
     const reportDuration = reportTimer.stop();
     console.log(chalk.green(`✅ Final report generated in ${formatDuration(reportDuration)}`));
 
@@ -737,8 +804,7 @@ async function main(
     // Mark session as completed in both stores
     await updateSessionStatus(session.id, 'completed');
 
-    // Update audit system's session.json status
-    const auditSession = new AuditSession(sessionMetadata);
+    // Update audit system's session.json status (reuse existing session)
     await auditSession.updateSessionStatus('completed');
 
     // Display comprehensive timing summary
@@ -754,18 +820,33 @@ async function main(
   await consolidateOutputs(sourceDir, auditLogsPath);
   console.log(chalk.green(`\n📂 All outputs consolidated: ${auditLogsPath}`));
 
+    const ciExitCode = findingsArtifacts && ciOptions.enabled
+      ? computeCiExitCode(findingsArtifacts.report.findings, ciOptions.failOn)
+      : undefined;
+
     return {
       reportPath: path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md'),
-      auditLogsPath
+      auditLogsPath,
+      ...(findingsArtifacts?.findingsPath && { findingsPath: findingsArtifacts.findingsPath }),
+      ...(findingsArtifacts?.compliancePath && { compliancePath: findingsArtifacts.compliancePath }),
+      ...(findingsArtifacts?.sarifPath && { sarifPath: findingsArtifacts.sarifPath }),
+      ...(findingsArtifacts?.gitlabPath && { gitlabPath: findingsArtifacts.gitlabPath }),
+      ...(ciExitCode !== undefined && { ciExitCode })
     };
 
   } catch (error) {
     // Mark session as failed in both stores
     await updateSessionStatus(session.id, 'failed');
 
-    // Update audit system's session.json status
-    const auditSession = new AuditSession(sessionMetadata);
+    // Update audit system's session.json status (reuse existing session)
     await auditSession.updateSessionStatus('failed');
+
+    // Log the error to audit trail
+    const err = error as Error;
+    await auditSession.logEvent('execution_error', {
+      error: err.message,
+      stack: process.env.DEBUG ? err.stack : undefined,
+    });
 
     throw error;
   }
@@ -778,11 +859,20 @@ if (args[0] && args[0].includes('shannon')) {
   args = args.slice(1);
 }
 
+if (args[0] === 'server') {
+  const { startApiServer } = await import('./api/server.js');
+  await startApiServer(args.slice(1));
+  process.exit(0);
+}
+
 // Parse flags and arguments
 let configPath: string | null = null;
 let outputPath: string | null = null;
 let pipelineTestingMode = false;
 let disableLoader = false;
+let ciEnabled: boolean | undefined;
+let ciPlatforms: CiOptions['platforms'] | undefined;
+let ciFailOn: CiOptions['failOn'] | undefined;
 const nonFlagArgs: string[] = [];
 
 for (let i = 0; i < args.length; i++) {
@@ -806,6 +896,25 @@ for (let i = 0; i < args.length; i++) {
     pipelineTestingMode = true;
   } else if (args[i] === '--disable-loader') {
     disableLoader = true;
+  } else if (args[i] === '--ci') {
+    ciEnabled = true;
+  } else if (args[i] === '--ci-platforms') {
+    if (i + 1 < args.length) {
+      const raw = args[i + 1]!;
+      ciPlatforms = raw.split(',').map((p) => p.trim()).filter(Boolean) as CiOptions['platforms'];
+      i++;
+    } else {
+      console.log(chalk.red('❌ --ci-platforms flag requires a comma-separated list'));
+      process.exit(1);
+    }
+  } else if (args[i] === '--ci-fail-on') {
+    if (i + 1 < args.length) {
+      ciFailOn = args[i + 1] as CiOptions['failOn'];
+      i++;
+    } else {
+      console.log(chalk.red('❌ --ci-fail-on flag requires a severity value'));
+      process.exit(1);
+    }
   } else if (!args[i]!.startsWith('-')) {
     nonFlagArgs.push(args[i]!);
   }
@@ -866,11 +975,44 @@ if (disableLoader) {
 }
 
 try {
-  const result = await main(webUrl!, repoPathValidation.path!, configPath, pipelineTestingMode, disableLoader, outputPath);
+  const ciCliOptions: Partial<CiOptions> = {
+    ...(ciEnabled !== undefined && { enabled: ciEnabled }),
+    ...(ciPlatforms && { platforms: ciPlatforms }),
+    ...(ciFailOn && { failOn: ciFailOn }),
+  };
+
+  const result = await main(
+    webUrl!,
+    repoPathValidation.path!,
+    configPath,
+    pipelineTestingMode,
+    disableLoader,
+    outputPath,
+    ciCliOptions
+  );
   console.log(chalk.green.bold('\n📄 FINAL REPORT AVAILABLE:'));
   console.log(chalk.cyan(result.reportPath));
   console.log(chalk.green.bold('\n📂 AUDIT LOGS AVAILABLE:'));
   console.log(chalk.cyan(result.auditLogsPath));
+  if (result.findingsPath) {
+    console.log(chalk.green.bold('\n🧾 FINDINGS JSON AVAILABLE:'));
+    console.log(chalk.cyan(result.findingsPath));
+  }
+  if (result.compliancePath) {
+    console.log(chalk.green.bold('\n✅ COMPLIANCE REPORT AVAILABLE:'));
+    console.log(chalk.cyan(result.compliancePath));
+  }
+  if (result.sarifPath) {
+    console.log(chalk.green.bold('\n📦 SARIF REPORT AVAILABLE:'));
+    console.log(chalk.cyan(result.sarifPath));
+  }
+  if (result.gitlabPath) {
+    console.log(chalk.green.bold('\n📦 GITLAB SAST REPORT AVAILABLE:'));
+    console.log(chalk.cyan(result.gitlabPath));
+  }
+  if (result.ciExitCode !== undefined) {
+    process.exitCode = result.ciExitCode;
+  }
 
 } catch (error) {
   // Enhanced error boundary with proper logging

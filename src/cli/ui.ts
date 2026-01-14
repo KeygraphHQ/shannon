@@ -13,7 +13,8 @@ export function showHelp(): void {
   console.log(chalk.gray('Automated security assessment tool\n'));
 
   console.log(chalk.yellow.bold('USAGE:'));
-  console.log('  shannon <WEB_URL> <REPO_PATH> [--config config.yaml] [--output /path/to/reports]\n');
+  console.log('  shannon <WEB_URL> <REPO_PATH> [--config config.yaml] [--output /path/to/reports]');
+  console.log('  shannon server [--config config.yaml] [--host 127.0.0.1] [--port 8080] [--api-key key]\n');
 
   console.log(chalk.yellow.bold('OPTIONS:'));
   console.log(
@@ -26,6 +27,15 @@ export function showHelp(): void {
     '  --pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)'
   );
   console.log(
+    '  --ci                 Enable CI/CD mode (generates SARIF/GitLab reports + exit codes)'
+  );
+  console.log(
+    '  --ci-platforms <p>   Comma-separated list: github,gitlab'
+  );
+  console.log(
+    '  --ci-fail-on <sev>   Fail pipeline on severity (Critical|High|Medium|Low|Info)'
+  );
+  console.log(
     '  --disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)'
   );
   console.log('  --help               Show this help message\n');
@@ -35,6 +45,7 @@ export function showHelp(): void {
   console.log('  shannon "https://example.com" "/path/to/local/repo" --config auth.yaml');
   console.log('  shannon "https://example.com" "/path/to/local/repo" --output /path/to/reports');
   console.log('  shannon "https://example.com" "/path/to/local/repo" --pipeline-testing\n');
+  console.log('  shannon server --config configs/example-config.yaml --host 127.0.0.1 --port 8080\n');
 
   console.log(chalk.yellow.bold('REQUIREMENTS:'));
   console.log('  • WEB_URL must start with http:// or https://');

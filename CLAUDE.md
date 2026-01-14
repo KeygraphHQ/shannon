@@ -4,301 +4,318 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-This is an AI-powered penetration testing agent designed for defensive security analysis. The tool automates vulnerability assessment by combining external reconnaissance tools with AI-powered code analysis to identify security weaknesses in web applications and their source code.
+Shannon is a **fully autonomous AI penetration tester** that delivers real exploits, not just alerts. It combines white-box source code analysis with black-box dynamic exploitation to find and prove vulnerabilities in web applications.
+
+### Key Capabilities
+- **Autonomous Operation**: Zero human intervention from start to finish
+- **Proof-by-Exploitation**: Only reports vulnerabilities it can actually exploit
+- **Multi-Agent Architecture**: Specialized agents for each vulnerability class
+- **Production-Grade Security**: SSRF protection, rate limiting, secrets validation
+- **CI/CD Native**: SARIF output, GitLab SAST, exit codes for pipeline gates
 
 ## Commands
 
 ### Installation & Setup
 ```bash
 npm install
+npm run build
 ```
 
 ### Running the Penetration Testing Agent
 ```bash
-shannon <WEB_URL> <REPO_PATH> [--config <CONFIG_FILE>] [--output <OUTPUT_DIR>]
-```
+# Basic usage
+shannon <WEB_URL> <REPO_PATH>
 
-Example:
-```bash
-shannon "https://example.com" "/path/to/local/repo"
-shannon "https://juice-shop.herokuapp.com" "/home/user/juice-shop" --config juice-shop-config.yaml
+# With configuration
+shannon "https://example.com" "/path/to/repo" --config configs/my-config.yaml
+
+# With custom output directory
 shannon "https://example.com" "/path/to/repo" --output /path/to/reports
+
+# CI/CD mode
+shannon "https://example.com" "/path/to/repo" --ci --ci-fail-on High
 ```
 
-### Alternative Execution
+### API Server Mode
 ```bash
-npm start <WEB_URL> <REPO_PATH> --config <CONFIG_FILE>
+# Start the API server
+shannon server --config configs/my-config.yaml --host 127.0.0.1 --port 8080
+
+# Generate a secure API key
+npm run generate-key
 ```
 
-### Options
+### Testing
 ```bash
---config <file>      YAML configuration file for authentication and testing parameters
---output <path>      Custom output directory for session folder (default: ./audit-logs/)
---pipeline-testing   Use minimal prompts for fast pipeline testing (creates minimal deliverables)
---disable-loader     Disable the animated progress loader (useful when logs interfere with spinner)
---help               Show help message
+npm test                    # Run all tests
+npm run test:watch          # Watch mode
+npm run test:coverage       # With coverage report
 ```
 
-### Configuration Validation
+### Development
 ```bash
-# Configuration validation is built into the main script
-shannon --help  # Shows usage and validates config on execution
+npm run build              # Compile TypeScript
+npm run lint               # Type check without emitting
+npm start                  # Run compiled version
+
+# Fast development testing
+shannon <URL> <PATH> --pipeline-testing
 ```
 
-### Generate TOTP for Authentication
-TOTP generation is now handled automatically via the `generate_totp` MCP tool during authentication flows.
-
-### Development Commands
+### CLI Options
 ```bash
-# No linting or testing commands available in this project
-# Development is done by running the agent in pipeline-testing mode
-shannon <WEB_URL> <REPO_PATH> --pipeline-testing
+--config <file>          YAML configuration file
+--output <path>          Custom output directory (default: ./audit-logs/)
+--ci                     Enable CI/CD mode with exit codes
+--ci-platforms <list>    Comma-separated: github,gitlab
+--ci-fail-on <severity>  Threshold: Critical|High|Medium|Low|Info
+--pipeline-testing       Use minimal prompts for fast testing
+--disable-loader         Disable the animated progress loader
+--help                   Show help message
 ```
 
 ## Architecture & Components
 
-### Main Entry Point
-- `src/shannon.ts` - Main orchestration script that coordinates the entire penetration testing workflow (compiles to `dist/shannon.js`)
-
-### Core Modules
-- `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
-- `src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
-- `src/tool-checker.ts` - Validates availability of external security tools before execution
-- `src/session-manager.ts` - Agent definitions, execution order, and parallel groups
-- `src/queue-validation.ts` - Validates deliverables and agent prerequisites
+### Directory Structure
+```
+src/
+├── shannon.ts              # Main entry point & orchestration
+├── ai/
+│   └── claude-executor.ts  # Claude Agent SDK integration
+├── api/
+│   └── server.ts           # REST API server with rate limiting
+├── audit/
+│   ├── audit-session.ts    # Forensic logging facade
+│   ├── logger.ts           # Crash-safe append-only logging
+│   └── metrics-tracker.ts  # Timing & cost tracking
+├── ci/
+│   └── index.ts            # CI/CD integration (SARIF, GitLab)
+├── cli/
+│   ├── ui.ts               # Help text & splash screen
+│   └── input-validator.ts  # URL & path validation
+├── compliance/
+│   └── mappings.ts         # OWASP, PCI-DSS, SOC2 mappings
+├── config-parser.ts        # YAML config with JSON Schema validation
+├── cvss/
+│   ├── v3_1.ts             # CVSS 3.1 scoring
+│   └── v4_0.ts             # CVSS 4.0 scoring
+├── findings/
+│   ├── types.ts            # Finding interfaces
+│   ├── parser.ts           # LLM output parsing
+│   ├── enrich.ts           # CVSS & compliance enrichment
+│   └── exporters.ts        # JSON, CSV, SARIF, GitLab SAST
+├── integrations/
+│   ├── slack.ts            # Slack notifications
+│   ├── jira.ts             # Jira ticket creation
+│   └── webhooks.ts         # Generic webhooks with HMAC signing
+├── phases/
+│   ├── pre-recon.ts        # External tool scans
+│   └── reporting.ts        # Final report assembly
+├── security/
+│   ├── url-validator.ts    # SSRF protection
+│   ├── secrets-validator.ts # Credential validation
+│   ├── rate-limiter.ts     # API rate limiting
+│   └── secure-fetch.ts     # Hardened HTTP client
+├── session-manager.ts      # Agent definitions & parallel groups
+└── types/
+    ├── agents.ts           # Agent type definitions
+    └── config.ts           # Configuration interfaces
+```
 
 ### Five-Phase Testing Workflow
 
-1. **Pre-Reconnaissance** (`pre-recon`) - External tool scans (nmap, subfinder, whatweb) + source code analysis
-2. **Reconnaissance** (`recon`) - Analysis of initial findings and attack surface mapping  
-3. **Vulnerability Analysis** (5 agents run in parallel)
-   - `injection-vuln` - SQL injection, command injection
-   - `xss-vuln` - Cross-site scripting 
-   - `auth-vuln` - Authentication bypasses
-   - `authz-vuln` - Authorization flaws
-   - `ssrf-vuln` - Server-side request forgery
-4. **Exploitation** (5 agents run in parallel, only if vulnerabilities found)
-   - `injection-exploit` - Exploit injection vulnerabilities
-   - `xss-exploit` - Exploit XSS vulnerabilities  
-   - `auth-exploit` - Exploit authentication issues
-   - `authz-exploit` - Exploit authorization flaws
-   - `ssrf-exploit` - Exploit SSRF vulnerabilities
-5. **Reporting** (`report`) - Executive-level security report generation
+```
+Phase 1: PRE-RECONNAISSANCE
+├── External tool scans (nmap, subfinder, whatweb)
+└── Source code analysis
+
+Phase 2: RECONNAISSANCE
+├── Attack surface mapping
+└── Entry point discovery
+
+Phase 3: VULNERABILITY ANALYSIS (5 agents in parallel)
+├── injection-vuln  → SQL injection, command injection
+├── xss-vuln        → Cross-site scripting
+├── auth-vuln       → Authentication bypasses
+├── authz-vuln      → Authorization flaws
+└── ssrf-vuln       → Server-side request forgery
+
+Phase 4: EXPLOITATION (5 agents in parallel)
+├── injection-exploit  → Exploit injection vulnerabilities
+├── xss-exploit        → Exploit XSS vulnerabilities
+├── auth-exploit       → Exploit auth issues
+├── authz-exploit      → Exploit authz flaws
+└── ssrf-exploit       → Exploit SSRF vulnerabilities
+
+Phase 5: REPORTING
+├── Executive summary generation
+├── Finding normalization & CVSS scoring
+├── Compliance mapping
+└── CI/CD artifact generation
+```
+
+### Key Modules
+
+#### Security Module (`src/security/`)
+Production-grade security utilities:
+- **URL Validator**: SSRF protection, scheme blocking, private IP detection
+- **Secrets Validator**: Placeholder detection, entropy analysis
+- **Rate Limiter**: Sliding window algorithm with per-client tracking
+- **Secure Fetch**: Timeouts, retries, SSRF protection built-in
+
+#### CI/CD Module (`src/ci/`)
+- Exit code computation based on severity threshold
+- SARIF report generation for GitHub Code Scanning
+- GitLab SAST format output
+- CI environment auto-detection
+
+#### Integrations Module (`src/integrations/`)
+- **Slack**: Webhook & Bot API support with URL validation
+- **Jira**: Automatic ticket creation with ADF formatting
+- **Webhooks**: HMAC-signed events with retry logic
+
+### Claude Agent SDK Configuration
+```typescript
+{
+  maxTurns: 10_000,           // Extensive autonomous analysis
+  permissionMode: 'bypassPermissions',  // Full system access
+  // Playwright MCP for browser automation
+  // Working directory set to target repository
+}
+```
 
 ### Configuration System
-The agent supports YAML configuration files with JSON Schema validation:
-- `configs/config-schema.json` - JSON Schema for configuration validation
-- `configs/example-config.yaml` - Template configuration file
-- `configs/juice-shop-config.yaml` - Example configuration for OWASP Juice Shop
-- `configs/keygraph-config.yaml` - Configuration for Keygraph applications
-- `configs/chatwoot-config.yaml` - Configuration for Chatwoot applications
-- `configs/metabase-config.yaml` - Configuration for Metabase applications
-- `configs/cal-com-config.yaml` - Configuration for Cal.com applications
 
-Configuration includes:
-- Authentication settings (form, SSO, API, basic auth)
-- Multi-factor authentication with TOTP support
-- Custom login flow instructions
-- Application-specific testing parameters
+JSON Schema validated YAML configuration:
+```yaml
+authentication:
+  login_type: form|sso|api|basic
+  login_url: "https://..."
+  credentials:
+    username: "..."
+    password: "..."
+    totp_secret: "..."  # Optional 2FA
+  login_flow: ["Step 1", "Step 2", ...]
+  success_condition:
+    type: url_contains|element_present|text_contains
+    value: "..."
 
-### Prompt Templates
-The `prompts/` directory contains specialized prompt templates for each testing phase:
-- `pre-recon-code.txt` - Initial code analysis prompts
-- `recon.txt` - Reconnaissance analysis prompts  
-- `vuln-*.txt` - Vulnerability assessment prompts (injection, XSS, auth, authz, SSRF)
-- `exploit-*.txt` - Exploitation attempt prompts
-- `report-executive.txt` - Executive report generation prompts
+rules:
+  avoid: [{description, type, url_path}]
+  focus: [{description, type, url_path}]
 
-### Claude Agent SDK Integration
-The agent uses the `@anthropic-ai/claude-agent-sdk` with maximum autonomy configuration:
-- `maxTurns: 10_000` - Allows extensive autonomous analysis
-- `permissionMode: 'bypassPermissions'` - Full system access for thorough testing
-- Playwright MCP integration for web browser automation
-- Working directory set to target local repository
-- Configuration context injection for authenticated testing
+ci:
+  enabled: true
+  platforms: [github, gitlab]
+  fail_on: High
 
-### Authentication & Login Resources
-- `prompts/shared/login-instructions.txt` - Login flow template for all agents
-- TOTP token generation via MCP `generate_totp` tool
-- Support for multi-factor authentication workflows
-- Configurable authentication mechanisms (form, SSO, API, basic)
+integrations:
+  slack: {webhook_url, bot_token, channel, notify_on}
+  jira: {base_url, email, api_token, project_key, issue_type}
+  webhooks: [{url, secret, events}]
+
+compliance:
+  frameworks: [owasp_top10_2021, pci_dss_v4, soc2_tsc]
+```
 
 ### Output & Deliverables
-All analysis results are saved to the `deliverables/` directory within the target local repository, including:
-- Pre-reconnaissance reports with external scan results
-- Vulnerability assessment findings
-- Exploitation attempt results
-- Executive-level security reports with business impact analysis
 
-### External Tool Dependencies
-The agent integrates with external security tools:
-- `nmap` - Network port scanning
-- `subfinder` - Subdomain discovery  
-- `whatweb` - Web technology fingerprinting
-
-Tools are validated for availability before execution using the tool-checker module.
-
-### Audit & Metrics System
-The agent implements a crash-safe audit system with the following features:
-
-**Architecture:**
-- **audit-logs/** (or custom `--output` path): Centralized metrics and forensic logs
-  - `{hostname}_{sessionId}/session.json` - Comprehensive metrics with attempt-level detail
-  - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
-  - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
-  - `{hostname}_{sessionId}/deliverables/` - Security reports and findings
-- **.shannon-store.json**: Minimal session lock file (prevents concurrent runs)
-
-**Crash Safety:**
-- Append-only logging with immediate flush (survives kill -9)
-- Atomic writes for session.json (no partial writes)
-- Event-based logging (tool_start, tool_end, llm_response)
-
-**Concurrency Safety:**
-- SessionMutex prevents race conditions during parallel agent execution
-- 5x faster execution with parallel vulnerability and exploitation phases
-
-**Metrics & Reporting:**
-- Export metrics to CSV with `./scripts/export-metrics.js`
-- Phase-level and agent-level timing/cost aggregations
-- Validation results integrated with metrics
-
-For detailed design, see `docs/unified-audit-system-design.md`.
+All results saved to `./audit-logs/{hostname}_{sessionId}/`:
+```
+├── session.json           # Comprehensive metrics
+├── prompts/               # Exact prompts used
+├── agents/                # Turn-by-turn execution logs
+└── deliverables/
+    ├── comprehensive_security_assessment_report.md
+    ├── findings.json      # Structured findings
+    ├── findings.csv       # Spreadsheet format
+    ├── compliance_report.md
+    ├── findings.sarif     # GitHub Code Scanning
+    └── gl-sast-report.json # GitLab SAST
+```
 
 ## Development Notes
 
 ### Key Design Patterns
-- **Configuration-Driven Architecture**: YAML configs with JSON Schema validation
-- **Modular Error Handling**: Categorized error types with retry logic
-- **Pure Functions**: Most functionality is implemented as pure functions for testability
-- **SDK-First Approach**: Heavy reliance on Claude Agent SDK for autonomous AI operations
-- **Progressive Analysis**: Each phase builds on previous phase results
-- **Local Repository Setup**: Target applications are accessed directly from user-provided local directories
-- **Fire-and-Forget Execution**: Single entry point, runs all phases to completion
+- **Configuration-Driven**: YAML configs with JSON Schema validation
+- **Security-First**: SSRF protection, secrets validation, rate limiting
+- **Modular Architecture**: Each phase/agent is isolated
+- **Crash-Safe Logging**: Append-only with atomic writes
+- **Parallel Execution**: 5x faster with concurrent agent phases
 
-### Error Handling Strategy
-The application uses a comprehensive error handling system with:
-- Categorized error types (PentestError, ConfigError, NetworkError, etc.)
-- Automatic retry logic for transient failures (3 attempts per agent)
-- Graceful degradation when external tools are unavailable
-- Detailed error logging and user-friendly error messages
+### Error Handling
+- Categorized error types (PentestError, ConfigError, etc.)
+- Automatic retry logic (3 attempts per agent)
+- Graceful degradation when tools unavailable
+- Full audit trail of all errors
 
-### Testing Mode
-The agent includes a testing mode that skips external tool execution for faster development cycles:
+### Testing
 ```bash
-shannon <WEB_URL> <REPO_PATH> --pipeline-testing
+# Run security module tests
+npm test src/security/
+
+# Run CI module tests
+npm test src/ci/
+
+# Run all tests with coverage
+npm run test:coverage
 ```
 
-### Security Focus
-This is explicitly designed as a **defensive security tool** for:
-- Vulnerability assessment
-- Security analysis  
-- Penetration testing
-- Security report generation
+### External Tool Dependencies
+- `nmap` - Network port scanning
+- `subfinder` - Subdomain discovery
+- `whatweb` - Web technology fingerprinting
 
-The tool should only be used on systems you own or have explicit permission to test.
-
-## File Structure
-
-```
-src/                             # TypeScript source files
-├── shannon.ts                   # Main orchestration script (entry point)
-├── constants.ts                 # Shared constants
-├── config-parser.ts             # Configuration handling
-├── error-handling.ts            # Error management
-├── tool-checker.ts              # Tool validation
-├── session-manager.ts           # Agent definitions, order, and parallel groups
-├── queue-validation.ts          # Deliverable validation
-├── splash-screen.ts             # ASCII art splash screen
-├── progress-indicator.ts        # Progress display utilities
-├── types/                       # TypeScript type definitions
-│   ├── index.ts                 # Barrel exports
-│   ├── agents.ts                # Agent type definitions
-│   ├── config.ts                # Configuration interfaces
-│   ├── errors.ts                # Error type definitions
-│   └── session.ts               # Session type definitions
-├── audit/                       # Audit system
-│   ├── index.ts                 # Public API
-│   ├── audit-session.ts         # Main facade (logger + metrics + mutex)
-│   ├── logger.ts                # Append-only crash-safe logging
-│   ├── metrics-tracker.ts       # Timing, cost, attempt tracking
-│   └── utils.ts                 # Path generation, atomic writes
-├── ai/
-│   └── claude-executor.ts       # Claude Agent SDK integration
-├── phases/
-│   ├── pre-recon.ts             # Pre-reconnaissance phase
-│   └── reporting.ts             # Final report assembly
-├── prompts/
-│   └── prompt-manager.ts        # Prompt loading and variable substitution
-├── setup/
-│   └── environment.ts           # Local repository setup
-├── cli/
-│   ├── ui.ts                    # Help text display
-│   └── input-validator.ts       # URL and path validation
-└── utils/
-    ├── git-manager.ts           # Git operations
-    ├── metrics.ts               # Timing utilities
-    ├── output-formatter.ts      # Output formatting utilities
-    └── concurrency.ts           # SessionMutex for parallel execution
-dist/                            # Compiled JavaScript output
-├── shannon.js                   # Compiled entry point
-└── ...                          # Other compiled files
-package.json                     # Node.js dependencies
-.shannon-store.json              # Session lock file
-audit-logs/                      # Centralized audit data (default, or use --output)
-└── {hostname}_{sessionId}/
-    ├── session.json             # Comprehensive metrics
-    ├── prompts/                 # Prompt snapshots
-    │   └── {agent}.md
-    ├── agents/                  # Agent execution logs
-    │   └── {timestamp}_{agent}_attempt-{N}.log
-    └── deliverables/            # Security reports and findings
-        └── ...
-configs/                         # Configuration files
-├── config-schema.json           # JSON Schema validation
-├── example-config.yaml          # Template configuration
-├── juice-shop-config.yaml       # Juice Shop example
-├── keygraph-config.yaml         # Keygraph configuration
-├── chatwoot-config.yaml         # Chatwoot configuration
-├── metabase-config.yaml         # Metabase configuration
-└── cal-com-config.yaml          # Cal.com configuration
-prompts/                         # AI prompt templates
-├── shared/                      # Shared content for all prompts
-│   ├── _target.txt              # Target URL template
-│   ├── _rules.txt               # Rules template
-│   ├── _vuln-scope.txt          # Vulnerability scope template
-│   ├── _exploit-scope.txt       # Exploitation scope template
-│   └── login-instructions.txt   # Login flow template
-├── pre-recon-code.txt           # Code analysis
-├── recon.txt                    # Reconnaissance
-├── vuln-*.txt                   # Vulnerability assessment
-├── exploit-*.txt                # Exploitation
-└── report-executive.txt         # Executive reporting
-scripts/                         # Utility scripts
-└── export-metrics.js            # Export metrics to CSV
-deliverables/                    # Output directory (in target repo)
-docs/                            # Documentation
-├── unified-audit-system-design.md
-└── migration-guide.md
-```
+Use `--pipeline-testing` to skip external tools during development.
 
 ## Troubleshooting
 
 ### Common Issues
-- **"A session is already running"**: Wait for the current session to complete, or delete `.shannon-store.json`
-- **"Repository not found"**: Ensure target local directory exists and is accessible
-- **Concurrent runs blocked**: Only one session can run at a time per target
+- **"A session is already running"**: Delete `.shannon-store.json`
+- **"Repository not found"**: Verify target path exists
+- **API key rejected**: Ensure minimum 32 characters, no placeholders
 
-### External Tool Dependencies
-Missing tools can be skipped using `--pipeline-testing` mode during development:
-- `nmap` - Network scanning
-- `subfinder` - Subdomain discovery
-- `whatweb` - Web technology detection
+### Security Validation Errors
+- **"URL validation failed: SSRF"**: Webhook URLs must be external HTTPS
+- **"Placeholder detected"**: Replace example values with real secrets
+- **"Weak entropy"**: Use `npm run generate-key` for secure keys
 
-### Diagnostic & Utility Scripts
+### Debug Mode
 ```bash
-# Export metrics to CSV
-./scripts/export-metrics.js --session-id <id> --output metrics.csv
+DEBUG=1 shannon <URL> <PATH>
 ```
 
-Note: For recovery from corrupted state, simply delete `.shannon-store.json` or edit JSON files directly.
+## API Reference
+
+### REST API Endpoints
+
+```
+GET  /health                    # Health check (no auth)
+GET  /api/v1/generate-key       # Generate secure API key
+GET  /api/v1/runs               # List all runs (paginated)
+GET  /api/v1/runs/:id           # Get run status
+POST /api/v1/runs               # Start new scan
+POST /api/v1/runs/:id/cancel    # Cancel running scan
+```
+
+### Authentication
+```bash
+# Header options
+X-API-Key: <your-key>
+Authorization: Bearer <your-key>
+```
+
+### Rate Limits
+- API endpoints: 60 requests/minute
+- Scan creation: 10 scans/5 minutes
+- Webhooks: 100 calls/minute
+
+## File Locations
+
+| File | Purpose |
+|------|---------|
+| `src/shannon.ts` | Main entry point |
+| `configs/config-schema.json` | Configuration schema |
+| `configs/example-config.yaml` | Example configuration |
+| `.shannon-store.json` | Session lock file |
+| `audit-logs/` | Output directory |
