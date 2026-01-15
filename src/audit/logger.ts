@@ -15,10 +15,10 @@ import fs from 'fs';
 import {
   generateLogPath,
   generatePromptPath,
-  atomicWrite,
-  formatTimestamp,
   type SessionMetadata,
 } from './utils.js';
+import { atomicWrite } from '../utils/file-io.js';
+import { formatTimestamp } from '../utils/formatting.js';
 
 interface LogEvent {
   type: string;
@@ -96,22 +96,13 @@ export class AgentLogger {
         return;
       }
 
-      // Write and flush immediately (crash-safe)
       const needsDrain = !this.stream.write(text, 'utf8', (error) => {
-        if (error) {
-          reject(error);
-        }
+        if (error) reject(error);
       });
 
       if (needsDrain) {
-        // Buffer is full, wait for drain
-        const drainHandler = (): void => {
-          this.stream!.removeListener('drain', drainHandler);
-          resolve();
-        };
-        this.stream.once('drain', drainHandler);
+        this.stream.once('drain', resolve);
       } else {
-        // Buffer has space, resolve immediately
         resolve();
       }
     });

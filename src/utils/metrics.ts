@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 import chalk from 'chalk';
-import { formatDuration } from '../audit/utils.js';
+import { formatDuration } from './formatting.js';
 
 // Timing utilities
 

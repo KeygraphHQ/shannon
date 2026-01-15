@@ -47,10 +47,6 @@ export type PlaywrightAgent =
 
 export type AgentValidator = (sourceDir: string) => Promise<boolean>;
 
-export type AgentValidatorMap = Record<AgentName, AgentValidator>;
-
-export type McpAgentMapping = Record<PromptName, PlaywrightAgent>;
-
 export type AgentStatus =
   | 'pending'
   | 'in_progress'
@@ -62,4 +58,27 @@ export interface AgentDefinition {
   name: AgentName;
   displayName: string;
   prerequisites: AgentName[];
+}
+
+/**
+ * Maps an agent name to its corresponding prompt file name.
+ */
+export function getPromptNameForAgent(agentName: AgentName): PromptName {
+  const mappings: Record<AgentName, PromptName> = {
+    'pre-recon': 'pre-recon-code',
+    'recon': 'recon',
+    'injection-vuln': 'vuln-injection',
+    'xss-vuln': 'vuln-xss',
+    'auth-vuln': 'vuln-auth',
+    'ssrf-vuln': 'vuln-ssrf',
+    'authz-vuln': 'vuln-authz',
+    'injection-exploit': 'exploit-injection',
+    'xss-exploit': 'exploit-xss',
+    'auth-exploit': 'exploit-auth',
+    'ssrf-exploit': 'exploit-ssrf',
+    'authz-exploit': 'exploit-authz',
+    'report': 'report-executive',
+  };
+
+  return mappings[agentName];
 }

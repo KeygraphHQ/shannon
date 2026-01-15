@@ -79,10 +79,11 @@ Shannon is available in two editions:
 - [Product Line](#-product-line)
 - [Setup & Usage Instructions](#-setup--usage-instructions)
   - [Prerequisites](#prerequisites)
-  - [Authentication Setup](#authentication-setup)
-  - [Quick Start with Docker](#quick-start-with-docker)
+  - [Quick Start](#quick-start)
+  - [Monitoring Progress](#monitoring-progress)
+  - [Stopping Shannon](#stopping-shannon)
+  - [Usage Examples](#usage-examples)
   - [Configuration (Optional)](#configuration-optional)
-  - [Usage Patterns](#usage-patterns)
   - [Output and Results](#output-and-results)
 - [Sample Reports & Benchmarks](#-sample-reports--benchmarks)
 - [Architecture](#-architecture)
@@ -98,36 +99,71 @@ Shannon is available in two editions:
 
 ### Prerequisites
 
-- **Claude Console account with credits** - Required for AI-powered analysis
-- **Docker installed** - Primary deployment method
+- **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
+- **Anthropic API key or Claude Code OAuth token** - Get from [Anthropic Console](https://console.anthropic.com)
 
-### Authentication Setup
-
-You need either a **Claude Code OAuth token** or an **Anthropic API key** to run Shannon. Get your token from the [Anthropic Console](https://console.anthropic.com) and pass it to Docker via the `-e` flag.
-
-### Environment Configuration (Recommended)
-
-To prevent Claude Code from hitting token limits during long report generation, set the max output tokens environment variable:
-
-**For local runs:**
-```bash
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
-```
-
-**For Docker runs:**
-```bash
--e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
-```
-
-### Quick Start with Docker
-
-#### Build the Container
+### Quick Start
 
 ```bash
-docker build -t shannon:latest .
+# 1. Clone Shannon
+git clone https://github.com/KeygraphHQ/shannon.git
+cd shannon
+
+# 2. Configure credentials (choose one method)
+
+# Option A: Export environment variables
+export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
+
+# Option B: Create a .env file
+cat > .env << 'EOF'
+ANTHROPIC_API_KEY=your-api-key
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+EOF
+
+# 3. Run a pentest
+./shannon start URL=https://your-app.com REPO=/path/to/your/repo
 ```
 
-#### Prepare Your Repository
+Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
+
+### Monitoring Progress
+
+```bash
+# View real-time worker logs
+./shannon logs
+
+# Query a specific workflow's progress
+./shannon query ID=shannon-1234567890
+
+# Open the Temporal Web UI for detailed monitoring
+open http://localhost:8233
+```
+
+### Stopping Shannon
+
+```bash
+# Stop all containers (preserves workflow data)
+./shannon stop
+
+# Full cleanup (removes all data)
+./shannon stop CLEAN=true
+```
+
+### Usage Examples
+
+```bash
+# Basic pentest
+./shannon start URL=https://example.com REPO=/path/to/repo
+
+# With a configuration file
+./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
+
+# Custom output directory
+./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+```
+
+### Prepare Your Repository
 
 Shannon is designed for **web application security testing** and expects all application code to be available in a single directory structure. This works well for:
 
@@ -137,105 +173,35 @@ Shannon is designed for **web application security testing** and expects all app
 **For monorepos:**
 
 ```bash
-git clone https://github.com/your-org/your-monorepo.git repos/your-app
+git clone https://github.com/your-org/your-monorepo.git /path/to/your-app
 ```
 
 **For multi-repository applications** (e.g., separate frontend/backend):
 
 ```bash
-mkdir repos/your-app
-cd repos/your-app
+mkdir /path/to/your-app
+cd /path/to/your-app
 git clone https://github.com/your-org/frontend.git
 git clone https://github.com/your-org/backend.git
 git clone https://github.com/your-org/api.git
 ```
 
-**For existing local repositories:**
-
-```bash
-cp -r /path/to/your-existing-repo repos/your-app
-```
-
-#### Run Your First Pentest
-
-**With Claude Console OAuth Token:**
-
-```bash
-docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
-```
-
-**With Anthropic API Key:**
-
-```bash
-docker run --rm -it \
-      --network host \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "https://your-app.com/" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
-```
-
-#### Platform-Specific Instructions
+### Platform-Specific Instructions
 
 **For Linux (Native Docker):**
 
-Add the `--user $(id -u):$(id -g)` flag to the Docker commands above to avoid permission issues with volume mounts. Docker Desktop on macOS and Windows handles this automatically, but native Linux Docker requires explicit user mapping.
+You may need to run commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
 
-**Network Capabilities:**
+**For macOS:**
 
-- `--cap-add=NET_RAW` - Enables advanced port scanning with nmap
-- `--cap-add=NET_ADMIN` - Allows network administration for security tools
-- `--network host` - Provides access to target network interfaces
+Works out of the box with Docker Desktop installed.
 
 **Testing Local Applications:**
 
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-docker run --rm -it \
-      --add-host=host.docker.internal:host-gateway \
-      --cap-add=NET_RAW \
-      --cap-add=NET_ADMIN \
-      -e CLAUDE_CODE_OAUTH_TOKEN="$CLAUDE_CODE_OAUTH_TOKEN" \
-      -e CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000 \
-      -v "$(pwd)/repos:/app/repos" \
-      -v "$(pwd)/configs:/app/configs" \
-      # Comment below line if using custom output directory
-      -v "$(pwd)/audit-logs:/app/audit-logs" \
-      shannon:latest \
-      "http://host.docker.internal:3000" \
-      "/app/repos/your-app" \
-      --config /app/configs/example-config.yaml
-      # Optional: uncomment below for custom output directory
-      # -v "$(pwd)/reports:/app/reports" \
-      # --output /app/reports
+./shannon start URL=http://host.docker.internal:3000 REPO=/path/to/repo
 ```
 
 ### Configuration (Optional)
@@ -288,12 +254,17 @@ If your application uses two-factor authentication, simply add the TOTP secret t
 
 ### Output and Results
 
-All results are saved to `./audit-logs/` by default. Use `--output <path>` to specify a custom directory. If using `--output`, ensure that path is mounted to an accessible host directory (e.g., `-v "$(pwd)/custom-directory:/app/reports"`).
+All results are saved to `./audit-logs/{hostname}_{sessionId}/` by default. Use `--output <path>` to specify a custom directory.
 
-- **Pre-reconnaissance reports** - External scan results
-- **Vulnerability assessments** - Potential vulnerabilities from thorough code analysis and network mapping
-- **Exploitation results** - Proof-of-concept attempts
-- **Executive reports** - Business-focused security summaries
+Output structure:
+```
+audit-logs/{hostname}_{sessionId}/
+├── session.json          # Metrics and session data
+├── agents/               # Per-agent execution logs
+├── prompts/              # Prompt snapshots for reproducibility
+└── deliverables/
+    └── comprehensive_security_assessment_report.md   # Final comprehensive security report
+```
 
 ---
 

@@ -48,9 +48,12 @@ export async function assembleFinalReport(sourceDir: string): Promise<string> {
   }
 
   const finalContent = sections.join('\n\n');
-  const finalReportPath = path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md');
+  const deliverablesDir = path.join(sourceDir, 'deliverables');
+  const finalReportPath = path.join(deliverablesDir, 'comprehensive_security_assessment_report.md');
 
   try {
+    // Ensure deliverables directory exists
+    await fs.ensureDir(deliverablesDir);
     await fs.writeFile(finalReportPath, finalContent);
     console.log(chalk.green(`✅ Final report assembled at ${finalReportPath}`));
   } catch (error) {

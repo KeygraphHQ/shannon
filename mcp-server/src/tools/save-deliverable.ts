@@ -9,6 +9,9 @@
  *
  * Saves deliverable files with automatic validation.
  * Replaces tools/save_deliverable.js bash script.
+ *
+ * Uses factory pattern to capture targetDir in closure, avoiding race conditions
+ * when multiple workflows run in parallel.
  */
 
 import { tool } from '@anthropic-ai/claude-agent-sdk';
@@ -30,59 +33,69 @@ export const SaveDeliverableInputSchema = z.object({
 export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
 
 /**
- * save_deliverable tool implementation
+ * Create save_deliverable handler with targetDir captured in closure
+ *
+ * This factory pattern ensures each MCP server instance has its own targetDir,
+ * preventing race conditions when multiple workflows run in parallel.
  */
-export async function saveDeliverable(args: SaveDeliverableInput): Promise<ToolResult> {
-  try {
-    const { deliverable_type, content } = args;
+function createSaveDeliverableHandler(targetDir: string) {
+  return async function saveDeliverable(args: SaveDeliverableInput): Promise<ToolResult> {
+    try {
+      const { deliverable_type, content } = args;
 
-    // Validate queue JSON if applicable
-    if (isQueueType(deliverable_type)) {
-      const queueValidation = validateQueueJson(content);
-      if (!queueValidation.valid) {
-        const errorResponse = createValidationError(
-          queueValidation.message ?? 'Invalid queue JSON',
-          true,
-          {
-            deliverableType: deliverable_type,
-            expectedFormat: '{"vulnerabilities": [...]}',
-          }
-        );
-        return createToolResult(errorResponse);
+      // Validate queue JSON if applicable
+      if (isQueueType(deliverable_type)) {
+        const queueValidation = validateQueueJson(content);
+        if (!queueValidation.valid) {
+          const errorResponse = createValidationError(
+            queueValidation.message ?? 'Invalid queue JSON',
+            true,
+            {
+              deliverableType: deliverable_type,
+              expectedFormat: '{"vulnerabilities": [...]}',
+            }
+          );
+          return createToolResult(errorResponse);
+        }
       }
+
+      // Get filename and save file (targetDir captured from closure)
+      const filename = DELIVERABLE_FILENAMES[deliverable_type];
+      const filepath = saveDeliverableFile(targetDir, filename, content);
+
+      // Success response
+      const successResponse: SaveDeliverableResponse = {
+        status: 'success',
+        message: `Deliverable saved successfully: ${filename}`,
+        filepath,
+        deliverableType: deliverable_type,
+        validated: isQueueType(deliverable_type),
+      };
+
+      return createToolResult(successResponse);
+    } catch (error) {
+      const errorResponse = createGenericError(
+        error,
+        false,
+        { deliverableType: args.deliverable_type }
+      );
+
+      return createToolResult(errorResponse);
     }
-
-    // Get filename and save file
-    const filename = DELIVERABLE_FILENAMES[deliverable_type];
-    const filepath = saveDeliverableFile(filename, content);
-
-    // Success response
-    const successResponse: SaveDeliverableResponse = {
-      status: 'success',
-      message: `Deliverable saved successfully: ${filename}`,
-      filepath,
-      deliverableType: deliverable_type,
-      validated: isQueueType(deliverable_type),
-    };
-
-    return createToolResult(successResponse);
-  } catch (error) {
-    const errorResponse = createGenericError(
-      error,
-      false,
-      { deliverableType: args.deliverable_type }
-    );
-
-    return createToolResult(errorResponse);
-  }
+  };
 }
 
 /**
- * Tool definition for MCP server - created using SDK's tool() function
+ * Factory function to create save_deliverable tool with targetDir in closure
+ *
+ * Each MCP server instance should call this with its own targetDir to ensure
+ * deliverables are saved to the correct workflow's directory.
  */
-export const saveDeliverableTool = tool(
-  'save_deliverable',
-  'Saves deliverable files with automatic validation. Queue files must have {"vulnerabilities": [...]} structure.',
-  SaveDeliverableInputSchema.shape,
-  saveDeliverable
-);
+export function createSaveDeliverableTool(targetDir: string) {
+  return tool(
+    'save_deliverable',
+    'Saves deliverable files with automatic validation. Queue files must have {"vulnerabilities": [...]} structure.',
+    SaveDeliverableInputSchema.shape,
+    createSaveDeliverableHandler(targetDir)
+  );
+}

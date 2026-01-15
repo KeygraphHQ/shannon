@@ -1,0 +1,39 @@
+services:
+  temporal:
+    image: temporalio/temporal:latest
+    command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
+    ports:
+      - "7233:7233"   # gRPC
+      - "8233:8233"   # Web UI (built-in)
+    volumes:
+      - temporal-data:/home/temporal
+    healthcheck:
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+
+  worker:
+    build: .
+    entrypoint: ["node", "dist/temporal/worker.js"]
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
+      - CLAUDE_CODE_MAX_OUTPUT_TOKENS=${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-64000}
+    depends_on:
+      temporal:
+        condition: service_healthy
+    volumes:
+      - ./prompts:/app/prompts
+      - ./audit-logs:/app/audit-logs
+      - ${TARGET_REPO:-.}:/target-repo
+      - ${BENCHMARKS_BASE:-.}:/benchmarks
+    shm_size: 2gb
+    ipc: host
+    security_opt:
+      - seccomp:unconfined
+
+volumes:
+  temporal-data:

@@ -6,6 +6,7 @@
 
 import { fs, path } from 'zx';
 import { PentestError } from './error-handling.js';
+import { asyncPipe } from './utils/functional.js';
 
 export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
 
@@ -16,9 +17,11 @@ interface VulnTypeConfigItem {
 
 type VulnTypeConfig = Record<VulnType, VulnTypeConfigItem>;
 
+type ErrorMessageResolver = string | ((existence: FileExistence) => string);
+
 interface ValidationRule {
   predicate: (existence: FileExistence) => boolean;
-  errorMessage: string;
+  errorMessage: ErrorMessageResolver;
   retryable: boolean;
 }
 
@@ -94,39 +97,35 @@ const VULN_TYPE_CONFIG: VulnTypeConfig = Object.freeze({
   }),
 }) as VulnTypeConfig;
 
-// Functional composition utilities - async pipe for promise chain
-type PipeFunction = (x: any) => any | Promise<any>;
-
-const pipe =
-  (...fns: PipeFunction[]) =>
-  (x: any): Promise<any> =>
-    fns.reduce(async (v, f) => f(await v), Promise.resolve(x));
-
 // Pure function to create validation rule
-const createValidationRule = (
+function createValidationRule(
   predicate: (existence: FileExistence) => boolean,
-  errorMessage: string,
+  errorMessage: ErrorMessageResolver,
   retryable: boolean = true
-): ValidationRule => Object.freeze({ predicate, errorMessage, retryable });
+): ValidationRule {
+  return Object.freeze({ predicate, errorMessage, retryable });
+}
 
-// Validation rules for file existence (following QUEUE_VALIDATION_FLOW.md)
+// Symmetric deliverable rules: queue and deliverable must exist together (prevents partial analysis from triggering exploitation)
 const fileExistenceRules: readonly ValidationRule[] = Object.freeze([
-  // Rule 1: Neither deliverable nor queue exists
   createValidationRule(
-    ({ deliverableExists, queueExists }) => deliverableExists || queueExists,
-    'Analysis failed: Neither deliverable nor queue file exists. Analysis agent must create both files.'
-  ),
-  // Rule 2: Queue doesn't exist but deliverable exists
-  createValidationRule(
-    ({ deliverableExists, queueExists }) => !(!queueExists && deliverableExists),
-    'Analysis incomplete: Deliverable exists but queue file missing. Analysis agent must create both files.'
-  ),
-  // Rule 3: Queue exists but deliverable doesn't exist
-  createValidationRule(
-    ({ deliverableExists, queueExists }) => !(queueExists && !deliverableExists),
-    'Analysis incomplete: Queue exists but deliverable file missing. Analysis agent must create both files.'
+    ({ deliverableExists, queueExists }) => deliverableExists && queueExists,
+    getExistenceErrorMessage
   ),
 ]);
+
+// Generate appropriate error message based on which files are missing
+function getExistenceErrorMessage(existence: FileExistence): string {
+  const { deliverableExists, queueExists } = existence;
+
+  if (!deliverableExists && !queueExists) {
+    return 'Analysis failed: Neither deliverable nor queue file exists. Analysis agent must create both files.';
+  }
+  if (!queueExists) {
+    return 'Analysis incomplete: Deliverable exists but queue file missing. Analysis agent must create both files.';
+  }
+  return 'Analysis incomplete: Queue exists but deliverable file missing. Analysis agent must create both files.';
+}
 
 // Pure function to create file paths
 const createPaths = (
@@ -170,7 +169,7 @@ const checkFileExistence = async (
   });
 };
 
-// Pure function to validate existence rules
+// Validates deliverable/queue symmetry - both must exist or neither
 const validateExistenceRules = (
   pathsWithExistence: PathsWithExistence | PathsWithError
 ): PathsWithExistence | PathsWithError => {
@@ -182,9 +181,14 @@ const validateExistenceRules = (
   const failedRule = fileExistenceRules.find((rule) => !rule.predicate(existence));
 
   if (failedRule) {
+    const message =
+      typeof failedRule.errorMessage === 'function'
+        ? failedRule.errorMessage(existence)
+        : failedRule.errorMessage;
+
     return {
       error: new PentestError(
-        `${failedRule.errorMessage} (${vulnType})`,
+        `${message} (${vulnType})`,
         'validation',
         failedRule.retryable,
         {
@@ -224,7 +228,7 @@ const validateQueueStructure = (content: string): QueueValidationResult => {
   }
 };
 
-// Pure function to read and validate queue content
+// Queue parse failures are retryable - agent can fix malformed JSON on retry
 const validateQueueContent = async (
   pathsWithExistence: PathsWithExistence | PathsWithError
 ): Promise<PathsWithQueue | PathsWithError> => {
@@ -273,7 +277,7 @@ const validateQueueContent = async (
   }
 };
 
-// Pure function to determine exploitation decision
+// Final decision: skip if queue says no vulns, proceed if vulns found, error otherwise
 const determineExploitationDecision = (
   validatedData: PathsWithQueue | PathsWithError
 ): ExploitationDecision => {
@@ -294,17 +298,18 @@ const determineExploitationDecision = (
 };
 
 // Main functional validation pipeline
-export const validateQueueAndDeliverable = async (
+export async function validateQueueAndDeliverable(
   vulnType: VulnType,
   sourceDir: string
-): Promise<ExploitationDecision> =>
-  (await pipe(
-    () => createPaths(vulnType, sourceDir),
+): Promise<ExploitationDecision> {
+  return asyncPipe<ExploitationDecision>(
+    createPaths(vulnType, sourceDir),
     checkFileExistence,
     validateExistenceRules,
     validateQueueContent,
     determineExploitationDecision
-  )(() => createPaths(vulnType, sourceDir))) as ExploitationDecision;
+  );
+}
 
 // Pure function to safely validate (returns result instead of throwing)
 export const safeValidateQueueAndDeliverable = async (

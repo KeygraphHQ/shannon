@@ -31,13 +31,12 @@ type UnlockFunction = () => void;
  * }
  * ```
  */
+// Promise-based mutex with queue semantics - safe for parallel agents on same session
 export class SessionMutex {
   // Map of sessionId -> Promise (represents active lock)
   private locks: Map<string, Promise<void>> = new Map();
 
-  /**
-   * Acquire lock for a session
-   */
+  // Wait for existing lock, then acquire. Queue ensures FIFO ordering.
   async lock(sessionId: string): Promise<UnlockFunction> {
     if (this.locks.has(sessionId)) {
       // Wait for existing lock to be released
