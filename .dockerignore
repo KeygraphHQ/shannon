@@ -18,7 +18,6 @@ xben-benchmark-results/
 # Development files
 *.md
 !CLAUDE.md
-.env*
 .DS_Store
 Thumbs.db
 

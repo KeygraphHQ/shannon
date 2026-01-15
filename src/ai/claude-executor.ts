@@ -4,35 +4,33 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import { $, fs, path } from 'zx';
+// Production Claude agent execution with retry, git checkpoints, and audit logging
+
+import { fs, path } from 'zx';
 import chalk, { type ChalkInstance } from 'chalk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { fileURLToPath } from 'url';
-import { dirname } from 'path';
 
 import { isRetryableError, getRetryDelay, PentestError } from '../error-handling.js';
-import { ProgressIndicator } from '../progress-indicator.js';
-import { timingResults, costResults, Timer } from '../utils/metrics.js';
-import { formatDuration } from '../audit/utils.js';
-import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace } from '../utils/git-manager.js';
+import { timingResults, Timer } from '../utils/metrics.js';
+import { formatTimestamp } from '../utils/formatting.js';
+import { createGitCheckpoint, commitGitSuccess, rollbackGitWorkspace, getGitCommitHash } from '../utils/git-manager.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
-import { filterJsonToolCalls, getAgentPrefix } from '../utils/output-formatter.js';
-import { generateSessionLogPath } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
 import type { SessionMetadata } from '../audit/utils.js';
-import type { PromptName } from '../types/index.js';
+import { getPromptNameForAgent } from '../types/agents.js';
+import type { AgentName } from '../types/index.js';
 
-// Extend global for loader flag
+import { dispatchMessage } from './message-handlers.js';
+import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } from './output-formatters.js';
+import { createProgressManager } from './progress-manager.js';
+import { createAuditLogger } from './audit-logger.js';
+
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = dirname(__filename);
-
-// Result types
-interface ClaudePromptResult {
+export interface ClaudePromptResult {
   result?: string | null;
   success: boolean;
   duration: number;
@@ -40,14 +38,12 @@ interface ClaudePromptResult {
   cost: number;
   partialCost?: number;
   apiErrorDetected?: boolean;
-  logFile?: string;
   error?: string;
   errorType?: string;
   prompt?: string;
   retryable?: boolean;
 }
 
-// MCP Server types
 interface StdioMcpServer {
   type: 'stdio';
   command: string;
@@ -57,157 +53,29 @@ interface StdioMcpServer {
 
 type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
 
-/**
- * Convert agent name to prompt name for MCP_AGENT_MAPPING lookup
- */
-function agentNameToPromptName(agentName: string): PromptName {
-  // Special cases
-  if (agentName === 'pre-recon') return 'pre-recon-code';
-  if (agentName === 'report') return 'report-executive';
-  if (agentName === 'recon') return 'recon';
-
-  // Pattern: {type}-vuln → vuln-{type}
-  const vulnMatch = agentName.match(/^(.+)-vuln$/);
-  if (vulnMatch) {
-    return `vuln-${vulnMatch[1]}` as PromptName;
-  }
-
-  // Pattern: {type}-exploit → exploit-{type}
-  const exploitMatch = agentName.match(/^(.+)-exploit$/);
-  if (exploitMatch) {
-    return `exploit-${exploitMatch[1]}` as PromptName;
-  }
-
-  // Default: return as-is
-  return agentName as PromptName;
-}
-
-// Simplified validation using direct agent name mapping
-async function validateAgentOutput(
-  result: ClaudePromptResult,
-  agentName: string | null,
-  sourceDir: string
-): Promise<boolean> {
-  console.log(chalk.blue(`    🔍 Validating ${agentName} agent output`));
-
-  try {
-    // Check if agent completed successfully
-    if (!result.success || !result.result) {
-      console.log(chalk.red(`    ❌ Validation failed: Agent execution was unsuccessful`));
-      return false;
-    }
-
-    // Get validator function for this agent
-    const validator = agentName ? AGENT_VALIDATORS[agentName as keyof typeof AGENT_VALIDATORS] : undefined;
-
-    if (!validator) {
-      console.log(chalk.yellow(`    ⚠️ No validator found for agent "${agentName}" - assuming success`));
-      console.log(chalk.green(`    ✅ Validation passed: Unknown agent with successful result`));
-      return true;
-    }
-
-    console.log(chalk.blue(`    📋 Using validator for agent: ${agentName}`));
-    console.log(chalk.blue(`    📂 Source directory: ${sourceDir}`));
-
-    // Apply validation function
-    const validationResult = await validator(sourceDir);
-
-    if (validationResult) {
-      console.log(chalk.green(`    ✅ Validation passed: Required files/structure present`));
-    } else {
-      console.log(chalk.red(`    ❌ Validation failed: Missing required deliverable files`));
-    }
-
-    return validationResult;
-
-  } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    console.log(chalk.red(`    ❌ Validation failed with error: ${errMsg}`));
-    return false; // Assume invalid on validation error
-  }
-}
-
-// Pure function: Run Claude Code with SDK - Maximum Autonomy
-// WARNING: This is a low-level function. Use runClaudePromptWithRetry() for agent execution
-async function runClaudePrompt(
-  prompt: string,
+// Configures MCP servers for agent execution, with Docker-specific Chromium handling
+function buildMcpServers(
   sourceDir: string,
-  _allowedTools: string = 'Read',
-  context: string = '',
-  description: string = 'Claude analysis',
-  agentName: string | null = null,
-  colorFn: ChalkInstance = chalk.cyan,
-  sessionMetadata: SessionMetadata | null = null,
-  auditSession: AuditSession | null = null,
-  attemptNumber: number = 1
-): Promise<ClaudePromptResult> {
-  const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
-  const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
-  let totalCost = 0;
-  let partialCost = 0; // Track partial cost for crash safety
+  agentName: string | null
+): Record<string, McpServer> {
+  const shannonHelperServer = createShannonHelperServer(sourceDir);
 
-  // Auto-detect execution mode to adjust logging behavior
-  const isParallelExecution = description.includes('vuln agent') || description.includes('exploit agent');
-  const useCleanOutput = description.includes('Pre-recon agent') ||
-                         description.includes('Recon agent') ||
-                         description.includes('Executive Summary and Report Cleanup') ||
-                         description.includes('vuln agent') ||
-                         description.includes('exploit agent');
+  const mcpServers: Record<string, McpServer> = {
+    'shannon-helper': shannonHelperServer,
+  };
 
-  // Disable status manager - using simple JSON filtering for all agents now
-  const statusManager = null;
+  if (agentName) {
+    const promptName = getPromptNameForAgent(agentName as AgentName);
+    const playwrightMcpName = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING] || null;
 
-  // Setup progress indicator for clean output agents (unless disabled via flag)
-  let progressIndicator: ProgressIndicator | null = null;
-  if (useCleanOutput && !global.SHANNON_DISABLE_LOADER) {
-    const agentType = description.includes('Pre-recon') ? 'pre-reconnaissance' :
-                     description.includes('Recon') ? 'reconnaissance' :
-                     description.includes('Report') ? 'report generation' : 'analysis';
-    progressIndicator = new ProgressIndicator(`Running ${agentType}...`);
-  }
-
-  // NOTE: Logging now handled by AuditSession (append-only, crash-safe)
-  let logFilePath: string | null = null;
-  if (sessionMetadata && sessionMetadata.webUrl && sessionMetadata.id) {
-    const timestamp = new Date().toISOString().replace(/T/, '_').replace(/[:.]/g, '-').slice(0, 19);
-    const agentKey = description.toLowerCase().replace(/\s+/g, '-');
-    const logDir = generateSessionLogPath(sessionMetadata.webUrl, sessionMetadata.id);
-    logFilePath = path.join(logDir, `${timestamp}_${agentKey}_attempt-${attemptNumber}.log`);
-  } else {
-    console.log(chalk.blue(`  🤖 Running Claude Code: ${description}...`));
-  }
-
-  // Declare variables that need to be accessible in both try and catch blocks
-  let turnCount = 0;
-
-  try {
-    // Create MCP server with target directory context
-    const shannonHelperServer = createShannonHelperServer(sourceDir);
-
-    // Look up agent's assigned Playwright MCP server
-    let playwrightMcpName: string | null = null;
-    if (agentName) {
-      const promptName = agentNameToPromptName(agentName);
-      playwrightMcpName = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING] || null;
-
-      if (playwrightMcpName) {
-        console.log(chalk.gray(`    🎭 Assigned ${agentName} → ${playwrightMcpName}`));
-      }
-    }
-
-    // Configure MCP servers: shannon-helper (SDK) + playwright-agentN (stdio)
-    const mcpServers: Record<string, McpServer> = {
-      'shannon-helper': shannonHelperServer,
-    };
-
-    // Add Playwright MCP server if this agent needs browser automation
     if (playwrightMcpName) {
+      console.log(chalk.gray(`    Assigned ${agentName} -> ${playwrightMcpName}`));
+
       const userDataDir = `/tmp/${playwrightMcpName}`;
 
-      // Detect if running in Docker via explicit environment variable
+      // Docker uses system Chromium; local dev uses Playwright's bundled browsers
       const isDocker = process.env.SHANNON_DOCKER === 'true';
 
-      // Build args array - conditionally add --executable-path for Docker
       const mcpArgs: string[] = [
         '@playwright/mcp@latest',
         '--isolated',
@@ -220,7 +88,6 @@ async function runClaudePrompt(
         mcpArgs.push('--browser', 'chromium');
       }
 
-      // Filter out undefined env values for type safety
       const envVars: Record<string, string> = Object.fromEntries(
         Object.entries({
           ...process.env,
@@ -236,335 +103,200 @@ async function runClaudePrompt(
         env: envVars,
       };
     }
+  }
 
-    const options = {
-      model: 'claude-sonnet-4-5-20250929', // Use latest Claude 4.5 Sonnet
-      maxTurns: 10_000, // Maximum turns for autonomous work
-      cwd: sourceDir, // Set working directory using SDK option
-      permissionMode: 'bypassPermissions' as const, // Bypass all permission checks for pentesting
-      mcpServers,
+  return mcpServers;
+}
+
+function outputLines(lines: string[]): void {
+  for (const line of lines) {
+    console.log(line);
+  }
+}
+
+async function writeErrorLog(
+  err: Error & { code?: string; status?: number },
+  sourceDir: string,
+  fullPrompt: string,
+  duration: number
+): Promise<void> {
+  try {
+    const errorLog = {
+      timestamp: formatTimestamp(),
+      agent: 'claude-executor',
+      error: {
+        name: err.constructor.name,
+        message: err.message,
+        code: err.code,
+        status: err.status,
+        stack: err.stack
+      },
+      context: {
+        sourceDir,
+        prompt: fullPrompt.slice(0, 200) + '...',
+        retryable: isRetryableError(err)
+      },
+      duration
     };
+    const logPath = path.join(sourceDir, 'error.log');
+    await fs.appendFile(logPath, JSON.stringify(errorLog) + '\n');
+  } catch (logError) {
+    const logErrMsg = logError instanceof Error ? logError.message : String(logError);
+    console.log(chalk.gray(`    (Failed to write error log: ${logErrMsg})`));
+  }
+}
 
-    // SDK Options only shown for verbose agents (not clean output)
-    if (!useCleanOutput) {
-      console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+export async function validateAgentOutput(
+  result: ClaudePromptResult,
+  agentName: string | null,
+  sourceDir: string
+): Promise<boolean> {
+  console.log(chalk.blue(`    Validating ${agentName} agent output`));
+
+  try {
+    // Check if agent completed successfully
+    if (!result.success || !result.result) {
+      console.log(chalk.red(`    Validation failed: Agent execution was unsuccessful`));
+      return false;
     }
 
-    let result: string | null = null;
-    const messages: string[] = [];
-    let apiErrorDetected = false;
+    // Get validator function for this agent
+    const validator = agentName ? AGENT_VALIDATORS[agentName as keyof typeof AGENT_VALIDATORS] : undefined;
 
-    // Start progress indicator for clean output agents
-    if (progressIndicator) {
-      progressIndicator.start();
+    if (!validator) {
+      console.log(chalk.yellow(`    No validator found for agent "${agentName}" - assuming success`));
+      console.log(chalk.green(`    Validation passed: Unknown agent with successful result`));
+      return true;
     }
 
-    let lastHeartbeat = Date.now();
-    const HEARTBEAT_INTERVAL = 30000; // 30 seconds
+    console.log(chalk.blue(`    Using validator for agent: ${agentName}`));
+    console.log(chalk.blue(`    Source directory: ${sourceDir}`));
 
-    try {
-      for await (const message of query({ prompt: fullPrompt, options })) {
-        // Periodic heartbeat for long-running agents (only when loader is disabled)
-        const now = Date.now();
-        if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-          console.log(chalk.blue(`    ⏱️  [${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`));
-          lastHeartbeat = now;
-        }
+    // Apply validation function
+    const validationResult = await validator(sourceDir);
 
-        if (message.type === "assistant") {
-          turnCount++;
+    if (validationResult) {
+      console.log(chalk.green(`    Validation passed: Required files/structure present`));
+    } else {
+      console.log(chalk.red(`    Validation failed: Missing required deliverable files`));
+    }
 
-          const messageContent = message.message as { content: unknown };
-          const content = Array.isArray(messageContent.content)
-            ? messageContent.content.map((c: { text?: string }) => c.text || JSON.stringify(c)).join('\n')
-            : String(messageContent.content);
+    return validationResult;
 
-          if (statusManager) {
-            // Smart status updates for parallel execution - disabled
-          } else if (useCleanOutput) {
-            // Clean output for all agents: filter JSON tool calls but show meaningful text
-            const cleanedContent = filterJsonToolCalls(content);
-            if (cleanedContent.trim()) {
-              // Temporarily stop progress indicator to show output
-              if (progressIndicator) {
-                progressIndicator.stop();
-              }
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.log(chalk.red(`    Validation failed with error: ${errMsg}`));
+    return false;
+  }
+}
 
-              if (isParallelExecution) {
-                // Compact output for parallel agents with prefixes
-                const prefix = getAgentPrefix(description);
-                console.log(colorFn(`${prefix} ${cleanedContent}`));
-              } else {
-                // Full turn output for single agents
-                console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`));
-                console.log(colorFn(`    ${cleanedContent}`));
-              }
+// Low-level SDK execution. Handles message streaming, progress, and audit logging.
+// Exported for Temporal activities to call single-attempt execution.
+export async function runClaudePrompt(
+  prompt: string,
+  sourceDir: string,
+  context: string = '',
+  description: string = 'Claude analysis',
+  agentName: string | null = null,
+  colorFn: ChalkInstance = chalk.cyan,
+  sessionMetadata: SessionMetadata | null = null,
+  auditSession: AuditSession | null = null,
+  attemptNumber: number = 1
+): Promise<ClaudePromptResult> {
+  const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
+  const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
 
-              // Restart progress indicator after output
-              if (progressIndicator) {
-                progressIndicator.start();
-              }
-            }
-          } else {
-            // Full streaming output - show complete messages with specialist color
-            console.log(colorFn(`\n    🤖 Turn ${turnCount} (${description}):`));
-            console.log(colorFn(`    ${content}`));
-          }
+  const execContext = detectExecutionContext(description);
+  const progress = createProgressManager(
+    { description, useCleanOutput: execContext.useCleanOutput },
+    global.SHANNON_DISABLE_LOADER ?? false
+  );
+  const auditLogger = createAuditLogger(auditSession);
 
-          // Log to audit system (crash-safe, append-only)
-          if (auditSession) {
-            await auditSession.logEvent('llm_response', {
-              turn: turnCount,
-              content,
-              timestamp: new Date().toISOString()
-            });
-          }
+  console.log(chalk.blue(`  Running Claude Code: ${description}...`));
 
-          messages.push(content);
+  const mcpServers = buildMcpServers(sourceDir, agentName);
+  const options = {
+    model: 'claude-sonnet-4-5-20250929',
+    maxTurns: 10_000,
+    cwd: sourceDir,
+    permissionMode: 'bypassPermissions' as const,
+    mcpServers,
+  };
 
-          // Check for API error patterns in assistant message content
-          if (content && typeof content === 'string') {
-            const lowerContent = content.toLowerCase();
-            if (lowerContent.includes('session limit reached')) {
-              throw new PentestError('Session limit reached', 'billing', false);
-            }
-            if (lowerContent.includes('api error') || lowerContent.includes('terminated')) {
-              apiErrorDetected = true;
-              console.log(chalk.red(`    ⚠️  API Error detected in assistant response: ${content.trim()}`));
-            }
-          }
+  if (!execContext.useCleanOutput) {
+    console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+  }
 
-        } else if (message.type === "system" && (message as { subtype?: string }).subtype === "init") {
-          // Show useful system info only for verbose agents
-          if (!useCleanOutput) {
-            const initMsg = message as { model?: string; permissionMode?: string; mcp_servers?: Array<{ name: string; status: string }> };
-            console.log(chalk.blue(`    ℹ️  Model: ${initMsg.model}, Permission: ${initMsg.permissionMode}`));
-            if (initMsg.mcp_servers && initMsg.mcp_servers.length > 0) {
-              const mcpStatus = initMsg.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
-              console.log(chalk.blue(`    📦 MCP: ${mcpStatus}`));
-            }
-          }
+  let turnCount = 0;
+  let result: string | null = null;
+  let apiErrorDetected = false;
+  let totalCost = 0;
 
-        } else if (message.type === "user") {
-          // Skip user messages (these are our own inputs echoed back)
-          continue;
+  progress.start();
 
-        } else if ((message.type as string) === "tool_use") {
-          const toolMsg = message as unknown as { name: string; input?: Record<string, unknown> };
-          console.log(chalk.yellow(`\n    🔧 Using Tool: ${toolMsg.name}`));
-          if (toolMsg.input && Object.keys(toolMsg.input).length > 0) {
-            console.log(chalk.gray(`    Input: ${JSON.stringify(toolMsg.input, null, 2)}`));
-          }
+  try {
+    const messageLoopResult = await processMessageStream(
+      fullPrompt,
+      options,
+      { execContext, description, colorFn, progress, auditLogger },
+      timer
+    );
 
-          // Log tool start event
-          if (auditSession) {
-            await auditSession.logEvent('tool_start', {
-              toolName: toolMsg.name,
-              parameters: toolMsg.input,
-              timestamp: new Date().toISOString()
-            });
-          }
-        } else if ((message.type as string) === "tool_result") {
-          const resultMsg = message as unknown as { content?: unknown };
-          console.log(chalk.green(`    ✅ Tool Result:`));
-          if (resultMsg.content) {
-            // Show tool results but truncate if too long
-            const resultStr = typeof resultMsg.content === 'string' ? resultMsg.content : JSON.stringify(resultMsg.content, null, 2);
-            if (resultStr.length > 500) {
-              console.log(chalk.gray(`    ${resultStr.slice(0, 500)}...\n    [Result truncated - ${resultStr.length} total chars]`));
-            } else {
-              console.log(chalk.gray(`    ${resultStr}`));
-            }
-          }
+    turnCount = messageLoopResult.turnCount;
+    result = messageLoopResult.result;
+    apiErrorDetected = messageLoopResult.apiErrorDetected;
+    totalCost = messageLoopResult.cost;
 
-          // Log tool end event
-          if (auditSession) {
-            await auditSession.logEvent('tool_end', {
-              result: resultMsg.content,
-              timestamp: new Date().toISOString()
-            });
-          }
-        } else if (message.type === "result") {
-          const resultMessage = message as {
-            result?: string;
-            total_cost_usd?: number;
-            duration_ms?: number;
-            subtype?: string;
-            permission_denials?: unknown[];
-          };
-          result = resultMessage.result || null;
+    // === SPENDING CAP SAFEGUARD ===
+    // Defense-in-depth: Detect spending cap that slipped through detectApiError().
+    // When spending cap is hit, Claude returns a short message with $0 cost.
+    // Legitimate agent work NEVER costs $0 with only 1-2 turns.
+    if (turnCount <= 2 && totalCost === 0) {
+      const resultLower = (result || '').toLowerCase();
+      const BILLING_KEYWORDS = ['spending', 'cap', 'limit', 'budget', 'resets'];
+      const looksLikeBillingError = BILLING_KEYWORDS.some((kw) =>
+        resultLower.includes(kw)
+      );
 
-          if (!statusManager) {
-            if (useCleanOutput) {
-              // Clean completion output - just duration and cost
-              console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
-              const cost = resultMessage.total_cost_usd || 0;
-              console.log(chalk.gray(`    ⏱️  Duration: ${((resultMessage.duration_ms || 0)/1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
-
-              if (resultMessage.subtype === "error_max_turns") {
-                console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
-              } else if (resultMessage.subtype === "error_during_execution") {
-                console.log(chalk.red(`    ❌ Stopped: Execution error`));
-              }
-
-              if (resultMessage.permission_denials && resultMessage.permission_denials.length > 0) {
-                console.log(chalk.yellow(`    🚫 ${resultMessage.permission_denials.length} permission denials`));
-              }
-            } else {
-              // Full completion output for agents without clean output
-              console.log(chalk.magenta(`\n    🏁 COMPLETED:`));
-              const cost = resultMessage.total_cost_usd || 0;
-              console.log(chalk.gray(`    ⏱️  Duration: ${((resultMessage.duration_ms || 0)/1000).toFixed(1)}s, Cost: $${cost.toFixed(4)}`));
-
-              if (resultMessage.subtype === "error_max_turns") {
-                console.log(chalk.red(`    ⚠️  Stopped: Hit maximum turns limit`));
-              } else if (resultMessage.subtype === "error_during_execution") {
-                console.log(chalk.red(`    ❌ Stopped: Execution error`));
-              }
-
-              if (resultMessage.permission_denials && resultMessage.permission_denials.length > 0) {
-                console.log(chalk.yellow(`    🚫 ${resultMessage.permission_denials.length} permission denials`));
-              }
-
-              // Show result content (if it's reasonable length)
-              if (result && typeof result === 'string') {
-                if (result.length > 1000) {
-                  console.log(chalk.magenta(`    📄 ${result.slice(0, 1000)}... [${result.length} total chars]`));
-                } else {
-                  console.log(chalk.magenta(`    📄 ${result}`));
-                }
-              }
-            }
-          }
-
-          // Track cost for all agents
-          const cost = resultMessage.total_cost_usd || 0;
-          const agentKey = description.toLowerCase().replace(/\s+/g, '-');
-          costResults.agents[agentKey] = cost;
-          costResults.total += cost;
-
-          // Store cost for return value and partial tracking
-          totalCost = cost;
-          partialCost = cost;
-          break;
-        } else {
-          // Log any other message types we might not be handling
-          console.log(chalk.gray(`    💬 ${message.type}: ${JSON.stringify(message, null, 2)}`));
-        }
+      if (looksLikeBillingError) {
+        throw new PentestError(
+          `Spending cap likely reached (turns=${turnCount}, cost=$0): ${result?.slice(0, 100)}`,
+          'billing',
+          true // Retryable - Temporal will use 5-30 min backoff
+        );
       }
-    } catch (queryError) {
-      throw queryError; // Re-throw to outer catch
     }
 
     const duration = timer.stop();
-    const agentKey = description.toLowerCase().replace(/\s+/g, '-');
-    timingResults.agents[agentKey] = duration;
+    timingResults.agents[execContext.agentKey] = duration;
 
-    // API error detection is logged but not immediately failed
     if (apiErrorDetected) {
-      console.log(chalk.yellow(`  ⚠️ API Error detected in ${description} - will validate deliverables before failing`));
+      console.log(chalk.yellow(`  API Error detected in ${description} - will validate deliverables before failing`));
     }
 
-    // Show completion messages based on agent type
-    if (progressIndicator) {
-      const agentType = description.includes('Pre-recon') ? 'Pre-recon analysis' :
-                       description.includes('Recon') ? 'Reconnaissance' :
-                       description.includes('Report') ? 'Report generation' : 'Analysis';
-      progressIndicator.finish(`${agentType} complete! (${turnCount} turns, ${formatDuration(duration)})`);
-    } else if (isParallelExecution) {
-      const prefix = getAgentPrefix(description);
-      console.log(chalk.green(`${prefix} ✅ Complete (${turnCount} turns, ${formatDuration(duration)})`));
-    } else if (!useCleanOutput) {
-      console.log(chalk.green(`  ✅ Claude Code completed: ${description} (${turnCount} turns) in ${formatDuration(duration)}`));
-    }
+    progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
 
-    // Return result with log file path for all agents
-    const returnData: ClaudePromptResult = {
+    return {
       result,
       success: true,
       duration,
       turns: turnCount,
       cost: totalCost,
-      partialCost,
+      partialCost: totalCost,
       apiErrorDetected
     };
-    if (logFilePath) {
-      returnData.logFile = logFilePath;
-    }
-    return returnData;
 
   } catch (error) {
     const duration = timer.stop();
-    const agentKey = description.toLowerCase().replace(/\s+/g, '-');
-    timingResults.agents[agentKey] = duration;
+    timingResults.agents[execContext.agentKey] = duration;
 
-    const err = error as Error & { code?: string; status?: number; duration?: number; cost?: number };
+    const err = error as Error & { code?: string; status?: number };
 
-    // Log error to audit system
-    if (auditSession) {
-      await auditSession.logEvent('error', {
-        message: err.message,
-        errorType: err.constructor.name,
-        stack: err.stack,
-        duration,
-        turns: turnCount,
-        timestamp: new Date().toISOString()
-      });
-    }
-
-    // Show error messages based on agent type
-    if (progressIndicator) {
-      progressIndicator.stop();
-      const agentType = description.includes('Pre-recon') ? 'Pre-recon analysis' :
-                       description.includes('Recon') ? 'Reconnaissance' :
-                       description.includes('Report') ? 'Report generation' : 'Analysis';
-      console.log(chalk.red(`❌ ${agentType} failed (${formatDuration(duration)})`));
-    } else if (isParallelExecution) {
-      const prefix = getAgentPrefix(description);
-      console.log(chalk.red(`${prefix} ❌ Failed (${formatDuration(duration)})`));
-    } else if (!useCleanOutput) {
-      console.log(chalk.red(`  ❌ Claude Code failed: ${description} (${formatDuration(duration)})`));
-    }
-    console.log(chalk.red(`    Error Type: ${err.constructor.name}`));
-    console.log(chalk.red(`    Message: ${err.message}`));
-    console.log(chalk.gray(`    Agent: ${description}`));
-    console.log(chalk.gray(`    Working Directory: ${sourceDir}`));
-    console.log(chalk.gray(`    Retryable: ${isRetryableError(err) ? 'Yes' : 'No'}`));
-
-    // Log additional context if available
-    if (err.code) {
-      console.log(chalk.gray(`    Error Code: ${err.code}`));
-    }
-    if (err.status) {
-      console.log(chalk.gray(`    HTTP Status: ${err.status}`));
-    }
-
-    // Save detailed error to log file for debugging
-    try {
-      const errorLog = {
-        timestamp: new Date().toISOString(),
-        agent: description,
-        error: {
-          name: err.constructor.name,
-          message: err.message,
-          code: err.code,
-          status: err.status,
-          stack: err.stack
-        },
-        context: {
-          sourceDir,
-          prompt: fullPrompt.slice(0, 200) + '...',
-          retryable: isRetryableError(err)
-        },
-        duration
-      };
-
-      const logPath = path.join(sourceDir, 'error.log');
-      await fs.appendFile(logPath, JSON.stringify(errorLog) + '\n');
-    } catch (logError) {
-      const logErrMsg = logError instanceof Error ? logError.message : String(logError);
-      console.log(chalk.gray(`    (Failed to write error log: ${logErrMsg})`));
-    }
+    await auditLogger.logError(err, duration, turnCount);
+    progress.stop();
+    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableError(err)));
+    await writeErrorLog(err, sourceDir, fullPrompt, duration);
 
     return {
       error: err.message,
@@ -572,17 +304,85 @@ async function runClaudePrompt(
       prompt: fullPrompt.slice(0, 100) + '...',
       success: false,
       duration,
-      cost: partialCost,
+      cost: totalCost,
       retryable: isRetryableError(err)
     };
   }
 }
 
-// PREFERRED: Production-ready Claude agent execution with full orchestration
+
+interface MessageLoopResult {
+  turnCount: number;
+  result: string | null;
+  apiErrorDetected: boolean;
+  cost: number;
+}
+
+interface MessageLoopDeps {
+  execContext: ReturnType<typeof detectExecutionContext>;
+  description: string;
+  colorFn: ChalkInstance;
+  progress: ReturnType<typeof createProgressManager>;
+  auditLogger: ReturnType<typeof createAuditLogger>;
+}
+
+async function processMessageStream(
+  fullPrompt: string,
+  options: NonNullable<Parameters<typeof query>[0]['options']>,
+  deps: MessageLoopDeps,
+  timer: Timer
+): Promise<MessageLoopResult> {
+  const { execContext, description, colorFn, progress, auditLogger } = deps;
+  const HEARTBEAT_INTERVAL = 30000;
+
+  let turnCount = 0;
+  let result: string | null = null;
+  let apiErrorDetected = false;
+  let cost = 0;
+  let lastHeartbeat = Date.now();
+
+  for await (const message of query({ prompt: fullPrompt, options })) {
+    // Heartbeat logging when loader is disabled
+    const now = Date.now();
+    if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
+      console.log(chalk.blue(`    [${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`));
+      lastHeartbeat = now;
+    }
+
+    // Increment turn count for assistant messages
+    if (message.type === 'assistant') {
+      turnCount++;
+    }
+
+    const dispatchResult = await dispatchMessage(
+      message as { type: string; subtype?: string },
+      turnCount,
+      { execContext, description, colorFn, progress, auditLogger }
+    );
+
+    if (dispatchResult.type === 'throw') {
+      throw dispatchResult.error;
+    }
+
+    if (dispatchResult.type === 'complete') {
+      result = dispatchResult.result;
+      cost = dispatchResult.cost;
+      break;
+    }
+
+    if (dispatchResult.type === 'continue' && dispatchResult.apiErrorDetected) {
+      apiErrorDetected = true;
+    }
+  }
+
+  return { turnCount, result, apiErrorDetected, cost };
+}
+
+// Main entry point for agent execution. Handles retries, git checkpoints, and validation.
 export async function runClaudePromptWithRetry(
   prompt: string,
   sourceDir: string,
-  allowedTools: string = 'Read',
+  _allowedTools: string = 'Read',
   context: string = '',
   description: string = 'Claude analysis',
   agentName: string | null = null,
@@ -593,9 +393,8 @@ export async function runClaudePromptWithRetry(
   let lastError: Error | undefined;
   let retryContext = context;
 
-  console.log(chalk.cyan(`🚀 Starting ${description} with ${maxRetries} max attempts`));
+  console.log(chalk.cyan(`Starting ${description} with ${maxRetries} max attempts`));
 
-  // Initialize audit session (crash-safe logging)
   let auditSession: AuditSession | null = null;
   if (sessionMetadata && agentName) {
     auditSession = new AuditSession(sessionMetadata);
@@ -603,29 +402,27 @@ export async function runClaudePromptWithRetry(
   }
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    // Create checkpoint before each attempt
     await createGitCheckpoint(sourceDir, description, attempt);
 
-    // Start agent tracking in audit system (saves prompt snapshot automatically)
     if (auditSession && agentName) {
       const fullPrompt = retryContext ? `${retryContext}\n\n${prompt}` : prompt;
       await auditSession.startAgent(agentName, fullPrompt, attempt);
     }
 
     try {
-      const result = await runClaudePrompt(prompt, sourceDir, allowedTools, retryContext, description, agentName, colorFn, sessionMetadata, auditSession, attempt);
+      const result = await runClaudePrompt(
+        prompt, sourceDir, retryContext,
+        description, agentName, colorFn, sessionMetadata, auditSession, attempt
+      );
 
-      // Validate output after successful run
       if (result.success) {
         const validationPassed = await validateAgentOutput(result, agentName, sourceDir);
 
         if (validationPassed) {
-          // Check if API error was detected but validation passed
           if (result.apiErrorDetected) {
-            console.log(chalk.yellow(`📋 Validation: Ready for exploitation despite API error warnings`));
+            console.log(chalk.yellow(`Validation: Ready for exploitation despite API error warnings`));
           }
 
-          // Record successful attempt in audit system
           if (auditSession && agentName) {
             const commitHash = await getGitCommitHash(sourceDir);
             const endResult: {
@@ -646,15 +443,13 @@ export async function runClaudePromptWithRetry(
             await auditSession.endAgent(agentName, endResult);
           }
 
-          // Commit successful changes (will include the snapshot)
           await commitGitSuccess(sourceDir, description);
-          console.log(chalk.green.bold(`🎉 ${description} completed successfully on attempt ${attempt}/${maxRetries}`));
+          console.log(chalk.green.bold(`${description} completed successfully on attempt ${attempt}/${maxRetries}`));
           return result;
+        // Validation failure is retryable - agent might succeed on retry with cleaner workspace
         } else {
-          // Agent completed but output validation failed
-          console.log(chalk.yellow(`⚠️ ${description} completed but output validation failed`));
+          console.log(chalk.yellow(`${description} completed but output validation failed`));
 
-          // Record failed validation attempt in audit system
           if (auditSession && agentName) {
             await auditSession.endAgent(agentName, {
               attemptNumber: attempt,
@@ -666,20 +461,17 @@ export async function runClaudePromptWithRetry(
             });
           }
 
-          // If API error detected AND validation failed, this is a retryable error
           if (result.apiErrorDetected) {
-            console.log(chalk.yellow(`⚠️ API Error detected with validation failure - treating as retryable`));
+            console.log(chalk.yellow(`API Error detected with validation failure - treating as retryable`));
             lastError = new Error('API Error: terminated with validation failure');
           } else {
             lastError = new Error('Output validation failed');
           }
 
           if (attempt < maxRetries) {
-            // Rollback contaminated workspace
             await rollbackGitWorkspace(sourceDir, 'validation failure');
             continue;
           } else {
-            // FAIL FAST - Don't continue with broken pipeline
             throw new PentestError(
               `Agent ${description} failed output validation after ${maxRetries} attempts. Required deliverable files were not created.`,
               'validation',
@@ -694,7 +486,6 @@ export async function runClaudePromptWithRetry(
       const err = error as Error & { duration?: number; cost?: number; partialResults?: unknown };
       lastError = err;
 
-      // Record failed attempt in audit system
       if (auditSession && agentName) {
         await auditSession.endAgent(agentName, {
           attemptNumber: attempt,
@@ -706,24 +497,21 @@ export async function runClaudePromptWithRetry(
         });
       }
 
-      // Check if error is retryable
       if (!isRetryableError(err)) {
-        console.log(chalk.red(`❌ ${description} failed with non-retryable error: ${err.message}`));
+        console.log(chalk.red(`${description} failed with non-retryable error: ${err.message}`));
         await rollbackGitWorkspace(sourceDir, 'non-retryable error cleanup');
         throw err;
       }
 
       if (attempt < maxRetries) {
-        // Rollback for clean retry
         await rollbackGitWorkspace(sourceDir, 'retryable error cleanup');
 
         const delay = getRetryDelay(err, attempt);
         const delaySeconds = (delay / 1000).toFixed(1);
-        console.log(chalk.yellow(`⚠️ ${description} failed (attempt ${attempt}/${maxRetries})`));
+        console.log(chalk.yellow(`${description} failed (attempt ${attempt}/${maxRetries})`));
         console.log(chalk.gray(`    Error: ${err.message}`));
         console.log(chalk.gray(`    Workspace rolled back, retrying in ${delaySeconds}s...`));
 
-        // Preserve any partial results for next retry
         if (err.partialResults) {
           retryContext = `${context}\n\nPrevious partial results: ${JSON.stringify(err.partialResults)}`;
         }
@@ -731,21 +519,11 @@ export async function runClaudePromptWithRetry(
         await new Promise(resolve => setTimeout(resolve, delay));
       } else {
         await rollbackGitWorkspace(sourceDir, 'final failure cleanup');
-        console.log(chalk.red(`❌ ${description} failed after ${maxRetries} attempts`));
+        console.log(chalk.red(`${description} failed after ${maxRetries} attempts`));
         console.log(chalk.red(`    Final error: ${err.message}`));
       }
     }
   }
 
   throw lastError;
-}
-
-// Helper function to get git commit hash
-async function getGitCommitHash(sourceDir: string): Promise<string | null> {
-  try {
-    const result = await $`cd ${sourceDir} && git rev-parse HEAD`;
-    return result.stdout.trim();
-  } catch {
-    return null;
-  }
 }

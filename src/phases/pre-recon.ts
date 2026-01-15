@@ -7,7 +7,7 @@
 import { $, fs, path } from 'zx';
 import chalk from 'chalk';
 import { Timer } from '../utils/metrics.js';
-import { formatDuration } from '../audit/utils.js';
+import { formatDuration } from '../utils/formatting.js';
 import { handleToolError, PentestError } from '../error-handling.js';
 import { AGENTS } from '../session-manager.js';
 import { runClaudePromptWithRetry } from '../ai/claude-executor.js';
@@ -40,11 +40,17 @@ interface PromptVariables {
   repoPath: string;
 }
 
+// Discriminated union for Wave1 tool results - clearer than loose union types
+type Wave1ToolResult =
+  | { kind: 'scan'; result: TerminalScanResult }
+  | { kind: 'skipped'; message: string }
+  | { kind: 'agent'; result: AgentResult };
+
 interface Wave1Results {
-  nmap: TerminalScanResult | string | AgentResult;
-  subfinder: TerminalScanResult | string | AgentResult;
-  whatweb: TerminalScanResult | string | AgentResult;
-  naabu?: TerminalScanResult | string | AgentResult;
+  nmap: Wave1ToolResult;
+  subfinder: Wave1ToolResult;
+  whatweb: Wave1ToolResult;
+  naabu?: Wave1ToolResult;
   codeAnalysis: AgentResult;
 }
 
@@ -57,7 +63,7 @@ interface PreReconResult {
   report: string;
 }
 
-// Pure function: Run terminal scanning tools
+// Runs external security tools (nmap, whatweb, etc). Schemathesis requires schemas from code analysis.
 async function runTerminalScan(tool: ToolName, target: string, sourceDir: string | null = null): Promise<TerminalScanResult> {
   const timer = new Timer(`command-${tool}`);
   try {
@@ -89,7 +95,7 @@ async function runTerminalScan(tool: ToolName, target: string, sourceDir: string
         return { tool: 'whatweb', output: result.stdout, status: 'success', duration: whatwebDuration };
       }
       case 'schemathesis': {
-        // Only run if API schemas found
+        // Schemathesis depends on code analysis output - skip if no schemas found
         const schemasDir = path.join(sourceDir || '.', 'outputs', 'schemas');
         if (await fs.pathExists(schemasDir)) {
           const schemaFiles = await fs.readdir(schemasDir) as string[];
@@ -146,6 +152,8 @@ async function runPreReconWave1(
 
   const operations: Promise<TerminalScanResult | AgentResult>[] = [];
 
+  const skippedResult = (message: string): Wave1ToolResult => ({ kind: 'skipped', message });
+
   // Skip external commands in pipeline testing mode
   if (pipelineTestingMode) {
     console.log(chalk.gray('    ⏭️ Skipping external tools (pipeline testing mode)'));
@@ -163,9 +171,9 @@ async function runPreReconWave1(
     );
     const [codeAnalysis] = await Promise.all(operations);
     return {
-      nmap: 'Skipped (pipeline testing mode)',
-      subfinder: 'Skipped (pipeline testing mode)',
-      whatweb: 'Skipped (pipeline testing mode)',
+      nmap: skippedResult('Skipped (pipeline testing mode)'),
+      subfinder: skippedResult('Skipped (pipeline testing mode)'),
+      whatweb: skippedResult('Skipped (pipeline testing mode)'),
       codeAnalysis: codeAnalysis as AgentResult
     };
   } else {
@@ -192,9 +200,9 @@ async function runPreReconWave1(
   const [nmap, subfinder, whatweb, codeAnalysis] = await Promise.all(operations);
 
   return {
-    nmap: nmap as TerminalScanResult,
-    subfinder: subfinder as TerminalScanResult,
-    whatweb: whatweb as TerminalScanResult,
+    nmap: { kind: 'scan', result: nmap as TerminalScanResult },
+    subfinder: { kind: 'scan', result: subfinder as TerminalScanResult },
+    whatweb: { kind: 'scan', result: whatweb as TerminalScanResult },
     codeAnalysis: codeAnalysis as AgentResult
   };
 }
@@ -250,17 +258,21 @@ async function runPreReconWave2(
   return response;
 }
 
-// Helper type for stitching results
-interface StitchableResult {
-  status?: string;
-  output?: string;
-  tool?: string;
+// Extracts status and output from a Wave1 tool result
+function extractResult(r: Wave1ToolResult | undefined): { status: string; output: string } {
+  if (!r) return { status: 'Skipped', output: 'No output' };
+  switch (r.kind) {
+    case 'scan':
+      return { status: r.result.status || 'Skipped', output: r.result.output || 'No output' };
+    case 'skipped':
+      return { status: 'Skipped', output: r.message };
+    case 'agent':
+      return { status: r.result.success ? 'success' : 'error', output: 'See agent output' };
+  }
 }
 
-// Pure function: Stitch together pre-recon outputs and save to file
-async function stitchPreReconOutputs(outputs: (StitchableResult | string | undefined)[], sourceDir: string): Promise<string> {
-  const [nmap, subfinder, whatweb, naabu, codeAnalysis, ...additionalScans] = outputs;
-
+// Combines tool outputs into single deliverable. Falls back to reference if file missing.
+async function stitchPreReconOutputs(wave1: Wave1Results, additionalScans: TerminalScanResult[], sourceDir: string): Promise<string> {
   // Try to read the code analysis deliverable file
   let codeAnalysisContent = 'No analysis available';
   try {
@@ -269,62 +281,45 @@ async function stitchPreReconOutputs(outputs: (StitchableResult | string | undef
   } catch (error) {
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Could not read code analysis deliverable: ${err.message}`));
-    // Fallback message if file doesn't exist
     codeAnalysisContent = 'Analysis located in deliverables/code_analysis_deliverable.md';
   }
 
-
   // Build additional scans section
   let additionalSection = '';
-  if (additionalScans && additionalScans.length > 0) {
+  if (additionalScans.length > 0) {
     additionalSection = '\n## Authenticated Scans\n';
-    additionalScans.forEach(scan => {
-      const s = scan as StitchableResult;
-      if (s && s.tool) {
-        additionalSection += `
-### ${s.tool.toUpperCase()}
-Status: ${s.status}
-${s.output}
+    for (const scan of additionalScans) {
+      additionalSection += `
+### ${scan.tool.toUpperCase()}
+Status: ${scan.status}
+${scan.output}
 `;
-      }
-    });
+    }
   }
 
-  const nmapResult = nmap as StitchableResult | string | undefined;
-  const subfinderResult = subfinder as StitchableResult | string | undefined;
-  const whatwebResult = whatweb as StitchableResult | string | undefined;
-  const naabuResult = naabu as StitchableResult | string | undefined;
-
-  const getStatus = (r: StitchableResult | string | undefined): string => {
-    if (!r) return 'Skipped';
-    if (typeof r === 'string') return 'Skipped';
-    return r.status || 'Skipped';
-  };
-
-  const getOutput = (r: StitchableResult | string | undefined): string => {
-    if (!r) return 'No output';
-    if (typeof r === 'string') return r;
-    return r.output || 'No output';
-  };
+  const nmap = extractResult(wave1.nmap);
+  const subfinder = extractResult(wave1.subfinder);
+  const whatweb = extractResult(wave1.whatweb);
+  const naabu = extractResult(wave1.naabu);
 
   const report = `
 # Pre-Reconnaissance Report
 
 ## Port Discovery (naabu)
-Status: ${getStatus(naabuResult)}
-${getOutput(naabuResult)}
+Status: ${naabu.status}
+${naabu.output}
 
 ## Network Scanning (nmap)
-Status: ${getStatus(nmapResult)}
-${getOutput(nmapResult)}
+Status: ${nmap.status}
+${nmap.output}
 
 ## Subdomain Discovery (subfinder)
-Status: ${getStatus(subfinderResult)}
-${getOutput(subfinderResult)}
+Status: ${subfinder.status}
+${subfinder.output}
 
 ## Technology Detection (whatweb)
-Status: ${getStatus(whatwebResult)}
-${getOutput(whatwebResult)}
+Status: ${whatweb.status}
+${whatweb.output}
 ## Code Analysis
 ${codeAnalysisContent}
 ${additionalSection}
@@ -375,16 +370,8 @@ export async function executePreReconPhase(
   console.log(chalk.green('  ✅ Wave 2 operations completed'));
 
   console.log(chalk.blue('📝 Stitching pre-recon outputs...'));
-  // Combine wave 1 and wave 2 results for stitching
-  const allResults: (StitchableResult | string | undefined)[] = [
-    wave1Results.nmap as StitchableResult | string,
-    wave1Results.subfinder as StitchableResult | string,
-    wave1Results.whatweb as StitchableResult | string,
-    wave1Results.naabu as StitchableResult | string | undefined,
-    wave1Results.codeAnalysis as unknown as StitchableResult,
-    ...(wave2Results.schemathesis ? [wave2Results.schemathesis as StitchableResult] : [])
-  ];
-  const preReconReport = await stitchPreReconOutputs(allResults, sourceDir);
+  const additionalScans = wave2Results.schemathesis ? [wave2Results.schemathesis] : [];
+  const preReconReport = await stitchPreReconOutputs(wave1Results, additionalScans, sourceDir);
   const duration = timer.stop();
 
   console.log(chalk.green(`✅ Pre-reconnaissance complete in ${formatDuration(duration)}`));

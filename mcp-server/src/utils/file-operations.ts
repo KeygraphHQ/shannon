@@ -14,16 +14,14 @@
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 
-declare global {
-  var __SHANNON_TARGET_DIR: string | undefined;
-}
-
 /**
  * Save deliverable file to deliverables/ directory
+ *
+ * @param targetDir - Target directory for deliverables (passed explicitly to avoid race conditions)
+ * @param filename - Name of the deliverable file
+ * @param content - File content to save
  */
-export function saveDeliverableFile(filename: string, content: string): string {
-  // Use target directory from global context (set by createShannonHelperServer)
-  const targetDir = global.__SHANNON_TARGET_DIR || process.cwd();
+export function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
   const deliverablesDir = join(targetDir, 'deliverables');
   const filepath = join(deliverablesDir, filename);
 

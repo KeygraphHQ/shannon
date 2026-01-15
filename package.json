@@ -2,13 +2,20 @@
   "name": "shannon",
   "version": "1.0.0",
   "type": "module",
-  "main": "./dist/shannon.js",
   "scripts": {
     "build": "tsc",
-    "start": "node ./dist/shannon.js"
+    "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
+    "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
+    "temporal:worker": "node dist/temporal/worker.js",
+    "temporal:start": "node dist/temporal/client.js",
+    "temporal:query": "node dist/temporal/query.js"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@temporalio/activity": "^1.11.0",
+    "@temporalio/client": "^1.11.0",
+    "@temporalio/worker": "^1.11.0",
+    "@temporalio/workflow": "^1.11.0",
     "ajv": "^8.12.0",
     "ajv-formats": "^2.1.1",
     "boxen": "^8.0.1",
@@ -19,9 +26,6 @@
     "js-yaml": "^4.1.0",
     "zod": "^3.22.4",
     "zx": "^8.0.0"
-  },
-  "bin": {
-    "shannon": "./dist/shannon.js"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

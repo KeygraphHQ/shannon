@@ -106,10 +106,24 @@ export const getParallelGroups = (): Readonly<{ vuln: AgentName[]; exploit: Agen
   exploit: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit']
 });
 
-// Generate a session-based log folder path (used by claude-executor.ts)
-export const generateSessionLogPath = (webUrl: string, sessionId: string): string => {
-  const hostname = new URL(webUrl).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-  const sessionFolderName = `${hostname}_${sessionId}`;
-  return path.join(process.cwd(), 'agent-logs', sessionFolderName);
-};
+// Phase names for metrics aggregation
+export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
+
+// Map agents to their corresponding phases (single source of truth)
+export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
+  'pre-recon': 'pre-recon',
+  'recon': 'recon',
+  'injection-vuln': 'vulnerability-analysis',
+  'xss-vuln': 'vulnerability-analysis',
+  'auth-vuln': 'vulnerability-analysis',
+  'authz-vuln': 'vulnerability-analysis',
+  'ssrf-vuln': 'vulnerability-analysis',
+  'injection-exploit': 'exploitation',
+  'xss-exploit': 'exploitation',
+  'auth-exploit': 'exploitation',
+  'authz-exploit': 'exploitation',
+  'ssrf-exploit': 'exploitation',
+  'report': 'reporting',
+});
+
 

@@ -14,6 +14,12 @@ import type {
   PromptErrorResult,
 } from './types/errors.js';
 
+// Temporal error classification for ApplicationFailure wrapping
+export interface TemporalErrorClassification {
+  type: string;
+  retryable: boolean;
+}
+
 // Custom error class for pentest operations
 export class PentestError extends Error {
   name = 'PentestError' as const;
@@ -37,11 +43,11 @@ export class PentestError extends Error {
 }
 
 // Centralized error logging function
-export const logError = async (
+export async function logError(
   error: Error & { type?: PentestErrorType; retryable?: boolean; context?: PentestErrorContext },
   contextMsg: string,
   sourceDir: string | null = null
-): Promise<LogEntry> => {
+): Promise<LogEntry> {
   const timestamp = new Date().toISOString();
   const logEntry: LogEntry = {
     timestamp,
@@ -80,13 +86,13 @@ export const logError = async (
   }
 
   return logEntry;
-};
+}
 
 // Handle tool execution errors
-export const handleToolError = (
+export function handleToolError(
   toolName: string,
   error: Error & { code?: string }
-): ToolErrorResult => {
+): ToolErrorResult {
   const isRetryable =
     error.code === 'ECONNRESET' ||
     error.code === 'ETIMEDOUT' ||
@@ -105,13 +111,13 @@ export const handleToolError = (
       { toolName, originalError: error.message, errorCode: error.code }
     ),
   };
-};
+}
 
 // Handle prompt loading errors
-export const handlePromptError = (
+export function handlePromptError(
   promptName: string,
   error: Error
-): PromptErrorResult => {
+): PromptErrorResult {
   return {
     success: false,
     error: new PentestError(
@@ -121,78 +127,63 @@ export const handlePromptError = (
       { promptName, originalError: error.message }
     ),
   };
-};
+}
 
-// Check if an error should trigger a retry for Claude agents
-export const isRetryableError = (error: Error): boolean => {
+// Patterns that indicate retryable errors
+const RETRYABLE_PATTERNS = [
+  // Network and connection errors
+  'network',
+  'connection',
+  'timeout',
+  'econnreset',
+  'enotfound',
+  'econnrefused',
+  // Rate limiting
+  'rate limit',
+  '429',
+  'too many requests',
+  // Server errors
+  'server error',
+  '5xx',
+  'internal server error',
+  'service unavailable',
+  'bad gateway',
+  // Claude API errors
+  'mcp server',
+  'model unavailable',
+  'service temporarily unavailable',
+  'api error',
+  'terminated',
+  // Max turns
+  'max turns',
+  'maximum turns',
+];
+
+// Patterns that indicate non-retryable errors (checked before default)
+const NON_RETRYABLE_PATTERNS = [
+  'authentication',
+  'invalid prompt',
+  'out of memory',
+  'permission denied',
+  'session limit reached',
+  'invalid api key',
+];
+
+// Conservative retry classification - unknown errors don't retry (fail-safe default)
+export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
 
-  // Network and connection errors - always retryable
-  if (
-    message.includes('network') ||
-    message.includes('connection') ||
-    message.includes('timeout') ||
-    message.includes('econnreset') ||
-    message.includes('enotfound') ||
-    message.includes('econnrefused')
-  ) {
-    return true;
-  }
-
-  // Rate limiting - retryable with longer backoff
-  if (
-    message.includes('rate limit') ||
-    message.includes('429') ||
-    message.includes('too many requests')
-  ) {
-    return true;
-  }
-
-  // Server errors - retryable
-  if (
-    message.includes('server error') ||
-    message.includes('5xx') ||
-    message.includes('internal server error') ||
-    message.includes('service unavailable') ||
-    message.includes('bad gateway')
-  ) {
-    return true;
-  }
-
-  // Claude API specific errors - retryable
-  if (
-    message.includes('mcp server') ||
-    message.includes('model unavailable') ||
-    message.includes('service temporarily unavailable') ||
-    message.includes('api error') ||
-    message.includes('terminated')
-  ) {
-    return true;
-  }
-
-  // Max turns without completion - retryable once
-  if (message.includes('max turns') || message.includes('maximum turns')) {
-    return true;
-  }
-
-  // Non-retryable errors
-  if (
-    message.includes('authentication') ||
-    message.includes('invalid prompt') ||
-    message.includes('out of memory') ||
-    message.includes('permission denied') ||
-    message.includes('session limit reached') ||
-    message.includes('invalid api key')
-  ) {
+  // Check for explicit non-retryable patterns first
+  if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
     return false;
   }
 
-  // Default to non-retryable for unknown errors
-  return false;
-};
+  // Check for retryable patterns
+  return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
+}
 
-// Get retry delay based on error type and attempt number
-export const getRetryDelay = (error: Error, attempt: number): number => {
+// Rate limit errors get longer base delay (30s) vs standard exponential backoff (2s)
+export function getRetryDelay(error: Error, attempt: number): number {
   const message = error.message.toLowerCase();
 
   // Rate limiting gets longer delays
@@ -204,4 +195,125 @@ export const getRetryDelay = (error: Error, attempt: number): number => {
   const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
   const jitter = Math.random() * 1000; // 0-1s random
   return Math.min(baseDelay + jitter, 30000); // Max 30s
-};
+}
+
+/**
+ * Classifies errors for Temporal workflow retry behavior.
+ * Returns error type and whether Temporal should retry.
+ *
+ * Used by activities to wrap errors in ApplicationFailure:
+ * - Retryable errors: Temporal retries with configured backoff
+ * - Non-retryable errors: Temporal fails immediately
+ */
+export function classifyErrorForTemporal(error: unknown): TemporalErrorClassification {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+
+  // === BILLING ERRORS (Retryable with long backoff) ===
+  // Anthropic returns billing as 400 invalid_request_error
+  // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
+  if (
+    message.includes('billing_error') ||
+    message.includes('credit balance is too low') ||
+    message.includes('insufficient credits') ||
+    message.includes('usage is blocked due to insufficient credits') ||
+    message.includes('please visit plans & billing') ||
+    message.includes('please visit plans and billing') ||
+    message.includes('usage limit reached') ||
+    message.includes('quota exceeded') ||
+    message.includes('daily rate limit') ||
+    message.includes('limit will reset') ||
+    // Claude Code spending cap patterns (returns short message instead of error)
+    message.includes('spending cap') ||
+    message.includes('spending limit') ||
+    message.includes('cap reached') ||
+    message.includes('budget exceeded') ||
+    message.includes('billing limit reached')
+  ) {
+    return { type: 'BillingError', retryable: true };
+  }
+
+  // === PERMANENT ERRORS (Non-retryable) ===
+
+  // Authentication (401) - bad API key won't fix itself
+  if (
+    message.includes('authentication') ||
+    message.includes('api key') ||
+    message.includes('401') ||
+    message.includes('authentication_error')
+  ) {
+    return { type: 'AuthenticationError', retryable: false };
+  }
+
+  // Permission (403) - access won't be granted
+  if (
+    message.includes('permission') ||
+    message.includes('forbidden') ||
+    message.includes('403')
+  ) {
+    return { type: 'PermissionError', retryable: false };
+  }
+
+  // === OUTPUT VALIDATION ERRORS (Retryable) ===
+  // Agent didn't produce expected deliverables - retry may succeed
+  // IMPORTANT: Must come BEFORE generic 'validation' check below
+  if (
+    message.includes('failed output validation') ||
+    message.includes('output validation failed')
+  ) {
+    return { type: 'OutputValidationError', retryable: true };
+  }
+
+  // Invalid Request (400) - malformed request is permanent
+  // Note: Checked AFTER billing and AFTER output validation
+  if (
+    message.includes('invalid_request_error') ||
+    message.includes('malformed') ||
+    message.includes('validation')
+  ) {
+    return { type: 'InvalidRequestError', retryable: false };
+  }
+
+  // Request Too Large (413) - won't fit no matter how many retries
+  if (
+    message.includes('request_too_large') ||
+    message.includes('too large') ||
+    message.includes('413')
+  ) {
+    return { type: 'RequestTooLargeError', retryable: false };
+  }
+
+  // Configuration errors - missing files need manual fix
+  if (
+    message.includes('enoent') ||
+    message.includes('no such file') ||
+    message.includes('cli not installed')
+  ) {
+    return { type: 'ConfigurationError', retryable: false };
+  }
+
+  // Execution limits - max turns/budget reached
+  if (
+    message.includes('max turns') ||
+    message.includes('budget') ||
+    message.includes('execution limit') ||
+    message.includes('error_max_turns') ||
+    message.includes('error_max_budget')
+  ) {
+    return { type: 'ExecutionLimitError', retryable: false };
+  }
+
+  // Invalid target URL - bad URL format won't fix itself
+  if (
+    message.includes('invalid url') ||
+    message.includes('invalid target') ||
+    message.includes('malformed url') ||
+    message.includes('invalid uri')
+  ) {
+    return { type: 'InvalidTargetError', retryable: false };
+  }
+
+  // === TRANSIENT ERRORS (Retryable) ===
+  // Rate limits (429), server errors (5xx), network issues
+  // Let Temporal retry with configured backoff
+  return { type: 'TransientError', retryable: true };
+}
