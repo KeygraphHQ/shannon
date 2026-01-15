@@ -50,6 +50,7 @@ CONFIG=<file>          YAML configuration file for authentication and testing pa
 OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
 PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
 REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
+ROUTER=true            Route requests through claude-code-router for multi-model support (see limitations below)
 ```
 
 ### Generate TOTP for Authentication
@@ -283,6 +284,16 @@ Missing tools can be skipped using `PIPELINE_TESTING=true` mode during developme
 - `nmap` - Network scanning
 - `subfinder` - Subdomain discovery
 - `whatweb` - Web technology detection
+
+### Router Mode Limitations
+When using `ROUTER=true` to route requests through claude-code-router (e.g., to use OpenAI models):
+
+**Cost tracking shows $0.00**: The Claude Agent SDK expects `total_cost_usd` in the result message, which is Anthropic-specific. OpenAI's API returns token counts in `usage` but not a cost field, and the router doesn't translate this. This is a known limitation of the router, not a Shannon bug.
+
+**Workarounds:**
+- Accept $0 costs when using router mode (recommended for dev/testing)
+- Use Anthropic directly for production runs where cost tracking matters
+- Use external tools like `ccusage` for post-hoc token analysis
 
 ### Diagnostic & Utility Scripts
 ```bash
