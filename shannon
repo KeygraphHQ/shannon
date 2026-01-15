@@ -14,7 +14,15 @@ fi
 
 show_help() {
   cat << 'EOF'
-Shannon - AI Penetration Testing Framework
+
+  ███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗
+  ██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║
+  ███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║
+  ╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║
+  ███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║
+  ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝
+
+           AI Penetration Testing Framework
 
 Usage:
   ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
@@ -25,15 +33,16 @@ Usage:
 
 Options for 'start':
   CONFIG=<path>          Configuration file (YAML)
-  OUTPUT=<path>          Output directory for reports
+  OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
 
 Options for 'stop':
-  CLEAN=true      Remove all data including volumes
+  CLEAN=true             Remove all data including volumes
 
 Examples:
   ./shannon start URL=https://example.com REPO=/path/to/repo
   ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
+  ./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
@@ -64,8 +73,15 @@ is_temporal_ready() {
     temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"
 }
 
-# Ensure containers are running
+# Ensure containers are running with correct mounts
 ensure_containers() {
+  # If custom OUTPUT_DIR is set, always refresh worker to ensure correct volume mount
+  # Docker compose will only recreate if the mount actually changed
+  if [ -n "$OUTPUT_DIR" ]; then
+    echo "Ensuring worker has correct output mount..."
+    docker compose -f "$COMPOSE_FILE" up -d worker 2>/dev/null || true
+  fi
+
   # Quick check: if Temporal is already healthy, we're good
   if is_temporal_ready; then
     return 0
@@ -125,13 +141,27 @@ cmd_start() {
       ;;
   esac
 
+  # Handle custom OUTPUT directory
+  # Export OUTPUT_DIR for docker-compose volume mount BEFORE starting containers
+  if [ -n "$OUTPUT" ]; then
+    # Create output directory if it doesn't exist
+    mkdir -p "$OUTPUT"
+    export OUTPUT_DIR="$OUTPUT"
+  fi
+
   # Ensure containers are running (starts them if needed)
   ensure_containers
 
   # Build optional args
   ARGS=""
   [ -n "$CONFIG" ] && ARGS="$ARGS --config $CONFIG"
-  [ -n "$OUTPUT" ] && ARGS="$ARGS --output $OUTPUT"
+
+  # Pass container path for output (where OUTPUT_DIR is mounted)
+  # Also pass display path so client can show the host path to user
+  if [ -n "$OUTPUT" ]; then
+    ARGS="$ARGS --output /app/output --display-output $OUTPUT"
+  fi
+
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
 
   # Run the client to submit workflow
@@ -148,18 +178,31 @@ cmd_logs() {
     exit 1
   fi
 
-  WORKFLOW_LOG="./audit-logs/${ID}/workflow.log"
+  # Auto-discover the workflow log file
+  # 1. Check default location first
+  # 2. Search common output directories
+  # 3. Fall back to find command
+  WORKFLOW_LOG=""
 
-  if [ -f "$WORKFLOW_LOG" ]; then
+  if [ -f "./audit-logs/${ID}/workflow.log" ]; then
+    WORKFLOW_LOG="./audit-logs/${ID}/workflow.log"
+  else
+    # Search for the workflow directory (handles custom OUTPUT paths)
+    FOUND=$(find . -maxdepth 3 -path "*/${ID}/workflow.log" -type f 2>/dev/null | head -1)
+    if [ -n "$FOUND" ]; then
+      WORKFLOW_LOG="$FOUND"
+    fi
+  fi
+
+  if [ -n "$WORKFLOW_LOG" ]; then
     echo "Tailing workflow log: $WORKFLOW_LOG"
     tail -f "$WORKFLOW_LOG"
   else
-    echo "ERROR: Workflow log not found: $WORKFLOW_LOG"
+    echo "ERROR: Workflow log not found for ID: $ID"
     echo ""
     echo "Possible causes:"
     echo "  - Workflow hasn't started yet"
     echo "  - Workflow ID is incorrect"
-    echo "  - Workflow is using a custom OUTPUT path"
     echo ""
     echo "Check: ./shannon query ID=$ID for workflow details"
     exit 1
