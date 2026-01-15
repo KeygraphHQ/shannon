@@ -41,6 +41,7 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=/path/to/repo
+  ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
