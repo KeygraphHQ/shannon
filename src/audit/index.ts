@@ -18,5 +18,6 @@
 
 export { AuditSession } from './audit-session.js';
 export { AgentLogger } from './logger.js';
+export { WorkflowLogger } from './workflow-logger.js';
 export { MetricsTracker } from './metrics-tracker.js';
 export * as AuditUtils from './utils.js';

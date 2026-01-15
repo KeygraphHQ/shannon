@@ -1,12 +1,12 @@
 services:
   temporal:
     image: temporalio/temporal:latest
-    command: ["server", "start-dev", "--db-filename", "/var/lib/temporal/temporal.db", "--ip", "0.0.0.0"]
+    command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
       - "7233:7233"   # gRPC
       - "8233:8233"   # Web UI (built-in)
     volumes:
-      - temporal-data:/var/lib/temporal
+      - temporal-data:/home/temporal
     healthcheck:
       test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
       interval: 10s
@@ -27,6 +27,7 @@ services:
         condition: service_healthy
     volumes:
       - ./prompts:/app/prompts
+      - ./audit-logs:/app/audit-logs
       - ${TARGET_REPO:-.}:/target-repo
       - ${BENCHMARKS_BASE:-.}:/benchmarks
       - ${HOME}/.shannon:/tmp/.shannon

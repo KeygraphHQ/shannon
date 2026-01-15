@@ -71,12 +71,13 @@ import { assembleFinalReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
 import { telemetry, TelemetryEvent, hashTargetUrl } from '../telemetry/index.js';
+import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
 import type { SessionMetadata } from '../audit/utils.js';
 
-const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (30s)
+const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min production, 5min testing)
 
 /**
  * Input for all agent activities.
@@ -199,6 +200,26 @@ async function runAgentActivity(
       auditSession,
       attemptNumber
     );
+
+    // 6.5. Sanity check: Detect spending cap that slipped through all detection layers
+    // Defense-in-depth: A successful agent execution should never have ≤2 turns with $0 cost
+    if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
+      const resultText = result.result || '';
+      const looksLikeBillingError = /spending|cap|limit|budget|resets/i.test(resultText);
+
+      if (looksLikeBillingError) {
+        await rollbackGitWorkspace(repoPath, 'spending cap detected');
+        await auditSession.endAgent(agentName, {
+          attemptNumber,
+          duration_ms: result.duration,
+          cost_usd: 0,
+          success: false,
+          error: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
+        });
+        // Throw as billing error so Temporal retries with long backoff
+        throw new Error(`Spending cap likely reached: ${resultText.slice(0, 100)}`);
+      }
+    }
 
     // 7. Handle execution failure
     if (!result.success) {
@@ -419,6 +440,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
     });
     throw error;
   }
+  return runAgentActivity('report', input);
 }
 
 /**
@@ -484,4 +506,54 @@ export async function checkExploitationQueue(
     vulnerabilityCount: 0,
     vulnType,
   };
+}
+
+/**
+ * Log phase transition to the unified workflow log.
+ * Called at phase boundaries for per-workflow logging.
+ */
+export async function logPhaseTransition(
+  input: ActivityInput,
+  phase: string,
+  event: 'start' | 'complete'
+): Promise<void> {
+  const { webUrl, repoPath, outputPath, workflowId } = input;
+
+  const sessionMetadata: SessionMetadata = {
+    id: workflowId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  };
+
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+
+  if (event === 'start') {
+    await auditSession.logPhaseStart(phase);
+  } else {
+    await auditSession.logPhaseComplete(phase);
+  }
+}
+
+/**
+ * Log workflow completion with full summary to the unified workflow log.
+ * Called at the end of the workflow to write a summary breakdown.
+ */
+export async function logWorkflowComplete(
+  input: ActivityInput,
+  summary: WorkflowSummary
+): Promise<void> {
+  const { webUrl, repoPath, outputPath, workflowId } = input;
+
+  const sessionMetadata: SessionMetadata = {
+    id: workflowId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  };
+
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+  await auditSession.logWorkflowComplete(summary);
 }

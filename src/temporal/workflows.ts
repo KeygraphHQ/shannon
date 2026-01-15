@@ -70,14 +70,14 @@ const TESTING_RETRY = {
 // Activity proxy with production retry configuration (default)
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '30 seconds',
+  heartbeatTimeout: '10 minutes', // Long timeout for resource-constrained workers with many concurrent activities
   retry: PRODUCTION_RETRY,
 });
 
 // Activity proxy with testing retry configuration (fast)
 const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '10 minutes',
-  heartbeatTimeout: '30 seconds',
+  heartbeatTimeout: '5 minutes', // Shorter for testing but still tolerant of resource contention
   retry: TESTING_RETRY,
 });
 
@@ -145,15 +145,19 @@ export async function pentestPipelineWorkflow(
     // === Phase 1: Pre-Reconnaissance ===
     state.currentPhase = 'pre-recon';
     state.currentAgent = 'pre-recon';
+    await a.logPhaseTransition(activityInput, 'pre-recon', 'start');
     state.agentMetrics['pre-recon'] =
       await a.runPreReconAgent(activityInput);
     state.completedAgents.push('pre-recon');
+    await a.logPhaseTransition(activityInput, 'pre-recon', 'complete');
 
     // === Phase 2: Reconnaissance ===
     state.currentPhase = 'recon';
     state.currentAgent = 'recon';
+    await a.logPhaseTransition(activityInput, 'recon', 'start');
     state.agentMetrics['recon'] = await a.runReconAgent(activityInput);
     state.completedAgents.push('recon');
+    await a.logPhaseTransition(activityInput, 'recon', 'complete');
 
     // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
     // Each vuln type runs as an independent pipeline:
@@ -162,6 +166,7 @@ export async function pentestPipelineWorkflow(
     // starts immediately when its vuln agent finishes, not waiting for all.
     state.currentPhase = 'vulnerability-exploitation';
     state.currentAgent = 'pipelines';
+    await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
 
     // Helper: Run a single vuln→exploit pipeline
     async function runVulnExploitPipeline(
@@ -261,10 +266,12 @@ export async function pentestPipelineWorkflow(
     // Update phase markers
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
+    await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
 
     // === Phase 5: Reporting ===
     state.currentPhase = 'reporting';
     state.currentAgent = 'report';
+    await a.logPhaseTransition(activityInput, 'reporting', 'start');
 
     // First, assemble the concatenated report from exploitation evidence files
     await a.assembleReportActivity(activityInput);
@@ -282,18 +289,50 @@ export async function pentestPipelineWorkflow(
     };
     state.agentMetrics['report'] = await a.runReportAgent(reportInput);
     state.completedAgents.push('report');
+    await a.logPhaseTransition(activityInput, 'reporting', 'complete');
 
     // === Complete ===
     state.status = 'completed';
     state.currentPhase = null;
     state.currentAgent = null;
     state.summary = computeSummary(state);
+
+    // Log workflow completion summary
+    await a.logWorkflowComplete(activityInput, {
+      status: 'completed',
+      totalDurationMs: state.summary.totalDurationMs,
+      totalCostUsd: state.summary.totalCostUsd,
+      completedAgents: state.completedAgents,
+      agentMetrics: Object.fromEntries(
+        Object.entries(state.agentMetrics).map(([name, m]) => [
+          name,
+          { durationMs: m.durationMs, costUsd: m.costUsd },
+        ])
+      ),
+    });
+
     return state;
   } catch (error) {
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
     state.error = error instanceof Error ? error.message : String(error);
     state.summary = computeSummary(state);
+
+    // Log workflow failure summary
+    await a.logWorkflowComplete(activityInput, {
+      status: 'failed',
+      totalDurationMs: state.summary.totalDurationMs,
+      totalCostUsd: state.summary.totalCostUsd,
+      completedAgents: state.completedAgents,
+      agentMetrics: Object.fromEntries(
+        Object.entries(state.agentMetrics).map(([name, m]) => [
+          name,
+          { durationMs: m.durationMs, costUsd: m.costUsd },
+        ])
+      ),
+      error: state.error ?? undefined,
+    });
+
     throw error;
   }
 }
