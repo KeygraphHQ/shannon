@@ -28,6 +28,7 @@ services:
     volumes:
       - ./prompts:/app/prompts
       - ./audit-logs:/app/audit-logs
+      - ${OUTPUT_DIR:-./audit-logs}:/app/output
       - ${TARGET_REPO:-.}:/target-repo
       - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb
