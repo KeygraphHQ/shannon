@@ -440,7 +440,6 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
     });
     throw error;
   }
-  return runAgentActivity('report', input);
 }
 
 /**
