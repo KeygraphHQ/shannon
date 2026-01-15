@@ -74,6 +74,7 @@ async function startPipeline(): Promise<void> {
   let repoPath: string | undefined;
   let configPath: string | undefined;
   let outputPath: string | undefined;
+  let displayOutputPath: string | undefined; // Host path for display purposes
   let pipelineTestingMode = false;
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
@@ -90,6 +91,12 @@ async function startPipeline(): Promise<void> {
       const nextArg = args[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         outputPath = nextArg;
+        i++;
+      }
+    } else if (arg === '--display-output') {
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        displayOutputPath = nextArg;
         i++;
       }
     } else if (arg === '--workflow-id') {
@@ -138,12 +145,20 @@ async function startPipeline(): Promise<void> {
       ...(pipelineTestingMode && { pipelineTestingMode }),
     };
 
+    // Determine output directory for display
+    // Use displayOutputPath (host path) if provided, otherwise fall back to outputPath or default
+    const effectiveDisplayPath = displayOutputPath || outputPath || './audit-logs';
+    const outputDir = `${effectiveDisplayPath}/${workflowId}`;
+
     console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
     console.log();
     console.log(chalk.white('  Target:     ') + chalk.cyan(webUrl));
     console.log(chalk.white('  Repository: ') + chalk.cyan(repoPath));
     if (configPath) {
       console.log(chalk.white('  Config:     ') + chalk.cyan(configPath));
+    }
+    if (displayOutputPath) {
+      console.log(chalk.white('  Output:     ') + chalk.cyan(displayOutputPath));
     }
     if (pipelineTestingMode) {
       console.log(chalk.white('  Mode:       ') + chalk.yellow('Pipeline Testing'));
@@ -165,6 +180,9 @@ async function startPipeline(): Promise<void> {
       console.log(chalk.white('  Web UI:  ') + chalk.blue(`http://localhost:8233/namespaces/default/workflows/${workflowId}`));
       console.log(chalk.white('  Logs:    ') + chalk.gray(`./shannon logs ID=${workflowId}`));
       console.log(chalk.white('  Query:   ') + chalk.gray(`./shannon query ID=${workflowId}`));
+      console.log();
+      console.log(chalk.bold('Output:'));
+      console.log(chalk.white('  Reports: ') + chalk.cyan(outputDir));
       console.log();
       return;
     }
