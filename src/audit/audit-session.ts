@@ -12,6 +12,7 @@
  */
 
 import { AgentLogger } from './logger.js';
+import { WorkflowLogger, type AgentLogDetails, type WorkflowSummary } from './workflow-logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
@@ -37,7 +38,9 @@ export class AuditSession {
   private sessionMetadata: SessionMetadata;
   private sessionId: string;
   private metricsTracker: MetricsTracker;
+  private workflowLogger: WorkflowLogger;
   private currentLogger: AgentLogger | null = null;
+  private currentAgentName: string | null = null;
   private initialized: boolean = false;
 
   constructor(sessionMetadata: SessionMetadata) {
@@ -54,6 +57,7 @@ export class AuditSession {
 
     // Components
     this.metricsTracker = new MetricsTracker(sessionMetadata);
+    this.workflowLogger = new WorkflowLogger(sessionMetadata);
   }
 
   /**
@@ -70,6 +74,9 @@ export class AuditSession {
 
     // Initialize metrics tracker (loads or creates session.json)
     await this.metricsTracker.initialize();
+
+    // Initialize workflow logger
+    await this.workflowLogger.initialize();
 
     this.initialized = true;
   }
@@ -98,6 +105,9 @@ export class AuditSession {
       await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
     }
 
+    // Track current agent name for workflow logging
+    this.currentAgentName = agentName;
+
     // Create and initialize logger for this attempt
     this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
     await this.currentLogger.initialize();
@@ -111,6 +121,9 @@ export class AuditSession {
       attemptNumber,
       timestamp: formatTimestamp(),
     });
+
+    // Log to unified workflow log
+    await this.workflowLogger.logAgent(agentName, 'start', { attemptNumber });
   }
 
   /**
@@ -121,7 +134,30 @@ export class AuditSession {
       throw new Error('No active logger. Call startAgent() first.');
     }
 
+    // Log to agent-specific log file (JSON format)
     await this.currentLogger.logEvent(eventType, eventData);
+
+    // Also log to unified workflow log (human-readable format)
+    const data = eventData as Record<string, unknown>;
+    const agentName = this.currentAgentName || 'unknown';
+    switch (eventType) {
+      case 'tool_start':
+        await this.workflowLogger.logToolStart(
+          agentName,
+          String(data.toolName || ''),
+          data.parameters
+        );
+        break;
+      case 'llm_response':
+        await this.workflowLogger.logLlmResponse(
+          agentName,
+          Number(data.turn || 0),
+          String(data.content || '')
+        );
+        break;
+      // tool_end and error events are intentionally not logged to workflow log
+      // to reduce noise - the agent completion message captures the outcome
+    }
   }
 
   /**
@@ -142,6 +178,19 @@ export class AuditSession {
       await this.currentLogger.close();
       this.currentLogger = null;
     }
+
+    // Reset current agent name
+    this.currentAgentName = null;
+
+    // Log to unified workflow log
+    const agentLogDetails: AgentLogDetails = {
+      attemptNumber: result.attemptNumber,
+      duration_ms: result.duration_ms,
+      cost_usd: result.cost_usd,
+      success: result.success,
+      ...(result.error !== undefined && { error: result.error }),
+    };
+    await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
 
     // Mutex-protected update to session.json
     const unlock = await sessionMutex.lock(this.sessionId);
@@ -177,5 +226,29 @@ export class AuditSession {
   async getMetrics(): Promise<unknown> {
     await this.ensureInitialized();
     return this.metricsTracker.getMetrics();
+  }
+
+  /**
+   * Log phase start to unified workflow log
+   */
+  async logPhaseStart(phase: string): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logPhase(phase, 'start');
+  }
+
+  /**
+   * Log phase completion to unified workflow log
+   */
+  async logPhaseComplete(phase: string): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logPhase(phase, 'complete');
+  }
+
+  /**
+   * Log workflow completion to unified workflow log
+   */
+  async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logWorkflowComplete(summary);
   }
 }

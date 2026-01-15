@@ -27,6 +27,7 @@ services:
         condition: service_healthy
     volumes:
       - ./prompts:/app/prompts
+      - ./audit-logs:/app/audit-logs
       - ${TARGET_REPO:-.}:/target-repo
       - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb

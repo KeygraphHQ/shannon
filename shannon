@@ -18,7 +18,7 @@ Shannon - AI Penetration Testing Framework
 
 Usage:
   ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
-  ./shannon logs                          View real-time worker logs
+  ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon query ID=<workflow-id>        Query workflow progress
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
@@ -34,6 +34,7 @@ Options for 'stop':
 Examples:
   ./shannon start URL=https://example.com REPO=/path/to/repo
   ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
+  ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
 
@@ -139,7 +140,30 @@ cmd_start() {
 }
 
 cmd_logs() {
-  docker compose -f "$COMPOSE_FILE" logs -f worker "$@"
+  parse_args "$@"
+
+  if [ -z "$ID" ]; then
+    echo "ERROR: ID is required"
+    echo "Usage: ./shannon logs ID=<workflow-id>"
+    exit 1
+  fi
+
+  WORKFLOW_LOG="./audit-logs/${ID}/workflow.log"
+
+  if [ -f "$WORKFLOW_LOG" ]; then
+    echo "Tailing workflow log: $WORKFLOW_LOG"
+    tail -f "$WORKFLOW_LOG"
+  else
+    echo "ERROR: Workflow log not found: $WORKFLOW_LOG"
+    echo ""
+    echo "Possible causes:"
+    echo "  - Workflow hasn't started yet"
+    echo "  - Workflow ID is incorrect"
+    echo "  - Workflow is using a custom OUTPUT path"
+    echo ""
+    echo "Check: ./shannon query ID=$ID for workflow details"
+    exit 1
+  fi
 }
 
 cmd_query() {

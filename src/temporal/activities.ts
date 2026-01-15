@@ -70,6 +70,7 @@ import {
 import { assembleFinalReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
+import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
@@ -415,4 +416,54 @@ export async function checkExploitationQueue(
     vulnerabilityCount: 0,
     vulnType,
   };
+}
+
+/**
+ * Log phase transition to the unified workflow log.
+ * Called at phase boundaries for per-workflow logging.
+ */
+export async function logPhaseTransition(
+  input: ActivityInput,
+  phase: string,
+  event: 'start' | 'complete'
+): Promise<void> {
+  const { webUrl, repoPath, outputPath, workflowId } = input;
+
+  const sessionMetadata: SessionMetadata = {
+    id: workflowId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  };
+
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+
+  if (event === 'start') {
+    await auditSession.logPhaseStart(phase);
+  } else {
+    await auditSession.logPhaseComplete(phase);
+  }
+}
+
+/**
+ * Log workflow completion with full summary to the unified workflow log.
+ * Called at the end of the workflow to write a summary breakdown.
+ */
+export async function logWorkflowComplete(
+  input: ActivityInput,
+  summary: WorkflowSummary
+): Promise<void> {
+  const { webUrl, repoPath, outputPath, workflowId } = input;
+
+  const sessionMetadata: SessionMetadata = {
+    id: workflowId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  };
+
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+  await auditSession.logWorkflowComplete(summary);
 }

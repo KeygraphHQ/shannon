@@ -86,6 +86,14 @@ export function generateSessionJsonPath(sessionMetadata: SessionMetadata): strin
 }
 
 /**
+ * Generate path to workflow.log file
+ */
+export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): string {
+  const auditPath = generateAuditPath(sessionMetadata);
+  return path.join(auditPath, 'workflow.log');
+}
+
+/**
  * Ensure directory exists (idempotent, race-safe)
  */
 export async function ensureDirectory(dirPath: string): Promise<void> {
