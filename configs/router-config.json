@@ -23,6 +23,15 @@
       "transformer": {
         "use": ["gemini"]
       }
+    },
+    {
+      "name": "deepseek",
+      "api_base_url": "$DEEPSEEK_API_BASE",
+      "api_key": "$DEEPSEEK_API_KEY",
+      "models": ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "deepseek-chat", "deepseek-reasoner"],
+      "transformer": {
+        "use": ["deepseek", "enhancetool"]
+      }
     }
   ],
   "Router": {
