@@ -32,6 +32,20 @@
       "transformer": {
         "use": ["deepseek", "enhancetool"]
       }
+    },
+    {
+      "name": "openrouter",
+      "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "api_key": "$OPENROUTER_API_KEY",
+      "models": [
+        "anthropic/claude-sonnet-4",
+        "google/gemini-2.5-pro-preview",
+        "openai/gpt-4o",
+        "meta-llama/llama-3.3-70b-instruct"
+      ],
+      "transformer": {
+        "use": ["openrouter"]
+      }
     }
   ],
   "Router": {
