@@ -60,12 +60,15 @@ export function detectApiError(content: string): ApiErrorDetection {
   // When Claude Code hits its spending cap, it returns a short message like
   // "Spending cap reached resets 8am" instead of throwing an error.
   // These should retry with 5-30 min backoff so workflows can recover when cap resets.
+  // Also catches provider billing errors (OpenRouter 402, etc.) that appear in message content.
   const BILLING_PATTERNS = [
     'spending cap',
     'spending limit',
     'cap reached',
     'budget exceeded',
     'usage limit',
+    '402',                  // HTTP Payment Required (universal)
+    'insufficient credits', // OpenRouter
   ];
 
   const isBillingError = BILLING_PATTERNS.some((pattern) =>
