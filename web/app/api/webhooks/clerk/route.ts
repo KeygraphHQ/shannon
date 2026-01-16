@@ -161,5 +161,73 @@ export async function POST(req: Request) {
     }
   }
 
+  // Handle session events for login/logout audit logging
+  if (eventType === "session.created") {
+    const { user_id } = evt.data;
+
+    const user = await db.user.findUnique({
+      where: { clerkId: user_id },
+      include: {
+        memberships: {
+          include: {
+            organization: true,
+          },
+        },
+      },
+    });
+
+    if (user && user.memberships.length > 0) {
+      // Log to the user's first organization (or all if needed)
+      const primaryOrg = user.memberships[0].organization;
+      await db.auditLog.create({
+        data: {
+          organizationId: primaryOrg.id,
+          userId: user.id,
+          action: "auth.login",
+          resourceType: "session",
+          metadata: {
+            sessionId: evt.data.id,
+            createdVia: "clerk_webhook",
+          },
+        },
+      });
+      console.log(`Logged login for user ${user.email}`);
+    }
+  }
+
+  if (eventType === "session.ended" || eventType === "session.revoked") {
+    const { user_id } = evt.data;
+
+    const user = await db.user.findUnique({
+      where: { clerkId: user_id },
+      include: {
+        memberships: {
+          include: {
+            organization: true,
+          },
+        },
+      },
+    });
+
+    if (user && user.memberships.length > 0) {
+      const primaryOrg = user.memberships[0].organization;
+      const action = eventType === "session.revoked" ? "auth.session_revoked" : "auth.logout";
+
+      await db.auditLog.create({
+        data: {
+          organizationId: primaryOrg.id,
+          userId: user.id,
+          action,
+          resourceType: "session",
+          metadata: {
+            sessionId: evt.data.id,
+            reason: eventType,
+          },
+        },
+      });
+      console.log(`Logged ${action} for user ${user.email}`);
+    }
+  }
+
   return new Response("Webhook processed", { status: 200 });
 }

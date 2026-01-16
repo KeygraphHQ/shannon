@@ -3,19 +3,34 @@ import { db } from "./db";
 import { Prisma } from "@prisma/client";
 
 export type AuditAction =
+  // User events
   | "user.created"
   | "user.updated"
   | "user.deleted"
+  // Auth events
+  | "auth.login"
+  | "auth.logout"
+  | "auth.password_changed"
+  | "auth.password_reset"
+  | "auth.email_verified"
+  | "auth.2fa_enabled"
+  | "auth.2fa_disabled"
+  | "auth.2fa_challenge_failed"
+  | "auth.session_revoked"
+  // Organization events
   | "organization.created"
   | "organization.updated"
   | "organization.deleted"
+  // Member events
   | "member.invited"
   | "member.joined"
   | "member.role_changed"
   | "member.removed"
+  // Scan events
   | "scan.started"
   | "scan.completed"
   | "scan.failed"
+  // Finding events
   | "finding.created"
   | "finding.status_changed";
 

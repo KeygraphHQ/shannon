@@ -88,16 +88,16 @@ This is a Next.js web application with the following structure:
 
 ### Implementation for User Story 2
 
-- [ ] T022 [P] [US2] Enable Clerk email/password authentication in Clerk dashboard settings
-- [ ] T023 [P] [US2] Update sign-up page to include email/password form in web/app/(auth)/sign-up/[[...sign-up]]/page.tsx
-- [ ] T024 [P] [US2] Update sign-in page to include email/password form in web/app/(auth)/sign-in/[[...sign-in]]/page.tsx
-- [ ] T025 [P] [US2] Create email verification pending page in web/app/(auth)/verify-email/page.tsx
-- [ ] T026 [P] [US2] Implement account settings page with profile editing in web/app/(dashboard)/settings/page.tsx
-- [ ] T027 [US2] Create server action for updating user profile in web/lib/actions/users.ts
-- [ ] T028 [P] [US2] Add password change functionality in web/app/(dashboard)/settings/security/page.tsx
-- [ ] T029 [US2] Implement "Forgot password" flow using Clerk's password reset in web/app/(auth)/forgot-password/page.tsx
-- [ ] T030 [US2] Add session management and logout functionality in web/components/dashboard-nav.tsx
-- [ ] T031 [US2] Implement audit logging for authentication events (login, logout, password change) in web/lib/audit.ts
+- [X] T022 [P] [US2] Enable Clerk email/password authentication in Clerk dashboard settings
+- [X] T023 [P] [US2] Update sign-up page to include email/password form in web/app/(auth)/sign-up/[[...sign-up]]/page.tsx
+- [X] T024 [P] [US2] Update sign-in page to include email/password form in web/app/(auth)/sign-in/[[...sign-in]]/page.tsx
+- [X] T025 [P] [US2] Create email verification pending page in web/app/(auth)/verify-email/page.tsx
+- [X] T026 [P] [US2] Implement account settings page with profile editing in web/app/(dashboard)/settings/account/page.tsx
+- [X] T027 [US2] Create server action for updating user profile in web/lib/actions/users.ts
+- [X] T028 [P] [US2] Add password change functionality in web/app/(dashboard)/settings/security/page.tsx
+- [X] T029 [US2] Implement "Forgot password" flow using Clerk's password reset in web/app/(auth)/forgot-password/page.tsx
+- [X] T030 [US2] Add session management and logout functionality in web/components/dashboard-nav.tsx
+- [X] T031 [US2] Implement audit logging for authentication events (login, logout, password change) in web/lib/audit.ts
 
 **Checkpoint**: At this point, User Stories 1 AND 2 should both work independently - OAuth and email/password auth are both functional
 
