@@ -276,6 +276,10 @@ export async function pentestPipelineWorkflow(
     // Then run the report agent to add executive summary and clean up
     state.agentMetrics['report'] = await a.runReportAgent(activityInput);
     state.completedAgents.push('report');
+
+    // Inject model metadata into the final report
+    await a.injectReportMetadataActivity(activityInput);
+
     await a.logPhaseTransition(activityInput, 'reporting', 'complete');
 
     // === Complete ===

@@ -26,9 +26,10 @@ interface AgentEndResult {
   duration_ms: number;
   cost_usd: number;
   success: boolean;
-  error?: string;
-  checkpoint?: string;
-  isFinalAttempt?: boolean;
+  model?: string | undefined;
+  error?: string | undefined;
+  checkpoint?: string | undefined;
+  isFinalAttempt?: boolean | undefined;
 }
 
 /**

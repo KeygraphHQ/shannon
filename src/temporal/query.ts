@@ -35,6 +35,7 @@ interface AgentMetrics {
   outputTokens: number | null;
   costUsd: number | null;
   numTurns: number | null;
+  model?: string | undefined;
 }
 
 interface PipelineProgress {
@@ -123,8 +124,10 @@ async function queryWorkflow(): Promise<void> {
         const metrics = progress.agentMetrics[agent];
         const duration = metrics ? formatDuration(metrics.durationMs) : 'unknown';
         const cost = metrics?.costUsd ? `$${metrics.costUsd.toFixed(4)}` : '';
+        const model = metrics?.model ? ` [${metrics.model}]` : '';
         console.log(
           chalk.green(`  - ${agent}`) +
+            chalk.blue(model) +
             chalk.gray(` (${duration}${cost ? ', ' + cost : ''})`)
         );
       }

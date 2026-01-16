@@ -50,7 +50,7 @@ CONFIG=<file>          YAML configuration file for authentication and testing pa
 OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
 PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
 REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
-ROUTER=true            Route requests through claude-code-router for multi-model support (see limitations below)
+ROUTER=true            Route requests through claude-code-router for multi-model support
 ```
 
 ### Generate TOTP for Authentication
@@ -262,10 +262,50 @@ The tool should only be used on systems you own or have explicit permission to t
 - `shannon` - CLI script for running pentests
 - `docker-compose.yml` - Temporal server + worker containers
 - `configs/` - YAML configs with `config-schema.json` for validation
+- `configs/router-config.json` - Router service configuration for multi-model support
 - `prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
 
 **Output:**
 - `audit-logs/{hostname}_{sessionId}/` - Session metrics, agent logs, deliverables
+
+### Router Mode (Multi-Model Support)
+
+Shannon supports routing Claude Agent SDK requests through alternative LLM providers via [claude-code-router](https://github.com/musistudio/claude-code-router).
+
+**Enable router mode:**
+```bash
+./shannon start URL=<url> REPO=<path> ROUTER=true
+```
+
+**Supported Providers:**
+
+| Provider | Models | Use Case |
+|----------|--------|----------|
+| OpenAI | `gpt-5.2`, `gpt-5-mini` | Good tool use, balanced cost/performance |
+| Gemini | `gemini-2.5-pro` | Long context (1M+ tokens), strong reasoning |
+| DeepSeek | `deepseek-ai/DeepSeek-V3`, `deepseek-chat` | Cheapest option for dev/testing |
+| OpenRouter | `anthropic/claude-sonnet-4`, `google/gemini-3-pro-preview`, `openai/gpt-5.2` | Multi-provider access via single API |
+
+**Configuration (in .env):**
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-your-key
+ROUTER_DEFAULT=openai,gpt-5.2
+
+# Gemini
+GEMINI_API_KEY=your-gemini-key
+ROUTER_DEFAULT=gemini,gemini-2.5-pro
+
+# DeepSeek (via Together.ai)
+DEEPSEEK_API_KEY=your-together-key
+ROUTER_DEFAULT=deepseek,deepseek-ai/DeepSeek-V3
+
+# OpenRouter
+OPENROUTER_API_KEY=sk-or-your-key
+ROUTER_DEFAULT=openrouter,anthropic/claude-sonnet-4
+```
+
+**Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.
 
 ## Troubleshooting
 
@@ -284,16 +324,6 @@ Missing tools can be skipped using `PIPELINE_TESTING=true` mode during developme
 - `nmap` - Network scanning
 - `subfinder` - Subdomain discovery
 - `whatweb` - Web technology detection
-
-### Router Mode Limitations
-When using `ROUTER=true` to route requests through claude-code-router (e.g., to use OpenAI models):
-
-**Cost tracking shows $0.00**: The Claude Agent SDK expects `total_cost_usd` in the result message, which is Anthropic-specific. OpenAI's API returns token counts in `usage` but not a cost field, and the router doesn't translate this. This is a known limitation of the router, not a Shannon bug.
-
-**Workarounds:**
-- Accept $0 costs when using router mode (recommended for dev/testing)
-- Use Anthropic directly for production runs where cost tracking matters
-- Use external tools like `ccusage` for post-hoc token analysis
 
 ### Diagnostic & Utility Scripts
 ```bash

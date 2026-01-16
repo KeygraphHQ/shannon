@@ -67,7 +67,7 @@ import {
   rollbackGitWorkspace,
   getGitCommitHash,
 } from '../utils/git-manager.js';
-import { assembleFinalReport } from '../phases/reporting.js';
+import { assembleFinalReport, injectModelIntoReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
@@ -192,6 +192,7 @@ async function runAgentActivity(
           duration_ms: result.duration,
           cost_usd: 0,
           success: false,
+          model: result.model,
           error: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
         });
         // Throw as billing error so Temporal retries with long backoff
@@ -207,6 +208,7 @@ async function runAgentActivity(
         duration_ms: result.duration,
         cost_usd: result.cost || 0,
         success: false,
+        model: result.model,
         error: result.error || 'Execution failed',
       });
       throw new Error(result.error || 'Agent execution failed');
@@ -221,6 +223,7 @@ async function runAgentActivity(
         duration_ms: result.duration,
         cost_usd: result.cost || 0,
         success: false,
+        model: result.model,
         error: 'Output validation failed',
       });
 
@@ -243,6 +246,7 @@ async function runAgentActivity(
       duration_ms: result.duration,
       cost_usd: result.cost || 0,
       success: true,
+      model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
     });
     await commitGitSuccess(repoPath, agentName);
@@ -254,6 +258,7 @@ async function runAgentActivity(
       outputTokens: null,
       costUsd: result.cost ?? null,
       numTurns: result.turns ?? null,
+      model: result.model,
     };
   } catch (error) {
     // Rollback git workspace before Temporal retry to ensure clean state
@@ -366,6 +371,25 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Error assembling final report: ${err.message}`));
     // Don't throw - the report agent can still create content even if no exploitation files exist
+  }
+}
+
+/**
+ * Inject model metadata into the final report.
+ * This must be called AFTER runReportAgent to add the model information to the Executive Summary.
+ */
+export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
+  const { repoPath, outputPath } = input;
+  if (!outputPath) {
+    console.log(chalk.yellow('⚠️ No output path provided, skipping model injection'));
+    return;
+  }
+  try {
+    await injectModelIntoReport(repoPath, outputPath);
+  } catch (error) {
+    const err = error as Error;
+    console.log(chalk.yellow(`⚠️ Error injecting model into report: ${err.message}`));
+    // Don't throw - this is a non-critical enhancement
   }
 }
 

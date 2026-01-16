@@ -84,6 +84,7 @@ Shannon is available in two editions:
   - [Stopping Shannon](#stopping-shannon)
   - [Usage Examples](#usage-examples)
   - [Configuration (Optional)](#configuration-optional)
+  - [Router Mode (Alternative Providers)](#router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
 - [Sample Reports & Benchmarks](#-sample-reports--benchmarks)
 - [Architecture](#-architecture)
@@ -100,7 +101,9 @@ Shannon is available in two editions:
 ### Prerequisites
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
-- **Anthropic API key or Claude Code OAuth token** - Get from [Anthropic Console](https://console.anthropic.com)
+- **AI Provider Credentials** (choose one):
+  - **Anthropic API key or Claude Code OAuth token** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
+  - **Alternative providers via Router Mode** - OpenAI, Google Gemini, DeepSeek, or OpenRouter (see [Router Mode](#router-mode-alternative-providers))
 
 ### Quick Start
 
@@ -251,6 +254,49 @@ rules:
 #### TOTP Setup for 2FA
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+
+### Router Mode (Alternative Providers)
+
+Shannon can route requests through alternative AI providers instead of Anthropic. This is useful for:
+- **Cost optimization** - DeepSeek is significantly cheaper (~$0.14/M input tokens vs $3/M for Claude)
+- **Model experimentation** - Test with GPT-5.2, Gemini 3, or open-source models
+- **API availability** - Use OpenRouter if Anthropic API is unavailable in your region
+
+#### Quick Setup
+
+1. Add your provider API key to `.env`:
+   ```bash
+   # Choose one provider:
+   OPENAI_API_KEY=sk-...
+   # OR
+   GEMINI_API_KEY=...
+   # OR
+   DEEPSEEK_API_KEY=...
+   # OR
+   OPENROUTER_API_KEY=sk-or-...
+
+   # Set default model:
+   ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+   ```
+
+2. Run with `ROUTER=true`:
+   ```bash
+   ./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
+   ```
+
+#### Supported Providers
+
+| Provider | Models | Approx. Cost | Notes |
+|----------|--------|--------------|-------|
+| **Anthropic** (default) | Claude Sonnet 4 | $3/$15 per M tokens | Best quality, recommended |
+| **OpenAI** | gpt-5.2, gpt-5-mini | $2.50/$10 per M tokens | Good alternative |
+| **Google Gemini** | gemini-2.5-pro | ~$1.25/$5 per M tokens | Long context (1M+), strong reasoning |
+| **DeepSeek** | DeepSeek-V3 | ~$0.14/$0.28 per M tokens | Cheapest option |
+| **OpenRouter** | 100+ models | Varies | Single API for many models |
+
+#### Disclaimer
+
+> **Output quality depends on model choice.** Shannon is optimized for and tested with Anthropic's Claude models. Alternative providers may produce varying results depending on the model's reasoning capabilities.
 
 ### Output and Results
 
@@ -430,7 +476,7 @@ Shannon is designed for legitimate security auditing purposes only.
 #### **5. Cost & Performance**
 
 - **Time**: As of the current version, a full test run typically takes **1 to 1.5 hours** to complete.
-- **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Please note that costs are subject to change based on model pricing and the complexity of the target application.
+- **Cost**: Running the full test using Anthropic's Claude 4.5 Sonnet model may incur costs of approximately **$50 USD**. Using Router Mode with DeepSeek can reduce this to **~$5 USD** (see [Router Mode](#router-mode-alternative-providers)). Costs vary based on model pricing and application complexity.
 
 #### **6. Windows Antivirus False Positives**
 

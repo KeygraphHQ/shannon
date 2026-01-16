@@ -26,7 +26,8 @@ interface AttemptData {
   cost_usd: number;
   success: boolean;
   timestamp: string;
-  error?: string;
+  model?: string | undefined;
+  error?: string | undefined;
 }
 
 interface AgentMetrics {
@@ -34,7 +35,8 @@ interface AgentMetrics {
   attempts: AttemptData[];
   final_duration_ms: number;
   total_cost_usd: number;
-  checkpoint?: string;
+  model?: string | undefined;
+  checkpoint?: string | undefined;
 }
 
 interface PhaseMetrics {
@@ -66,9 +68,10 @@ interface AgentEndResult {
   duration_ms: number;
   cost_usd: number;
   success: boolean;
-  error?: string;
-  checkpoint?: string;
-  isFinalAttempt?: boolean;
+  model?: string | undefined;
+  error?: string | undefined;
+  checkpoint?: string | undefined;
+  isFinalAttempt?: boolean | undefined;
 }
 
 interface ActiveTimer {
@@ -169,6 +172,10 @@ export class MetricsTracker {
       timestamp: formatTimestamp(),
     };
 
+    if (result.model) {
+      attempt.model = result.model;
+    }
+
     if (result.error) {
       attempt.error = result.error;
     }
@@ -182,6 +189,10 @@ export class MetricsTracker {
     if (result.success) {
       agent.status = 'success';
       agent.final_duration_ms = result.duration_ms;
+
+      if (result.model) {
+        agent.model = result.model;
+      }
 
       if (result.checkpoint) {
         agent.checkpoint = result.checkpoint;
