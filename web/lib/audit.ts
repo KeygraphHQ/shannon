@@ -21,6 +21,8 @@ export type AuditAction =
   | "organization.created"
   | "organization.updated"
   | "organization.deleted"
+  | "organization.switched"
+  | "organization.deletion_cancelled"
   // Member events
   | "member.invited"
   | "member.joined"

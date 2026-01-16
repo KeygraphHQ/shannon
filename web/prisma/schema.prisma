@@ -25,17 +25,22 @@ model User {
 
 // Organization (tenant/workspace)
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  plan      String   @default("free") // free, pro, enterprise
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  plan        String    @default("free") // free, pro, enterprise
+  logoUrl     String?
+  deletedAt   DateTime? // Soft delete: set to current time when deleted, purged after 30 days
+  scheduledDeletionAt DateTime? // When the org will be permanently deleted
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
   projects    Project[]
   scans       Scan[]
+
+  @@index([deletedAt])
 }
 
 // Organization membership with role

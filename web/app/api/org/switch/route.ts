@@ -45,12 +45,10 @@ export async function POST(request: Request) {
     await createAuditLog({
       organizationId: orgId,
       userId: user.id,
-      action: "member.role_changed",
+      action: "organization.switched",
       resourceType: "organization",
       resourceId: orgId,
       metadata: {
-        action: "switched_org",
-        fromOrg: cookieStore.get("current_org")?.value,
         toOrg: orgId,
       },
     });

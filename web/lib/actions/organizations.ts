@@ -60,7 +60,7 @@ export async function createOrganization(name: string) {
  */
 export async function updateOrganization(
   orgId: string,
-  data: { name?: string; description?: string }
+  data: { name?: string; logoUrl?: string | null }
 ) {
   const hasAccess = await hasOrgAccess(orgId, ["owner", "admin"]);
   if (!hasAccess) {
@@ -68,6 +68,16 @@ export async function updateOrganization(
   }
 
   const user = await getCurrentUser();
+
+  // Don't allow updates to deleted organizations
+  const existingOrg = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { deletedAt: true },
+  });
+
+  if (existingOrg?.deletedAt) {
+    throw new Error("Cannot update an organization scheduled for deletion");
+  }
 
   const org = await db.organization.update({
     where: { id: orgId },
@@ -86,6 +96,108 @@ export async function updateOrganization(
   });
 
   revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/org/${orgId}/settings`);
+  return org;
+}
+
+/**
+ * Schedule an organization for deletion with 30-day grace period.
+ * Only owners can delete organizations.
+ */
+export async function deleteOrganization(orgId: string) {
+  const hasAccess = await hasOrgAccess(orgId, ["owner"]);
+  if (!hasAccess) {
+    throw new Error("Only organization owners can delete organizations");
+  }
+
+  const user = await getCurrentUser();
+
+  // Check if user has other organizations to switch to
+  const userOrgs = user!.memberships.filter(
+    (m) => m.organizationId !== orgId && !m.organization.deletedAt
+  );
+
+  // Check if this is the user's only organization
+  if (userOrgs.length === 0) {
+    throw new Error(
+      "You cannot delete your only organization. Create a new organization first."
+    );
+  }
+
+  // Schedule deletion for 30 days from now
+  const scheduledDeletionAt = new Date();
+  scheduledDeletionAt.setDate(scheduledDeletionAt.getDate() + 30);
+
+  const org = await db.organization.update({
+    where: { id: orgId },
+    data: {
+      deletedAt: new Date(),
+      scheduledDeletionAt,
+    },
+  });
+
+  await db.auditLog.create({
+    data: {
+      organizationId: orgId,
+      userId: user!.id,
+      action: "organization.deleted",
+      resourceType: "organization",
+      resourceId: orgId,
+      metadata: {
+        scheduledDeletionAt: scheduledDeletionAt.toISOString(),
+        gracePeriodDays: 30,
+      },
+    },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/org/${orgId}/settings`);
+  return org;
+}
+
+/**
+ * Cancel a scheduled organization deletion.
+ * Only owners can cancel deletion.
+ */
+export async function cancelOrganizationDeletion(orgId: string) {
+  const hasAccess = await hasOrgAccess(orgId, ["owner"]);
+  if (!hasAccess) {
+    throw new Error("Only organization owners can cancel deletion");
+  }
+
+  const user = await getCurrentUser();
+
+  // Verify org is actually scheduled for deletion
+  const existingOrg = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { deletedAt: true },
+  });
+
+  if (!existingOrg?.deletedAt) {
+    throw new Error("Organization is not scheduled for deletion");
+  }
+
+  const org = await db.organization.update({
+    where: { id: orgId },
+    data: {
+      deletedAt: null,
+      scheduledDeletionAt: null,
+    },
+  });
+
+  await db.auditLog.create({
+    data: {
+      organizationId: orgId,
+      userId: user!.id,
+      action: "organization.deletion_cancelled",
+      resourceType: "organization",
+      resourceId: orgId,
+      metadata: {},
+    },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath(`/dashboard/org/${orgId}/settings`);
   return org;
 }
 
