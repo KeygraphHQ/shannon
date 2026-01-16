@@ -11,13 +11,14 @@ import {
   BarChart3,
   User,
   Key,
+  ClipboardList,
 } from "lucide-react";
 
 interface DashboardNavProps {
   currentOrgId: string;
 }
 
-const mainNavigation = [
+const getMainNavigation = (orgId: string) => [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Scans", href: "/dashboard/scans", icon: Shield, disabled: true },
   {
@@ -32,24 +33,27 @@ const mainNavigation = [
     icon: BarChart3,
     disabled: true,
   },
-  { name: "Team", href: "/dashboard/team", icon: Users, disabled: true },
+  { name: "Team", href: `/org/${orgId}/team`, icon: Users },
 ];
 
-const settingsNavigation = [
-  { name: "Organization", href: "/dashboard/settings", icon: Settings },
+const getSettingsNavigation = (orgId: string) => [
+  { name: "Organization", href: `/org/${orgId}/settings`, icon: Settings },
   { name: "Account", href: "/dashboard/settings/account", icon: User },
   { name: "Security", href: "/dashboard/settings/security", icon: Key },
+  { name: "Audit Log", href: `/org/${orgId}/audit`, icon: ClipboardList },
 ];
 
 export function DashboardNav({ currentOrgId }: DashboardNavProps) {
   const pathname = usePathname();
+  const mainNavigation = getMainNavigation(currentOrgId);
+  const settingsNavigation = getSettingsNavigation(currentOrgId);
 
   return (
     <nav className="space-y-6">
       {/* Main Navigation */}
       <div className="space-y-1">
         {mainNavigation.map((item) => {
-          const isActive = pathname === item.href;
+          const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
           const Icon = item.icon;
 
           if (item.disabled) {
@@ -93,7 +97,7 @@ export function DashboardNav({ currentOrgId }: DashboardNavProps) {
         </h3>
         <div className="mt-2 space-y-1">
           {settingsNavigation.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
 
             return (

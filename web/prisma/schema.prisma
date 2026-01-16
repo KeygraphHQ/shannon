@@ -21,6 +21,7 @@ model User {
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
+  invitations Invitation[]
 }
 
 // Organization (tenant/workspace)
@@ -39,17 +40,19 @@ model Organization {
   auditLogs   AuditLog[]
   projects    Project[]
   scans       Scan[]
+  invitations Invitation[]
 
   @@index([deletedAt])
 }
 
 // Organization membership with role
 model OrganizationMembership {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   organizationId String
-  role           String   @default("owner") // owner, admin, member, viewer
-  createdAt      DateTime @default(now())
+  role           String    @default("owner") // owner, admin, member, viewer
+  createdAt      DateTime  @default(now())
+  lastActiveAt   DateTime?
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -114,6 +117,28 @@ model Scan {
   @@index([organizationId])
   @@index([projectId])
   @@index([status])
+}
+
+// Team invitation
+model Invitation {
+  id             String   @id @default(cuid())
+  token          String   @unique @default(cuid())
+  email          String
+  organizationId String
+  role           String   @default("member") // owner, admin, member, viewer
+  invitedById    String
+  status         String   @default("pending") // pending, accepted, expired, revoked
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  acceptedAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([token])
+  @@index([expiresAt])
 }
 
 // Security finding (vulnerability)
