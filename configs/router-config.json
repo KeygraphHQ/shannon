@@ -10,16 +10,16 @@
       "name": "openai",
       "api_base_url": "https://api.openai.com/v1/chat/completions",
       "api_key": "$OPENAI_API_KEY",
-      "models": ["gpt-4o", "gpt-4o-mini"],
+      "models": ["gpt-5.2", "gpt-5-mini"],
       "transformer": {
-        "use": [["maxtoken", { "max_tokens": 16384 }]]
+        "use": [["maxcompletiontokens", { "max_completion_tokens": 16384 }]]
       }
     },
     {
       "name": "gemini",
       "api_base_url": "https://generativelanguage.googleapis.com/v1beta/models/",
       "api_key": "$GEMINI_API_KEY",
-      "models": ["gemini-2.5-pro", "gemini-2.5-flash"],
+      "models": ["gemini-2.5-pro"],
       "transformer": {
         "use": ["gemini"]
       }
@@ -28,7 +28,7 @@
       "name": "deepseek",
       "api_base_url": "$DEEPSEEK_API_BASE",
       "api_key": "$DEEPSEEK_API_KEY",
-      "models": ["deepseek-ai/DeepSeek-V3", "deepseek-ai/DeepSeek-R1", "deepseek-chat", "deepseek-reasoner"],
+      "models": ["deepseek-ai/DeepSeek-V3", "deepseek-chat"],
       "transformer": {
         "use": ["deepseek", "enhancetool"]
       }
@@ -39,9 +39,8 @@
       "api_key": "$OPENROUTER_API_KEY",
       "models": [
         "anthropic/claude-sonnet-4",
-        "google/gemini-2.5-pro-preview",
-        "openai/gpt-4o",
-        "meta-llama/llama-3.3-70b-instruct"
+        "google/gemini-3-pro-preview",
+        "openai/gpt-5.2"
       ],
       "transformer": {
         "use": ["openrouter"]

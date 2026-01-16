@@ -10,6 +10,7 @@ import { PentestError } from '../error-handling.js';
 import { filterJsonToolCalls } from '../utils/output-formatter.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import chalk from 'chalk';
+import { getActualModelName } from './router-utils.js';
 import {
   formatAssistantOutput,
   formatResultOutput,
@@ -178,7 +179,7 @@ function outputLines(lines: string[]): void {
 
 // Message dispatch result types
 export type MessageDispatchAction =
-  | { type: 'continue'; apiErrorDetected?: boolean }
+  | { type: 'continue'; apiErrorDetected?: boolean | undefined; model?: string | undefined }
   | { type: 'complete'; result: string | null; cost: number }
   | { type: 'throw'; error: Error };
 
@@ -229,13 +230,18 @@ export async function dispatchMessage(
     }
 
     case 'system': {
-      if (message.subtype === 'init' && !execContext.useCleanOutput) {
+      if (message.subtype === 'init') {
         const initMsg = message as SystemInitMessage;
-        console.log(chalk.blue(`    Model: ${initMsg.model}, Permission: ${initMsg.permissionMode}`));
-        if (initMsg.mcp_servers && initMsg.mcp_servers.length > 0) {
-          const mcpStatus = initMsg.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
-          console.log(chalk.blue(`    MCP: ${mcpStatus}`));
+        const actualModel = getActualModelName(initMsg.model);
+        if (!execContext.useCleanOutput) {
+          console.log(chalk.blue(`    Model: ${actualModel}, Permission: ${initMsg.permissionMode}`));
+          if (initMsg.mcp_servers && initMsg.mcp_servers.length > 0) {
+            const mcpStatus = initMsg.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
+            console.log(chalk.blue(`    MCP: ${mcpStatus}`));
+          }
         }
+        // Return actual model for tracking in audit logs
+        return { type: 'continue', model: actualModel };
       }
       return { type: 'continue' };
     }

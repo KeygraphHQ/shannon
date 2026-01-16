@@ -25,23 +25,25 @@ import { dispatchMessage } from './message-handlers.js';
 import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
+import { getActualModelName } from './router-utils.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
 }
 
 export interface ClaudePromptResult {
-  result?: string | null;
+  result?: string | null | undefined;
   success: boolean;
   duration: number;
-  turns?: number;
+  turns?: number | undefined;
   cost: number;
-  partialCost?: number;
-  apiErrorDetected?: boolean;
-  error?: string;
-  errorType?: string;
-  prompt?: string;
-  retryable?: boolean;
+  model?: string | undefined;
+  partialCost?: number | undefined;
+  apiErrorDetected?: boolean | undefined;
+  error?: string | undefined;
+  errorType?: string | undefined;
+  prompt?: string | undefined;
+  retryable?: boolean | undefined;
 }
 
 interface StdioMcpServer {
@@ -247,6 +249,7 @@ export async function runClaudePrompt(
     result = messageLoopResult.result;
     apiErrorDetected = messageLoopResult.apiErrorDetected;
     totalCost = messageLoopResult.cost;
+    const model = messageLoopResult.model;
 
     // === SPENDING CAP SAFEGUARD ===
     // Defense-in-depth: Detect spending cap that slipped through detectApiError().
@@ -283,6 +286,7 @@ export async function runClaudePrompt(
       duration,
       turns: turnCount,
       cost: totalCost,
+      model,
       partialCost: totalCost,
       apiErrorDetected
     };
@@ -316,6 +320,7 @@ interface MessageLoopResult {
   result: string | null;
   apiErrorDetected: boolean;
   cost: number;
+  model?: string | undefined;
 }
 
 interface MessageLoopDeps {
@@ -339,6 +344,7 @@ async function processMessageStream(
   let result: string | null = null;
   let apiErrorDetected = false;
   let cost = 0;
+  let model: string | undefined;
   let lastHeartbeat = Date.now();
 
   for await (const message of query({ prompt: fullPrompt, options })) {
@@ -370,12 +376,18 @@ async function processMessageStream(
       break;
     }
 
-    if (dispatchResult.type === 'continue' && dispatchResult.apiErrorDetected) {
-      apiErrorDetected = true;
+    if (dispatchResult.type === 'continue') {
+      if (dispatchResult.apiErrorDetected) {
+        apiErrorDetected = true;
+      }
+      // Capture model from SystemInitMessage, but override with router model if applicable
+      if (dispatchResult.model) {
+        model = getActualModelName(dispatchResult.model);
+      }
     }
   }
 
-  return { turnCount, result, apiErrorDetected, cost };
+  return { turnCount, result, apiErrorDetected, cost, model };
 }
 
 // Main entry point for agent execution. Handles retries, git checkpoints, and validation.

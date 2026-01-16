@@ -17,6 +17,7 @@ export interface AgentMetrics {
   outputTokens: number | null;
   costUsd: number | null;
   numTurns: number | null;
+  model?: string | undefined;
 }
 
 export interface PipelineSummary {
