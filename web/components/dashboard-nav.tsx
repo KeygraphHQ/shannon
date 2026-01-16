@@ -13,6 +13,7 @@ import {
   Key,
   ClipboardList,
 } from "lucide-react";
+import { TwoFactorStatus } from "./two-factor-status";
 
 interface DashboardNavProps {
   currentOrgId: string;
@@ -39,7 +40,7 @@ const getMainNavigation = (orgId: string) => [
 const getSettingsNavigation = (orgId: string) => [
   { name: "Organization", href: `/org/${orgId}/settings`, icon: Settings },
   { name: "Account", href: "/dashboard/settings/account", icon: User },
-  { name: "Security", href: "/dashboard/settings/security", icon: Key },
+  { name: "Security", href: "/dashboard/settings/security", icon: Key, show2FAStatus: true },
   { name: "Audit Log", href: `/org/${orgId}/audit`, icon: ClipboardList },
 ];
 
@@ -99,6 +100,7 @@ export function DashboardNav({ currentOrgId }: DashboardNavProps) {
           {settingsNavigation.map((item) => {
             const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
             const Icon = item.icon;
+            const show2FA = 'show2FAStatus' in item && item.show2FAStatus;
 
             return (
               <Link
@@ -113,7 +115,8 @@ export function DashboardNav({ currentOrgId }: DashboardNavProps) {
                 <Icon
                   className={`h-5 w-5 ${isActive ? "text-indigo-600" : "text-gray-400"}`}
                 />
-                <span>{item.name}</span>
+                <span className="flex-1">{item.name}</span>
+                {show2FA && <TwoFactorStatus variant="badge" showLink={false} />}
               </Link>
             );
           })}

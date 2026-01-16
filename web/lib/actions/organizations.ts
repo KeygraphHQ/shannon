@@ -252,3 +252,126 @@ export async function getOrganizationBySlug(slug: string) {
 
   return org;
 }
+
+/**
+ * Toggle 2FA requirement for an organization.
+ * Only available for Enterprise plans.
+ * Only owners can change this setting.
+ */
+export async function setOrganization2FARequirement(
+  orgId: string,
+  require2FA: boolean
+) {
+  const hasAccess = await hasOrgAccess(orgId, ["owner"]);
+  if (!hasAccess) {
+    throw new Error("Only organization owners can manage 2FA requirements");
+  }
+
+  const user = await getCurrentUser();
+
+  // Check if org is on Enterprise plan
+  const org = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { plan: true, deletedAt: true },
+  });
+
+  if (!org) {
+    throw new Error("Organization not found");
+  }
+
+  if (org.deletedAt) {
+    throw new Error("Cannot update settings for an organization scheduled for deletion");
+  }
+
+  if (org.plan !== "enterprise") {
+    throw new Error(
+      "2FA enforcement is only available on the Enterprise plan. Please upgrade to enable this feature."
+    );
+  }
+
+  const updatedOrg = await db.organization.update({
+    where: { id: orgId },
+    data: { require2FA },
+  });
+
+  await db.auditLog.create({
+    data: {
+      organizationId: orgId,
+      userId: user!.id,
+      action: "organization.updated",
+      resourceType: "organization",
+      resourceId: orgId,
+      metadata: {
+        setting: "require2FA",
+        value: require2FA,
+      },
+    },
+  });
+
+  revalidatePath(`/org/${orgId}/settings`);
+  return updatedOrg;
+}
+
+/**
+ * Check if an organization requires 2FA.
+ */
+export async function getOrganization2FARequirement(orgId: string) {
+  const hasAccess = await hasOrgAccess(orgId);
+  if (!hasAccess) {
+    return { required: false, plan: "free" as const, canEnforce: false };
+  }
+
+  const org = await db.organization.findUnique({
+    where: { id: orgId },
+    select: { require2FA: true, plan: true },
+  });
+
+  if (!org) {
+    return { required: false, plan: "free" as const, canEnforce: false };
+  }
+
+  return {
+    required: org.require2FA,
+    plan: org.plan,
+    canEnforce: org.plan === "enterprise",
+  };
+}
+
+/**
+ * Check if user meets 2FA requirements for all their organizations.
+ * Returns a list of organizations that require 2FA but user doesn't have it enabled.
+ */
+export async function checkUser2FACompliance() {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { compliant: true, nonCompliantOrgs: [] };
+  }
+
+  // Get all orgs that require 2FA
+  const orgsRequiring2FA = await db.organization.findMany({
+    where: {
+      require2FA: true,
+      deletedAt: null,
+      memberships: {
+        some: { userId: user.id },
+      },
+    },
+    select: {
+      id: true,
+      name: true,
+      slug: true,
+    },
+  });
+
+  // If no orgs require 2FA, user is compliant
+  if (orgsRequiring2FA.length === 0) {
+    return { compliant: true, nonCompliantOrgs: [] };
+  }
+
+  // User must check their own 2FA status via Clerk
+  // This returns the list of orgs so the client can check
+  return {
+    compliant: false, // Caller should verify user.twoFactorEnabled
+    nonCompliantOrgs: orgsRequiring2FA,
+  };
+}

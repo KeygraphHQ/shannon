@@ -31,6 +31,7 @@ model Organization {
   slug        String    @unique
   plan        String    @default("free") // free, pro, enterprise
   logoUrl     String?
+  require2FA  Boolean   @default(false) // Enterprise feature: enforce 2FA for all members
   deletedAt   DateTime? // Soft delete: set to current time when deleted, purged after 30 days
   scheduledDeletionAt DateTime? // When the org will be permanently deleted
   createdAt   DateTime  @default(now())

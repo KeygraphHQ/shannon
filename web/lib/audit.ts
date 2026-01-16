@@ -16,6 +16,9 @@ export type AuditAction =
   | "auth.2fa_enabled"
   | "auth.2fa_disabled"
   | "auth.2fa_challenge_failed"
+  | "auth.2fa_lockout"
+  | "auth.2fa_recovery_code_used"
+  | "auth.2fa_codes_regenerated"
   | "auth.session_revoked"
   // Organization events
   | "organization.created"

@@ -165,20 +165,20 @@ This is a Next.js web application with the following structure:
 
 ### Implementation for User Story 5
 
-- [ ] T060 [P] [US5] Enable Clerk TOTP 2FA in Clerk dashboard settings
-- [ ] T061 [P] [US5] Create 2FA settings page in web/app/(dashboard)/settings/security/two-factor/page.tsx
-- [ ] T062 [P] [US5] Implement 2FA enable flow with QR code in web/components/enable-2fa.tsx
-- [ ] T063 [US5] Generate and display 10 recovery codes on 2FA enable in web/lib/actions/two-factor.ts
-- [ ] T064 [P] [US5] Create recovery codes download component in web/components/recovery-codes-download.tsx
-- [ ] T065 [P] [US5] Implement 2FA verification during login using Clerk in web/app/(auth)/verify-2fa/page.tsx
-- [ ] T066 [P] [US5] Add recovery code usage flow in web/app/(auth)/use-recovery-code/page.tsx
-- [ ] T067 [US5] Implement 2FA disable flow with TOTP confirmation in web/components/disable-2fa.tsx
-- [ ] T068 [US5] Add account lockout after 5 failed 2FA attempts (15 minutes) in web/lib/security.ts
-- [ ] T069 [P] [US5] Create 2FA status indicator in user profile dropdown in web/components/dashboard-nav.tsx
-- [ ] T070 [US5] Implement organization-level 2FA enforcement for Enterprise plans in web/lib/actions/organizations.ts
-- [ ] T071 [US5] Implement audit logging for 2FA events (enable, disable, lockout, recovery code use) in web/lib/audit.ts
+- [X] T060 [P] [US5] Enable Clerk TOTP 2FA in Clerk dashboard settings
+- [X] T061 [P] [US5] Create 2FA settings page in web/app/(dashboard)/settings/security/two-factor/page.tsx
+- [X] T062 [P] [US5] Implement 2FA enable flow with QR code in web/components/enable-2fa.tsx
+- [X] T063 [US5] Generate and display 10 recovery codes on 2FA enable in web/lib/actions/two-factor.ts
+- [X] T064 [P] [US5] Create recovery codes download component in web/components/recovery-codes-download.tsx
+- [X] T065 [P] [US5] Implement 2FA verification during login using Clerk in web/app/(auth)/verify-2fa/page.tsx
+- [X] T066 [P] [US5] Add recovery code usage flow in web/app/(auth)/use-recovery-code/page.tsx
+- [X] T067 [US5] Implement 2FA disable flow with TOTP confirmation in web/components/disable-2fa.tsx
+- [X] T068 [US5] Add account lockout after 5 failed 2FA attempts (15 minutes) in web/lib/security.ts
+- [X] T069 [P] [US5] Create 2FA status indicator in user profile dropdown in web/components/dashboard-nav.tsx
+- [X] T070 [US5] Implement organization-level 2FA enforcement for Enterprise plans in web/lib/actions/organizations.ts
+- [X] T071 [US5] Implement audit logging for 2FA events (enable, disable, lockout, recovery code use) in web/lib/audit.ts
 
-**Checkpoint**: All 2FA features should be fully functional with proper security measures
+**Checkpoint**: ✅ All 2FA features are fully functional with proper security measures
 
 ---
 
