@@ -7,6 +7,8 @@ export type AuditAction =
   | "user.created"
   | "user.updated"
   | "user.deleted"
+  | "user.data_exported"
+  | "user.deletion_requested"
   // Auth events
   | "auth.login"
   | "auth.logout"

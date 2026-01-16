@@ -22,6 +22,8 @@ model User {
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
   invitations Invitation[]
+
+  @@index([createdAt])
 }
 
 // Organization (tenant/workspace)
@@ -44,6 +46,8 @@ model Organization {
   invitations Invitation[]
 
   @@index([deletedAt])
+  @@index([plan])
+  @@index([createdAt])
 }
 
 // Organization membership with role
@@ -60,6 +64,8 @@ model OrganizationMembership {
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+  @@index([userId])
+  @@index([role])
 }
 
 // Audit log for security events
@@ -79,6 +85,9 @@ model AuditLog {
 
   @@index([organizationId])
   @@index([createdAt])
+  @@index([action])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
 }
 
 // Project (grouping for scans)
@@ -118,6 +127,9 @@ model Scan {
   @@index([organizationId])
   @@index([projectId])
   @@index([status])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
 }
 
 // Team invitation
@@ -140,6 +152,8 @@ model Invitation {
   @@index([email])
   @@index([token])
   @@index([expiresAt])
+  @@index([status])
+  @@index([organizationId, status])
 }
 
 // Security finding (vulnerability)
@@ -163,4 +177,7 @@ model Finding {
   @@index([scanId])
   @@index([severity])
   @@index([status])
+  @@index([category])
+  @@index([scanId, severity])
+  @@index([scanId, status])
 }
