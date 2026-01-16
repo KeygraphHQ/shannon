@@ -1,4 +1,24 @@
 node_modules/
 .env
+.env.local
+.env.*.local
 audit-logs/
 dist/
+
+# Next.js
+web/.next/
+web/out/
+web/build/
+
+# Prisma
+web/prisma/migrations/*_migration.sql.backup
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
