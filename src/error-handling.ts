@@ -211,7 +211,9 @@ export function classifyErrorForTemporal(error: unknown): TemporalErrorClassific
   // === BILLING ERRORS (Retryable with long backoff) ===
   // Anthropic returns billing as 400 invalid_request_error
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
+  // 402 is HTTP "Payment Required" - universal across providers (OpenRouter, etc.)
   if (
+    message.includes('402') ||
     message.includes('billing_error') ||
     message.includes('credit balance is too low') ||
     message.includes('insufficient credits') ||
