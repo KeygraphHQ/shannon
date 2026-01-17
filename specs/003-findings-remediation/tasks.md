@@ -92,17 +92,17 @@
 
 ### Implementation for User Story 3
 
-- [ ] T026 [P] [US3] Implement listFindings(filters, pagination) server action with cursor pagination in web/lib/actions/findings.ts
-- [ ] T027 [P] [US3] Implement getFindingsSummary() server action for dashboard widget in web/lib/actions/findings.ts
-- [ ] T028 [P] [US3] Create FindingsFilters component with severity/status/category dropdowns in web/components/findings/findings-filters.tsx
-- [ ] T029 [P] [US3] Create FindingsSearch component with debounced text input in web/components/findings/findings-search.tsx
-- [ ] T030 [P] [US3] Create FindingsListItem component for individual finding row in web/components/findings/findings-list-item.tsx
-- [ ] T031 [US3] Create FindingsList component with pagination and loading states in web/components/findings/findings-list.tsx
-- [ ] T032 [US3] Create cross-scan findings page at web/app/(dashboard)/findings/page.tsx
-- [ ] T033 [US3] Create FindingsWidget dashboard summary component in web/components/dashboard/findings-widget.tsx
-- [ ] T034 [US3] Integrate FindingsWidget into main dashboard page at web/app/(dashboard)/page.tsx
-- [ ] T035 [US3] Add filter chips display showing active filters with clear functionality
-- [ ] T036 [US3] Add "No findings match your filters" empty state with clear filters button
+- [x] T026 [P] [US3] Implement listFindings(filters, pagination) server action with cursor pagination in web/lib/actions/findings.ts
+- [x] T027 [P] [US3] Implement getFindingsSummary() server action for dashboard widget in web/lib/actions/findings.ts
+- [x] T028 [P] [US3] Create FindingsFilters component with severity/status/category dropdowns in web/components/findings/findings-filters.tsx
+- [x] T029 [P] [US3] Create FindingsSearch component with debounced text input in web/components/findings/findings-search.tsx
+- [x] T030 [P] [US3] Create FindingsListItem component for individual finding row in web/components/findings/findings-list-item.tsx
+- [x] T031 [US3] Create FindingsList component with pagination and loading states in web/components/findings/findings-list.tsx
+- [x] T032 [US3] Create cross-scan findings page at web/app/(dashboard)/findings/page.tsx
+- [x] T033 [US3] Create FindingsWidget dashboard summary component in web/components/dashboard/findings-widget.tsx
+- [x] T034 [US3] Integrate FindingsWidget into main dashboard page at web/app/(dashboard)/page.tsx
+- [x] T035 [US3] Add filter chips display showing active filters with clear functionality
+- [x] T036 [US3] Add "No findings match your filters" empty state with clear filters button
 
 **Checkpoint**: User Story 3 complete - cross-scan findings view with filtering, search, and dashboard widget
 

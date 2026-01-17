@@ -355,3 +355,206 @@ export async function getFindingActivity(
 
   return allActivities;
 }
+
+/**
+ * List findings with filters and cursor pagination.
+ * Returns findings across all scans in the user's organization.
+ */
+export async function listFindings(
+  filters: FindingFilters = {},
+  pagination: PaginationOptions = {}
+): Promise<import("@/lib/types/findings").ListFindingsResponse> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return { findings: [], nextCursor: null, total: 0 };
+  }
+
+  // Get user's organization
+  const membership = await db.membership.findFirst({
+    where: { userId: user.id },
+    select: { organizationId: true },
+  });
+
+  if (!membership) {
+    return { findings: [], nextCursor: null, total: 0 };
+  }
+
+  const limit = Math.min(pagination.limit || 20, 100);
+
+  // Build where clause
+  const where: Parameters<typeof db.finding.findMany>[0]["where"] = {
+    scan: {
+      organizationId: membership.organizationId,
+    },
+  };
+
+  // Apply filters
+  if (filters.severity) {
+    where.severity = Array.isArray(filters.severity)
+      ? { in: filters.severity }
+      : filters.severity;
+  }
+
+  if (filters.status) {
+    where.status = Array.isArray(filters.status)
+      ? { in: filters.status }
+      : filters.status;
+  }
+
+  if (filters.category) {
+    where.category = Array.isArray(filters.category)
+      ? { in: filters.category }
+      : filters.category;
+  }
+
+  if (filters.scanId) {
+    where.scanId = filters.scanId;
+  }
+
+  if (filters.search) {
+    where.OR = [
+      { title: { contains: filters.search, mode: "insensitive" } },
+      { description: { contains: filters.search, mode: "insensitive" } },
+    ];
+  }
+
+  // Get total count
+  const total = await db.finding.count({ where });
+
+  // Get findings with cursor pagination
+  const findings = await db.finding.findMany({
+    where,
+    include: {
+      scan: {
+        select: {
+          id: true,
+          project: {
+            select: {
+              targetUrl: true,
+            },
+          },
+        },
+      },
+    },
+    orderBy: [
+      { severity: "asc" }, // Critical first (alphabetically: critical < high < info < low < medium)
+      { createdAt: "desc" },
+    ],
+    take: limit + 1, // Take one extra to determine if there's more
+    ...(pagination.cursor && {
+      cursor: { id: pagination.cursor },
+      skip: 1, // Skip the cursor itself
+    }),
+  });
+
+  // Determine if there's a next page
+  const hasMore = findings.length > limit;
+  const resultFindings = hasMore ? findings.slice(0, limit) : findings;
+  const nextCursor = hasMore ? resultFindings[resultFindings.length - 1]?.id ?? null : null;
+
+  // Transform to FindingListItem
+  const findingItems: FindingListItem[] = resultFindings.map((f) => ({
+    id: f.id,
+    scanId: f.scanId,
+    title: f.title,
+    description: f.description,
+    severity: f.severity as FindingListItem["severity"],
+    category: f.category,
+    status: f.status as FindingListItem["status"],
+    cvss: f.cvss,
+    cwe: f.cwe,
+    createdAt: f.createdAt,
+    updatedAt: f.updatedAt,
+    scan: {
+      id: f.scan.id,
+      targetUrl: f.scan.project.targetUrl,
+    },
+  }));
+
+  return {
+    findings: findingItems,
+    nextCursor,
+    total,
+  };
+}
+
+/**
+ * Get findings summary for dashboard widget.
+ * Returns counts by severity and status.
+ */
+export async function getFindingsSummary(): Promise<import("@/lib/types/findings").FindingsSummary> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return {
+      bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      byStatus: { open: 0, fixed: 0, accepted_risk: 0, false_positive: 0 },
+      total: 0,
+      openCount: 0,
+    };
+  }
+
+  // Get user's organization
+  const membership = await db.membership.findFirst({
+    where: { userId: user.id },
+    select: { organizationId: true },
+  });
+
+  if (!membership) {
+    return {
+      bySeverity: { critical: 0, high: 0, medium: 0, low: 0, info: 0 },
+      byStatus: { open: 0, fixed: 0, accepted_risk: 0, false_positive: 0 },
+      total: 0,
+      openCount: 0,
+    };
+  }
+
+  // Get all findings for the organization
+  const findings = await db.finding.findMany({
+    where: {
+      scan: {
+        organizationId: membership.organizationId,
+      },
+    },
+    select: {
+      severity: true,
+      status: true,
+    },
+  });
+
+  // Calculate summary
+  const bySeverity = {
+    critical: 0,
+    high: 0,
+    medium: 0,
+    low: 0,
+    info: 0,
+  };
+
+  const byStatus = {
+    open: 0,
+    fixed: 0,
+    accepted_risk: 0,
+    false_positive: 0,
+  };
+
+  for (const finding of findings) {
+    // Count by severity
+    const severity = finding.severity as keyof typeof bySeverity;
+    if (severity in bySeverity) {
+      bySeverity[severity]++;
+    }
+
+    // Count by status
+    const status = finding.status as keyof typeof byStatus;
+    if (status in byStatus) {
+      byStatus[status]++;
+    }
+  }
+
+  return {
+    bySeverity,
+    byStatus,
+    total: findings.length,
+    openCount: byStatus.open,
+  };
+}

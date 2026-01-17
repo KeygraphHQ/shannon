@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import { getCurrentUser, getUserOrganizations } from "@/lib/auth";
 import { getScans, getScanStats } from "@/lib/actions/scans";
+import { getFindingsSummary } from "@/lib/actions/findings";
 import {
   Shield,
   FileText,
@@ -12,6 +13,7 @@ import {
 } from "lucide-react";
 import { NewScanButton } from "@/components/new-scan-button";
 import { SeverityBadge } from "@/components/severity-badge";
+import { FindingsWidget } from "@/components/dashboard/findings-widget";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -23,9 +25,10 @@ export default async function DashboardPage() {
   const currentOrg =
     organizations.find((o) => o.id === currentOrgCookie) || organizations[0];
 
-  // Fetch scans and stats
+  // Fetch scans, stats, and findings summary
   const scans = await getScans(currentOrg.id);
   const stats = await getScanStats(currentOrg.id);
+  const findingsSummary = await getFindingsSummary();
 
   return (
     <div className="space-y-8">
@@ -73,6 +76,9 @@ export default async function DashboardPage() {
           description="Generated"
         />
       </div>
+
+      {/* Findings Summary Widget */}
+      <FindingsWidget summary={findingsSummary} />
 
       {/* Recent Scans */}
       {scans.length > 0 ? (
