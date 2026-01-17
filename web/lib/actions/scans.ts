@@ -342,3 +342,85 @@ export async function cancelScan(orgId: string, scanId: string) {
 
   return updatedScan;
 }
+
+/**
+ * Get a scan with full findings breakdown.
+ * Returns scan details with result data.
+ */
+export async function getScanWithFindings(orgId: string, scanId: string) {
+  const hasAccess = await hasOrgAccess(orgId);
+  if (!hasAccess) {
+    return null;
+  }
+
+  const scan = await db.scan.findFirst({
+    where: {
+      id: scanId,
+      organizationId: orgId,
+    },
+    include: {
+      project: {
+        select: {
+          id: true,
+          name: true,
+          targetUrl: true,
+          repositoryUrl: true,
+        },
+      },
+      result: true,
+    },
+  });
+
+  if (!scan) {
+    return null;
+  }
+
+  return {
+    ...scan,
+    findingsBreakdown: {
+      critical: scan.criticalCount,
+      high: scan.highCount,
+      medium: scan.mediumCount,
+      low: scan.lowCount,
+      total: scan.findingsCount,
+    },
+    timing: {
+      startedAt: scan.startedAt,
+      completedAt: scan.completedAt,
+      durationMs: scan.durationMs,
+    },
+  };
+}
+
+export type ExportFormat = "pdf" | "json" | "html";
+
+/**
+ * Get export URL for a scan.
+ * Returns the URL to download the scan report in the specified format.
+ */
+export async function getExportUrl(
+  orgId: string,
+  scanId: string,
+  format: ExportFormat = "json"
+): Promise<string | null> {
+  const hasAccess = await hasOrgAccess(orgId);
+  if (!hasAccess) {
+    return null;
+  }
+
+  // Verify scan exists and is completed
+  const scan = await db.scan.findFirst({
+    where: {
+      id: scanId,
+      organizationId: orgId,
+      status: "COMPLETED",
+    },
+  });
+
+  if (!scan) {
+    return null;
+  }
+
+  // Return the export URL
+  return `/api/scans/${scanId}/export?format=${format}`;
+}

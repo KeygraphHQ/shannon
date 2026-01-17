@@ -154,10 +154,14 @@ As a senior engineer, I want to integrate security scanning into my CI/CD pipeli
 - **FR-021**: System MUST limit concurrent scans to 3 per organization by default, with the limit configurable per organization
 - **FR-022**: System MUST queue additional scan requests when the concurrent limit is reached and process them in order
 - **FR-023**: System MUST enforce a default maximum scan duration of 60 minutes, after which the scan times out with partial results saved
+- **FR-024**: System MUST display inline error banners with retry buttons when data loading fails, preserving last loaded data when available
+- **FR-025**: System MUST redirect users to login with return URL and display session expiration toast when authentication expires
+- **FR-026**: System MUST support exporting scan findings in PDF format (human-readable) and JSON format (machine-readable)
+- **FR-027**: System MUST emit structured logs and track key metrics including scan duration, success rate, and queue depth
 
 ### Key Entities
 
-- **Scan**: Represents a single security test execution with target URL, configuration, status, timing, and results reference
+- **Scan**: Represents a single security test execution with target URL, configuration, status (pending | running | paused | completed | failed | cancelled), timing, and results reference
 - **ScanConfiguration**: Defines how a scan should be executed including authentication settings and scan parameters
 - **AuthenticationConfig**: Stores credentials and authentication method for accessing protected resources
 - **ScanSchedule**: Defines recurring scan frequency and associated project/configuration
@@ -187,6 +191,11 @@ As a senior engineer, I want to integrate security scanning into my CI/CD pipeli
 - Q: How many concurrent scans per organization? → A: 3 concurrent scans (default), configurable per organization
 - Q: What is the maximum scan duration before timeout? → A: 60 minutes (1 hour) default maximum
 - Q: Which CI/CD platforms to support at MVP? → A: GitHub only (MVP); post-MVP: GitLab, Azure DevOps, Bitbucket
+- Q: What scan states should the dashboard display? → A: Standard states: pending, running, paused, completed, failed, cancelled
+- Q: How should dashboard handle data loading failures? → A: Inline error banner with retry button, preserve last loaded data if available
+- Q: How should session expiration be handled? → A: Redirect to login with return URL, show toast explaining session expired
+- Q: What export formats for scan findings/reports? → A: PDF and JSON (human-readable + machine-readable)
+- Q: What observability signals for scan operations? → A: Structured logs + key metrics (scan duration, success rate, queue depth)
 
 ## Assumptions
 

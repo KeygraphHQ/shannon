@@ -1,39 +1,53 @@
 # Implementation Plan: Running Security Scans
 
-**Branch**: `002-security-scans` | **Date**: 2026-01-17 | **Spec**: [spec.md](./spec.md)
+**Branch**: `002-security-scans` | **Date**: 2026-01-17 | **Spec**: [spec.md](spec.md)
 **Input**: Feature specification from `/specs/002-security-scans/spec.md`
 
 ## Summary
 
-Implement the core security scanning functionality for Shannon SaaS, enabling users to run penetration tests against their web applications. This includes quick scan initiation with minimal configuration, authenticated testing with multiple auth methods (form login, API tokens, Basic Auth, SSO, TOTP), real-time progress tracking via WebSocket, scan history/details viewing, scheduled recurring scans, and GitHub Actions CI/CD integration. The implementation leverages the existing Temporal workflow infrastructure and Claude Agent SDK for AI-powered security analysis.
+Implement a comprehensive security scanning system that allows users to run AI-powered penetration tests on their web applications. The core functionality includes one-click scan initiation (P1), authenticated testing with multiple auth methods (P2), scan history with filtering (P3), scheduled scans (P4), and GitHub CI/CD integration (P5). The system leverages the existing Temporal orchestration and Claude Agent SDK infrastructure for durable, crash-safe execution.
 
 ## Technical Context
 
-**Language/Version**: TypeScript 5 / Node.js (ES2022)
-**Primary Dependencies**: Next.js 16, React 19, Prisma 7.2, Clerk (auth), Temporal SDK, Claude Agent SDK
-**Storage**: PostgreSQL 15+ with Prisma ORM (multi-tenant with organizationId scoping)
-**Testing**: Jest/Vitest (to be configured), Playwright for E2E
-**Target Platform**: Web SaaS (Next.js App Router)
-**Project Type**: Web application (monorepo: /web for SaaS, /src for scan engine)
-**Performance Goals**: Real-time updates every 5 seconds, authentication validation <10 seconds, scan start <5 seconds
-**Constraints**: 3 concurrent scans per org (default, configurable), 60-minute max scan duration, 12-month data retention
-**Scale/Scope**: Multi-tenant SaaS, thousands of organizations, scans/findings stored in PostgreSQL
+**Language/Version**: TypeScript 5.x (Node.js 20+)
+**Primary Dependencies**:
+- **Web App**: Next.js 16, React 19, Clerk (auth), TailwindCSS 4
+- **Database**: Prisma 7.2 ORM with PostgreSQL
+- **Orchestration**: Temporal SDK 1.11 (workflows, activities, workers)
+- **AI Engine**: Claude Agent SDK 0.1 (security testing agents)
+
+**Storage**: PostgreSQL (Prisma), tenant-prefixed object storage for reports
+**Testing**: Vitest (recommended, not yet configured)
+**Target Platform**: Web (Next.js App Router) + Docker containers
+**Project Type**: Web application (monorepo: `/web` frontend + API, `/src` Temporal workers)
+
+**Performance Goals**:
+- Scan start within 5 seconds of submission (FR-001)
+- Real-time progress updates every 5 seconds (SC-003)
+- Auth validation feedback within 10 seconds (SC-004)
+
+**Constraints**:
+- Max 60 minutes scan duration with graceful timeout (FR-023)
+- 3 concurrent scans per organization (default, configurable) (FR-021)
+- 12 months data retention (FR-020)
+
+**Scale/Scope**: Multi-tenant SaaS, tenant isolation via row-level security
 
 ## Constitution Check
 
 *GATE: Must pass before Phase 0 research. Re-check after Phase 1 design.*
 
-| Principle | Status | Notes |
-|-----------|--------|-------|
-| I. Security-First | PASS | Credentials encrypted with org-specific keys (FR-019), TOTP support, auth validation |
-| II. AI-Native Architecture | PASS | Leverages existing Claude Agent SDK via Temporal workflows |
-| III. Multi-Tenant Isolation | PASS | All queries scoped by organizationId, tenant-prefixed storage |
-| IV. Temporal-First Orchestration | PASS | Extends existing pentestPipelineWorkflow, adds scheduling |
-| V. Progressive Delivery | PASS | 5 prioritized user stories (P1-P5) independently testable |
-| VI. Observability-Driven | PASS | Real-time progress tracking, audit logging, scan metrics |
-| VII. Simplicity Over Complexity | PASS | Extends existing patterns, no new abstractions needed |
+| Principle | Status | Evidence |
+|-----------|--------|----------|
+| I. Security-First | ✅ PASS | Credentials encrypted with org-specific keys (FR-019), TLS required, audit logging in place |
+| II. AI-Native Architecture | ✅ PASS | Leverages existing Claude Agent SDK infrastructure, AI reasoning logged via audit system |
+| III. Multi-Tenant Isolation | ✅ PASS | All queries scoped by organizationId, storage prefixed with `tenant-{id}/`, RLS via Prisma |
+| IV. Temporal-First Orchestration | ✅ PASS | All scan execution via Temporal workflows, heartbeats, queryable progress |
+| V. Progressive Delivery | ✅ PASS | 5 user stories prioritized P1-P5, each independently testable |
+| VI. Observability-Driven | ✅ PASS | Structured logs + metrics (FR-027), audit logging for security events |
+| VII. Simplicity | ✅ PASS | Building on existing infrastructure, no new abstractions beyond spec requirements |
 
-**Gate Result**: PASS - All principles satisfied. Proceed to Phase 0.
+**Gate Result**: PASS - All constitutional principles satisfied.
 
 ## Project Structure
 
@@ -42,83 +56,94 @@ Implement the core security scanning functionality for Shannon SaaS, enabling us
 ```text
 specs/002-security-scans/
 ├── plan.md              # This file
+├── spec.md              # Feature specification
 ├── research.md          # Phase 0 output
 ├── data-model.md        # Phase 1 output
 ├── quickstart.md        # Phase 1 output
 ├── contracts/           # Phase 1 output (OpenAPI specs)
-└── tasks.md             # Phase 2 output (from /speckit.tasks)
+└── tasks.md             # Phase 2 output (/speckit.tasks command)
 ```
 
 ### Source Code (repository root)
 
 ```text
-web/
+web/                            # Next.js 16 web application
 ├── app/
-│   ├── (dashboard)/
-│   │   ├── scans/
-│   │   │   ├── page.tsx                    # Scan history list
-│   │   │   ├── [scanId]/page.tsx           # Scan detail view
-│   │   │   └── new/page.tsx                # New scan form
-│   │   ├── projects/
-│   │   │   └── [projectId]/
-│   │   │       ├── settings/page.tsx       # Project auth config
-│   │   │       └── schedules/page.tsx      # Scheduled scans config
-│   │   └── integrations/
-│   │       └── github/page.tsx             # GitHub integration setup
+│   ├── (auth)/                 # Auth routes (sign-in, sign-up)
+│   ├── (dashboard)/            # Protected dashboard routes
+│   │   ├── scans/              # ✅ Exists: scan list, detail, new scan
+│   │   └── projects/           # ✅ Exists: project settings, auth config
 │   └── api/
-│       ├── scans/
-│       │   ├── route.ts                    # POST: start scan, GET: list scans
-│       │   └── [scanId]/
-│       │       ├── route.ts                # GET: scan details, DELETE: cancel
-│       │       └── progress/route.ts       # GET: real-time progress (SSE)
-│       ├── projects/
-│       │   └── [projectId]/
-│       │       ├── auth/route.ts           # Auth config CRUD
-│       │       └── schedules/route.ts      # Schedule CRUD
-│       ├── integrations/
-│       │   └── github/
-│       │       ├── route.ts                # Integration setup
-│       │       └── webhook/route.ts        # PR events handler
-│       └── webhooks/
-│           └── temporal/route.ts           # Scan completion notifications
+│       ├── scans/              # ✅ Exists: scan CRUD, progress
+│       ├── projects/           # ✅ Exists: project CRUD, auth validation
+│       └── webhooks/           # ✅ Exists: clerk, temporal webhooks
 ├── components/
-│   ├── scans/
-│   │   ├── scan-progress.tsx               # Real-time progress display
-│   │   ├── scan-history-table.tsx          # Scan list with filters
-│   │   ├── scan-detail-card.tsx            # Scan summary card
-│   │   └── start-scan-form.tsx             # Quick scan form
-│   ├── auth-config/
-│   │   ├── auth-method-selector.tsx        # Auth method dropdown
-│   │   ├── form-auth-config.tsx            # Form login config
-│   │   ├── api-token-config.tsx            # API token config
-│   │   ├── basic-auth-config.tsx           # Basic auth config
-│   │   └── totp-config.tsx                 # TOTP secret input
-│   └── schedules/
-│       ├── schedule-form.tsx               # Schedule configuration
-│       └── schedule-list.tsx               # Active schedules
+│   ├── scans/                  # ✅ Exists: scan forms, tables, progress
+│   ├── auth-config/            # ✅ Exists: auth method configuration
+│   └── ui/                     # UI primitives
 ├── lib/
-│   ├── actions/
-│   │   ├── scans.ts                        # Scan server actions
-│   │   ├── schedules.ts                    # Schedule server actions
-│   │   └── integrations.ts                 # Integration server actions
-│   ├── temporal/
-│   │   └── client.ts                       # Temporal client for web app
-│   ├── encryption.ts                       # Credential encryption utilities
-│   └── github.ts                           # GitHub API helpers
+│   ├── actions/                # ✅ Exists: server actions for scans, projects
+│   ├── temporal/               # ✅ Exists: Temporal client integration
+│   └── *.ts                    # ✅ Exists: db, auth, audit, encryption
 └── prisma/
-    └── schema.prisma                       # Extended with scan entities
+    └── schema.prisma           # ✅ Exists: comprehensive scan schema
 
-src/temporal/
-├── workflows.ts                            # Extended with scan scheduling
-└── activities.ts                           # Extended with scan management
+src/                            # Temporal workers (existing infrastructure)
+├── temporal/
+│   ├── workflows.ts            # Pentest pipeline workflow
+│   ├── activities.ts           # Agent execution activities
+│   └── worker.ts               # Worker entry point
+└── ai/
+    └── claude-executor.ts      # Claude Agent SDK integration
 ```
 
-**Structure Decision**: Extends existing web application structure (Option 2: Web application). New pages/components added under existing `/web` directory. Temporal integration extended in `/src/temporal`.
+**Structure Decision**: Web application pattern. The existing infrastructure is well-organized with clear separation between:
+- `/web` - Next.js frontend + API routes
+- `/src` - Temporal workers and AI execution engine
+
+New development focuses on:
+1. Extending existing scan UI components for remaining user stories
+2. Adding schedule and CI/CD database models
+3. Implementing GitHub webhook integration
+4. Adding export functionality (PDF/JSON)
 
 ## Complexity Tracking
 
-> No constitution violations requiring justification.
+> No violations - complexity justified by constitutional alignment.
 
-| Violation | Why Needed | Simpler Alternative Rejected Because |
-|-----------|------------|-------------------------------------|
-| N/A | N/A | N/A |
+| Aspect | Decision | Rationale |
+|--------|----------|-----------|
+| Auth encryption | AES-256-GCM with org keys | Constitution I requires strong encryption |
+| Temporal orchestration | Required for scans | Constitution IV mandates Temporal-first |
+| Multi-tenant queries | Row-level security | Constitution III requires tenant isolation |
+
+## Post-Design Constitution Re-Check
+
+*Re-evaluated after Phase 1 design completion.*
+
+| Principle | Status | Post-Design Evidence |
+|-----------|--------|----------------------|
+| I. Security-First | ✅ PASS | AES-256-GCM encryption (research.md #2), SARIF export format, webhook signature validation |
+| II. AI-Native Architecture | ✅ PASS | Claude Agent SDK for scan execution, AI reasoning captured in audit system |
+| III. Multi-Tenant Isolation | ✅ PASS | All new models include organizationId, storage paths prefixed `tenant-{id}/` |
+| IV. Temporal-First Orchestration | ✅ PASS | Schedules via Temporal API (research.md #3), queue management via Temporal workflows |
+| V. Progressive Delivery | ✅ PASS | Data model supports incremental rollout (P1→P5), each story independently testable |
+| VI. Observability-Driven | ✅ PASS | SSE for real-time updates, structured logging, scan metrics tracked |
+| VII. Simplicity | ✅ PASS | Puppeteer for PDF (not over-engineered), Resend for email (managed service) |
+
+**Post-Design Gate Result**: PASS - All constitutional principles remain satisfied after design decisions.
+
+## Generated Artifacts
+
+| Artifact | Path | Purpose |
+|----------|------|---------|
+| Research | [research.md](research.md) | Technology decisions and rationale |
+| Data Model | [data-model.md](data-model.md) | Entity definitions and schema extensions |
+| API Contracts | [contracts/openapi.yaml](contracts/openapi.yaml) | OpenAPI 3.1 specification |
+| Quickstart | [quickstart.md](quickstart.md) | Developer onboarding guide |
+
+## Next Steps
+
+1. Run `/speckit.tasks` to generate implementation tasks from this plan
+2. Review and approve generated tasks
+3. Begin implementation following priority order (P1 → P5)

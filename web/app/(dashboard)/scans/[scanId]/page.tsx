@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { ScanDetailCard } from "@/components/scans/scan-detail-card";
 import { ScanProgress } from "@/components/scans/scan-progress";
 import { CancelScanButton } from "@/components/scans/cancel-scan-button";
+import { ScanFindingsSection } from "@/components/scans/scan-findings-section";
 
 export const dynamic = "force-dynamic";
 
@@ -115,6 +116,23 @@ export default async function ScanDetailPage({ params }: ScanDetailPageProps) {
 
       {/* Scan details */}
       <ScanDetailCard scan={scanData} />
+
+      {/* Detailed findings section (for completed scans) */}
+      <ScanFindingsSection
+        scanId={scan.id}
+        isCompleted={scan.status === "COMPLETED"}
+        findingsCount={scan.findingsCount}
+        criticalCount={scan.criticalCount}
+        highCount={scan.highCount}
+        mediumCount={scan.mediumCount}
+        lowCount={scan.lowCount}
+        executiveSummary={scan.result?.executiveSummary}
+        reportHtmlUrl={
+          scan.result?.reportHtmlPath
+            ? `/api/scans/${scan.id}/report?format=html`
+            : null
+        }
+      />
     </div>
   );
 }

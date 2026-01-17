@@ -364,6 +364,126 @@ export async function validateAuthentication(config: AuthConfig): Promise<Valida
 
 ---
 
+### 7. PDF Report Generation
+
+**Question**: How should scan reports be exported to PDF format?
+
+**Decision**: Puppeteer + Marked for markdown-to-PDF conversion
+
+**Rationale**:
+- Shannon already generates markdown reports via Claude Agent SDK pipeline
+- Puppeteer renders HTML with full CSS support for professional PDFs
+- Server-side only (no React rendering overhead)
+- Perfect for complex layouts with severity color coding
+
+**Alternatives Considered**:
+| Alternative | Pros | Cons | Why Rejected |
+|-------------|------|------|--------------|
+| PDFKit | Lightweight | Programmatic drawing, not markdown-friendly | Poor fit for existing markdown reports |
+| React-PDF | React component model | Limited CSS support | Learning curve, CSS constraints |
+| jsPDF | Simple API | Basic styling only | Insufficient for complex reports |
+
+**Implementation Pattern**:
+```typescript
+// GET /api/scans/[scanId]/export?format=pdf
+import puppeteer from 'puppeteer';
+import { marked } from 'marked';
+
+export async function generatePdf(scanId: string) {
+  const markdown = await fetchReportFromStorage(scanId);
+  const html = createReportTemplate(await marked(markdown));
+
+  const browser = await puppeteer.launch();
+  const page = await browser.newPage();
+  await page.setContent(html, { waitUntil: 'networkidle0' });
+  const pdf = await page.pdf({ format: 'A4', margin: { top: 20, bottom: 20 } });
+  await browser.close();
+  return pdf;
+}
+```
+
+**Dependencies**:
+```json
+{
+  "puppeteer": "^22.0.0",
+  "marked": "^12.0.0",
+  "sanitize-html": "^2.11.0"
+}
+```
+
+---
+
+### 8. JSON Export Format (SARIF)
+
+**Question**: What format should be used for machine-readable JSON exports?
+
+**Decision**: SARIF (Static Analysis Results Interchange Format) v2.1.0
+
+**Rationale**:
+- Industry standard for security findings
+- GitHub Code Scanning compatible (direct import)
+- Rich metadata support (CWE, severity levels, locations)
+- Future-proof for integrations with other security tools
+
+**SARIF Structure**:
+```json
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [{
+    "tool": {
+      "driver": {
+        "name": "Shannon",
+        "version": "1.0.0",
+        "informationUri": "https://shannon.security"
+      }
+    },
+    "results": [{
+      "ruleId": "sql-injection",
+      "level": "error",
+      "message": { "text": "SQL injection vulnerability found" },
+      "locations": [{
+        "physicalLocation": {
+          "artifactLocation": { "uri": "src/api/users.ts" },
+          "region": { "startLine": 42 }
+        }
+      }]
+    }]
+  }]
+}
+```
+
+---
+
+### 9. Email Notifications
+
+**Question**: How should email notifications be implemented for scan completion?
+
+**Decision**: Resend for transactional email delivery
+
+**Rationale**:
+- Simple API, excellent developer experience
+- React Email for templating (consistent with Next.js stack)
+- Generous free tier (3,000 emails/month)
+- Good deliverability for transactional emails
+
+**Dependencies**:
+```json
+{
+  "resend": "^3.0.0",
+  "@react-email/components": "^0.0.15"
+}
+```
+
+**Email Types**:
+| Event | Template | Recipient |
+|-------|----------|-----------|
+| Scan complete | `scan-complete.tsx` | Project owner |
+| Scan failed | `scan-failed.tsx` | Project owner |
+| Schedule enabled | `schedule-enabled.tsx` | Project owner |
+
+---
+
 ## Summary of Decisions
 
 | Topic | Decision | Key Benefit |
@@ -374,6 +494,9 @@ export async function validateAuthentication(config: AuthConfig): Promise<Valida
 | GitHub integration | GitHub App + webhooks | Higher rate limits, installation-scoped auth |
 | Scan queue | Temporal semaphore workflow | Durable, no external queue service |
 | Auth validation | Playwright activity | Reuses existing infrastructure |
+| PDF export | Puppeteer + Marked | Professional output, CSS support, server-side |
+| JSON export | SARIF v2.1.0 | Industry standard, GitHub compatible |
+| Email notifications | Resend | Simple API, React Email templates |
 
 ## Open Questions Resolved
 

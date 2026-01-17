@@ -4,9 +4,6 @@ import Link from "next/link";
 import {
   Clock,
   ExternalLink,
-  AlertTriangle,
-  AlertCircle,
-  Info,
   CheckCircle,
   XCircle,
   Loader2,
@@ -14,6 +11,8 @@ import {
   Settings,
   Shield,
 } from "lucide-react";
+import { FindingsBreakdown } from "./findings-breakdown";
+import { ExportButton } from "./export-button";
 
 interface ScanDetailCardProps {
   scan: {
@@ -145,13 +144,16 @@ export function ScanDetailCard({ scan }: ScanDetailCardProps) {
               )}
             </div>
           </div>
-          <div
-            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${statusConfig.bgColor} ${statusConfig.color}`}
-          >
-            <StatusIcon
-              className={`h-4 w-4 ${isRunning ? "animate-spin" : ""}`}
-            />
-            {statusConfig.label}
+          <div className="flex items-center gap-3">
+            <ExportButton scanId={scan.id} isCompleted={isComplete} />
+            <div
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${statusConfig.bgColor} ${statusConfig.color}`}
+            >
+              <StatusIcon
+                className={`h-4 w-4 ${isRunning ? "animate-spin" : ""}`}
+              />
+              {statusConfig.label}
+            </div>
           </div>
         </div>
       </div>
@@ -185,28 +187,13 @@ export function ScanDetailCard({ scan }: ScanDetailCardProps) {
         {(isComplete || scan.findingsCount > 0) && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Findings Summary</p>
-            <div className="grid grid-cols-4 gap-2">
-              <div className="rounded-md bg-red-50 p-3 text-center">
-                <AlertTriangle className="h-5 w-5 text-red-600 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-red-600">{scan.criticalCount}</p>
-                <p className="text-xs text-red-600">Critical</p>
-              </div>
-              <div className="rounded-md bg-orange-50 p-3 text-center">
-                <AlertCircle className="h-5 w-5 text-orange-600 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-orange-600">{scan.highCount}</p>
-                <p className="text-xs text-orange-600">High</p>
-              </div>
-              <div className="rounded-md bg-yellow-50 p-3 text-center">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-yellow-600">{scan.mediumCount}</p>
-                <p className="text-xs text-yellow-600">Medium</p>
-              </div>
-              <div className="rounded-md bg-blue-50 p-3 text-center">
-                <Info className="h-5 w-5 text-blue-600 mx-auto mb-1" />
-                <p className="text-2xl font-bold text-blue-600">{scan.lowCount}</p>
-                <p className="text-xs text-blue-600">Low</p>
-              </div>
-            </div>
+            <FindingsBreakdown
+              criticalCount={scan.criticalCount}
+              highCount={scan.highCount}
+              mediumCount={scan.mediumCount}
+              lowCount={scan.lowCount}
+              variant="grid"
+            />
           </div>
         )}
 

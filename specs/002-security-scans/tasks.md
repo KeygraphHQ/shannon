@@ -1,16 +1,20 @@
-# Tasks: Running Security Scans (US1 + US2)
+# Tasks: Running Security Scans (Complete)
 
 **Input**: Design documents from `/specs/002-security-scans/`
-**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
-**Scope**: User Story 1 (Quick Scan) + User Story 2 (Authenticated Testing)
+**Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/openapi.yaml, quickstart.md
+**Scope**: All 5 User Stories (Quick Scan, Auth Testing, History, Schedules, CI/CD)
 
-**Organization**: Tasks are grouped by phase to enable incremental delivery. This task list covers:
-- Phase 1: Setup (Shared Infrastructure) ✅
-- Phase 2: Foundational (Blocking Prerequisites) ✅
-- Phase 3: User Story 1 - Quick Scan MVP
-- Phase 4: Polish (US1)
-- Phase 5: User Story 2 - Authenticated Testing
-- Phase 6: Polish (US2)
+**Organization**: Tasks are grouped by phase to enable incremental delivery:
+- Phase 1: Setup (Shared Infrastructure) - COMPLETE
+- Phase 2: Foundational (Blocking Prerequisites) - COMPLETE
+- Phase 3: User Story 1 - Quick Scan MVP - COMPLETE
+- Phase 4: Polish (US1) - COMPLETE
+- Phase 5: User Story 2 - Authenticated Testing - COMPLETE
+- Phase 6: Polish (US2) - COMPLETE
+- Phase 7: User Story 3 - Scan History and Details - COMPLETE
+- Phase 8: User Story 4 - Scheduled Scans
+- Phase 9: User Story 5 - CI/CD Integration
+- Phase 10: Final Polish & Cross-Cutting Concerns
 
 ## Format: `[ID] [P?] [Story?] Description`
 
@@ -371,9 +375,321 @@ After completing all US2 tasks, verify:
 
 ---
 
-## Future User Stories (Not in This Task List)
+## Phase 7: User Story 3 - Scan History and Details (Priority: P3) ✅ COMPLETE
 
-When ready to expand beyond US1+US2:
-- **User Story 3 (P3)**: Scan History - Already partially covered by US1
-- **User Story 4 (P4)**: Scheduled Scans - Run `/speckit.tasks 002-security-scans phase 4`
-- **User Story 5 (P5)**: CI/CD Integration - Run `/speckit.tasks 002-security-scans phase 5`
+**Goal**: Users can view scan history with filtering, pagination, and drill into detailed results with export options
+
+**Independent Test**: Run multiple scans, view history page sorted by date, filter by status, paginate results, view scan detail with findings breakdown, export as PDF/JSON
+
+**Acceptance Criteria**:
+1. Scan history sorted by most recent first
+2. Filter scans by status and date range
+3. Paginated results with cursor-based pagination
+4. Detailed breakdown of findings by severity
+5. Export scan reports in PDF and JSON (SARIF) formats
+
+### API Enhancements for User Story 3
+
+- [x] T087 [US3] Enhance GET /api/scans route in web/app/api/scans/route.ts with status enum filter (COMPLETED, RUNNING, CANCELLED, FAILED)
+- [x] T088 [US3] Enhance GET /api/scans route in web/app/api/scans/route.ts with dateRange filter (startDate, endDate query params)
+- [x] T089 [US3] Add cursor-based pagination to GET /api/scans route with limit (default 20, max 100) and nextCursor response field
+
+### Export Functionality for User Story 3
+
+- [x] T090 [P] [US3] Create web/lib/export/pdf-generator.ts using Puppeteer + Marked to convert markdown report to PDF with styled template
+- [x] T091 [P] [US3] Create web/lib/export/sarif-exporter.ts to convert scan findings to SARIF v2.1.0 JSON format with rule IDs, severity levels, locations
+- [x] T092 [US3] Create GET /api/scans/[scanId]/export route in web/app/api/scans/[scanId]/export/route.ts with format query param (pdf, json, html)
+- [x] T093 [US3] Implement PDF generation logic in export route using pdf-generator.ts
+- [x] T094 [US3] Implement SARIF JSON generation logic in export route using sarif-exporter.ts
+
+### Server Actions for User Story 3
+
+- [x] T095 [US3] Enhance listScans action in web/lib/actions/scans.ts with statusFilter and dateRange parameters
+- [x] T096 [US3] Add getScanWithFindings(orgId, scanId) action in web/lib/actions/scans.ts returning full findings breakdown
+- [x] T097 [US3] Add getExportUrl(orgId, scanId, format) action in web/lib/actions/scans.ts returning download URL
+
+### UI Components for User Story 3
+
+- [x] T098 [P] [US3] Create web/components/scans/scan-filters.tsx with status multi-select dropdown and date range picker
+- [x] T099 [P] [US3] Create web/components/ui/pagination-controls.tsx with "Load More" button and page size selector
+- [x] T100 [P] [US3] Create web/components/scans/findings-breakdown.tsx showing severity counts with color-coded badges (critical/red, high/orange, medium/yellow, low/blue)
+- [x] T101 [P] [US3] Create web/components/scans/export-button.tsx with format dropdown (PDF, JSON) and download trigger
+- [x] T102 [US3] Enhance web/components/scans/scan-detail-card.tsx to include export-button and findings-breakdown components
+
+### Pages for User Story 3
+
+- [x] T103 [US3] Enhance web/app/(dashboard)/scans/page.tsx with pagination-controls and enhanced scan-filters
+- [x] T104 [US3] Enhance web/app/(dashboard)/scans/[scanId]/page.tsx with export options and detailed findings view
+
+**Checkpoint**: User Story 3 (Scan History) is fully functional - users can filter, paginate, and export scan data
+
+---
+
+## Phase 8: User Story 4 - Scheduled Scans (Priority: P4)
+
+**Goal**: Users can configure recurring scans with email notifications on completion
+
+**Independent Test**: Create weekly schedule for a project, verify Temporal schedule is created, wait for scheduled time, confirm scan runs automatically, receive email notification
+
+**Acceptance Criteria**:
+1. Preset frequencies: daily, weekly, custom cron
+2. Scans trigger automatically at scheduled time
+3. Email notifications on scan completion
+4. Pause/resume schedule without deleting config
+5. Distinguish scheduled scans from manual scans in history
+
+### Database Schema for User Story 4
+
+- [ ] T105 [US4] Add ScheduleStatus enum to web/prisma/schema.prisma (ACTIVE, PAUSED, DELETED)
+- [ ] T106 [US4] Add ScanSchedule model to web/prisma/schema.prisma with fields: id, projectId, name, cronExpression, timezone, status, temporalScheduleId, notifyOnComplete, notifyEmails[], lastRunAt, nextRunAt, totalRuns, timestamps, and Project relation
+- [ ] T107 [US4] Run prisma migrate dev --name add-schedules to create database migration
+
+### Temporal Schedules Integration
+
+- [ ] T108 [US4] Create web/lib/temporal/schedules.ts with createTemporalSchedule(scheduleId, cronExpression, workflowArgs) using Temporal Schedules API
+- [ ] T109 [US4] Add pauseTemporalSchedule(scheduleId) function to web/lib/temporal/schedules.ts
+- [ ] T110 [US4] Add resumeTemporalSchedule(scheduleId) function to web/lib/temporal/schedules.ts
+- [ ] T111 [US4] Add deleteTemporalSchedule(scheduleId) function to web/lib/temporal/schedules.ts
+- [ ] T112 [US4] Add getTemporalScheduleInfo(scheduleId) function returning next run time and status
+
+### API Routes for User Story 4
+
+- [ ] T113 [P] [US4] Create GET /api/projects/[projectId]/schedule route in web/app/api/projects/[projectId]/schedule/route.ts
+- [ ] T114 [P] [US4] Create PUT /api/projects/[projectId]/schedule route in web/app/api/projects/[projectId]/schedule/route.ts to create/update schedule
+- [ ] T115 [P] [US4] Create DELETE /api/projects/[projectId]/schedule route in web/app/api/projects/[projectId]/schedule/route.ts
+- [ ] T116 [US4] Create POST /api/projects/[projectId]/schedule/pause route in web/app/api/projects/[projectId]/schedule/pause/route.ts
+- [ ] T117 [US4] Create POST /api/projects/[projectId]/schedule/resume route in web/app/api/projects/[projectId]/schedule/resume/route.ts
+
+### Server Actions for User Story 4
+
+- [ ] T118 [US4] Create web/lib/actions/schedules.ts with getSchedule(orgId, projectId) action
+- [ ] T119 [US4] Add createSchedule(orgId, projectId, config) action to web/lib/actions/schedules.ts
+- [ ] T120 [US4] Add updateSchedule(orgId, projectId, scheduleId, config) action to web/lib/actions/schedules.ts
+- [ ] T121 [US4] Add deleteSchedule(orgId, projectId, scheduleId) action to web/lib/actions/schedules.ts
+- [ ] T122 [US4] Add pauseSchedule(orgId, projectId, scheduleId) action to web/lib/actions/schedules.ts
+- [ ] T123 [US4] Add resumeSchedule(orgId, projectId, scheduleId) action to web/lib/actions/schedules.ts
+
+### Email Notifications
+
+- [ ] T124 [P] [US4] Install resend and @react-email/components if not already installed
+- [ ] T125 [P] [US4] Create web/emails/scan-complete.tsx React Email template with scan summary, findings count, and link to results
+- [ ] T126 [P] [US4] Create web/emails/scan-failed.tsx React Email template with error details and troubleshooting link
+- [ ] T127 [US4] Create web/lib/email/send-notification.ts with sendScanNotification(scanId, recipientEmails, type) using Resend
+- [ ] T128 [US4] Integrate email notification into scan workflow completion in src/temporal/activities.ts
+
+### UI Components for User Story 4
+
+- [ ] T129 [P] [US4] Create web/components/schedules/schedule-form.tsx with frequency presets (Daily, Weekly, Biweekly, Monthly, Custom)
+- [ ] T130 [P] [US4] Create web/components/schedules/cron-builder.tsx for custom cron expression input with validation and preview
+- [ ] T131 [P] [US4] Create web/components/schedules/schedule-card.tsx showing status, frequency, next run time, last run, and pause/resume/delete actions
+- [ ] T132 [P] [US4] Create web/components/schedules/timezone-selector.tsx with IANA timezone dropdown
+- [ ] T133 [US4] Create web/components/schedules/notification-settings.tsx with email list input for additional recipients
+
+### Pages for User Story 4
+
+- [ ] T134 [US4] Create web/app/(dashboard)/projects/[projectId]/schedule/page.tsx with schedule-form and schedule-card components
+- [ ] T135 [US4] Add "Schedule" link to project settings navigation
+- [ ] T136 [US4] Update scan-detail-card.tsx to show "Scheduled" badge when scan.source === 'SCHEDULED'
+
+**Checkpoint**: User Story 4 (Scheduled Scans) is fully functional - recurring scans run automatically with email notifications
+
+---
+
+## Phase 9: User Story 5 - CI/CD Integration (Priority: P5)
+
+**Goal**: GitHub PRs automatically trigger security scans with results posted as PR comments and blocking based on severity
+
+**Independent Test**: Install GitHub App on repository, open PR, verify scan triggers automatically, see results as PR comment, verify PR blocked if critical findings exist
+
+**Acceptance Criteria**:
+1. GitHub App setup in under 5 minutes
+2. PR opens trigger automatic scan
+3. Scan results posted as PR comment with severity summary
+4. Configurable severity threshold for PR blocking
+5. Override blocked PR with recorded justification
+
+### Database Schema for User Story 5
+
+- [ ] T137 [US5] Add CICDProvider enum to web/prisma/schema.prisma (GITHUB)
+- [ ] T138 [US5] Add IntegrationStatus enum to web/prisma/schema.prisma (ACTIVE, PAUSED, ERROR, DISCONNECTED)
+- [ ] T139 [US5] Add SeverityLevel enum to web/prisma/schema.prisma (CRITICAL, HIGH, MEDIUM, LOW, INFO)
+- [ ] T140 [US5] Add CICDIntegration model to web/prisma/schema.prisma with fields: id, projectId, provider, repositoryFullName, installationId, severityThreshold, autoComment, failOpen, status, lastWebhookAt, timestamps, and Project relation
+- [ ] T141 [US5] Run prisma migrate dev --name add-cicd-integration to create database migration
+
+### GitHub Webhook Handler
+
+- [ ] T142 [US5] Create web/lib/github/verify-signature.ts with verifyWebhookSignature(payload, signature, secret) using crypto HMAC-SHA256
+- [ ] T143 [US5] Create POST /api/webhooks/github route in web/app/api/webhooks/github/route.ts with signature verification
+- [ ] T144 [US5] Handle pull_request.opened event: lookup integration by repo, start scan with source=CICD and PR metadata
+- [ ] T145 [US5] Handle pull_request.synchronize event: start new scan if integration enabled for rescan on push
+- [ ] T146 [US5] Handle installation.created event: log new GitHub App installation for setup flow
+
+### GitHub API Client
+
+- [ ] T147 [P] [US5] Create web/lib/github/auth.ts with getInstallationOctokit(installationId) using @octokit/auth-app
+- [ ] T148 [P] [US5] Create web/lib/github/comments.ts with postPRComment(installationId, repo, prNumber, body) function
+- [ ] T149 [P] [US5] Create web/lib/github/checks.ts with createCheckRun(installationId, repo, sha, status, conclusion, summary) function
+- [ ] T150 [US5] Create web/lib/github/format-results.ts with formatScanForPR(scanResult) returning markdown summary with severity breakdown
+
+### Server Actions for User Story 5
+
+- [ ] T151 [US5] Create web/lib/actions/cicd.ts with getCICDIntegration(orgId, projectId) action
+- [ ] T152 [US5] Add createCICDIntegration(orgId, projectId, config) action to web/lib/actions/cicd.ts
+- [ ] T153 [US5] Add updateCICDIntegration(orgId, projectId, integrationId, config) action to web/lib/actions/cicd.ts
+- [ ] T154 [US5] Add deleteCICDIntegration(orgId, projectId, integrationId) action to web/lib/actions/cicd.ts
+
+### API Routes for User Story 5
+
+- [ ] T155 [P] [US5] Create GET /api/projects/[projectId]/integrations/github route in web/app/api/projects/[projectId]/integrations/github/route.ts
+- [ ] T156 [P] [US5] Create PUT /api/projects/[projectId]/integrations/github route in web/app/api/projects/[projectId]/integrations/github/route.ts
+- [ ] T157 [US5] Create DELETE /api/projects/[projectId]/integrations/github route in web/app/api/projects/[projectId]/integrations/github/route.ts
+
+### UI Components for User Story 5
+
+- [ ] T158 [P] [US5] Create web/components/integrations/github-app-setup.tsx with GitHub App install button and setup instructions
+- [ ] T159 [P] [US5] Create web/components/integrations/repository-selector.tsx to select repository from installed repos
+- [ ] T160 [P] [US5] Create web/components/integrations/severity-threshold.tsx with dropdown to select blocking threshold (Critical, High, Medium, Low, None)
+- [ ] T161 [P] [US5] Create web/components/integrations/integration-status.tsx showing connection status, last webhook time, and actions
+- [ ] T162 [US5] Create web/components/integrations/integration-settings.tsx combining all integration config components
+
+### Workflow Integration
+
+- [ ] T163 [US5] Update src/temporal/workflows.ts pentestPipelineWorkflow to handle source=CICD with PR metadata
+- [ ] T164 [US5] Create postResultsToGitHub activity in src/temporal/activities.ts that posts comment and updates check status
+- [ ] T165 [US5] Implement severity threshold checking in postResultsToGitHub activity to determine check conclusion (success/failure)
+- [ ] T166 [US5] Handle failOpen setting: if Shannon unreachable, allow PR with warning comment
+
+### Pages for User Story 5
+
+- [ ] T167 [US5] Create web/app/(dashboard)/integrations/github/page.tsx with GitHub App setup flow
+- [ ] T168 [US5] Create web/app/(dashboard)/projects/[projectId]/integrations/page.tsx with integration-settings component
+- [ ] T169 [US5] Add "Integrations" link to project settings navigation
+
+**Checkpoint**: User Story 5 (CI/CD Integration) is fully functional - PRs trigger automatic scans with blocking
+
+---
+
+## Phase 10: Final Polish & Cross-Cutting Concerns
+
+**Purpose**: Improvements that affect all user stories and production readiness
+
+### Observability & Metrics
+
+- [ ] T170 [P] Create web/lib/logger.ts with structured logging for scan operations (scan.started, scan.completed, scan.failed, auth.validated)
+- [ ] T171 [P] Create web/lib/metrics.ts to track key metrics: scan duration, success rate, queue depth, concurrent scans per org
+- [ ] T172 Add metrics emission to scan server actions in web/lib/actions/scans.ts
+
+### Data Retention
+
+- [ ] T173 Create web/lib/jobs/data-retention.ts with cleanup job for scans older than 12 months per FR-020
+- [ ] T174 Create cron trigger for data retention job (monthly execution)
+
+### Error Handling & UX
+
+- [ ] T175 [P] Add loading skeletons to all new components (schedule-form, integration-settings, findings-breakdown)
+- [ ] T176 [P] Add error boundaries to all new pages with user-friendly error messages
+- [ ] T177 Ensure all API routes return proper error codes per OpenAPI spec (400, 401, 403, 404, 409)
+
+### Validation & Documentation
+
+- [ ] T178 Run quickstart.md validation to verify all features work end-to-end
+- [ ] T179 Update web/.env.example with all new environment variables (GITHUB_APP_ID, GITHUB_APP_PRIVATE_KEY, GITHUB_WEBHOOK_SECRET, RESEND_API_KEY)
+- [ ] T180 Final code cleanup and type refinements across all scan features
+
+---
+
+## Dependencies & Execution Order (Complete)
+
+### Phase Dependencies
+
+```
+Phase 1-6: COMPLETE (US1 + US2)
+    ↓
+Phase 7: User Story 3 - History (can start after US1)
+    ↓ (parallel with US4, US5)
+Phase 8: User Story 4 - Schedules (can start after Phase 2)
+    ↓ (parallel with US3, US5)
+Phase 9: User Story 5 - CI/CD (can start after Phase 2)
+    ↓
+Phase 10: Final Polish (after all user stories)
+```
+
+### User Story Dependencies
+
+- **US3 (History)**: Depends on US1 for scan data to filter/export - Start after Phase 6
+- **US4 (Schedules)**: No US dependency - Can start after Phase 6
+- **US5 (CI/CD)**: No US dependency - Can start after Phase 6
+- **US4 and US5 can run in parallel** with different developers
+
+### Parallel Team Strategy
+
+With multiple developers:
+1. **Developer A**: User Story 3 (History + Export)
+2. **Developer B**: User Story 4 (Schedules + Email)
+3. **Developer C**: User Story 5 (GitHub CI/CD)
+4. **All**: Phase 10 Polish after stories complete
+
+---
+
+## Summary Statistics
+
+| Phase | User Story | Task Count | Status |
+|-------|------------|------------|--------|
+| 1 | Setup | 5 | COMPLETE |
+| 2 | Foundational | 12 | COMPLETE |
+| 3 | US1 - Quick Scan | 25 | COMPLETE |
+| 4 | Polish (US1) | 5 | COMPLETE |
+| 5 | US2 - Auth Testing | 34 | COMPLETE |
+| 6 | Polish (US2) | 5 | COMPLETE |
+| 7 | US3 - History | 18 | COMPLETE |
+| 8 | US4 - Schedules | 32 | Pending |
+| 9 | US5 - CI/CD | 33 | Pending |
+| 10 | Final Polish | 11 | Pending |
+| **Total** | | **180** | 104 complete, 76 pending |
+
+### Parallel Opportunities per Phase
+
+- **Phase 7**: T090-T091 (export utils), T098-T101 (UI components)
+- **Phase 8**: T113-T115 (API routes), T125-T126 (email templates), T129-T132 (UI components)
+- **Phase 9**: T147-T149 (GitHub client), T155-T156 (API routes), T158-T161 (UI components)
+- **Phase 10**: T170-T171 (observability), T175-T176 (UX polish)
+
+---
+
+## Verification Checklist (All User Stories)
+
+### User Story 3 - History
+- [ ] Scans sorted by date (newest first)
+- [ ] Filter by status works correctly
+- [ ] Date range filter works correctly
+- [ ] Pagination loads more results
+- [ ] PDF export downloads correctly formatted report
+- [ ] JSON export produces valid SARIF format
+
+### User Story 4 - Schedules
+- [ ] Can create schedule with preset frequency
+- [ ] Custom cron expression accepted and validated
+- [ ] Temporal schedule created successfully
+- [ ] Scan runs automatically at scheduled time
+- [ ] Email notification sent on completion
+- [ ] Pause/resume functions correctly
+
+### User Story 5 - CI/CD
+- [ ] GitHub App setup completes in under 5 minutes
+- [ ] PR opened triggers automatic scan
+- [ ] Scan results appear as PR comment
+- [ ] PR blocked when findings exceed threshold
+- [ ] Override with justification works
+- [ ] failOpen setting allows PR when Shannon unreachable
+
+---
+
+## Notes
+
+- [P] tasks = different files, no dependencies on each other
+- [US#] label = task belongs to specific User Story
+- All API routes must scope queries by organizationId from Clerk auth
+- Temporal schedules use native Schedules API (not cron jobs)
+- GitHub integration uses GitHub App (not OAuth or PAT)
+- SARIF export enables GitHub Code Scanning import
+- Email notifications use Resend with React Email templates

@@ -1,0 +1,740 @@
+openapi: 3.1.0
+info:
+  title: Shannon Security Scans API
+  version: 1.0.0
+  description: |
+    API contracts for the Security Scans feature.
+    All endpoints require authentication via Clerk session.
+    Multi-tenant: responses scoped to user's organization.
+
+servers:
+  - url: /api
+    description: Next.js API routes
+
+components:
+  securitySchemes:
+    ClerkAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Clerk session token
+
+  schemas:
+    ScanStatus:
+      type: string
+      enum: [PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT]
+
+    ScanSource:
+      type: string
+      enum: [MANUAL, SCHEDULED, CICD, API]
+
+    Severity:
+      type: string
+      enum: [CRITICAL, HIGH, MEDIUM, LOW, INFO]
+
+    AuthMethod:
+      type: string
+      enum: [NONE, FORM, API_TOKEN, BASIC, SSO]
+
+    ScheduleFrequency:
+      type: string
+      enum: [DAILY, WEEKLY, BIWEEKLY, MONTHLY, CUSTOM]
+
+    Scan:
+      type: object
+      properties:
+        id:
+          type: string
+          format: cuid
+        projectId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        source:
+          $ref: '#/components/schemas/ScanSource'
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        currentPhase:
+          type: string
+          nullable: true
+        progressPercent:
+          type: integer
+          minimum: 0
+          maximum: 100
+        findingsCount:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+        mediumCount:
+          type: integer
+        lowCount:
+          type: integer
+        errorMessage:
+          type: string
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+      required:
+        - id
+        - projectId
+        - status
+        - source
+        - progressPercent
+        - findingsCount
+        - createdAt
+
+    ScanProgress:
+      type: object
+      properties:
+        scanId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        currentPhase:
+          type: string
+        currentAgent:
+          type: string
+          nullable: true
+        progressPercent:
+          type: integer
+        estimatedTimeRemaining:
+          type: integer
+          description: Seconds remaining
+          nullable: true
+      required:
+        - scanId
+        - status
+        - progressPercent
+
+    ScanResult:
+      type: object
+      properties:
+        id:
+          type: string
+        scanId:
+          type: string
+        executiveSummary:
+          type: string
+          nullable: true
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        totalTokensUsed:
+          type: integer
+          nullable: true
+        totalCostUsd:
+          type: number
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    AuthConfig:
+      type: object
+      properties:
+        method:
+          $ref: '#/components/schemas/AuthMethod'
+        loginUrl:
+          type: string
+          nullable: true
+        usernameSelector:
+          type: string
+          nullable: true
+        passwordSelector:
+          type: string
+          nullable: true
+        submitSelector:
+          type: string
+          nullable: true
+        successIndicator:
+          type: string
+          nullable: true
+        totpEnabled:
+          type: boolean
+        totpSelector:
+          type: string
+          nullable: true
+        validationStatus:
+          type: string
+          enum: [valid, invalid, untested]
+          nullable: true
+        lastValidatedAt:
+          type: string
+          format: date-time
+          nullable: true
+      required:
+        - method
+
+    ScanSchedule:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        frequency:
+          $ref: '#/components/schemas/ScheduleFrequency'
+        cronExpression:
+          type: string
+          nullable: true
+        timezone:
+          type: string
+        isActive:
+          type: boolean
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
+      required:
+        - error
+
+security:
+  - ClerkAuth: []
+
+paths:
+  # ==================
+  # SCANS ENDPOINTS
+  # ==================
+
+  /scans:
+    get:
+      summary: List scans
+      description: Returns paginated list of scans for the organization
+      operationId: listScans
+      tags: [Scans]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ScanStatus'
+        - name: source
+          in: query
+          schema:
+            $ref: '#/components/schemas/ScanSource'
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of scans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Scan'
+                  nextCursor:
+                    type: string
+                    nullable: true
+        '401':
+          description: Unauthorized
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+    post:
+      summary: Start a scan
+      description: Initiates a new security scan for a project
+      operationId: startScan
+      tags: [Scans]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projectId:
+                  type: string
+                  description: Project to scan
+              required:
+                - projectId
+      responses:
+        '201':
+          description: Scan started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '400':
+          description: Bad request (invalid project, missing URL)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '409':
+          description: Conflict (concurrent scan limit reached)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                  queuePosition:
+                    type: integer
+                    description: Position in queue if queued
+
+  /scans/{scanId}:
+    get:
+      summary: Get scan details
+      operationId: getScan
+      tags: [Scans]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Scan'
+                  - type: object
+                    properties:
+                      result:
+                        $ref: '#/components/schemas/ScanResult'
+        '404':
+          description: Scan not found
+
+    delete:
+      summary: Cancel a scan
+      description: Cancels a running or pending scan
+      operationId: cancelScan
+      tags: [Scans]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Scan cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '400':
+          description: Cannot cancel (already completed/cancelled)
+        '404':
+          description: Scan not found
+
+  /scans/{scanId}/progress:
+    get:
+      summary: Get scan progress
+      description: Returns current progress for a running scan
+      operationId: getScanProgress
+      tags: [Scans]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Current progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanProgress'
+
+  /scans/{scanId}/progress/stream:
+    get:
+      summary: Stream scan progress (SSE)
+      description: Server-Sent Events stream of progress updates
+      operationId: streamScanProgress
+      tags: [Scans]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /scans/{scanId}/export:
+    get:
+      summary: Export scan report
+      description: Download scan report in specified format
+      operationId: exportScan
+      tags: [Scans]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [pdf, json, html]
+      responses:
+        '200':
+          description: Report file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            application/json:
+              schema:
+                type: object
+                description: SARIF format
+            text/html:
+              schema:
+                type: string
+        '404':
+          description: Scan not found or no results
+
+  # ==================
+  # AUTH CONFIG ENDPOINTS
+  # ==================
+
+  /projects/{projectId}/auth:
+    get:
+      summary: Get authentication config
+      operationId: getAuthConfig
+      tags: [Authentication]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Auth configuration (credentials redacted)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+        '404':
+          description: No auth configured
+
+    put:
+      summary: Save authentication config
+      operationId: saveAuthConfig
+      tags: [Authentication]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                method:
+                  $ref: '#/components/schemas/AuthMethod'
+                credentials:
+                  type: object
+                  description: Method-specific credentials (encrypted on save)
+                  properties:
+                    username:
+                      type: string
+                    password:
+                      type: string
+                    token:
+                      type: string
+                    totpSecret:
+                      type: string
+                loginUrl:
+                  type: string
+                usernameSelector:
+                  type: string
+                passwordSelector:
+                  type: string
+                submitSelector:
+                  type: string
+                successIndicator:
+                  type: string
+                totpSelector:
+                  type: string
+              required:
+                - method
+      responses:
+        '200':
+          description: Config saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfig'
+
+    delete:
+      summary: Delete authentication config
+      operationId: deleteAuthConfig
+      tags: [Authentication]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Config deleted
+
+  /projects/{projectId}/auth/validate:
+    post:
+      summary: Test authentication
+      description: Validates credentials without starting a full scan
+      operationId: validateAuth
+      tags: [Authentication]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  error:
+                    type: string
+                    nullable: true
+                  validatedAt:
+                    type: string
+                    format: date-time
+
+  # ==================
+  # SCHEDULE ENDPOINTS
+  # ==================
+
+  /projects/{projectId}/schedule:
+    get:
+      summary: Get scan schedule
+      operationId: getSchedule
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSchedule'
+        '404':
+          description: No schedule configured
+
+    put:
+      summary: Create or update schedule
+      operationId: saveSchedule
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                frequency:
+                  $ref: '#/components/schemas/ScheduleFrequency'
+                cronExpression:
+                  type: string
+                  description: Required if frequency is CUSTOM
+                timezone:
+                  type: string
+                  default: UTC
+                notifyOnComplete:
+                  type: boolean
+                  default: true
+                notifyOnFailure:
+                  type: boolean
+                  default: true
+              required:
+                - frequency
+      responses:
+        '200':
+          description: Schedule saved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSchedule'
+
+    delete:
+      summary: Delete schedule
+      operationId: deleteSchedule
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Schedule deleted
+
+  /projects/{projectId}/schedule/pause:
+    post:
+      summary: Pause schedule
+      operationId: pauseSchedule
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSchedule'
+
+  /projects/{projectId}/schedule/resume:
+    post:
+      summary: Resume schedule
+      operationId: resumeSchedule
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanSchedule'
+
+  # ==================
+  # GITHUB INTEGRATION WEBHOOKS
+  # ==================
+
+  /webhooks/github:
+    post:
+      summary: GitHub webhook endpoint
+      description: Receives GitHub App webhooks for PR events
+      operationId: githubWebhook
+      tags: [Webhooks]
+      security: []
+      parameters:
+        - name: X-Hub-Signature-256
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: X-GitHub-Event
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed
+        '401':
+          description: Invalid signature
+
+tags:
+  - name: Scans
+    description: Security scan operations
+  - name: Authentication
+    description: Project authentication configuration
+  - name: Schedules
+    description: Recurring scan schedules
+  - name: Webhooks
+    description: External integration webhooks
