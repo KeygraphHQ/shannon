@@ -131,13 +131,13 @@
 
 **Purpose**: Final validation and improvements across all stories
 
-- [ ] T043 [P] Add loading skeletons to FindingDetail, FindingsList, and FindingActivity components
+- [x] T043 [P] Add loading skeletons to FindingDetail, FindingsList, and FindingActivity components
 - [ ] T044 [P] Add keyboard shortcuts for status changes in FindingStatusSelect (optional enhancement)
-- [ ] T045 Verify all server actions have proper revalidatePath calls for cache invalidation
+- [x] T045 Verify all server actions have proper revalidatePath calls for cache invalidation
 - [ ] T046 Run quickstart.md validation scenarios for all user stories
-- [ ] T047 [P] Ensure mobile responsiveness for all findings components
-- [ ] T048 Final code review for security (org access checks on all queries)
-- [ ] T049 [P] Implement scheduled audit log cleanup job to purge entries older than 2 years (per FR-017)
+- [x] T047 [P] Ensure mobile responsiveness for all findings components
+- [x] T048 Final code review for security (org access checks on all queries)
+- [x] T049 [P] Implement scheduled audit log cleanup job to purge entries older than 2 years (per FR-017)
 - [ ] T050 Manual performance validation: verify filter <1s, bulk 50 findings <5s, search <2s using browser DevTools with 10K findings dataset
 
 ---

@@ -165,6 +165,7 @@ export async function updateFindingStatus(
   revalidatePath(`/dashboard/findings/${findingId}`);
   revalidatePath("/dashboard/findings");
   revalidatePath(`/dashboard/scans/${finding.scanId}`);
+  revalidatePath("/dashboard"); // Dashboard has FindingsWidget with summary stats
 
   return {
     id: result.id,
@@ -654,6 +655,7 @@ export async function bulkUpdateFindingStatus(
 
   // Revalidate paths
   revalidatePath("/dashboard/findings");
+  revalidatePath("/dashboard"); // Dashboard has FindingsWidget with summary stats
   // Revalidate individual finding pages and their scan pages
   const uniqueScanIds = [...new Set(findings.map((f) => f.scanId))];
   for (const scanId of uniqueScanIds) {
