@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getScan } from "@/lib/actions/scans";
+import { getScanWithFindings } from "@/lib/actions/scans";
 import {
   ArrowLeft,
   ExternalLink,
@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   FileText,
   Download,
+  Eye,
 } from "lucide-react";
 import { SeverityBadge, SeverityCount } from "@/components/severity-badge";
 
@@ -18,19 +19,18 @@ export default async function ScanPage({
 }) {
   const { scanId } = await params;
 
-  let scan;
-  try {
-    scan = await getScan(scanId);
-  } catch (error) {
+  const scan = await getScanWithFindings(scanId);
+
+  if (!scan) {
     notFound();
   }
 
   const severityCounts = {
-    critical: scan.findings.filter((f) => f.severity === "critical").length,
-    high: scan.findings.filter((f) => f.severity === "high").length,
-    medium: scan.findings.filter((f) => f.severity === "medium").length,
-    low: scan.findings.filter((f) => f.severity === "low").length,
-    info: scan.findings.filter((f) => f.severity === "info").length,
+    critical: scan.findings?.filter((f) => f.severity === "critical").length ?? 0,
+    high: scan.findings?.filter((f) => f.severity === "high").length ?? 0,
+    medium: scan.findings?.filter((f) => f.severity === "medium").length ?? 0,
+    low: scan.findings?.filter((f) => f.severity === "low").length ?? 0,
+    info: scan.findings?.filter((f) => f.severity === "info").length ?? 0,
   };
 
   return (
@@ -60,14 +60,16 @@ export default async function ScanPage({
                   {scan.targetUrl}
                 </a>
               </div>
-              <div className="flex items-center gap-1">
-                <Clock className="h-4 w-4" />
-                Started {new Date(scan.startedAt).toLocaleString()}
-              </div>
+              {scan.startedAt && (
+                <div className="flex items-center gap-1">
+                  <Clock className="h-4 w-4" />
+                  Started {new Date(scan.startedAt).toLocaleString()}
+                </div>
+              )}
             </div>
           </div>
 
-          {scan.status === "completed" && (
+          {scan.status === "COMPLETED" && (
             <Link
               href={`/api/scans/${scan.id}/report`}
               className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700"
@@ -107,12 +109,12 @@ export default async function ScanPage({
             <p className="text-sm text-gray-500">Findings</p>
             <div className="mt-1 flex items-center gap-1 text-2xl font-bold text-gray-900">
               <AlertTriangle className="h-6 w-6 text-amber-600" />
-              {scan.findings.length}
+              {scan.findings?.length ?? 0}
             </div>
           </div>
         </div>
 
-        {scan.status === "running" && (
+        {scan.status === "RUNNING" && (
           <div className="mt-6">
             <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
               <div
@@ -125,7 +127,7 @@ export default async function ScanPage({
       </div>
 
       {/* Severity Breakdown */}
-      {scan.findings.length > 0 && (
+      {(scan.findings?.length ?? 0) > 0 && (
         <div className="rounded-lg border border-gray-200 bg-white p-6">
           <h2 className="text-lg font-semibold text-gray-900">
             Severity Breakdown
@@ -141,7 +143,7 @@ export default async function ScanPage({
       )}
 
       {/* Findings List */}
-      {scan.status === "completed" && scan.findings.length > 0 ? (
+      {scan.status === "COMPLETED" && (scan.findings?.length ?? 0) > 0 ? (
         <div className="rounded-lg border border-gray-200 bg-white">
           <div className="border-b border-gray-200 px-6 py-4">
             <h2 className="text-lg font-semibold text-gray-900">
@@ -153,7 +155,7 @@ export default async function ScanPage({
           </div>
 
           <div className="divide-y divide-gray-200">
-            {scan.findings.map((finding) => (
+            {scan.findings?.map((finding) => (
               <div key={finding.id} className="p-6">
                 <div className="flex items-start justify-between">
                   <div className="min-w-0 flex-1">
@@ -172,9 +174,10 @@ export default async function ScanPage({
                         }
                         size="sm"
                       />
+                      <FindingStatusBadge status={finding.status} />
                     </div>
 
-                    <p className="mt-2 text-sm text-gray-600">
+                    <p className="mt-2 text-sm text-gray-600 line-clamp-2">
                       {finding.description}
                     </p>
 
@@ -190,6 +193,14 @@ export default async function ScanPage({
                       )}
                     </div>
                   </div>
+
+                  <Link
+                    href={`/dashboard/findings/${finding.id}`}
+                    className="ml-4 inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors flex-shrink-0"
+                  >
+                    <Eye className="h-4 w-4" />
+                    View Details
+                  </Link>
                 </div>
 
                 {finding.remediation && (
@@ -197,7 +208,7 @@ export default async function ScanPage({
                     <p className="text-sm font-medium text-blue-900">
                       Remediation
                     </p>
-                    <p className="mt-1 text-sm text-blue-800">
+                    <p className="mt-1 text-sm text-blue-800 line-clamp-2">
                       {finding.remediation}
                     </p>
                   </div>
@@ -206,7 +217,7 @@ export default async function ScanPage({
             ))}
           </div>
         </div>
-      ) : scan.status === "completed" ? (
+      ) : scan.status === "COMPLETED" ? (
         <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
             <FileText className="h-8 w-8 text-emerald-600" />
@@ -219,7 +230,7 @@ export default async function ScanPage({
             appears to be secure based on our tests.
           </p>
         </div>
-      ) : scan.status === "failed" ? (
+      ) : scan.status === "FAILED" ? (
         <div className="rounded-lg border border-red-200 bg-red-50 p-12 text-center">
           <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
             <AlertTriangle className="h-8 w-8 text-red-600" />
@@ -253,29 +264,71 @@ function ScanStatusBadge({ status }: { status: string }) {
     string,
     { label: string; className: string }
   > = {
-    pending: {
+    PENDING: {
       label: "Pending",
       className: "bg-gray-100 text-gray-800 border-gray-200",
     },
-    running: {
+    RUNNING: {
       label: "Running",
       className: "bg-blue-100 text-blue-800 border-blue-200",
     },
-    completed: {
+    COMPLETED: {
       label: "Completed",
       className: "bg-emerald-100 text-emerald-800 border-emerald-200",
     },
-    failed: {
+    FAILED: {
       label: "Failed",
       className: "bg-red-100 text-red-800 border-red-200",
     },
+    CANCELLED: {
+      label: "Cancelled",
+      className: "bg-gray-100 text-gray-800 border-gray-200",
+    },
+    TIMEOUT: {
+      label: "Timeout",
+      className: "bg-orange-100 text-orange-800 border-orange-200",
+    },
   };
 
-  const { label, className } = config[status] || config.pending;
+  const { label, className } = config[status] || config.PENDING;
 
   return (
     <span
       className={`mt-1 inline-flex items-center rounded-full border px-3 py-1 text-sm font-medium ${className}`}
+    >
+      {label}
+    </span>
+  );
+}
+
+function FindingStatusBadge({ status }: { status: string }) {
+  const config: Record<
+    string,
+    { label: string; className: string }
+  > = {
+    open: {
+      label: "Open",
+      className: "bg-yellow-100 text-yellow-800 border-yellow-200",
+    },
+    fixed: {
+      label: "Fixed",
+      className: "bg-green-100 text-green-800 border-green-200",
+    },
+    accepted_risk: {
+      label: "Accepted",
+      className: "bg-blue-100 text-blue-800 border-blue-200",
+    },
+    false_positive: {
+      label: "False Positive",
+      className: "bg-gray-100 text-gray-800 border-gray-200",
+    },
+  };
+
+  const { label, className } = config[status] || config.open;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-medium ${className}`}
     >
       {label}
     </span>

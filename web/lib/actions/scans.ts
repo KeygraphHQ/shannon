@@ -345,19 +345,17 @@ export async function cancelScan(orgId: string, scanId: string) {
 
 /**
  * Get a scan with full findings breakdown.
- * Returns scan details with result data.
+ * Returns scan details with result data and findings list.
+ * Validates org access internally via the scan's organizationId.
  */
-export async function getScanWithFindings(orgId: string, scanId: string) {
-  const hasAccess = await hasOrgAccess(orgId);
-  if (!hasAccess) {
+export async function getScanWithFindings(scanId: string) {
+  const user = await getCurrentUser();
+  if (!user) {
     return null;
   }
 
-  const scan = await db.scan.findFirst({
-    where: {
-      id: scanId,
-      organizationId: orgId,
-    },
+  const scan = await db.scan.findUnique({
+    where: { id: scanId },
     include: {
       project: {
         select: {
@@ -368,6 +366,12 @@ export async function getScanWithFindings(orgId: string, scanId: string) {
         },
       },
       result: true,
+      findings: {
+        orderBy: [
+          { severity: "asc" }, // critical first (alphabetically)
+          { createdAt: "desc" },
+        ],
+      },
     },
   });
 
@@ -375,8 +379,18 @@ export async function getScanWithFindings(orgId: string, scanId: string) {
     return null;
   }
 
+  // Verify org access
+  const hasAccess = await hasOrgAccess(scan.organizationId);
+  if (!hasAccess) {
+    return null;
+  }
+
   return {
     ...scan,
+    // Convenience accessors
+    targetUrl: scan.project.targetUrl,
+    projectName: scan.project.name,
+    progress: scan.progressPercent,
     findingsBreakdown: {
       critical: scan.criticalCount,
       high: scan.highCount,
@@ -464,5 +478,77 @@ export async function getScanStats(organizationId: string) {
     runningScans,
     completedScans,
     failedScans,
+    // For dashboard compatibility
+    openFindings: 0,
+    fixedFindings: 0,
   };
+}
+
+/**
+ * Get scans for an organization (simplified wrapper for dashboard).
+ * Returns array of scans with project info.
+ */
+export async function getScans(orgId: string) {
+  const result = await listScans(orgId, undefined, { limit: 50 });
+  return result.scans.map((scan) => ({
+    ...scan,
+    targetUrl: scan.project?.targetUrl || "",
+    _count: {
+      findings: scan.findingsCount || 0,
+    },
+    progress: scan.status === "RUNNING" ? 50 : scan.status === "COMPLETED" ? 100 : 0,
+  }));
+}
+
+/**
+ * Create and start a new scan from a URL (simplified flow for modal).
+ * Creates a project if needed, then starts the scan.
+ */
+export async function createScan(params: {
+  targetUrl: string;
+  organizationId: string;
+}): Promise<{ success?: boolean; scanId?: string; error?: string }> {
+  const { targetUrl, organizationId } = params;
+
+  const hasAccess = await hasOrgAccess(organizationId, ["owner", "admin", "member"]);
+  if (!hasAccess) {
+    return { error: "Not authorized" };
+  }
+
+  try {
+    // Validate URL
+    let parsedUrl: URL;
+    try {
+      parsedUrl = new URL(targetUrl);
+    } catch {
+      return { error: "Invalid URL format" };
+    }
+
+    // Find or create a project for this URL
+    let project = await db.project.findFirst({
+      where: {
+        organizationId,
+        targetUrl: targetUrl,
+      },
+    });
+
+    if (!project) {
+      // Create a new project for this target
+      project = await db.project.create({
+        data: {
+          organizationId,
+          name: parsedUrl.hostname,
+          targetUrl: targetUrl,
+        },
+      });
+    }
+
+    // Start the scan
+    const scan = await startScan(organizationId, project.id);
+
+    return { success: true, scanId: scan.id };
+  } catch (err) {
+    console.error("Failed to create scan:", err);
+    return { error: err instanceof Error ? err.message : "Failed to create scan" };
+  }
 }
