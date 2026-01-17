@@ -54,27 +54,27 @@
 
 ### Implementation for User Story 1
 
-- [ ] T014 [P] [US1] Create ExecutiveReport PDF template component in web/lib/reports/templates/executive.tsx using @react-pdf/renderer
-- [ ] T015 [P] [US1] Create TechnicalReport PDF template component in web/lib/reports/templates/technical.tsx
-- [ ] T016 [P] [US1] Create ComplianceReport PDF template component in web/lib/reports/templates/compliance.tsx
-- [ ] T017 [US1] Create report generator service in web/lib/reports/generator.ts with template selection logic
-- [ ] T018 [US1] Implement risk score calculation in web/lib/reports/risk-score.ts
-- [ ] T019 [P] [US1] Create PDF exporter in web/lib/reports/exporters/pdf.ts using renderToBuffer
-- [ ] T020 [P] [US1] Create HTML exporter in web/lib/reports/exporters/html.ts
-- [ ] T021 [P] [US1] Create JSON exporter in web/lib/reports/exporters/json.ts
-- [ ] T022 [US1] Implement POST /api/reports endpoint in web/app/api/reports/route.ts (generate report)
-- [ ] T023 [US1] Implement GET /api/reports endpoint in web/app/api/reports/route.ts (list reports)
-- [ ] T024 [US1] Implement GET /api/reports/[reportId] endpoint in web/app/api/reports/[reportId]/route.ts
-- [ ] T025 [US1] Implement DELETE /api/reports/[reportId] endpoint with admin check and audit log
-- [ ] T026 [US1] Implement GET /api/reports/[reportId]/export/[format] endpoint in web/app/api/reports/[reportId]/export/[format]/route.ts
-- [ ] T027 [P] [US1] Create ReportCard component in web/components/reports/ReportCard.tsx
-- [ ] T028 [P] [US1] Create TemplateSelector component in web/components/reports/TemplateSelector.tsx
-- [ ] T029 [P] [US1] Create ReportViewer component in web/components/reports/ReportViewer.tsx
-- [ ] T030 [US1] Create reports list page in web/app/(dashboard)/reports/page.tsx
-- [ ] T031 [US1] Create report detail page in web/app/(dashboard)/reports/[reportId]/page.tsx
-- [ ] T032 [US1] Create report generation page in web/app/(dashboard)/reports/generate/page.tsx
-- [ ] T033 [US1] Add scan-specific reports view in web/app/(dashboard)/scans/[scanId]/reports/page.tsx
-- [ ] T034 [US1] Implement concurrent generation limit (5 per org) in report generator service
+- [x] T014 [P] [US1] Create ExecutiveReport PDF template component in web/lib/reports/templates/executive.tsx using @react-pdf/renderer
+- [x] T015 [P] [US1] Create TechnicalReport PDF template component in web/lib/reports/templates/technical.tsx
+- [x] T016 [P] [US1] Create ComplianceReport PDF template component in web/lib/reports/templates/compliance.tsx
+- [x] T017 [US1] Create report generator service in web/lib/reports/generator.ts with template selection logic
+- [x] T018 [US1] Implement risk score calculation in web/lib/reports/risk-score.ts
+- [x] T019 [P] [US1] Create PDF exporter in web/lib/reports/exporters/pdf.ts using renderToBuffer
+- [x] T020 [P] [US1] Create HTML exporter in web/lib/reports/exporters/html.ts
+- [x] T021 [P] [US1] Create JSON exporter in web/lib/reports/exporters/json.ts
+- [x] T022 [US1] Implement POST /api/reports endpoint in web/app/api/reports/route.ts (generate report)
+- [x] T023 [US1] Implement GET /api/reports endpoint in web/app/api/reports/route.ts (list reports)
+- [x] T024 [US1] Implement GET /api/reports/[reportId] endpoint in web/app/api/reports/[reportId]/route.ts
+- [x] T025 [US1] Implement DELETE /api/reports/[reportId] endpoint with admin check and audit log
+- [x] T026 [US1] Implement GET /api/reports/[reportId]/export/[format] endpoint in web/app/api/reports/[reportId]/export/[format]/route.ts
+- [x] T027 [P] [US1] Create ReportCard component in web/components/reports/ReportCard.tsx
+- [x] T028 [P] [US1] Create TemplateSelector component in web/components/reports/TemplateSelector.tsx
+- [x] T029 [P] [US1] Create ReportViewer component in web/components/reports/ReportViewer.tsx
+- [x] T030 [US1] Create reports list page in web/app/(dashboard)/reports/page.tsx
+- [x] T031 [US1] Create report detail page in web/app/(dashboard)/reports/[reportId]/page.tsx
+- [x] T032 [US1] Create report generation page in web/app/(dashboard)/reports/generate/page.tsx
+- [x] T033 [US1] Add scan-specific reports view in web/app/(dashboard)/scans/[scanId]/reports/page.tsx
+- [x] T034 [US1] Implement concurrent generation limit (5 per org) in report generator service
 
 **Checkpoint**: User Story 1 complete - can generate reports from scans, view report list, download PDF/HTML/JSON
 
@@ -88,21 +88,21 @@
 
 ### Implementation for User Story 2
 
-- [ ] T035 [P] [US2] Create OWASP Top 10 (2021) framework data in web/lib/compliance/frameworks/owasp-top-10-2021.ts
-- [ ] T036 [P] [US2] Create PCI-DSS v4.0 framework data in web/lib/compliance/frameworks/pci-dss-4.0.ts
-- [ ] T037 [P] [US2] Create SOC 2 Trust Services framework data in web/lib/compliance/frameworks/soc2-trust-principles.ts
-- [ ] T038 [P] [US2] Create CIS Controls v8 framework data in web/lib/compliance/frameworks/cis-controls-v8.ts
-- [ ] T039 [US2] Create framework registry/index in web/lib/compliance/frameworks/index.ts
-- [ ] T040 [US2] Implement compliance mapper (CWE to control mapping) in web/lib/compliance/mapper.ts
-- [ ] T041 [US2] Implement auto-mapping when findings are created (hook into scan completion)
-- [ ] T042 [US2] Implement GET /api/compliance/frameworks endpoint in web/app/api/compliance/frameworks/route.ts
-- [ ] T043 [US2] Implement GET /api/compliance/frameworks/[frameworkId] endpoint in web/app/api/compliance/frameworks/[frameworkId]/route.ts
-- [ ] T044 [US2] Implement GET /api/compliance/scans/[scanId]/mappings endpoint in web/app/api/compliance/scans/[scanId]/mappings/route.ts
-- [ ] T045 [US2] Implement GET /api/compliance/scans/[scanId]/scorecard endpoint in web/app/api/compliance/scans/[scanId]/scorecard/route.ts
-- [ ] T046 [P] [US2] Create ComplianceScorecard component in web/components/compliance/ComplianceScorecard.tsx
-- [ ] T047 [P] [US2] Create ControlList component in web/components/compliance/ControlList.tsx
-- [ ] T048 [US2] Add compliance view tab to scan detail page with framework selector
-- [ ] T049 [US2] Update ComplianceReport template (T016) to use real mapping data
+- [x] T035 [P] [US2] Create OWASP Top 10 (2021) framework data in web/lib/compliance/frameworks/owasp-top-10-2021.ts
+- [x] T036 [P] [US2] Create PCI-DSS v4.0 framework data in web/lib/compliance/frameworks/pci-dss-4.0.ts
+- [x] T037 [P] [US2] Create SOC 2 Trust Services framework data in web/lib/compliance/frameworks/soc2-trust-principles.ts
+- [x] T038 [P] [US2] Create CIS Controls v8 framework data in web/lib/compliance/frameworks/cis-controls-v8.ts
+- [x] T039 [US2] Create framework registry/index in web/lib/compliance/frameworks/index.ts
+- [x] T040 [US2] Implement compliance mapper (CWE to control mapping) in web/lib/compliance/mapper.ts
+- [x] T041 [US2] Implement auto-mapping when findings are created (hook into scan completion)
+- [x] T042 [US2] Implement GET /api/compliance/frameworks endpoint in web/app/api/compliance/frameworks/route.ts
+- [x] T043 [US2] Implement GET /api/compliance/frameworks/[frameworkId] endpoint in web/app/api/compliance/frameworks/[frameworkId]/route.ts
+- [x] T044 [US2] Implement GET /api/compliance/scans/[scanId]/mappings endpoint in web/app/api/compliance/scans/[scanId]/mappings/route.ts
+- [x] T045 [US2] Implement GET /api/compliance/scans/[scanId]/scorecard endpoint in web/app/api/compliance/scans/[scanId]/scorecard/route.ts
+- [x] T046 [P] [US2] Create ComplianceScorecard component in web/components/compliance/ComplianceScorecard.tsx
+- [x] T047 [P] [US2] Create ControlList component in web/components/compliance/ControlList.tsx
+- [x] T048 [US2] Add compliance view tab to scan detail page with framework selector
+- [x] T049 [US2] Update ComplianceReport template (T016) to use real mapping data
 
 **Checkpoint**: User Story 2 complete - can view findings mapped to compliance frameworks with scorecard
 

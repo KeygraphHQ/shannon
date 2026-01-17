@@ -1,7 +1,12 @@
 // Compliance UI components
-// Scorecards, control lists, and trend charts
+// Scorecards, control lists, framework selector, and trend charts
+
+export { ComplianceScorecard } from './ComplianceScorecard';
+export { ControlList } from './ControlList';
+export { FrameworkSelector } from './FrameworkSelector';
 
 // To be implemented in Phase 7 (User Story 5):
-// export * from './ComplianceScorecard';
-// export * from './ControlList';
-// export * from './TrendChart';
+// export { TrendChart } from './TrendChart';
+// export { CategoryBreakdown } from './CategoryBreakdown';
+// export { TopGaps } from './TopGaps';
+// export { ControlDrilldown } from './ControlDrilldown';
