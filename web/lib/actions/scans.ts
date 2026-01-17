@@ -345,19 +345,17 @@ export async function cancelScan(orgId: string, scanId: string) {
 
 /**
  * Get a scan with full findings breakdown.
- * Returns scan details with result data.
+ * Returns scan details with result data and findings list.
+ * Validates org access internally via the scan's organizationId.
  */
-export async function getScanWithFindings(orgId: string, scanId: string) {
-  const hasAccess = await hasOrgAccess(orgId);
-  if (!hasAccess) {
+export async function getScanWithFindings(scanId: string) {
+  const user = await getCurrentUser();
+  if (!user) {
     return null;
   }
 
-  const scan = await db.scan.findFirst({
-    where: {
-      id: scanId,
-      organizationId: orgId,
-    },
+  const scan = await db.scan.findUnique({
+    where: { id: scanId },
     include: {
       project: {
         select: {
@@ -368,6 +366,12 @@ export async function getScanWithFindings(orgId: string, scanId: string) {
         },
       },
       result: true,
+      findings: {
+        orderBy: [
+          { severity: "asc" }, // critical first (alphabetically)
+          { createdAt: "desc" },
+        ],
+      },
     },
   });
 
@@ -375,8 +379,18 @@ export async function getScanWithFindings(orgId: string, scanId: string) {
     return null;
   }
 
+  // Verify org access
+  const hasAccess = await hasOrgAccess(scan.organizationId);
+  if (!hasAccess) {
+    return null;
+  }
+
   return {
     ...scan,
+    // Convenience accessors
+    targetUrl: scan.project.targetUrl,
+    projectName: scan.project.name,
+    progress: scan.progressPercent,
     findingsBreakdown: {
       critical: scan.criticalCount,
       high: scan.highCount,

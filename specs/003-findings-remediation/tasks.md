@@ -53,12 +53,12 @@
 
 ### Implementation for User Story 1
 
-- [ ] T013 [P] [US1] Create FindingStatusSelect component with justification modal in web/components/findings/finding-status-select.tsx
-- [ ] T014 [P] [US1] Create FindingDetail component displaying all finding fields in web/components/findings/finding-detail.tsx
-- [ ] T015 [P] [US1] Create EvidenceDisplay component for formatting evidence JSON in web/components/findings/evidence-display.tsx
-- [ ] T016 [US1] Create finding detail page at web/app/(dashboard)/findings/[findingId]/page.tsx
-- [ ] T017 [US1] Add "View Details" link from scan detail page findings table to /dashboard/findings/[findingId]
-- [ ] T018 [US1] Add client-side optimistic update and error handling to FindingStatusSelect
+- [x] T013 [P] [US1] Create FindingStatusSelect component with justification modal in web/components/findings/finding-status-select.tsx
+- [x] T014 [P] [US1] Create FindingDetail component displaying all finding fields in web/components/findings/finding-detail.tsx
+- [x] T015 [P] [US1] Create EvidenceDisplay component for formatting evidence JSON in web/components/findings/evidence-display.tsx
+- [x] T016 [US1] Create finding detail page at web/app/(dashboard)/findings/[findingId]/page.tsx
+- [x] T017 [US1] Add "View Details" link from scan detail page findings table to /dashboard/findings/[findingId]
+- [x] T018 [US1] Add client-side optimistic update and error handling to FindingStatusSelect
 
 **Checkpoint**: User Story 1 complete - can view finding details and update status with audit logging
 
