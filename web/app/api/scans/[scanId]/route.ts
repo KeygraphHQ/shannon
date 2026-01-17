@@ -20,7 +20,10 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
 
     const user = await getCurrentUser();
     if (!user || user.memberships.length === 0) {
-      return NextResponse.json({ error: "No organization found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No organization found", code: "NO_ORGANIZATION" },
+        { status: 400 }
+      );
     }
 
     const { scanId } = await params;
@@ -92,7 +95,7 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     console.error("Error getting scan:", error);
     return NextResponse.json(
-      { error: "Failed to get scan" },
+      { error: "Failed to get scan", code: "INTERNAL_ERROR" },
       { status: 500 }
     );
   }
@@ -110,7 +113,10 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
 
     const user = await getCurrentUser();
     if (!user || user.memberships.length === 0) {
-      return NextResponse.json({ error: "No organization found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No organization found", code: "NO_ORGANIZATION" },
+        { status: 400 }
+      );
     }
 
     const { scanId } = await params;
@@ -210,7 +216,7 @@ export async function DELETE(request: NextRequest, { params }: RouteParams) {
   } catch (error) {
     console.error("Error cancelling scan:", error);
     return NextResponse.json(
-      { error: "Failed to cancel scan" },
+      { error: "Failed to cancel scan", code: "INTERNAL_ERROR" },
       { status: 500 }
     );
   }

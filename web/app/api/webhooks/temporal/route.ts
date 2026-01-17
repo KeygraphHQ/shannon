@@ -136,53 +136,81 @@ async function handleWorkflowCompleted(
 ) {
   const now = new Date();
 
-  // Get the scan to calculate duration
+  // Get the scan to calculate duration and org info
   const scan = await db.scan.findUnique({
     where: { id: scanId },
-    select: { startedAt: true },
+    select: {
+      startedAt: true,
+      organizationId: true,
+      projectId: true,
+      project: { select: { name: true } },
+    },
   });
 
   const durationMs =
     data.summary?.totalDurationMs ||
     (scan?.startedAt ? now.getTime() - scan.startedAt.getTime() : 0);
 
-  // Update scan status
-  await db.scan.update({
-    where: { id: scanId },
-    data: {
-      status: "COMPLETED",
-      completedAt: now,
-      durationMs,
-      progressPercent: 100,
-      currentPhase: null,
-      currentAgent: null,
-      findingsCount: data.findings?.total ?? 0,
-      criticalCount: data.findings?.critical ?? 0,
-      highCount: data.findings?.high ?? 0,
-      mediumCount: data.findings?.medium ?? 0,
-      lowCount: data.findings?.low ?? 0,
-    },
-  });
-
-  // Create or update scan result
-  if (data.reportHtmlPath || data.executiveSummary || data.riskScore) {
-    await db.scanResult.upsert({
-      where: { scanId },
-      create: {
-        scanId,
-        reportHtmlPath: data.reportHtmlPath,
-        reportPdfPath: data.reportPdfPath,
-        executiveSummary: data.executiveSummary,
-        riskScore: data.riskScore,
-      },
-      update: {
-        reportHtmlPath: data.reportHtmlPath,
-        reportPdfPath: data.reportPdfPath,
-        executiveSummary: data.executiveSummary,
-        riskScore: data.riskScore,
+  // Update scan status and create audit log in transaction
+  await db.$transaction(async (tx) => {
+    await tx.scan.update({
+      where: { id: scanId },
+      data: {
+        status: "COMPLETED",
+        completedAt: now,
+        durationMs,
+        progressPercent: 100,
+        currentPhase: null,
+        currentAgent: null,
+        findingsCount: data.findings?.total ?? 0,
+        criticalCount: data.findings?.critical ?? 0,
+        highCount: data.findings?.high ?? 0,
+        mediumCount: data.findings?.medium ?? 0,
+        lowCount: data.findings?.low ?? 0,
       },
     });
-  }
+
+    // Create or update scan result
+    if (data.reportHtmlPath || data.executiveSummary || data.riskScore) {
+      await tx.scanResult.upsert({
+        where: { scanId },
+        create: {
+          scanId,
+          reportHtmlPath: data.reportHtmlPath,
+          reportPdfPath: data.reportPdfPath,
+          executiveSummary: data.executiveSummary,
+          riskScore: data.riskScore,
+        },
+        update: {
+          reportHtmlPath: data.reportHtmlPath,
+          reportPdfPath: data.reportPdfPath,
+          executiveSummary: data.executiveSummary,
+          riskScore: data.riskScore,
+        },
+      });
+    }
+
+    // Audit log for scan completion
+    if (scan?.organizationId) {
+      await tx.auditLog.create({
+        data: {
+          organizationId: scan.organizationId,
+          action: "scan.completed",
+          resourceType: "scan",
+          resourceId: scanId,
+          metadata: {
+            projectId: scan.projectId,
+            projectName: scan.project?.name,
+            durationMs,
+            findingsCount: data.findings?.total ?? 0,
+            criticalCount: data.findings?.critical ?? 0,
+            highCount: data.findings?.high ?? 0,
+            riskScore: data.riskScore,
+          },
+        },
+      });
+    }
+  });
 }
 
 async function handleWorkflowFailed(
@@ -197,26 +225,52 @@ async function handleWorkflowFailed(
 ) {
   const now = new Date();
 
-  // Get the scan to calculate duration
+  // Get the scan to calculate duration and org info
   const scan = await db.scan.findUnique({
     where: { id: scanId },
-    select: { startedAt: true },
+    select: {
+      startedAt: true,
+      organizationId: true,
+      projectId: true,
+      project: { select: { name: true } },
+    },
   });
 
   const durationMs =
     data.summary?.totalDurationMs ||
     (scan?.startedAt ? now.getTime() - scan.startedAt.getTime() : 0);
 
-  await db.scan.update({
-    where: { id: scanId },
-    data: {
-      status: "FAILED",
-      completedAt: now,
-      durationMs,
-      currentPhase: null,
-      currentAgent: data.failedAgent,
-      errorMessage: data.error || "Scan failed",
-    },
+  await db.$transaction(async (tx) => {
+    await tx.scan.update({
+      where: { id: scanId },
+      data: {
+        status: "FAILED",
+        completedAt: now,
+        durationMs,
+        currentPhase: null,
+        currentAgent: data.failedAgent,
+        errorMessage: data.error || "Scan failed",
+      },
+    });
+
+    // Audit log for scan failure
+    if (scan?.organizationId) {
+      await tx.auditLog.create({
+        data: {
+          organizationId: scan.organizationId,
+          action: "scan.failed",
+          resourceType: "scan",
+          resourceId: scanId,
+          metadata: {
+            projectId: scan.projectId,
+            projectName: scan.project?.name,
+            durationMs,
+            error: data.error,
+            failedAgent: data.failedAgent,
+          },
+        },
+      });
+    }
   });
 }
 

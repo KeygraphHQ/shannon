@@ -61,7 +61,7 @@
 
 ---
 
-## Phase 3: User Story 1 - Quick Scan (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 - Quick Scan (Priority: P1) 🎯 MVP ✅ COMPLETE
 
 **Goal**: Users can start a security scan with just a target URL, see real-time progress, view results summary, and cancel running scans
 
@@ -75,60 +75,60 @@
 
 ### API Routes for User Story 1
 
-- [ ] T018 [US1] Create web/app/api/projects/route.ts with GET (list projects) and POST (create project) handlers, scoped by organizationId from auth
-- [ ] T019 [US1] Create web/app/api/projects/[projectId]/route.ts with GET handler for project details, including recentScans and hasAuthConfig
-- [ ] T020 [US1] Create web/app/api/scans/route.ts with GET handler for listing scans with pagination (cursor-based) and filters (status, projectId, dateRange)
-- [ ] T021 [US1] Create web/app/api/scans/route.ts POST handler to start scan: validate projectId, check concurrent limit (3 per org), create Scan record with PENDING status, call startScanWorkflow(), return scan object
-- [ ] T022 [US1] Create web/app/api/scans/[scanId]/route.ts with GET handler for scan details including ScanResult if completed
-- [ ] T023 [US1] Create web/app/api/scans/[scanId]/route.ts DELETE handler to cancel scan: validate scan is RUNNING or PENDING, call cancelScanWorkflow(), update status to CANCELLED, return updated scan
-- [ ] T024 [US1] Create web/app/api/scans/[scanId]/progress/route.ts with SSE endpoint that polls Temporal every 2 seconds and streams ScanProgress events until scan completes
+- [x] T018 [US1] Create web/app/api/projects/route.ts with GET (list projects) and POST (create project) handlers, scoped by organizationId from auth
+- [x] T019 [US1] Create web/app/api/projects/[projectId]/route.ts with GET handler for project details, including recentScans and hasAuthConfig
+- [x] T020 [US1] Create web/app/api/scans/route.ts with GET handler for listing scans with pagination (cursor-based) and filters (status, projectId, dateRange)
+- [x] T021 [US1] Create web/app/api/scans/route.ts POST handler to start scan: validate projectId, check concurrent limit (3 per org), create Scan record with PENDING status, call startScanWorkflow(), return scan object
+- [x] T022 [US1] Create web/app/api/scans/[scanId]/route.ts with GET handler for scan details including ScanResult if completed
+- [x] T023 [US1] Create web/app/api/scans/[scanId]/route.ts DELETE handler to cancel scan: validate scan is RUNNING or PENDING, call cancelScanWorkflow(), update status to CANCELLED, return updated scan
+- [x] T024 [US1] Create web/app/api/scans/[scanId]/progress/route.ts with SSE endpoint that polls Temporal every 2 seconds and streams ScanProgress events until scan completes
 
 ### Server Actions for User Story 1
 
-- [ ] T025 [US1] Implement listScans(orgId, filters) in web/lib/actions/scans.ts with cursor pagination, status/date filtering, sorted by createdAt desc
-- [ ] T026 [US1] Implement getScan(orgId, scanId) in web/lib/actions/scans.ts returning scan with project and result relations
-- [ ] T027 [US1] Implement startScan(orgId, projectId, targetUrl?) in web/lib/actions/scans.ts: check concurrent limit, create Scan record, start Temporal workflow, return scan
-- [ ] T028 [US1] Implement cancelScan(orgId, scanId) in web/lib/actions/scans.ts: validate ownership, cancel Temporal workflow, update status
+- [x] T025 [US1] Implement listScans(orgId, filters) in web/lib/actions/scans.ts with cursor pagination, status/date filtering, sorted by createdAt desc
+- [x] T026 [US1] Implement getScan(orgId, scanId) in web/lib/actions/scans.ts returning scan with project and result relations
+- [x] T027 [US1] Implement startScan(orgId, projectId, targetUrl?) in web/lib/actions/scans.ts: check concurrent limit, create Scan record, start Temporal workflow, return scan
+- [x] T028 [US1] Implement cancelScan(orgId, scanId) in web/lib/actions/scans.ts: validate ownership, cancel Temporal workflow, update status
 
 ### UI Components for User Story 1
 
-- [ ] T029 [P] [US1] Create web/components/scans/start-scan-form.tsx with project selector dropdown, optional target URL override input, and "Start Scan" button with loading state
-- [ ] T030 [P] [US1] Create web/components/scans/scan-progress.tsx that connects to SSE endpoint and displays: current phase badge, progress bar with percentage, elapsed/estimated time, list of completed agents
-- [ ] T031 [P] [US1] Create web/components/scans/scan-detail-card.tsx showing: status badge, target URL, duration, findings summary (critical/high/medium/low counts with color coding), link to full results
-- [ ] T032 [P] [US1] Create web/components/scans/scan-history-table.tsx with columns: project name, status, started at, duration, findings count; include status filter dropdown and date range picker
-- [ ] T033 [P] [US1] Create web/components/scans/cancel-scan-button.tsx with confirmation dialog: "Cancel this scan? Partial results will be saved."
+- [x] T029 [P] [US1] Create web/components/scans/start-scan-form.tsx with project selector dropdown, optional target URL override input, and "Start Scan" button with loading state
+- [x] T030 [P] [US1] Create web/components/scans/scan-progress.tsx that connects to SSE endpoint and displays: current phase badge, progress bar with percentage, elapsed/estimated time, list of completed agents
+- [x] T031 [P] [US1] Create web/components/scans/scan-detail-card.tsx showing: status badge, target URL, duration, findings summary (critical/high/medium/low counts with color coding), link to full results
+- [x] T032 [P] [US1] Create web/components/scans/scan-history-table.tsx with columns: project name, status, started at, duration, findings count; include status filter dropdown and date range picker
+- [x] T033 [P] [US1] Create web/components/scans/cancel-scan-button.tsx with confirmation dialog: "Cancel this scan? Partial results will be saved."
 
 ### Pages for User Story 1
 
-- [ ] T034 [US1] Create web/app/(dashboard)/scans/page.tsx listing all scans with scan-history-table component, "New Scan" button linking to /scans/new
-- [ ] T035 [US1] Create web/app/(dashboard)/scans/new/page.tsx with start-scan-form component, redirects to scan detail page on submit
-- [ ] T036 [US1] Create web/app/(dashboard)/scans/[scanId]/page.tsx showing scan-detail-card, scan-progress (if running), cancel-scan-button (if running), and link to findings when completed
-- [ ] T037 [US1] Add "Scans" link to web/components/dashboard-nav.tsx navigation menu with scan icon
+- [x] T034 [US1] Create web/app/(dashboard)/scans/page.tsx listing all scans with scan-history-table component, "New Scan" button linking to /scans/new
+- [x] T035 [US1] Create web/app/(dashboard)/scans/new/page.tsx with start-scan-form component, redirects to scan detail page on submit
+- [x] T036 [US1] Create web/app/(dashboard)/scans/[scanId]/page.tsx showing scan-detail-card, scan-progress (if running), cancel-scan-button (if running), and link to findings when completed
+- [x] T037 [US1] Add "Scans" link to web/components/dashboard-nav.tsx navigation menu with scan icon
 
 ### Temporal Workflow Integration
 
-- [ ] T038 [US1] Extend src/temporal/shared.ts PipelineProgress interface to include scanId field for web app correlation
-- [ ] T039 [US1] Extend src/temporal/workflows.ts pentestPipelineWorkflow to accept optional scanId parameter and include it in progress state
-- [ ] T040 [US1] Create web/app/api/webhooks/temporal/route.ts webhook handler to receive scan completion events and update Scan record with final status, duration, findings counts
+- [x] T038 [US1] Extend src/temporal/shared.ts PipelineProgress interface to include scanId field for web app correlation
+- [x] T039 [US1] Extend src/temporal/workflows.ts pentestPipelineWorkflow to accept optional scanId parameter and include it in progress state
+- [x] T040 [US1] Create web/app/api/webhooks/temporal/route.ts webhook handler to receive scan completion events and update Scan record with final status, duration, findings counts
 
 ### Concurrent Scan Limit
 
-- [ ] T041 [US1] Create web/lib/scan-queue.ts with checkConcurrentLimit(orgId) function that counts RUNNING/PENDING scans for org (limit: 3 default)
-- [ ] T042 [US1] Create web/lib/scan-queue.ts getQueuePosition(orgId, scanId) function returning position in org's scan queue
+- [x] T041 [US1] Create web/lib/scan-queue.ts with checkConcurrentLimit(orgId) function that counts RUNNING/PENDING scans for org (limit: 3 default)
+- [x] T042 [US1] Create web/lib/scan-queue.ts getQueuePosition(orgId, scanId) function returning position in org's scan queue
 
 **Checkpoint**: User Story 1 (Quick Scan) is fully functional and independently testable
 
 ---
 
-## Phase 4: Polish & Cross-Cutting Concerns (US1 Scope)
+## Phase 4: Polish & Cross-Cutting Concerns (US1 Scope) ✅ COMPLETE
 
 **Purpose**: Improvements for User Story 1 delivery
 
-- [ ] T043 [P] Add error boundary to web/app/(dashboard)/scans/[scanId]/page.tsx for graceful error handling
-- [ ] T044 [P] Add loading skeletons to scan-history-table.tsx and scan-detail-card.tsx components
-- [ ] T045 Add audit logging for scan.started, scan.cancelled, scan.completed events in scan server actions
-- [ ] T046 Validate scan API routes return proper error codes: 400 (bad request), 403 (concurrent limit), 404 (not found)
-- [ ] T047 Add optimistic updates to start-scan-form.tsx for immediate UI feedback on scan start
+- [x] T043 [P] Add error boundary to web/app/(dashboard)/scans/[scanId]/page.tsx for graceful error handling
+- [x] T044 [P] Add loading skeletons to scan-history-table.tsx and scan-detail-card.tsx components
+- [x] T045 Add audit logging for scan.started, scan.cancelled, scan.completed events in scan server actions
+- [x] T046 Validate scan API routes return proper error codes: 400 (bad request), 403 (concurrent limit), 404 (not found)
+- [x] T047 Add optimistic updates to start-scan-form.tsx for immediate UI feedback on scan start
 
 ---
 

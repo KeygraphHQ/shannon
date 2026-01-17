@@ -105,7 +105,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error listing scans:", error);
     return NextResponse.json(
-      { error: "Failed to list scans" },
+      { error: "Failed to list scans", code: "INTERNAL_ERROR" },
       { status: 500 }
     );
   }
@@ -123,7 +123,10 @@ export async function POST(request: NextRequest) {
 
     const user = await getCurrentUser();
     if (!user || user.memberships.length === 0) {
-      return NextResponse.json({ error: "No organization found" }, { status: 400 });
+      return NextResponse.json(
+        { error: "No organization found", code: "NO_ORGANIZATION" },
+        { status: 400 }
+      );
     }
 
     const body = await request.json();
@@ -260,7 +263,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Error starting scan:", error);
     return NextResponse.json(
-      { error: "Failed to start scan" },
+      { error: "Failed to start scan", code: "INTERNAL_ERROR" },
       { status: 500 }
     );
   }
