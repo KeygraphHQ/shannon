@@ -1,10 +1,16 @@
-# Tasks: Running Security Scans (Phase 1 - Quick Scan MVP)
+# Tasks: Running Security Scans (US1 + US2)
 
 **Input**: Design documents from `/specs/002-security-scans/`
 **Prerequisites**: plan.md, spec.md, research.md, data-model.md, contracts/
-**Scope**: User Story 1 (Quick Scan) only - MVP delivery
+**Scope**: User Story 1 (Quick Scan) + User Story 2 (Authenticated Testing)
 
-**Organization**: Tasks are grouped by phase to enable incremental delivery. This task list covers Phase 1 (Setup), Phase 2 (Foundational), and Phase 3 (User Story 1 - Quick Scan MVP).
+**Organization**: Tasks are grouped by phase to enable incremental delivery. This task list covers:
+- Phase 1: Setup (Shared Infrastructure) ✅
+- Phase 2: Foundational (Blocking Prerequisites) ✅
+- Phase 3: User Story 1 - Quick Scan MVP
+- Phase 4: Polish (US1)
+- Phase 5: User Story 2 - Authenticated Testing
+- Phase 6: Polish (US2)
 
 ## Format: `[ID] [P?] [Story?] Description`
 
@@ -14,44 +20,42 @@
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 1: Setup (Shared Infrastructure) ✅ COMPLETE
 
 **Purpose**: Environment configuration and project structure
 
-- [ ] T001 Add ENCRYPTION_MASTER_KEY and TEMPORAL_ADDRESS to web/.env.example
-- [ ] T002 [P] Create web/lib/temporal/ directory structure
-- [ ] T003 [P] Create web/components/scans/ directory structure
-- [ ] T004 [P] Create web/app/(dashboard)/scans/ directory structure
-- [ ] T005 [P] Create web/app/api/scans/ directory structure
+- [x] T001 Add ENCRYPTION_MASTER_KEY and TEMPORAL_ADDRESS to web/.env.example
+- [x] T002 [P] Create web/lib/temporal/ directory structure
+- [x] T003 [P] Create web/components/scans/ directory structure
+- [x] T004 [P] Create web/app/(dashboard)/scans/ directory structure
+- [x] T005 [P] Create web/app/api/scans/ directory structure
 
 ---
 
-## Phase 2: Foundational (Blocking Prerequisites)
+## Phase 2: Foundational (Blocking Prerequisites) ✅ COMPLETE
 
 **Purpose**: Database schema and core utilities that MUST be complete before User Story 1
 
-**⚠️ CRITICAL**: No User Story 1 work can begin until this phase is complete
-
 ### Database Schema
 
-- [ ] T006 Add Project model to web/prisma/schema.prisma with fields: id, organizationId, name, description, targetUrl, repositoryUrl, createdAt, updatedAt, and Organization relation
-- [ ] T007 Add ScanStatus and ScanSource enums to web/prisma/schema.prisma (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT) and (MANUAL, SCHEDULED, CICD, API)
-- [ ] T008 Add Scan model to web/prisma/schema.prisma with fields: id, organizationId, projectId, status, source, temporalWorkflowId, startedAt, completedAt, durationMs, currentPhase, currentAgent, progressPercent, findings counts, errorMessage, errorCode, metadata, timestamps, and relations
-- [ ] T009 Add ScanResult model to web/prisma/schema.prisma with fields: id, scanId, reportHtmlPath, reportPdfPath, reportMdPath, rawOutputPath, totalTokensUsed, totalCostUsd, agentMetrics, executiveSummary, riskScore, createdAt, and Scan relation
-- [ ] T010 Add Project and Scan relations to existing Organization model in web/prisma/schema.prisma
-- [ ] T011 Run prisma migrate dev --name add-scan-models to create database migration
+- [x] T006 Add Project model to web/prisma/schema.prisma with fields: id, organizationId, name, description, targetUrl, repositoryUrl, createdAt, updatedAt, and Organization relation
+- [x] T007 Add ScanStatus and ScanSource enums to web/prisma/schema.prisma (PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT) and (MANUAL, SCHEDULED, CICD, API)
+- [x] T008 Add Scan model to web/prisma/schema.prisma with fields: id, organizationId, projectId, status, source, temporalWorkflowId, startedAt, completedAt, durationMs, currentPhase, currentAgent, progressPercent, findings counts, errorMessage, errorCode, metadata, timestamps, and relations
+- [x] T009 Add ScanResult model to web/prisma/schema.prisma with fields: id, scanId, reportHtmlPath, reportPdfPath, reportMdPath, rawOutputPath, totalTokensUsed, totalCostUsd, agentMetrics, executiveSummary, riskScore, createdAt, and Scan relation
+- [x] T010 Add Project and Scan relations to existing Organization model in web/prisma/schema.prisma
+- [x] T011 Run prisma migrate dev --name add-scan-models to create database migration (schema validated, run when DB available)
 
 ### Temporal Client Integration
 
-- [ ] T012 Create web/lib/temporal/client.ts with getTemporalClient() singleton function connecting to TEMPORAL_ADDRESS environment variable
-- [ ] T013 Add getWorkflowProgress(workflowId) function to web/lib/temporal/client.ts that queries Temporal workflow via 'getProgress' query handler
-- [ ] T014 Add startScanWorkflow(projectId, orgId, targetUrl) function to web/lib/temporal/client.ts that starts pentestPipelineWorkflow with scan parameters
-- [ ] T015 Add cancelScanWorkflow(workflowId) function to web/lib/temporal/client.ts that cancels a running workflow
+- [x] T012 Create web/lib/temporal/client.ts with getTemporalClient() singleton function connecting to TEMPORAL_ADDRESS environment variable
+- [x] T013 Add getWorkflowProgress(workflowId) function to web/lib/temporal/client.ts that queries Temporal workflow via 'getProgress' query handler
+- [x] T014 Add startScanWorkflow(projectId, orgId, targetUrl) function to web/lib/temporal/client.ts that starts pentestPipelineWorkflow with scan parameters
+- [x] T015 Add cancelScanWorkflow(workflowId) function to web/lib/temporal/client.ts that cancels a running workflow
 
 ### Server Actions Foundation
 
-- [ ] T016 Create web/lib/actions/projects.ts with getProjects(orgId), getProject(orgId, projectId), createProject(orgId, data), updateProject(orgId, projectId, data) server actions
-- [ ] T017 Create web/lib/actions/scans.ts with placeholder functions: listScans, getScan, startScan, cancelScan (to be implemented in US1 phase)
+- [x] T016 Create web/lib/actions/projects.ts with getProjects(orgId), getProject(orgId, projectId), createProject(orgId, data), updateProject(orgId, projectId, data) server actions
+- [x] T017 Create web/lib/actions/scans.ts with placeholder functions: listScans, getScan, startScan, cancelScan (to be implemented in US1 phase)
 
 **Checkpoint**: Foundation ready - User Story 1 implementation can now begin
 
@@ -223,10 +227,153 @@ After completing all tasks, verify:
 
 ---
 
+## Phase 5: User Story 2 - Authenticated Testing (Priority: P2)
+
+**Goal**: Users can configure authentication (form login, API token, Basic Auth, SSO, TOTP) so Shannon can test protected areas of applications
+
+**Independent Test**: Configure form-based login with credentials, click "Test Authentication" - system validates credentials work before scan, saved config auto-applies to subsequent scans
+
+**Acceptance Criteria**:
+1. Select auth method: form-based, API token, Basic Auth, SSO
+2. Test credentials before scan with clear pass/fail feedback
+3. TOTP support for 2FA applications
+4. Specific auth failure error messages (not generic)
+5. Saved auth config persists at project level
+
+### Database Schema for User Story 2
+
+- [ ] T048 [US2] Add AuthMethod enum to web/prisma/schema.prisma (NONE, FORM, API_TOKEN, BASIC, SSO)
+- [ ] T049 [US2] Add AuthenticationConfig model to web/prisma/schema.prisma with fields: id, projectId, method, encryptedCredentials, loginUrl, usernameSelector, passwordSelector, submitSelector, successIndicator, totpEnabled, totpSelector, lastValidatedAt, validationStatus, timestamps, and Project relation
+- [ ] T050 [US2] Run prisma migrate dev --name add-auth-config to create database migration
+
+### Encryption Utility
+
+- [ ] T051 [US2] Create web/lib/encryption.ts with deriveOrgKey(orgId) function using HMAC-SHA256 to derive org-specific key from ENCRYPTION_MASTER_KEY
+- [ ] T052 [US2] Add encryptCredential(plaintext, orgId) function to web/lib/encryption.ts using AES-256-GCM with 12-byte IV, returning iv:authTag:ciphertext format
+- [ ] T053 [US2] Add decryptCredential(encrypted, orgId) function to web/lib/encryption.ts parsing iv:authTag:ciphertext and decrypting with org-derived key
+
+### API Routes for User Story 2
+
+- [ ] T054 [US2] Create web/app/api/projects/[projectId]/auth/route.ts GET handler returning auth config with credentials masked (hasCredentials: true/false)
+- [ ] T055 [US2] Add PUT handler to web/app/api/projects/[projectId]/auth/route.ts to save auth config, encrypting credentials with org key
+- [ ] T056 [US2] Add DELETE handler to web/app/api/projects/[projectId]/auth/route.ts to remove auth config
+- [ ] T057 [US2] Create web/app/api/projects/[projectId]/auth/validate/route.ts POST handler that tests credentials and returns {valid, error, validatedAt}
+
+### Server Actions for User Story 2
+
+- [ ] T058 [US2] Create web/lib/actions/auth-config.ts with getAuthConfig(orgId, projectId) returning config with masked credentials
+- [ ] T059 [US2] Add saveAuthConfig(orgId, projectId, config) to web/lib/actions/auth-config.ts encrypting credentials before storage
+- [ ] T060 [US2] Add deleteAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts
+- [ ] T061 [US2] Add validateAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts that triggers validation workflow
+
+### Auth Validation Temporal Activity
+
+- [ ] T062 [US2] Create src/temporal/activities/validate-auth.ts with validateAuthentication(config) activity that uses Playwright to test login flow
+- [ ] T063 [US2] Add form-based validation logic: navigate to loginUrl, fill selectors, submit, check successIndicator
+- [ ] T064 [US2] Add API token validation logic: make authenticated request to target, verify non-401 response
+- [ ] T065 [US2] Add Basic Auth validation logic: make request with Authorization header, verify non-401 response
+- [ ] T066 [US2] Add TOTP generation using otpauth library if totpEnabled is true
+- [ ] T067 [US2] Register validateAuthentication activity in src/temporal/worker.ts
+
+### UI Components for User Story 2
+
+- [ ] T068 [P] [US2] Create web/components/auth-config/auth-method-selector.tsx with dropdown: None, Form Login, API Token, Basic Auth, SSO (disabled)
+- [ ] T069 [P] [US2] Create web/components/auth-config/form-auth-config.tsx with fields: loginUrl, username, password, CSS selectors (username, password, submit, success)
+- [ ] T070 [P] [US2] Create web/components/auth-config/api-token-config.tsx with apiToken input field and validation endpoint input
+- [ ] T071 [P] [US2] Create web/components/auth-config/basic-auth-config.tsx with username and password fields
+- [ ] T072 [P] [US2] Create web/components/auth-config/totp-config.tsx with totpSecret input and checkbox to enable TOTP, totpSelector field
+- [ ] T073 [P] [US2] Create web/components/auth-config/test-auth-button.tsx with "Test Authentication" button, loading state, and pass/fail result display
+- [ ] T074 [P] [US2] Create web/components/auth-config/auth-config-form.tsx combining method selector with appropriate config component based on selected method
+
+### Pages for User Story 2
+
+- [ ] T075 [US2] Create web/app/(dashboard)/projects/[projectId]/settings/page.tsx with auth-config-form component for project authentication settings
+- [ ] T076 [US2] Update web/app/api/projects/[projectId]/route.ts GET handler to include hasAuthConfig boolean and authMethod in response
+- [ ] T077 [US2] Add "Settings" link to project detail card/page linking to /projects/[projectId]/settings
+
+### Integration with Scan Flow
+
+- [ ] T078 [US2] Update web/lib/actions/scans.ts startScan() to fetch project's auth config and pass to Temporal workflow
+- [ ] T079 [US2] Update src/temporal/workflows.ts pentestPipelineWorkflow to accept authConfig parameter and pass to agents
+- [ ] T080 [US2] Update web/components/scans/scan-detail-card.tsx to show auth method used (if any) in scan details
+- [ ] T081 [US2] Add specific error handling in scan progress for auth failures: show "Authentication failed" with guidance to check project settings
+
+**Checkpoint**: User Story 2 (Authenticated Testing) is fully functional and independently testable
+
+---
+
+## Phase 6: Polish & Cross-Cutting Concerns (US2 Scope)
+
+**Purpose**: Improvements for User Story 2 delivery
+
+- [ ] T082 [P] Add loading states to auth-config-form.tsx during save/validate operations
+- [ ] T083 [P] Add validation error messages for invalid CSS selectors or URLs in form auth config
+- [ ] T084 Add audit logging for auth.configured, auth.validated, auth.removed events
+- [ ] T085 Ensure auth config API routes return proper error codes: 400 (invalid config), 404 (project not found)
+- [ ] T086 Add success toast notification after auth config save and validation pass
+
+---
+
+## Dependencies & Execution Order (Updated)
+
+### Phase Dependencies
+
+```
+Phase 1: Setup ✅
+    ↓
+Phase 2: Foundational (BLOCKS all user stories)
+    ↓
+Phase 3: User Story 1 - Quick Scan MVP
+    ↓
+Phase 4: Polish (US1)
+    ↓
+Phase 5: User Story 2 - Authenticated Testing
+    ↓
+Phase 6: Polish (US2)
+```
+
+### Task Dependencies Within User Story 2
+
+```
+T048-T050 (Schema) → T051-T053 (Encryption)
+    ↓
+T054-T057 (API Routes) + T058-T061 (Server Actions) [can run in parallel]
+    ↓
+T062-T067 (Temporal Activity)
+    ↓
+T068-T074 (UI Components) [all parallel - different files]
+    ↓
+T075-T077 (Pages)
+    ↓
+T078-T081 (Integration)
+    ↓
+T082-T086 (Polish)
+```
+
+### Parallel Opportunities for User Story 2
+
+- T054-T057 (API Routes) parallel with T058-T061 (Server Actions)
+- T068-T074 (UI Components) all parallel - different files
+- T082-T083 (Polish) parallel
+
+---
+
+## Verification Checklist (User Story 2)
+
+After completing all US2 tasks, verify:
+- [ ] Can select auth method from dropdown (Form, API Token, Basic Auth)
+- [ ] Form auth config shows all required fields (URL, selectors, credentials)
+- [ ] "Test Authentication" validates credentials and shows clear pass/fail
+- [ ] TOTP can be enabled and generates valid codes
+- [ ] Saved auth config persists and auto-applies to new scans
+- [ ] Auth failure during scan shows specific error message
+- [ ] Credentials are encrypted at rest (verify in database)
+
+---
+
 ## Future User Stories (Not in This Task List)
 
-When ready to expand beyond MVP:
-- **User Story 2 (P2)**: Authenticated Testing - Run `/speckit.tasks 002-security-scans phase 2`
+When ready to expand beyond US1+US2:
 - **User Story 3 (P3)**: Scan History - Already partially covered by US1
 - **User Story 4 (P4)**: Scheduled Scans - Run `/speckit.tasks 002-security-scans phase 4`
 - **User Story 5 (P5)**: CI/CD Integration - Run `/speckit.tasks 002-security-scans phase 5`

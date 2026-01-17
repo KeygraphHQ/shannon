@@ -34,6 +34,8 @@ model Organization {
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
+  projects    Project[]
+  scans       Scan[]
 }
 
 // Organization membership with role
@@ -68,4 +70,114 @@ model AuditLog {
 
   @@index([organizationId])
   @@index([createdAt])
+}
+
+// ===================
+// Security Scans Feature
+// ===================
+
+// Project - target application configured for security testing
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  targetUrl      String // Base URL for scanning
+  repositoryUrl  String? // Optional: linked source code repo
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans        Scan[]
+
+  @@index([organizationId])
+}
+
+// Scan status enum
+enum ScanStatus {
+  PENDING // Queued, waiting for slot
+  RUNNING // Actively scanning
+  COMPLETED // Finished successfully
+  FAILED // Finished with error
+  CANCELLED // User cancelled
+  TIMEOUT // Exceeded max duration
+}
+
+// Scan source enum
+enum ScanSource {
+  MANUAL // User-triggered via UI
+  SCHEDULED // Triggered by schedule
+  CICD // Triggered by CI/CD integration (PR)
+  API // Triggered via API
+}
+
+// Scan - single security test execution
+model Scan {
+  id                 String     @id @default(cuid())
+  organizationId     String // Denormalized for query efficiency
+  projectId          String
+  status             ScanStatus @default(PENDING)
+  source             ScanSource @default(MANUAL)
+  temporalWorkflowId String? // Temporal workflow ID for tracking
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  durationMs  Int?
+
+  // Progress tracking (cached from Temporal)
+  currentPhase    String?
+  currentAgent    String?
+  progressPercent Int     @default(0)
+
+  // Results summary (denormalized for list views)
+  findingsCount Int @default(0)
+  criticalCount Int @default(0)
+  highCount     Int @default(0)
+  mediumCount   Int @default(0)
+  lowCount      Int @default(0)
+
+  // Error handling
+  errorMessage String?
+  errorCode    String?
+
+  // Metadata
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  result       ScanResult?
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([temporalWorkflowId])
+}
+
+// ScanResult - detailed results from completed scan
+model ScanResult {
+  id     String @id @default(cuid())
+  scanId String @unique
+
+  // Report storage paths (tenant-prefixed)
+  reportHtmlPath String? // tenant-{orgId}/scans/{scanId}/report.html
+  reportPdfPath  String? // tenant-{orgId}/scans/{scanId}/report.pdf
+  reportMdPath   String? // tenant-{orgId}/scans/{scanId}/report.md
+  rawOutputPath  String? // tenant-{orgId}/scans/{scanId}/deliverables/
+
+  // Metrics (from Temporal workflow)
+  totalTokensUsed Int?
+  totalCostUsd    Decimal? @db.Decimal(10, 4)
+  agentMetrics    Json? // Per-agent token counts, durations
+
+  // Executive summary (cached for quick access)
+  executiveSummary String? @db.Text
+  riskScore        Int? // 0-100
+
+  createdAt DateTime @default(now())
+
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
 }
