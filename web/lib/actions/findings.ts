@@ -371,7 +371,7 @@ export async function listFindings(
   }
 
   // Get user's organization
-  const membership = await db.membership.findFirst({
+  const membership = await db.organizationMembership.findFirst({
     where: { userId: user.id },
     select: { organizationId: true },
   });
@@ -495,7 +495,7 @@ export async function getFindingsSummary(): Promise<import("@/lib/types/findings
   }
 
   // Get user's organization
-  const membership = await db.membership.findFirst({
+  const membership = await db.organizationMembership.findFirst({
     where: { userId: user.id },
     select: { organizationId: true },
   });
@@ -589,7 +589,7 @@ export async function bulkUpdateFindingStatus(
   }
 
   // Get user's organization
-  const membership = await db.membership.findFirst({
+  const membership = await db.organizationMembership.findFirst({
     where: { userId: user.id },
     select: { organizationId: true },
   });

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { X, Shield, ShieldCheck, Eye, User as UserIcon, Mail } from "lucide-react";
-import { OrgRole, ORG_ROLES } from "@/lib/auth";
+import { OrgRole, ORG_ROLES } from "@/lib/auth-types";
 import { sendInvitation } from "@/lib/actions/invitations";
 
 interface InviteMemberModalProps {

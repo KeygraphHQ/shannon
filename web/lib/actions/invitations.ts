@@ -16,7 +16,7 @@ const TEAM_LIMITS: Record<string, number> = {
 /**
  * Get the team member limit for a plan.
  */
-export function getTeamLimit(plan: string): number {
+function getTeamLimit(plan: string): number {
   return TEAM_LIMITS[plan] || TEAM_LIMITS.free;
 }
 

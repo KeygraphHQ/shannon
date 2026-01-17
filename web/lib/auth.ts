@@ -1,5 +1,7 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { db } from "./db";
+import { ORG_ROLES, ORG_PERMISSIONS, hasMinimumRole } from "./auth-types";
+import type { OrgRole } from "./auth-types";
 
 /**
  * Get the current user from the database.
@@ -42,43 +44,66 @@ export async function getCurrentUser() {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-|-$/g, "");
 
-    user = await db.$transaction(async (tx) => {
-      const newUser = await tx.user.create({
-        data: {
-          clerkId: userId,
-          email,
-          name,
-          avatarUrl: clerkUser.imageUrl,
-        },
-      });
+    try {
+      user = await db.$transaction(async (tx) => {
+        const newUser = await tx.user.create({
+          data: {
+            clerkId: userId,
+            email,
+            name,
+            avatarUrl: clerkUser.imageUrl,
+          },
+        });
 
-      const org = await tx.organization.create({
-        data: {
-          name: `${baseName}'s Workspace`,
-          slug: `${slug}-${Date.now().toString(36)}`,
-          plan: "free",
-        },
-      });
+        const org = await tx.organization.create({
+          data: {
+            name: `${baseName}'s Workspace`,
+            slug: `${slug}-${Date.now().toString(36)}`,
+            plan: "free",
+          },
+        });
 
-      await tx.organizationMembership.create({
-        data: {
-          userId: newUser.id,
-          organizationId: org.id,
-          role: "owner",
-        },
-      });
+        await tx.organizationMembership.create({
+          data: {
+            userId: newUser.id,
+            organizationId: org.id,
+            role: "owner",
+          },
+        });
 
-      return tx.user.findUnique({
-        where: { id: newUser.id },
-        include: {
-          memberships: {
-            include: {
-              organization: true,
+        return tx.user.findUnique({
+          where: { id: newUser.id },
+          include: {
+            memberships: {
+              include: {
+                organization: true,
+              },
             },
           },
-        },
+        });
       });
-    });
+    } catch (error) {
+      // Handle race condition: another request created the user concurrently
+      if (
+        error instanceof Error &&
+        "code" in error &&
+        (error as { code: string }).code === "P2002"
+      ) {
+        // Re-fetch the user that was created by the other request
+        user = await db.user.findUnique({
+          where: { clerkId: userId },
+          include: {
+            memberships: {
+              include: {
+                organization: true,
+              },
+            },
+          },
+        });
+      } else {
+        throw error;
+      }
+    }
   }
 
   return user;
@@ -122,37 +147,9 @@ export async function hasOrgAccess(orgId: string, requiredRole?: string[]) {
   return true;
 }
 
-/**
- * Organization roles in order of permission level (highest to lowest).
- */
-export const ORG_ROLES = {
-  OWNER: "owner",
-  ADMIN: "admin",
-  MEMBER: "member",
-  VIEWER: "viewer",
-} as const;
-
-export type OrgRole = (typeof ORG_ROLES)[keyof typeof ORG_ROLES];
-
-/**
- * Role hierarchy for permission checking.
- * Higher index = more permissions.
- */
-const ROLE_HIERARCHY: OrgRole[] = ["viewer", "member", "admin", "owner"];
-
-/**
- * Check if a role has at least the minimum required permission level.
- */
-export function hasMinimumRole(userRole: string, minimumRole: OrgRole): boolean {
-  const userRoleIndex = ROLE_HIERARCHY.indexOf(userRole as OrgRole);
-  const minimumRoleIndex = ROLE_HIERARCHY.indexOf(minimumRole);
-
-  if (userRoleIndex === -1 || minimumRoleIndex === -1) {
-    return false;
-  }
-
-  return userRoleIndex >= minimumRoleIndex;
-}
+// Re-export types and constants from auth-types (safe for client components)
+export { ORG_ROLES, ROLE_HIERARCHY, hasMinimumRole, ORG_PERMISSIONS } from "./auth-types";
+export type { OrgRole } from "./auth-types";
 
 /**
  * Get the user's role in an organization.
@@ -192,30 +189,6 @@ export async function canViewOrg(orgId: string): Promise<boolean> {
   if (!role) return false;
   return hasMinimumRole(role, ORG_ROLES.VIEWER);
 }
-
-/**
- * Permission definitions for organization actions.
- */
-export const ORG_PERMISSIONS = {
-  // Organization settings
-  VIEW_ORG_SETTINGS: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-  EDIT_ORG_SETTINGS: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-  DELETE_ORG: [ORG_ROLES.OWNER],
-
-  // Team management
-  VIEW_TEAM: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN, ORG_ROLES.MEMBER, ORG_ROLES.VIEWER],
-  INVITE_MEMBER: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-  REMOVE_MEMBER: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-  CHANGE_ROLE: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-
-  // Scans
-  VIEW_SCANS: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN, ORG_ROLES.MEMBER, ORG_ROLES.VIEWER],
-  CREATE_SCAN: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN, ORG_ROLES.MEMBER],
-  DELETE_SCAN: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-
-  // Audit logs
-  VIEW_AUDIT_LOG: [ORG_ROLES.OWNER, ORG_ROLES.ADMIN],
-} as const;
 
 /**
  * Check if the user has a specific permission.

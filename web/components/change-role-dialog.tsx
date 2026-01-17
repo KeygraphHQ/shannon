@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { X, Shield, ShieldCheck, Eye, User as UserIcon } from "lucide-react";
-import { OrgRole, ORG_ROLES } from "@/lib/auth";
+import { OrgRole, ORG_ROLES } from "@/lib/auth-types";
 import { changeMemberRole } from "@/lib/actions/memberships";
 
 interface TeamMember {

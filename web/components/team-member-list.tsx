@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { MoreHorizontal, Shield, ShieldCheck, Eye, User as UserIcon } from "lucide-react";
-import { OrgRole, ORG_ROLES } from "@/lib/auth";
+import { OrgRole, ORG_ROLES } from "@/lib/auth-types";
 import { ChangeRoleDialog } from "@/components/change-role-dialog";
 import { RemoveMemberDialog } from "@/components/remove-member-dialog";
 
