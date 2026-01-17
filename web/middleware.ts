@@ -19,6 +19,13 @@ const authRoutes = createRouteMatcher([
   "/api/webhooks/clerk(.*)",
 ]);
 
+// SSO callbacks are excluded from rate limiting because OAuth flows
+// make multiple internal requests that would exceed limits
+const isSsoCallback = createRouteMatcher([
+  "/sign-in/sso-callback(.*)",
+  "/sign-up/sso-callback(.*)",
+]);
+
 const sensitiveRoutes = createRouteMatcher([
   "/api/scans(.*)",
   "/api/organizations(.*)",
@@ -27,8 +34,8 @@ const sensitiveRoutes = createRouteMatcher([
 export default clerkMiddleware(async (auth, request) => {
   const ip = getClientIp(request.headers);
 
-  // Apply rate limiting for auth routes (stricter)
-  if (authRoutes(request)) {
+  // Apply rate limiting for auth routes (stricter), excluding SSO callbacks
+  if (authRoutes(request) && !isSsoCallback(request)) {
     const result = await rateLimiters.auth.check(`auth:${ip}`);
     if (!result.success) {
       return new NextResponse("Too many requests. Please try again later.", {

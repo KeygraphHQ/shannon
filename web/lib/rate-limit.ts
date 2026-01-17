@@ -141,10 +141,11 @@ export function rateLimit(config: RateLimitConfig) {
 // Pre-configured rate limiters for common use cases
 export const rateLimiters = {
   /**
-   * Strict limiter for authentication endpoints
-   * 5 requests per minute
+   * Limiter for authentication endpoints
+   * 20 requests per minute (allows for page loads, form submissions,
+   * Clerk internal checks, and redirects in a single auth flow)
    */
-  auth: rateLimit({ interval: 60000, limit: 5 }),
+  auth: rateLimit({ interval: 60000, limit: 20 }),
 
   /**
    * Standard limiter for API endpoints
