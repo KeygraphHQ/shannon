@@ -7,7 +7,12 @@
       "Bash(npx prisma init:*)",
       "Bash(npx shadcn@latest init:*)",
       "Bash(npx prisma generate:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/check-prerequisites.ps1\" -Json)",
+      "Bash(git checkout:*)",
+      "Bash(powershell -ExecutionPolicy Bypass -File \".specify/scripts/powershell/check-prerequisites.ps1\" -Json -RequireTasks -IncludeTasks)",
+      "Bash(test:*)",
+      "Bash(npx prisma migrate:*)"
     ],
     "deny": [],
     "ask": []

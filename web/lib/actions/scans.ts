@@ -239,7 +239,7 @@ export async function startScan(
       },
     });
 
-    revalidatePath("/scans");
+    revalidatePath("/dashboard/scans");
     return updatedScan;
   } catch (workflowError) {
     // If workflow fails to start, mark scan as failed
@@ -337,8 +337,8 @@ export async function cancelScan(orgId: string, scanId: string) {
     return updated;
   });
 
-  revalidatePath("/scans");
-  revalidatePath(`/scans/${scanId}`);
+  revalidatePath("/dashboard/scans");
+  revalidatePath(`/dashboard/scans/${scanId}`);
 
   return updatedScan;
 }
@@ -423,4 +423,46 @@ export async function getExportUrl(
 
   // Return the export URL
   return `/api/scans/${scanId}/export?format=${format}`;
+}
+
+/**
+ * Get scan statistics for an organization.
+ */
+export async function getScanStats(organizationId: string) {
+  const hasAccess = await hasOrgAccess(organizationId);
+  if (!hasAccess) {
+    return null;
+  }
+
+  const [totalScans, runningScans, completedScans, failedScans] =
+    await Promise.all([
+      db.scan.count({
+        where: { organizationId },
+      }),
+      db.scan.count({
+        where: {
+          organizationId,
+          status: "RUNNING",
+        },
+      }),
+      db.scan.count({
+        where: {
+          organizationId,
+          status: "COMPLETED",
+        },
+      }),
+      db.scan.count({
+        where: {
+          organizationId,
+          status: "FAILED",
+        },
+      }),
+    ]);
+
+  return {
+    totalScans,
+    runningScans,
+    completedScans,
+    failedScans,
+  };
 }

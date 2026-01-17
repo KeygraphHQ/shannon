@@ -1,6 +1,17 @@
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { getCurrentUser, getUserOrganizations } from "@/lib/auth";
-import { Shield, FileText, AlertTriangle, CheckCircle } from "lucide-react";
+import { getScans, getScanStats } from "@/lib/actions/scans";
+import {
+  Shield,
+  FileText,
+  AlertTriangle,
+  CheckCircle,
+  Clock,
+  ExternalLink,
+} from "lucide-react";
+import { NewScanButton } from "@/components/new-scan-button";
+import { SeverityBadge } from "@/components/severity-badge";
 
 export default async function DashboardPage() {
   const user = await getCurrentUser();
@@ -12,6 +23,10 @@ export default async function DashboardPage() {
   const currentOrg =
     organizations.find((o) => o.id === currentOrgCookie) || organizations[0];
 
+  // Fetch scans and stats
+  const scans = await getScans(currentOrg.id);
+  const stats = await getScanStats(currentOrg.id);
+
   return (
     <div className="space-y-8">
       {/* Welcome Banner */}
@@ -20,88 +35,139 @@ export default async function DashboardPage() {
           Welcome back, {user?.name?.split(" ")[0] || "there"}!
         </h1>
         <p className="mt-2 text-indigo-100">
-          Start your first security scan in under 5 minutes.
+          {scans.length === 0
+            ? "Start your first security scan in under 5 minutes."
+            : "Monitor your security scans and review findings."}
         </p>
-        <button
-          disabled
-          className="mt-4 inline-flex items-center gap-2 rounded-lg bg-white px-4 py-2 text-sm font-semibold text-indigo-600 opacity-75 cursor-not-allowed"
-        >
-          <Shield className="h-4 w-4" />
-          New Scan
-          <span className="text-xs bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded ml-2">
-            Coming Soon
-          </span>
-        </button>
+        <NewScanButton organizationId={currentOrg.id} />
       </div>
 
       {/* Quick Stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Scans"
-          value="0"
+          value={stats.totalScans.toString()}
           icon={Shield}
           color="indigo"
           description="All time"
         />
         <StatCard
           title="Open Findings"
-          value="0"
+          value={stats.openFindings.toString()}
           icon={AlertTriangle}
           color="amber"
           description="Needs attention"
         />
         <StatCard
           title="Fixed"
-          value="0"
+          value={stats.fixedFindings.toString()}
           icon={CheckCircle}
           color="emerald"
           description="Resolved issues"
         />
         <StatCard
           title="Reports"
-          value="0"
+          value={stats.completedScans.toString()}
           icon={FileText}
           color="purple"
           description="Generated"
         />
       </div>
 
-      {/* Getting Started */}
-      <div className="rounded-lg border border-gray-200 bg-white p-6">
-        <h2 className="text-lg font-semibold text-gray-900">Getting Started</h2>
-        <p className="mt-1 text-sm text-gray-500">
-          Complete these steps to get the most out of Shannon.
-        </p>
+      {/* Recent Scans */}
+      {scans.length > 0 ? (
+        <div className="rounded-lg border border-gray-200 bg-white">
+          <div className="border-b border-gray-200 px-6 py-4">
+            <h2 className="text-lg font-semibold text-gray-900">
+              Recent Scans
+            </h2>
+            <p className="mt-1 text-sm text-gray-500">
+              Monitor the status of your security scans
+            </p>
+          </div>
 
-        <div className="mt-6 space-y-4">
-          <StepItem
-            number={1}
-            title="Create your account"
-            description="Sign up and verify your email"
-            completed={true}
-          />
-          <StepItem
-            number={2}
-            title="Set up your organization"
-            description={`You're in "${currentOrg.name}"`}
-            completed={true}
-          />
-          <StepItem
-            number={3}
-            title="Run your first scan"
-            description="Enter a URL and start scanning"
-            completed={false}
-            disabled
-          />
-          <StepItem
-            number={4}
-            title="Review findings"
-            description="Triage and assign vulnerabilities"
-            completed={false}
-            disabled
-          />
+          <div className="divide-y divide-gray-200">
+            {scans.slice(0, 10).map((scan) => (
+              <Link
+                key={scan.id}
+                href={`/dashboard/scans/${scan.id}`}
+                className="block p-6 hover:bg-gray-50 transition-colors"
+              >
+                <div className="flex items-start justify-between">
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-3">
+                      <p className="truncate text-sm font-medium text-gray-900">
+                        {scan.targetUrl}
+                      </p>
+                      <ExternalLink className="h-4 w-4 shrink-0 text-gray-400" />
+                    </div>
+
+                    <div className="mt-2 flex items-center gap-4 text-sm text-gray-500">
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        {new Date(scan.startedAt).toLocaleDateString()}
+                      </div>
+                      {scan._count.findings > 0 && (
+                        <div className="flex items-center gap-1">
+                          <AlertTriangle className="h-4 w-4" />
+                          {scan._count.findings} findings
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="ml-4 flex shrink-0 items-center gap-3">
+                    <ScanStatusBadge status={scan.status} />
+                    {scan.status === "running" && (
+                      <div className="text-sm text-gray-500">
+                        {scan.progress}%
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </Link>
+            ))}
+          </div>
         </div>
-      </div>
+      ) : (
+        /* Getting Started */
+        <div className="rounded-lg border border-gray-200 bg-white p-6">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Getting Started
+          </h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Complete these steps to get the most out of Shannon.
+          </p>
+
+          <div className="mt-6 space-y-4">
+            <StepItem
+              number={1}
+              title="Create your account"
+              description="Sign up and verify your email"
+              completed={true}
+            />
+            <StepItem
+              number={2}
+              title="Set up your organization"
+              description={`You're in "${currentOrg.name}"`}
+              completed={true}
+            />
+            <StepItem
+              number={3}
+              title="Run your first scan"
+              description="Enter a URL and start scanning"
+              completed={false}
+            />
+            <StepItem
+              number={4}
+              title="Review findings"
+              description="Triage and assign vulnerabilities"
+              completed={false}
+              disabled
+            />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -139,6 +205,40 @@ function StatCard({
       </div>
       <p className="mt-2 text-xs text-gray-400">{description}</p>
     </div>
+  );
+}
+
+function ScanStatusBadge({ status }: { status: string }) {
+  const config: Record<
+    string,
+    { label: string; className: string }
+  > = {
+    pending: {
+      label: "Pending",
+      className: "bg-gray-100 text-gray-800 border-gray-200",
+    },
+    running: {
+      label: "Running",
+      className: "bg-blue-100 text-blue-800 border-blue-200",
+    },
+    completed: {
+      label: "Completed",
+      className: "bg-emerald-100 text-emerald-800 border-emerald-200",
+    },
+    failed: {
+      label: "Failed",
+      className: "bg-red-100 text-red-800 border-red-200",
+    },
+  };
+
+  const { label, className } = config[status] || config.pending;
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium ${className}`}
+    >
+      {label}
+    </span>
   );
 }
 
