@@ -1,0 +1,489 @@
+openapi: 3.1.0
+info:
+  title: Shannon Compliance API
+  version: 1.0.0
+  description: API endpoints for compliance framework mapping and dashboard
+
+servers:
+  - url: /api
+    description: Next.js API routes
+
+paths:
+  /compliance/frameworks:
+    get:
+      summary: List compliance frameworks
+      description: Get all available compliance frameworks
+      operationId: listFrameworks
+      tags: [Frameworks]
+      responses:
+        '200':
+          description: List of frameworks
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  frameworks:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Framework'
+
+  /compliance/frameworks/{frameworkId}:
+    get:
+      summary: Get framework details
+      description: Get detailed information about a compliance framework
+      operationId: getFramework
+      tags: [Frameworks]
+      parameters:
+        - name: frameworkId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: owasp-top-10-2021
+      responses:
+        '200':
+          description: Framework details with all controls
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/FrameworkDetail'
+        '404':
+          description: Framework not found
+
+  /compliance/scans/{scanId}/mappings:
+    get:
+      summary: Get scan compliance mappings
+      description: Get compliance mappings for all findings in a scan
+      operationId: getScanMappings
+      tags: [Mappings]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: frameworkId
+          in: query
+          schema:
+            type: string
+          description: Filter by framework
+      responses:
+        '200':
+          description: Compliance mappings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanComplianceView'
+
+  /compliance/scans/{scanId}/scorecard:
+    get:
+      summary: Get compliance scorecard
+      description: Get pass/fail scorecard for a scan against a framework
+      operationId: getScanScorecard
+      tags: [Mappings]
+      parameters:
+        - name: scanId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: frameworkId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Compliance scorecard
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceScorecard'
+
+  /compliance/dashboard:
+    get:
+      summary: Get compliance dashboard
+      description: Get organization-wide compliance posture
+      operationId: getComplianceDashboard
+      tags: [Dashboard]
+      parameters:
+        - name: frameworkId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: ['30d', '60d', '90d']
+            default: '30d'
+        - name: projectId
+          in: query
+          schema:
+            type: string
+          description: Filter to specific project
+      responses:
+        '200':
+          description: Dashboard data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceDashboard'
+
+  /compliance/dashboard/export:
+    get:
+      summary: Export dashboard as PDF
+      description: Generate PDF summary of compliance dashboard
+      operationId: exportDashboard
+      tags: [Dashboard]
+      parameters:
+        - name: frameworkId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: ['30d', '60d', '90d']
+            default: '30d'
+      responses:
+        '200':
+          description: PDF export
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+
+  /compliance/dashboard/trends:
+    get:
+      summary: Get compliance trends
+      description: Get historical compliance score trends
+      operationId: getComplianceTrends
+      tags: [Dashboard]
+      parameters:
+        - name: frameworkId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: period
+          in: query
+          schema:
+            type: string
+            enum: ['30d', '60d', '90d']
+            default: '30d'
+        - name: projectId
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Trend data
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ComplianceTrends'
+
+  /compliance/dashboard/controls/{controlId}:
+    get:
+      summary: Get control details
+      description: Drill down to specific control with affected projects/findings
+      operationId: getControlDetails
+      tags: [Dashboard]
+      parameters:
+        - name: controlId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: frameworkId
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Control details with findings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControlDrilldown'
+
+components:
+  schemas:
+    Framework:
+      type: object
+      properties:
+        id:
+          type: string
+          example: owasp-top-10-2021
+        name:
+          type: string
+          example: OWASP Top 10 (2021)
+        version:
+          type: string
+          example: "2021"
+        description:
+          type: string
+        categoriesCount:
+          type: integer
+        controlsCount:
+          type: integer
+
+    FrameworkDetail:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        version:
+          type: string
+        description:
+          type: string
+        categories:
+          type: array
+          items:
+            $ref: '#/components/schemas/ControlCategory'
+
+    ControlCategory:
+      type: object
+      properties:
+        id:
+          type: string
+          example: A01
+        name:
+          type: string
+          example: Broken Access Control
+        description:
+          type: string
+        controls:
+          type: array
+          items:
+            $ref: '#/components/schemas/Control'
+
+    Control:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low]
+        testCriteria:
+          type: array
+          items:
+            type: string
+        remediationGuidance:
+          type: string
+
+    ScanComplianceView:
+      type: object
+      properties:
+        scanId:
+          type: string
+        frameworks:
+          type: array
+          items:
+            type: object
+            properties:
+              frameworkId:
+                type: string
+              frameworkName:
+                type: string
+              coveragePercent:
+                type: number
+              categories:
+                type: array
+                items:
+                  $ref: '#/components/schemas/CategoryMapping'
+
+    CategoryMapping:
+      type: object
+      properties:
+        categoryId:
+          type: string
+        categoryName:
+          type: string
+        status:
+          type: string
+          enum: [compliant, non_compliant, not_tested]
+        findingsCount:
+          type: integer
+        controls:
+          type: array
+          items:
+            $ref: '#/components/schemas/ControlMapping'
+
+    ControlMapping:
+      type: object
+      properties:
+        controlId:
+          type: string
+        controlName:
+          type: string
+        status:
+          type: string
+          enum: [compliant, non_compliant, not_tested]
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/FindingSummary'
+
+    FindingSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        title:
+          type: string
+        severity:
+          type: string
+        status:
+          type: string
+
+    ComplianceScorecard:
+      type: object
+      properties:
+        scanId:
+          type: string
+        frameworkId:
+          type: string
+        frameworkName:
+          type: string
+        overallScore:
+          type: number
+          minimum: 0
+          maximum: 100
+        testedControls:
+          type: integer
+        passedControls:
+          type: integer
+        failedControls:
+          type: integer
+        notTestedControls:
+          type: integer
+        categories:
+          type: array
+          items:
+            type: object
+            properties:
+              categoryId:
+                type: string
+              categoryName:
+                type: string
+              score:
+                type: number
+              status:
+                type: string
+                enum: [pass, fail, partial, not_tested]
+
+    ComplianceDashboard:
+      type: object
+      properties:
+        organizationId:
+          type: string
+        frameworkId:
+          type: string
+        frameworkName:
+          type: string
+        period:
+          type: string
+        aggregateScore:
+          type: number
+        projectCount:
+          type: integer
+        scanCount:
+          type: integer
+        categoryBreakdown:
+          type: array
+          items:
+            type: object
+            properties:
+              categoryId:
+                type: string
+              categoryName:
+                type: string
+              score:
+                type: number
+              projectsAffected:
+                type: integer
+        topGaps:
+          type: array
+          items:
+            type: object
+            properties:
+              controlId:
+                type: string
+              controlName:
+                type: string
+              severity:
+                type: string
+              projectsAffected:
+                type: integer
+
+    ComplianceTrends:
+      type: object
+      properties:
+        frameworkId:
+          type: string
+        period:
+          type: string
+        dataPoints:
+          type: array
+          items:
+            type: object
+            properties:
+              date:
+                type: string
+                format: date
+              score:
+                type: number
+              scanCount:
+                type: integer
+
+    ControlDrilldown:
+      type: object
+      properties:
+        controlId:
+          type: string
+        controlName:
+          type: string
+        description:
+          type: string
+        severity:
+          type: string
+        affectedProjects:
+          type: array
+          items:
+            type: object
+            properties:
+              projectId:
+                type: string
+              projectName:
+                type: string
+              latestScanId:
+                type: string
+              findingsCount:
+                type: integer
+              findings:
+                type: array
+                items:
+                  $ref: '#/components/schemas/FindingSummary'
+
+  securitySchemes:
+    clerk:
+      type: http
+      scheme: bearer
+
+security:
+  - clerk: []
