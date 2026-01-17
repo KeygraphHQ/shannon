@@ -36,7 +36,7 @@ export default async function ProjectSettingsPage({
   });
 
   if (!project) {
-    redirect("/dashboard/projects");
+    redirect("/dashboard/scans");
   }
 
   // Get auth config
@@ -48,11 +48,11 @@ export default async function ProjectSettingsPage({
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link
-            href={`/dashboard/projects/${projectId}`}
+            href="/dashboard/scans"
             className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
           >
             <ArrowLeft className="h-4 w-4" />
-            Back to project
+            Back to scans
           </Link>
         </div>
       </div>

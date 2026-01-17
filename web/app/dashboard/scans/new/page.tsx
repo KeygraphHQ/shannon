@@ -58,10 +58,10 @@ export default async function NewScanPage() {
             Create a project first to run security scans.
           </p>
           <Link
-            href="/dashboard/projects/new"
+            href="/dashboard/settings"
             className="mt-4 inline-block text-sm text-indigo-600 hover:text-indigo-500"
           >
-            Create a Project
+            Go to Settings
           </Link>
         </div>
       ) : (
