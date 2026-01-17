@@ -72,13 +72,13 @@
 
 ### Implementation for User Story 2
 
-- [ ] T019 [P] [US2] Implement addFindingNote(findingId, content) server action in web/lib/actions/findings.ts
-- [ ] T020 [P] [US2] Implement getFindingActivity(findingId) server action returning merged notes + status changes in web/lib/actions/findings.ts
-- [ ] T021 [P] [US2] Create FindingNoteForm component with text input and submit in web/components/findings/finding-note-form.tsx
-- [ ] T022 [P] [US2] Create ActivityEntry component for individual timeline items in web/components/findings/activity-entry.tsx
-- [ ] T023 [US2] Create FindingActivity component with timeline display in web/components/findings/finding-activity.tsx
-- [ ] T024 [US2] Integrate FindingNoteForm and FindingActivity into finding detail page at web/app/(dashboard)/findings/[findingId]/page.tsx
-- [ ] T025 [US2] Add optimistic updates for note submission and activity refresh
+- [x] T019 [P] [US2] Implement addFindingNote(findingId, content) server action in web/lib/actions/findings.ts
+- [x] T020 [P] [US2] Implement getFindingActivity(findingId) server action returning merged notes + status changes in web/lib/actions/findings.ts
+- [x] T021 [P] [US2] Create FindingNoteForm component with text input and submit in web/components/findings/finding-note-form.tsx
+- [x] T022 [P] [US2] Create ActivityEntry component for individual timeline items in web/components/findings/activity-entry.tsx
+- [x] T023 [US2] Create FindingActivity component with timeline display in web/components/findings/finding-activity.tsx
+- [x] T024 [US2] Integrate FindingNoteForm and FindingActivity into finding detail page at web/app/(dashboard)/findings/[findingId]/page.tsx
+- [x] T025 [US2] Add optimistic updates for note submission and activity refresh
 
 **Checkpoint**: User Story 2 complete - can add notes and view full activity history
 

@@ -13,6 +13,7 @@ import {
 import { SeverityBadge } from "@/components/severity-badge";
 import { FindingStatusSelect } from "./finding-status-select";
 import { EvidenceDisplay } from "./evidence-display";
+import { FindingActivity } from "./finding-activity";
 import type { FindingDetail as FindingDetailType } from "@/lib/types/findings";
 
 interface FindingDetailProps {
@@ -231,6 +232,9 @@ export function FindingDetail({ finding }: FindingDetailProps) {
           </section>
         </div>
       </div>
+
+      {/* Activity Section - Full Width */}
+      <FindingActivity findingId={finding.id} />
     </div>
   );
 }

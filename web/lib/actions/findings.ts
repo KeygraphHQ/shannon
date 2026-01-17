@@ -172,3 +172,186 @@ export async function updateFindingStatus(
     updatedAt: result.updatedAt,
   };
 }
+
+/**
+ * Add a note to a finding.
+ * Creates audit log entry and returns the created note.
+ */
+export async function addFindingNote(
+  findingId: string,
+  content: string
+): Promise<{ id: string; content: string; createdAt: Date }> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+
+  const trimmedContent = content.trim();
+  if (!trimmedContent) {
+    throw new Error("Note content cannot be empty");
+  }
+
+  if (trimmedContent.length > 10000) {
+    throw new Error("Note content exceeds maximum length of 10,000 characters");
+  }
+
+  // Get finding with scan to verify org access
+  const finding = await db.finding.findUnique({
+    where: { id: findingId },
+    include: {
+      scan: {
+        select: {
+          organizationId: true,
+        },
+      },
+    },
+  });
+
+  if (!finding) {
+    throw new Error("Finding not found");
+  }
+
+  // Verify org access
+  const hasAccess = await hasOrgAccess(finding.scan.organizationId);
+  if (!hasAccess) {
+    throw new Error("Unauthorized");
+  }
+
+  // Transaction: create note + audit log
+  const note = await db.$transaction(async (tx) => {
+    const created = await tx.findingNote.create({
+      data: {
+        findingId,
+        userId: user.id,
+        content: trimmedContent,
+      },
+    });
+
+    await tx.auditLog.create({
+      data: {
+        organizationId: finding.scan.organizationId,
+        userId: user.id,
+        action: "finding.note_added",
+        resourceType: "finding",
+        resourceId: findingId,
+        metadata: {
+          noteId: created.id,
+          contentLength: trimmedContent.length,
+        },
+      },
+    });
+
+    return created;
+  });
+
+  // Revalidate finding detail page
+  revalidatePath(`/dashboard/findings/${findingId}`);
+
+  return {
+    id: note.id,
+    content: note.content,
+    createdAt: note.createdAt,
+  };
+}
+
+/**
+ * Get activity history for a finding.
+ * Merges notes and status changes into a unified timeline.
+ */
+export async function getFindingActivity(
+  findingId: string
+): Promise<import("@/lib/types/findings").ActivityEntry[]> {
+  const user = await getCurrentUser();
+  if (!user) {
+    return [];
+  }
+
+  // Get finding with scan to verify org access
+  const finding = await db.finding.findUnique({
+    where: { id: findingId },
+    include: {
+      scan: {
+        select: {
+          organizationId: true,
+        },
+      },
+    },
+  });
+
+  if (!finding) {
+    return [];
+  }
+
+  // Verify org access
+  const hasAccess = await hasOrgAccess(finding.scan.organizationId);
+  if (!hasAccess) {
+    return [];
+  }
+
+  // Fetch notes and status changes in parallel
+  const [notes, auditLogs] = await Promise.all([
+    db.findingNote.findMany({
+      where: { findingId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.auditLog.findMany({
+      where: {
+        resourceType: "finding",
+        resourceId: findingId,
+        action: "finding.status_changed",
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            avatarUrl: true,
+          },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    }),
+  ]);
+
+  // Transform notes to activity entries
+  const noteActivities: import("@/lib/types/findings").NoteActivity[] = notes.map((note) => ({
+    type: "note" as const,
+    id: note.id,
+    content: note.content,
+    createdAt: note.createdAt,
+    user: note.user,
+  }));
+
+  // Transform status changes to activity entries
+  const statusActivities: import("@/lib/types/findings").StatusChangeActivity[] = auditLogs.map((log) => {
+    const metadata = log.metadata as {
+      previousStatus: FindingStatus;
+      newStatus: FindingStatus;
+      justification?: string | null;
+    };
+    return {
+      type: "status_change" as const,
+      id: log.id,
+      previousStatus: metadata.previousStatus,
+      newStatus: metadata.newStatus,
+      justification: metadata.justification ?? null,
+      createdAt: log.createdAt,
+      user: log.user,
+    };
+  });
+
+  // Merge and sort by date (newest first)
+  const allActivities = [...noteActivities, ...statusActivities];
+  allActivities.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+
+  return allActivities;
+}
