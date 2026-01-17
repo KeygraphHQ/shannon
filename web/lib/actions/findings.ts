@@ -558,3 +558,113 @@ export async function getFindingsSummary(): Promise<import("@/lib/types/findings
     openCount: byStatus.open,
   };
 }
+
+/**
+ * Bulk update status for multiple findings.
+ * Creates individual audit log entries for each finding.
+ * Returns the count of successfully updated findings.
+ */
+export async function bulkUpdateFindingStatus(
+  findingIds: string[],
+  status: FindingStatus,
+  justification?: string
+): Promise<import("@/lib/types/findings").BulkUpdateStatusResponse> {
+  const user = await getCurrentUser();
+  if (!user) {
+    throw new Error("Unauthorized");
+  }
+
+  if (findingIds.length === 0) {
+    throw new Error("No findings selected");
+  }
+
+  if (findingIds.length > 50) {
+    throw new Error("Cannot update more than 50 findings at once");
+  }
+
+  // Validate justification requirement
+  if (JUSTIFICATION_REQUIRED.includes(status) && !justification?.trim()) {
+    throw new Error("Justification required for this status");
+  }
+
+  // Get user's organization
+  const membership = await db.membership.findFirst({
+    where: { userId: user.id },
+    select: { organizationId: true },
+  });
+
+  if (!membership) {
+    throw new Error("Unauthorized");
+  }
+
+  // Verify all findings belong to user's org and get their current status
+  const findings = await db.finding.findMany({
+    where: {
+      id: { in: findingIds },
+      scan: {
+        organizationId: membership.organizationId,
+      },
+    },
+    select: {
+      id: true,
+      status: true,
+      scanId: true,
+    },
+  });
+
+  if (findings.length !== findingIds.length) {
+    throw new Error("Some findings not found or access denied");
+  }
+
+  // Perform bulk update in transaction
+  const result = await db.$transaction(async (tx) => {
+    // Update all findings
+    await tx.finding.updateMany({
+      where: {
+        id: { in: findingIds },
+      },
+      data: {
+        status,
+        updatedAt: new Date(),
+      },
+    });
+
+    // Create individual audit log entries for each finding
+    const auditLogEntries = findings.map((finding) => ({
+      organizationId: membership.organizationId,
+      userId: user.id,
+      action: "finding.status_changed",
+      resourceType: "finding",
+      resourceId: finding.id,
+      metadata: {
+        previousStatus: finding.status as FindingStatus,
+        newStatus: status,
+        justification: justification?.trim() || null,
+        bulkOperation: true,
+        bulkSize: findingIds.length,
+      },
+    }));
+
+    await tx.auditLog.createMany({
+      data: auditLogEntries,
+    });
+
+    return findingIds;
+  });
+
+  // Revalidate paths
+  revalidatePath("/dashboard/findings");
+  // Revalidate individual finding pages and their scan pages
+  const uniqueScanIds = [...new Set(findings.map((f) => f.scanId))];
+  for (const scanId of uniqueScanIds) {
+    revalidatePath(`/dashboard/scans/${scanId}`);
+  }
+  for (const findingId of findingIds) {
+    revalidatePath(`/dashboard/findings/${findingId}`);
+  }
+
+  return {
+    updated: result.length,
+    findingIds: result,
+  };
+}

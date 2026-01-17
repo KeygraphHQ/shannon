@@ -6,6 +6,7 @@ import { listFindings } from "@/lib/actions/findings";
 import { FindingsFilters } from "./findings-filters";
 import { FindingsSearch } from "./findings-search";
 import { FindingsListItem } from "./findings-list-item";
+import { FindingsBulkActions } from "./findings-bulk-actions";
 import type {
   FindingListItem,
   FindingSeverity,
@@ -34,6 +35,9 @@ export function FindingsList({
   const [severity, setSeverity] = useState<FindingSeverity[]>([]);
   const [status, setStatus] = useState<FindingStatus[]>([]);
   const [search, setSearch] = useState("");
+
+  // Selection state for bulk actions
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
   const loadFindings = useCallback(
     async (filters: FindingFilters, cursor?: string) => {
@@ -147,6 +151,44 @@ export function FindingsList({
 
   const hasActiveFilters = severity.length > 0 || status.length > 0 || search !== "";
 
+  // Selection handlers
+  const handleSelect = useCallback((id: string, selected: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (selected) {
+        next.add(id);
+      } else {
+        next.delete(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSelectAll = useCallback(() => {
+    setSelectedIds(new Set(findings.map((f) => f.id)));
+  }, [findings]);
+
+  const handleClearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+  }, []);
+
+  const handleBulkSuccess = useCallback(() => {
+    // Refresh the findings list after bulk update
+    const filters: FindingFilters = {
+      severity: severity.length > 0 ? severity : undefined,
+      status: status.length > 0 ? status : undefined,
+      search: search || undefined,
+    };
+    startTransition(async () => {
+      const result = await loadFindings(filters);
+      setFindings(result.findings);
+      setTotal(result.total);
+      setNextCursor(result.nextCursor);
+    });
+  }, [severity, status, search, loadFindings]);
+
+  const allSelected = findings.length > 0 && selectedIds.size === findings.length;
+
   return (
     <div className="space-y-4">
       {/* Filters Row */}
@@ -197,6 +239,17 @@ export function FindingsList({
         </div>
       )}
 
+      {/* Bulk Actions Toolbar */}
+      <FindingsBulkActions
+        selectedCount={selectedIds.size}
+        selectedIds={Array.from(selectedIds)}
+        totalCount={total}
+        onSelectAll={handleSelectAll}
+        onClearSelection={handleClearSelection}
+        onSuccess={handleBulkSuccess}
+        allSelected={allSelected}
+      />
+
       {/* Results Count */}
       <div className="flex items-center justify-between text-sm text-gray-500">
         <span>
@@ -224,7 +277,13 @@ export function FindingsList({
           <>
             <div className="divide-y divide-gray-200">
               {findings.map((finding) => (
-                <FindingsListItem key={finding.id} finding={finding} />
+                <FindingsListItem
+                  key={finding.id}
+                  finding={finding}
+                  showCheckbox={true}
+                  isSelected={selectedIds.has(finding.id)}
+                  onSelect={handleSelect}
+                />
               ))}
             </div>
 

@@ -116,12 +116,12 @@
 
 ### Implementation for User Story 4
 
-- [ ] T037 [P] [US4] Implement bulkUpdateFindingStatus(findingIds, status, justification?) server action in web/lib/actions/findings.ts
-- [ ] T038 [P] [US4] Create BulkStatusModal component with confirmation and optional justification in web/components/findings/bulk-status-modal.tsx
-- [ ] T039 [US4] Create FindingsBulkActions toolbar component with select all, count, action buttons in web/components/findings/findings-bulk-actions.tsx
-- [ ] T040 [US4] Add selection state management (checkboxes) to FindingsList component in web/components/findings/findings-list.tsx
-- [ ] T041 [US4] Integrate FindingsBulkActions toolbar into findings list page at web/app/(dashboard)/findings/page.tsx
-- [ ] T042 [US4] Add loading states and error handling for bulk operations
+- [x] T037 [P] [US4] Implement bulkUpdateFindingStatus(findingIds, status, justification?) server action in web/lib/actions/findings.ts
+- [x] T038 [P] [US4] Create BulkStatusModal component with confirmation and optional justification in web/components/findings/bulk-status-modal.tsx
+- [x] T039 [US4] Create FindingsBulkActions toolbar component with select all, count, action buttons in web/components/findings/findings-bulk-actions.tsx
+- [x] T040 [US4] Add selection state management (checkboxes) to FindingsList component in web/components/findings/findings-list.tsx
+- [x] T041 [US4] Integrate FindingsBulkActions toolbar into findings list page at web/app/(dashboard)/findings/page.tsx
+- [x] T042 [US4] Add loading states and error handling for bulk operations
 
 **Checkpoint**: User Story 4 complete - can select and bulk update multiple findings
 
