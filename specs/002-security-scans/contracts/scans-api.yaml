@@ -1,0 +1,970 @@
+openapi: 3.1.0
+info:
+  title: Shannon SaaS - Security Scans API
+  description: API for managing security scans, authentication configurations, schedules, and CI/CD integrations
+  version: 1.0.0
+  contact:
+    name: Shannon Team
+
+servers:
+  - url: /api
+    description: Next.js API routes
+
+tags:
+  - name: Scans
+    description: Security scan management
+  - name: Projects
+    description: Project and authentication configuration
+  - name: Schedules
+    description: Scheduled scan management
+  - name: Integrations
+    description: CI/CD integrations
+
+paths:
+  # ============================================
+  # SCANS
+  # ============================================
+  /scans:
+    get:
+      tags: [Scans]
+      summary: List scans for organization
+      description: Returns paginated list of scans with filtering options
+      operationId: listScans
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+          description: Filter by project
+        - name: status
+          in: query
+          schema:
+            type: array
+            items:
+              $ref: '#/components/schemas/ScanStatus'
+          description: Filter by status (multi-select)
+        - name: source
+          in: query
+          schema:
+            $ref: '#/components/schemas/ScanSource'
+          description: Filter by trigger source
+        - name: startDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter scans after this date
+        - name: endDate
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filter scans before this date
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Pagination cursor
+      responses:
+        '200':
+          description: List of scans
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  scans:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScanSummary'
+                  nextCursor:
+                    type: string
+                    nullable: true
+                  total:
+                    type: integer
+
+    post:
+      tags: [Scans]
+      summary: Start a new scan
+      description: Initiates a security scan for a project
+      operationId: startScan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [projectId]
+              properties:
+                projectId:
+                  type: string
+                  description: Project to scan
+                targetUrl:
+                  type: string
+                  format: uri
+                  description: Override target URL (optional)
+      responses:
+        '201':
+          description: Scan started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '403':
+          description: Concurrent scan limit reached
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /scans/{scanId}:
+    parameters:
+      - $ref: '#/components/parameters/ScanId'
+
+    get:
+      tags: [Scans]
+      summary: Get scan details
+      operationId: getScan
+      responses:
+        '200':
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Scans]
+      summary: Cancel a running scan
+      operationId: cancelScan
+      responses:
+        '200':
+          description: Scan cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Scan'
+        '400':
+          description: Scan not cancellable (not running)
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /scans/{scanId}/progress:
+    parameters:
+      - $ref: '#/components/parameters/ScanId'
+
+    get:
+      tags: [Scans]
+      summary: Stream scan progress (SSE)
+      description: Server-Sent Events stream of scan progress updates
+      operationId: streamScanProgress
+      responses:
+        '200':
+          description: SSE stream
+          content:
+            text/event-stream:
+              schema:
+                $ref: '#/components/schemas/ScanProgress'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============================================
+  # PROJECTS
+  # ============================================
+  /projects:
+    get:
+      tags: [Projects]
+      summary: List projects
+      operationId: listProjects
+      responses:
+        '200':
+          description: List of projects
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  projects:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Project'
+
+    post:
+      tags: [Projects]
+      summary: Create a project
+      operationId: createProject
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateProjectRequest'
+      responses:
+        '201':
+          description: Project created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /projects/{projectId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+
+    get:
+      tags: [Projects]
+      summary: Get project details
+      operationId: getProject
+      responses:
+        '200':
+          description: Project details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectDetail'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /projects/{projectId}/auth:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+
+    get:
+      tags: [Projects]
+      summary: Get authentication configuration
+      description: Returns auth config with credentials masked
+      operationId: getAuthConfig
+      responses:
+        '200':
+          description: Auth configuration (credentials masked)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfigResponse'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    put:
+      tags: [Projects]
+      summary: Update authentication configuration
+      operationId: updateAuthConfig
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AuthConfigRequest'
+      responses:
+        '200':
+          description: Auth config updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthConfigResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+    delete:
+      tags: [Projects]
+      summary: Remove authentication configuration
+      operationId: deleteAuthConfig
+      responses:
+        '204':
+          description: Auth config removed
+
+  /projects/{projectId}/auth/validate:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+
+    post:
+      tags: [Projects]
+      summary: Validate authentication credentials
+      description: Tests authentication config without starting a full scan
+      operationId: validateAuth
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  valid:
+                    type: boolean
+                  error:
+                    type: string
+                    nullable: true
+                  validatedAt:
+                    type: string
+                    format: date-time
+
+  # ============================================
+  # SCHEDULES
+  # ============================================
+  /projects/{projectId}/schedules:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+
+    get:
+      tags: [Schedules]
+      summary: List schedules for project
+      operationId: listSchedules
+      responses:
+        '200':
+          description: List of schedules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Schedule'
+
+    post:
+      tags: [Schedules]
+      summary: Create a schedule
+      operationId: createSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /projects/{projectId}/schedules/{scheduleId}:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ScheduleId'
+
+    patch:
+      tags: [Schedules]
+      summary: Update schedule
+      operationId: updateSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleRequest'
+      responses:
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+
+    delete:
+      tags: [Schedules]
+      summary: Delete schedule
+      operationId: deleteSchedule
+      responses:
+        '204':
+          description: Schedule deleted
+
+  /projects/{projectId}/schedules/{scheduleId}/pause:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ScheduleId'
+
+    post:
+      tags: [Schedules]
+      summary: Pause schedule
+      operationId: pauseSchedule
+      responses:
+        '200':
+          description: Schedule paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+
+  /projects/{projectId}/schedules/{scheduleId}/resume:
+    parameters:
+      - $ref: '#/components/parameters/ProjectId'
+      - $ref: '#/components/parameters/ScheduleId'
+
+    post:
+      tags: [Schedules]
+      summary: Resume schedule
+      operationId: resumeSchedule
+      responses:
+        '200':
+          description: Schedule resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+
+  # ============================================
+  # GITHUB INTEGRATION
+  # ============================================
+  /integrations/github:
+    get:
+      tags: [Integrations]
+      summary: List GitHub integrations
+      operationId: listGitHubIntegrations
+      responses:
+        '200':
+          description: List of GitHub integrations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  integrations:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/GitHubIntegration'
+
+    post:
+      tags: [Integrations]
+      summary: Create GitHub integration
+      operationId: createGitHubIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateGitHubIntegrationRequest'
+      responses:
+        '201':
+          description: Integration created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubIntegration'
+
+  /integrations/github/{integrationId}:
+    parameters:
+      - name: integrationId
+        in: path
+        required: true
+        schema:
+          type: string
+
+    patch:
+      tags: [Integrations]
+      summary: Update GitHub integration settings
+      operationId: updateGitHubIntegration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateGitHubIntegrationRequest'
+      responses:
+        '200':
+          description: Integration updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitHubIntegration'
+
+    delete:
+      tags: [Integrations]
+      summary: Remove GitHub integration
+      operationId: deleteGitHubIntegration
+      responses:
+        '204':
+          description: Integration removed
+
+  /integrations/github/webhook:
+    post:
+      tags: [Integrations]
+      summary: GitHub webhook handler
+      description: Receives PR events from GitHub
+      operationId: handleGitHubWebhook
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        '200':
+          description: Webhook processed
+        '400':
+          description: Invalid signature
+
+components:
+  parameters:
+    ScanId:
+      name: scanId
+      in: path
+      required: true
+      schema:
+        type: string
+
+    ProjectId:
+      name: projectId
+      in: path
+      required: true
+      schema:
+        type: string
+
+    ScheduleId:
+      name: scheduleId
+      in: path
+      required: true
+      schema:
+        type: string
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+  schemas:
+    # ============================================
+    # SCAN SCHEMAS
+    # ============================================
+    ScanStatus:
+      type: string
+      enum: [PENDING, RUNNING, COMPLETED, FAILED, CANCELLED, TIMEOUT]
+
+    ScanSource:
+      type: string
+      enum: [MANUAL, SCHEDULED, CICD, API]
+
+    ScanSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        projectName:
+          type: string
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        source:
+          $ref: '#/components/schemas/ScanSource'
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        durationMs:
+          type: integer
+          nullable: true
+        findingsCount:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+        mediumCount:
+          type: integer
+        lowCount:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    Scan:
+      allOf:
+        - $ref: '#/components/schemas/ScanSummary'
+        - type: object
+          properties:
+            targetUrl:
+              type: string
+              format: uri
+            currentPhase:
+              type: string
+              nullable: true
+            currentAgent:
+              type: string
+              nullable: true
+            progressPercent:
+              type: integer
+            errorMessage:
+              type: string
+              nullable: true
+
+    ScanDetail:
+      allOf:
+        - $ref: '#/components/schemas/Scan'
+        - type: object
+          properties:
+            result:
+              $ref: '#/components/schemas/ScanResult'
+              nullable: true
+            metadata:
+              type: object
+              nullable: true
+
+    ScanResult:
+      type: object
+      properties:
+        reportHtmlUrl:
+          type: string
+          format: uri
+          nullable: true
+        reportPdfUrl:
+          type: string
+          format: uri
+          nullable: true
+        executiveSummary:
+          type: string
+          nullable: true
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          nullable: true
+        totalCostUsd:
+          type: number
+          nullable: true
+
+    ScanProgress:
+      type: object
+      description: SSE event payload
+      properties:
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        currentPhase:
+          type: string
+          nullable: true
+        currentAgent:
+          type: string
+          nullable: true
+        progressPercent:
+          type: integer
+        elapsedMs:
+          type: integer
+        estimatedRemainingMs:
+          type: integer
+          nullable: true
+        findingsCount:
+          type: integer
+        completedAgents:
+          type: array
+          items:
+            type: string
+
+    # ============================================
+    # PROJECT SCHEMAS
+    # ============================================
+    Project:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+          nullable: true
+        targetUrl:
+          type: string
+          format: uri
+        repositoryUrl:
+          type: string
+          nullable: true
+        hasAuthConfig:
+          type: boolean
+        schedulesCount:
+          type: integer
+        lastScanAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    ProjectDetail:
+      allOf:
+        - $ref: '#/components/schemas/Project'
+        - type: object
+          properties:
+            recentScans:
+              type: array
+              items:
+                $ref: '#/components/schemas/ScanSummary'
+            schedules:
+              type: array
+              items:
+                $ref: '#/components/schemas/Schedule'
+
+    CreateProjectRequest:
+      type: object
+      required: [name, targetUrl]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+          maxLength: 500
+        targetUrl:
+          type: string
+          format: uri
+        repositoryUrl:
+          type: string
+          format: uri
+
+    # ============================================
+    # AUTH CONFIG SCHEMAS
+    # ============================================
+    AuthMethod:
+      type: string
+      enum: [NONE, FORM, API_TOKEN, BASIC, SSO]
+
+    AuthConfigResponse:
+      type: object
+      properties:
+        method:
+          $ref: '#/components/schemas/AuthMethod'
+        loginUrl:
+          type: string
+          nullable: true
+        hasCredentials:
+          type: boolean
+        totpEnabled:
+          type: boolean
+        lastValidatedAt:
+          type: string
+          format: date-time
+          nullable: true
+        validationStatus:
+          type: string
+          enum: [valid, invalid, untested]
+          nullable: true
+
+    AuthConfigRequest:
+      type: object
+      required: [method]
+      properties:
+        method:
+          $ref: '#/components/schemas/AuthMethod'
+        # Form-based auth
+        loginUrl:
+          type: string
+          format: uri
+        username:
+          type: string
+        password:
+          type: string
+          format: password
+        usernameSelector:
+          type: string
+        passwordSelector:
+          type: string
+        submitSelector:
+          type: string
+        successIndicator:
+          type: string
+        # TOTP
+        totpSecret:
+          type: string
+        totpSelector:
+          type: string
+        # API Token
+        apiToken:
+          type: string
+          format: password
+
+    # ============================================
+    # SCHEDULE SCHEMAS
+    # ============================================
+    ScheduleStatus:
+      type: string
+      enum: [ACTIVE, PAUSED, DELETED]
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        name:
+          type: string
+        cronExpression:
+          type: string
+        cronDescription:
+          type: string
+          description: Human-readable schedule description
+        timezone:
+          type: string
+        status:
+          $ref: '#/components/schemas/ScheduleStatus'
+        notifyOnComplete:
+          type: boolean
+        lastRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        nextRunAt:
+          type: string
+          format: date-time
+          nullable: true
+        totalRuns:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateScheduleRequest:
+      type: object
+      required: [name, cronExpression]
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        cronExpression:
+          type: string
+          description: "5-field cron expression (e.g., '0 0 * * 1' for weekly Monday)"
+        timezone:
+          type: string
+          default: UTC
+        notifyOnComplete:
+          type: boolean
+          default: true
+        notifyEmails:
+          type: array
+          items:
+            type: string
+            format: email
+
+    UpdateScheduleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        cronExpression:
+          type: string
+        timezone:
+          type: string
+        notifyOnComplete:
+          type: boolean
+        notifyEmails:
+          type: array
+          items:
+            type: string
+            format: email
+
+    # ============================================
+    # GITHUB INTEGRATION SCHEMAS
+    # ============================================
+    SeverityLevel:
+      type: string
+      enum: [CRITICAL, HIGH, MEDIUM, LOW, INFO]
+
+    IntegrationStatus:
+      type: string
+      enum: [ACTIVE, PAUSED, ERROR, DISCONNECTED]
+
+    GitHubIntegration:
+      type: object
+      properties:
+        id:
+          type: string
+        projectId:
+          type: string
+        projectName:
+          type: string
+        repositoryFullName:
+          type: string
+        severityThreshold:
+          $ref: '#/components/schemas/SeverityLevel'
+        autoComment:
+          type: boolean
+        failOpen:
+          type: boolean
+        status:
+          $ref: '#/components/schemas/IntegrationStatus'
+        lastWebhookAt:
+          type: string
+          format: date-time
+          nullable: true
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateGitHubIntegrationRequest:
+      type: object
+      required: [projectId, installationId, repositoryFullName]
+      properties:
+        projectId:
+          type: string
+        installationId:
+          type: integer
+          description: GitHub App installation ID
+        repositoryFullName:
+          type: string
+          description: "Repository in format 'owner/repo'"
+        severityThreshold:
+          $ref: '#/components/schemas/SeverityLevel'
+          default: HIGH
+        autoComment:
+          type: boolean
+          default: true
+        failOpen:
+          type: boolean
+          default: true
+
+    UpdateGitHubIntegrationRequest:
+      type: object
+      properties:
+        severityThreshold:
+          $ref: '#/components/schemas/SeverityLevel'
+        autoComment:
+          type: boolean
+        failOpen:
+          type: boolean
+
+    # ============================================
+    # COMMON SCHEMAS
+    # ============================================
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+        code:
+          type: string
+        details:
+          type: object
