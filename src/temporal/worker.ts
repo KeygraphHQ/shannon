@@ -26,6 +26,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import * as activities from './activities.js';
+import * as authActivities from './activities/validate-auth.js';
 
 dotenv.config();
 
@@ -47,7 +48,7 @@ async function runWorker(): Promise<void> {
     connection,
     namespace: 'default',
     workflowBundle,
-    activities,
+    activities: { ...activities, ...authActivities },
     taskQueue: 'shannon-pipeline',
     maxConcurrentActivityTaskExecutions: 25, // Support multiple parallel workflows (5 agents × ~5 workflows)
   });

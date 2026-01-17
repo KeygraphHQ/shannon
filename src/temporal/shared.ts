@@ -9,6 +9,8 @@ export interface PipelineInput {
   outputPath?: string;
   pipelineTestingMode?: boolean;
   workflowId?: string; // Added by client, used for audit correlation
+  scanId?: string; // Database scan ID for web application integration
+  organizationId?: string; // Organization ID for multi-tenant isolation
 }
 
 export interface AgentMetrics {
@@ -42,6 +44,8 @@ export interface PipelineState {
 export interface PipelineProgress extends PipelineState {
   workflowId: string;
   elapsedMs: number;
+  scanId?: string; // Database scan ID (when triggered from web app)
+  organizationId?: string; // Organization ID (when triggered from web app)
 }
 
 // Result from a single vuln→exploit pipeline

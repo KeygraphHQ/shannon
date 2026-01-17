@@ -1,5 +1,5 @@
 // Shannon SaaS Database Schema
-// Onboarding & Setup - MVP Slice
+// Combined: Onboarding & Setup + Security Scans Feature
 
 generator client {
   provider = "prisma-client-js"
@@ -28,16 +28,16 @@ model User {
 
 // Organization (tenant/workspace)
 model Organization {
-  id          String    @id @default(cuid())
-  name        String
-  slug        String    @unique
-  plan        String    @default("free") // free, pro, enterprise
-  logoUrl     String?
-  require2FA  Boolean   @default(false) // Enterprise feature: enforce 2FA for all members
-  deletedAt   DateTime? // Soft delete: set to current time when deleted, purged after 30 days
+  id                  String    @id @default(cuid())
+  name                String
+  slug                String    @unique
+  plan                String    @default("free") // free, pro, enterprise
+  logoUrl             String?
+  require2FA          Boolean   @default(false) // Enterprise feature: enforce 2FA for all members
+  deletedAt           DateTime? // Soft delete: set to current time when deleted, purged after 30 days
   scheduledDeletionAt DateTime? // When the org will be permanently deleted
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
@@ -90,59 +90,17 @@ model AuditLog {
   @@index([organizationId, action])
 }
 
-// Project (grouping for scans)
-model Project {
-  id             String   @id @default(cuid())
-  organizationId String
-  name           String
-  description    String?
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scans        Scan[]
-
-  @@index([organizationId])
-}
-
-// Security scan
-model Scan {
-  id              String    @id @default(cuid())
-  organizationId  String
-  projectId       String?
-  targetUrl       String
-  status          String    @default("pending") // pending, running, completed, failed
-  workflowId      String?   // Temporal workflow ID
-  progress        Int       @default(0) // 0-100
-  currentPhase    String?   // pre-recon, recon, vuln-analysis, exploitation, reporting
-  startedAt       DateTime  @default(now())
-  completedAt     DateTime?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  findings     Finding[]
-
-  @@index([organizationId])
-  @@index([projectId])
-  @@index([status])
-  @@index([createdAt])
-  @@index([organizationId, createdAt])
-  @@index([organizationId, status])
-}
-
 // Team invitation
 model Invitation {
-  id             String   @id @default(cuid())
-  token          String   @unique @default(cuid())
+  id             String    @id @default(cuid())
+  token          String    @unique @default(cuid())
   email          String
   organizationId String
-  role           String   @default("member") // owner, admin, member, viewer
+  role           String    @default("member") // owner, admin, member, viewer
   invitedById    String
-  status         String   @default("pending") // pending, accepted, expired, revoked
+  status         String    @default("pending") // pending, accepted, expired, revoked
   expiresAt      DateTime
-  createdAt      DateTime @default(now())
+  createdAt      DateTime  @default(now())
   acceptedAt     DateTime?
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -154,6 +112,120 @@ model Invitation {
   @@index([expiresAt])
   @@index([status])
   @@index([organizationId, status])
+}
+
+// ===================
+// Security Scans Feature
+// ===================
+
+// Project - target application configured for security testing
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  targetUrl      String // Base URL for scanning
+  repositoryUrl  String? // Optional: linked source code repo
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans                Scan[]
+  authenticationConfig AuthenticationConfig?
+
+  @@index([organizationId])
+}
+
+// Scan status enum
+enum ScanStatus {
+  PENDING // Queued, waiting for slot
+  RUNNING // Actively scanning
+  COMPLETED // Finished successfully
+  FAILED // Finished with error
+  CANCELLED // User cancelled
+  TIMEOUT // Exceeded max duration
+}
+
+// Scan source enum
+enum ScanSource {
+  MANUAL // User-triggered via UI
+  SCHEDULED // Triggered by schedule
+  CICD // Triggered by CI/CD integration (PR)
+  API // Triggered via API
+}
+
+// Scan - single security test execution
+model Scan {
+  id                 String     @id @default(cuid())
+  organizationId     String // Denormalized for query efficiency
+  projectId          String
+  status             ScanStatus @default(PENDING)
+  source             ScanSource @default(MANUAL)
+  temporalWorkflowId String? // Temporal workflow ID for tracking
+
+  // Timing
+  startedAt   DateTime?
+  completedAt DateTime?
+  durationMs  Int?
+
+  // Progress tracking (cached from Temporal)
+  currentPhase    String?
+  currentAgent    String?
+  progressPercent Int     @default(0)
+
+  // Results summary (denormalized for list views)
+  findingsCount Int @default(0)
+  criticalCount Int @default(0)
+  highCount     Int @default(0)
+  mediumCount   Int @default(0)
+  lowCount      Int @default(0)
+
+  // Error handling
+  errorMessage String?
+  errorCode    String?
+
+  // Metadata
+  metadata  Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  result       ScanResult?
+  findings     Finding[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([temporalWorkflowId])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+}
+
+// ScanResult - detailed results from completed scan
+model ScanResult {
+  id     String @id @default(cuid())
+  scanId String @unique
+
+  // Report storage paths (tenant-prefixed)
+  reportHtmlPath String? // tenant-{orgId}/scans/{scanId}/report.html
+  reportPdfPath  String? // tenant-{orgId}/scans/{scanId}/report.pdf
+  reportMdPath   String? // tenant-{orgId}/scans/{scanId}/report.md
+  rawOutputPath  String? // tenant-{orgId}/scans/{scanId}/deliverables/
+
+  // Metrics (from Temporal workflow)
+  totalTokensUsed Int?
+  totalCostUsd    Decimal? @db.Decimal(10, 4)
+  agentMetrics    Json? // Per-agent token counts, durations
+
+  // Executive summary (cached for quick access)
+  executiveSummary String? @db.Text
+  riskScore        Int? // 0-100
+
+  createdAt DateTime @default(now())
+
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
 }
 
 // Security finding (vulnerability)
@@ -180,4 +252,43 @@ model Finding {
   @@index([category])
   @@index([scanId, severity])
   @@index([scanId, status])
+}
+
+// Authentication method enum
+enum AuthMethod {
+  NONE // No authentication required
+  FORM // Form-based login
+  API_TOKEN // Bearer token / API key
+  BASIC // HTTP Basic Auth
+  SSO // SSO redirect (limited support)
+}
+
+// AuthenticationConfig - encrypted credentials for a project
+model AuthenticationConfig {
+  id        String     @id @default(cuid())
+  projectId String     @unique
+  method    AuthMethod
+
+  // Encrypted credentials (AES-256-GCM with org-derived key)
+  encryptedCredentials String // JSON encrypted: { username, password, token, etc. }
+
+  // Non-sensitive config (form-based auth)
+  loginUrl         String? // Login page URL
+  usernameSelector String? // CSS selector for username field
+  passwordSelector String? // CSS selector for password field
+  submitSelector   String? // CSS selector for submit button
+  successIndicator String? // CSS selector to verify successful login
+
+  // TOTP support
+  totpEnabled  Boolean @default(false)
+  totpSelector String? // CSS selector for TOTP field
+
+  // Validation state
+  lastValidatedAt  DateTime?
+  validationStatus String? // valid, invalid, untested
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }

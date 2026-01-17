@@ -21,7 +21,7 @@ interface DashboardNavProps {
 
 const getMainNavigation = (orgId: string) => [
   { name: "Dashboard", href: "/dashboard", icon: Home },
-  { name: "Scans", href: "/dashboard/scans", icon: Shield, disabled: true },
+  { name: "Scans", href: "/dashboard/scans", icon: Shield },
   {
     name: "Findings",
     href: "/dashboard/findings",
@@ -34,14 +34,14 @@ const getMainNavigation = (orgId: string) => [
     icon: BarChart3,
     disabled: true,
   },
-  { name: "Team", href: `/org/${orgId}/team`, icon: Users },
+  { name: "Team", href: `/dashboard/org/${orgId}/team`, icon: Users },
 ];
 
 const getSettingsNavigation = (orgId: string) => [
-  { name: "Organization", href: `/org/${orgId}/settings`, icon: Settings },
+  { name: "Organization", href: `/dashboard/org/${orgId}/settings`, icon: Settings },
   { name: "Account", href: "/dashboard/settings/account", icon: User },
   { name: "Security", href: "/dashboard/settings/security", icon: Key, show2FAStatus: true },
-  { name: "Audit Log", href: `/org/${orgId}/audit`, icon: ClipboardList },
+  { name: "Audit Log", href: `/dashboard/org/${orgId}/audit`, icon: ClipboardList },
 ];
 
 export function DashboardNav({ currentOrgId }: DashboardNavProps) {
