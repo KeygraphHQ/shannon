@@ -17,7 +17,7 @@ interface DashboardNavProps {
 
 const navigation = [
   { name: "Dashboard", href: "/dashboard", icon: Home },
-  { name: "Scans", href: "/dashboard/scans", icon: Shield, disabled: true },
+  { name: "Scans", href: "/dashboard/scans", icon: Shield },
   {
     name: "Findings",
     href: "/dashboard/findings",
@@ -40,7 +40,8 @@ export function DashboardNav({ currentOrgId }: DashboardNavProps) {
   return (
     <nav className="space-y-1">
       {navigation.map((item) => {
-        const isActive = pathname === item.href;
+        // Check if current path matches or is a subpath
+        const isActive = pathname === item.href || pathname.startsWith(item.href + "/");
         const Icon = item.icon;
 
         if (item.disabled) {

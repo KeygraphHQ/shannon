@@ -118,10 +118,13 @@ export async function pentestPipelineWorkflow(
   };
 
   // Register query handler for real-time progress inspection
+  // Use conditional spread for optional fields (exactOptionalPropertyTypes)
   setHandler(getProgress, (): PipelineProgress => ({
     ...state,
     workflowId,
     elapsedMs: Date.now() - state.startTime,
+    ...(input.scanId !== undefined && { scanId: input.scanId }),
+    ...(input.organizationId !== undefined && { organizationId: input.organizationId }),
   }));
 
   // Build ActivityInput with required workflowId for audit correlation
