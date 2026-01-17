@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Play, Loader2, CheckCircle, XCircle, AlertCircle } from "lucide-react";
+import { useToast } from "@/components/ui/toast";
 
 interface TestAuthButtonProps {
   projectId: string;
@@ -19,6 +20,7 @@ export function TestAuthButton({
   disabled = false,
   onValidationComplete,
 }: TestAuthButtonProps) {
+  const { addToast } = useToast();
   const [state, setState] = useState<ValidationState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [validatedAt, setValidatedAt] = useState<Date | null>(null);
@@ -37,9 +39,19 @@ export function TestAuthButton({
       if (result.valid) {
         setState("success");
         setValidatedAt(new Date(result.validatedAt));
+        addToast({
+          type: "success",
+          title: "Validation passed",
+          message: "Authentication credentials are working correctly.",
+        });
       } else {
         setState("error");
         setError(result.error || "Validation failed");
+        addToast({
+          type: "error",
+          title: "Validation failed",
+          message: result.error || "Authentication credentials could not be verified.",
+        });
       }
 
       onValidationComplete?.({
@@ -50,6 +62,11 @@ export function TestAuthButton({
       setState("error");
       const errorMessage = err instanceof Error ? err.message : "Failed to test authentication";
       setError(errorMessage);
+      addToast({
+        type: "error",
+        title: "Validation error",
+        message: errorMessage,
+      });
       onValidationComplete?.({
         valid: false,
         error: errorMessage,

@@ -302,15 +302,15 @@ After completing all tasks, verify:
 
 ---
 
-## Phase 6: Polish & Cross-Cutting Concerns (US2 Scope)
+## Phase 6: Polish & Cross-Cutting Concerns (US2 Scope) ✅ COMPLETE
 
 **Purpose**: Improvements for User Story 2 delivery
 
-- [ ] T082 [P] Add loading states to auth-config-form.tsx during save/validate operations
-- [ ] T083 [P] Add validation error messages for invalid CSS selectors or URLs in form auth config
-- [ ] T084 Add audit logging for auth.configured, auth.validated, auth.removed events
-- [ ] T085 Ensure auth config API routes return proper error codes: 400 (invalid config), 404 (project not found)
-- [ ] T086 Add success toast notification after auth config save and validation pass
+- [x] T082 [P] Add loading states to auth-config-form.tsx during save/validate operations
+- [x] T083 [P] Add validation error messages for invalid CSS selectors or URLs in form auth config
+- [x] T084 Add audit logging for auth.configured, auth.validated, auth.removed events
+- [x] T085 Ensure auth config API routes return proper error codes: 400 (invalid config), 404 (project not found)
+- [x] T086 Add success toast notification after auth config save and validation pass
 
 ---
 
@@ -321,15 +321,15 @@ After completing all tasks, verify:
 ```
 Phase 1: Setup ✅
     ↓
-Phase 2: Foundational (BLOCKS all user stories)
+Phase 2: Foundational (BLOCKS all user stories) ✅
     ↓
-Phase 3: User Story 1 - Quick Scan MVP
+Phase 3: User Story 1 - Quick Scan MVP ✅
     ↓
-Phase 4: Polish (US1)
+Phase 4: Polish (US1) ✅
     ↓
-Phase 5: User Story 2 - Authenticated Testing
+Phase 5: User Story 2 - Authenticated Testing ✅
     ↓
-Phase 6: Polish (US2)
+Phase 6: Polish (US2) ✅
 ```
 
 ### Task Dependencies Within User Story 2

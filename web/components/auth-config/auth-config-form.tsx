@@ -8,6 +8,7 @@ import { ApiTokenConfig } from "./api-token-config";
 import { BasicAuthConfig } from "./basic-auth-config";
 import { TotpConfig } from "./totp-config";
 import { TestAuthButton } from "./test-auth-button";
+import { useToast } from "@/components/ui/toast";
 import type { AuthMethod } from "@/lib/types/auth";
 
 interface AuthConfigFormProps {
@@ -61,6 +62,7 @@ const DEFAULT_STATE: FormState = {
 };
 
 export function AuthConfigForm({ projectId, initialConfig }: AuthConfigFormProps) {
+  const { addToast } = useToast();
   const [formState, setFormState] = useState<FormState>(() => {
     if (initialConfig) {
       return {
@@ -129,8 +131,21 @@ export function AuthConfigForm({ projectId, initialConfig }: AuthConfigFormProps
         apiToken: "",
         totpSecret: "",
       }));
+
+      // Show success toast
+      addToast({
+        type: "success",
+        title: "Configuration saved",
+        message: "Authentication settings have been updated successfully.",
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save configuration");
+      const errorMessage = err instanceof Error ? err.message : "Failed to save configuration";
+      setError(errorMessage);
+      addToast({
+        type: "error",
+        title: "Failed to save",
+        message: errorMessage,
+      });
     } finally {
       setSaving(false);
     }
@@ -158,8 +173,21 @@ export function AuthConfigForm({ projectId, initialConfig }: AuthConfigFormProps
       setFormState(DEFAULT_STATE);
       setSuccess(false);
       setHasChanges(false);
+
+      // Show success toast
+      addToast({
+        type: "success",
+        title: "Configuration removed",
+        message: "Authentication configuration has been removed.",
+      });
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete configuration");
+      const errorMessage = err instanceof Error ? err.message : "Failed to delete configuration";
+      setError(errorMessage);
+      addToast({
+        type: "error",
+        title: "Failed to remove",
+        message: errorMessage,
+      });
     } finally {
       setDeleting(false);
     }
