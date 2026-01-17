@@ -39,6 +39,23 @@ export interface PipelineProgress extends PipelineState {
   organizationId?: string;
 }
 
+export interface AuthConfig {
+  method: 'NONE' | 'FORM' | 'API_TOKEN' | 'BASIC' | 'SSO';
+  credentials?: {
+    username?: string;
+    password?: string;
+    apiToken?: string;
+    totpSecret?: string;
+  };
+  loginUrl?: string;
+  usernameSelector?: string;
+  passwordSelector?: string;
+  submitSelector?: string;
+  successIndicator?: string;
+  totpEnabled?: boolean;
+  totpSelector?: string;
+}
+
 export interface PipelineInput {
   webUrl: string;
   repoPath: string;
@@ -48,4 +65,5 @@ export interface PipelineInput {
   workflowId?: string;
   scanId?: string;
   organizationId?: string;
+  authConfig?: AuthConfig;
 }

@@ -106,7 +106,11 @@ export default async function ScanDetailPage({ params }: ScanDetailPageProps) {
 
       {/* Progress (if running) */}
       {isRunning && (
-        <ScanProgress scanId={scan.id} initialStatus={scan.status} />
+        <ScanProgress
+          scanId={scan.id}
+          projectId={scan.projectId}
+          initialStatus={scan.status}
+        />
       )}
 
       {/* Scan details */}

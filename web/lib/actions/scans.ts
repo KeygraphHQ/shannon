@@ -5,7 +5,9 @@ import { db } from "@/lib/db";
 import { getCurrentUser, hasOrgAccess } from "@/lib/auth";
 import { startScanWorkflow, cancelScanWorkflow } from "@/lib/temporal/client";
 import { checkConcurrentLimit } from "@/lib/scan-queue";
+import { decryptCredentials } from "@/lib/encryption";
 import type { ScanStatus } from "@prisma/client";
+import type { AuthConfig } from "@/lib/temporal/types";
 
 export interface ScanFilters {
   status?: ScanStatus | ScanStatus[];
@@ -128,9 +130,12 @@ export async function startScan(
     throw new Error("User not found");
   }
 
-  // Verify project exists and belongs to org
+  // Verify project exists and belongs to org, include auth config
   const project = await db.project.findFirst({
     where: { id: projectId, organizationId: orgId },
+    include: {
+      authenticationConfig: true,
+    },
   });
 
   if (!project) {
@@ -144,6 +149,40 @@ export async function startScan(
   }
 
   const targetUrl = targetUrlOverride || project.targetUrl;
+
+  // Build auth config for workflow (if configured)
+  let authConfig: AuthConfig | undefined;
+  if (project.authenticationConfig && project.authenticationConfig.method !== "NONE") {
+    const config = project.authenticationConfig;
+
+    // Decrypt credentials
+    let credentials: Record<string, string> = {};
+    if (config.encryptedCredentials) {
+      try {
+        credentials = decryptCredentials(config.encryptedCredentials, orgId);
+      } catch (err) {
+        console.error("Failed to decrypt auth credentials:", err);
+        // Continue without auth config - scan will run unauthenticated
+      }
+    }
+
+    authConfig = {
+      method: config.method,
+      credentials: {
+        username: credentials.username,
+        password: credentials.password,
+        apiToken: credentials.apiToken,
+        totpSecret: credentials.totpSecret,
+      },
+      loginUrl: config.loginUrl || undefined,
+      usernameSelector: config.usernameSelector || undefined,
+      passwordSelector: config.passwordSelector || undefined,
+      submitSelector: config.submitSelector || undefined,
+      successIndicator: config.successIndicator || undefined,
+      totpEnabled: config.totpEnabled,
+      totpSelector: config.totpSelector || undefined,
+    };
+  }
 
   // Create scan record
   const scan = await db.$transaction(async (tx) => {
@@ -167,6 +206,8 @@ export async function startScan(
           projectId: project.id,
           projectName: project.name,
           targetUrl,
+          hasAuthConfig: !!authConfig,
+          authMethod: authConfig?.method || null,
         },
       },
     });
@@ -182,6 +223,7 @@ export async function startScan(
       targetUrl,
       repositoryUrl: project.repositoryUrl || undefined,
       scanId: scan.id,
+      authConfig,
     });
 
     // Update scan with workflow ID and set to RUNNING

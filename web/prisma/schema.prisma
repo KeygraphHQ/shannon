@@ -87,8 +87,9 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scans        Scan[]
+  organization         Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans                Scan[]
+  authenticationConfig AuthenticationConfig?
 
   @@index([organizationId])
 }
@@ -180,4 +181,43 @@ model ScanResult {
   createdAt DateTime @default(now())
 
   scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+}
+
+// Authentication method enum
+enum AuthMethod {
+  NONE // No authentication required
+  FORM // Form-based login
+  API_TOKEN // Bearer token / API key
+  BASIC // HTTP Basic Auth
+  SSO // SSO redirect (limited support)
+}
+
+// AuthenticationConfig - encrypted credentials for a project
+model AuthenticationConfig {
+  id        String     @id @default(cuid())
+  projectId String     @unique
+  method    AuthMethod
+
+  // Encrypted credentials (AES-256-GCM with org-derived key)
+  encryptedCredentials String // JSON encrypted: { username, password, token, etc. }
+
+  // Non-sensitive config (form-based auth)
+  loginUrl         String? // Login page URL
+  usernameSelector String? // CSS selector for username field
+  passwordSelector String? // CSS selector for password field
+  submitSelector   String? // CSS selector for submit button
+  successIndicator String? // CSS selector to verify successful login
+
+  // TOTP support
+  totpEnabled  Boolean @default(false)
+  totpSelector String? // CSS selector for TOTP field
+
+  // Validation state
+  lastValidatedAt  DateTime?
+  validationStatus String? // valid, invalid, untested
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
 }

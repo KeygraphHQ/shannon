@@ -8,7 +8,7 @@
  * is not installed (e.g., during initial development).
  */
 
-import type { PipelineProgress, PipelineInput } from './types';
+import type { PipelineProgress, PipelineInput, AuthConfig } from './types';
 
 // Cached client instances
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -78,7 +78,7 @@ export async function getWorkflowProgress(
 /**
  * Start a new scan workflow.
  *
- * @param params - Scan parameters
+ * @param params - Scan parameters including optional auth configuration
  * @returns The workflow ID and run ID
  */
 export async function startScanWorkflow(params: {
@@ -87,6 +87,7 @@ export async function startScanWorkflow(params: {
   targetUrl: string;
   repositoryUrl?: string;
   scanId: string;
+  authConfig?: AuthConfig;
 }): Promise<{ workflowId: string; runId: string }> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const client = (await getTemporalClient()) as any;
@@ -99,6 +100,7 @@ export async function startScanWorkflow(params: {
     workflowId,
     scanId: params.scanId,
     organizationId: params.organizationId,
+    authConfig: params.authConfig,
   };
 
   const handle = await client.workflow.start('pentestPipelineWorkflow', {

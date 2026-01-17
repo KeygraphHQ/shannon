@@ -11,6 +11,8 @@ import {
   XCircle,
   Loader2,
   Timer,
+  Settings,
+  Shield,
 } from "lucide-react";
 
 interface ScanDetailCardProps {
@@ -33,6 +35,7 @@ interface ScanDetailCardProps {
     mediumCount: number;
     lowCount: number;
     errorMessage?: string | null;
+    authMethod?: string | null;
     result?: {
       reportHtmlUrl?: string | null;
       reportPdfUrl?: string | null;
@@ -114,13 +117,33 @@ export function ScanDetailCard({ scan }: ScanDetailCardProps) {
       <div className="border-b border-gray-200 px-6 py-4">
         <div className="flex items-center justify-between">
           <div>
-            <h2 className="text-lg font-semibold text-gray-900">
-              {scan.projectName}
-            </h2>
-            <p className="text-sm text-gray-500 flex items-center gap-1 mt-1">
-              <ExternalLink className="h-3 w-3" />
-              {scan.targetUrl}
-            </p>
+            <div className="flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {scan.projectName}
+              </h2>
+              <Link
+                href={`/dashboard/projects/${scan.projectId}/settings`}
+                className="text-gray-400 hover:text-gray-600"
+                title="Project Settings"
+              >
+                <Settings className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="flex items-center gap-3 mt-1">
+              <p className="text-sm text-gray-500 flex items-center gap-1">
+                <ExternalLink className="h-3 w-3" />
+                {scan.targetUrl}
+              </p>
+              {scan.authMethod && scan.authMethod !== "NONE" && (
+                <span className="inline-flex items-center gap-1 text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded">
+                  <Shield className="h-3 w-3" />
+                  {scan.authMethod === "FORM" ? "Form Login" :
+                   scan.authMethod === "API_TOKEN" ? "API Token" :
+                   scan.authMethod === "BASIC" ? "Basic Auth" :
+                   scan.authMethod}
+                </span>
+              )}
+            </div>
           </div>
           <div
             className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-medium ${statusConfig.bgColor} ${statusConfig.color}`}

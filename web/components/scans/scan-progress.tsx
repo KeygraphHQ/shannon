@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Loader2, CheckCircle, AlertCircle, XCircle, Clock } from "lucide-react";
+import Link from "next/link";
+import { Loader2, CheckCircle, AlertCircle, XCircle, Clock, Shield, Settings } from "lucide-react";
 
 interface ScanProgress {
   status: string;
@@ -18,8 +19,24 @@ interface ScanProgress {
 
 interface ScanProgressProps {
   scanId: string;
+  projectId: string;
   initialStatus?: string;
   onComplete?: () => void;
+}
+
+// Check if error is related to authentication
+function isAuthError(error: string): boolean {
+  const authErrorPatterns = [
+    /auth(entication)?\s+(failed|error|invalid)/i,
+    /login\s+(failed|error)/i,
+    /credential(s)?\s+(invalid|expired|failed)/i,
+    /unauthorized/i,
+    /401|403/,
+    /session\s+(expired|invalid)/i,
+    /totp\s+(invalid|failed|expired)/i,
+    /2fa\s+(failed|error)/i,
+  ];
+  return authErrorPatterns.some((pattern) => pattern.test(error));
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -60,7 +77,7 @@ function formatDuration(ms: number): string {
   return `${seconds}s`;
 }
 
-export function ScanProgress({ scanId, initialStatus, onComplete }: ScanProgressProps) {
+export function ScanProgress({ scanId, projectId, initialStatus, onComplete }: ScanProgressProps) {
   const [progress, setProgress] = useState<ScanProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -206,6 +223,36 @@ export function ScanProgress({ scanId, initialStatus, onComplete }: ScanProgress
           <p className="text-sm text-gray-600">
             <span className="font-medium">{progress.findingsCount}</span> findings discovered so far
           </p>
+        </div>
+      )}
+
+      {/* Error display with auth-specific guidance */}
+      {progress.error && (
+        <div className={`rounded-md p-4 ${isAuthError(progress.error) ? "bg-amber-50 border border-amber-200" : "bg-red-50 border border-red-200"}`}>
+          <div className="flex items-start gap-3">
+            {isAuthError(progress.error) ? (
+              <Shield className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            ) : (
+              <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+            )}
+            <div className="flex-1">
+              <p className={`text-sm font-medium ${isAuthError(progress.error) ? "text-amber-800" : "text-red-800"}`}>
+                {isAuthError(progress.error) ? "Authentication Failed" : "Scan Error"}
+              </p>
+              <p className={`text-sm mt-1 ${isAuthError(progress.error) ? "text-amber-700" : "text-red-700"}`}>
+                {progress.error}
+              </p>
+              {isAuthError(progress.error) && (
+                <Link
+                  href={`/dashboard/projects/${projectId}/settings`}
+                  className="inline-flex items-center gap-1.5 mt-3 text-sm font-medium text-amber-700 hover:text-amber-600"
+                >
+                  <Settings className="h-4 w-4" />
+                  Check Authentication Settings
+                </Link>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>

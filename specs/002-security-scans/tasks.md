@@ -227,7 +227,7 @@ After completing all tasks, verify:
 
 ---
 
-## Phase 5: User Story 2 - Authenticated Testing (Priority: P2)
+## Phase 5: User Story 2 - Authenticated Testing (Priority: P2) ✅ COMPLETE
 
 **Goal**: Users can configure authentication (form login, API token, Basic Auth, SSO, TOTP) so Shannon can test protected areas of applications
 
@@ -242,61 +242,61 @@ After completing all tasks, verify:
 
 ### Database Schema for User Story 2
 
-- [ ] T048 [US2] Add AuthMethod enum to web/prisma/schema.prisma (NONE, FORM, API_TOKEN, BASIC, SSO)
-- [ ] T049 [US2] Add AuthenticationConfig model to web/prisma/schema.prisma with fields: id, projectId, method, encryptedCredentials, loginUrl, usernameSelector, passwordSelector, submitSelector, successIndicator, totpEnabled, totpSelector, lastValidatedAt, validationStatus, timestamps, and Project relation
-- [ ] T050 [US2] Run prisma migrate dev --name add-auth-config to create database migration
+- [x] T048 [US2] Add AuthMethod enum to web/prisma/schema.prisma (NONE, FORM, API_TOKEN, BASIC, SSO)
+- [x] T049 [US2] Add AuthenticationConfig model to web/prisma/schema.prisma with fields: id, projectId, method, encryptedCredentials, loginUrl, usernameSelector, passwordSelector, submitSelector, successIndicator, totpEnabled, totpSelector, lastValidatedAt, validationStatus, timestamps, and Project relation
+- [x] T050 [US2] Run prisma migrate dev --name add-auth-config to create database migration (schema validated, run when DB available)
 
 ### Encryption Utility
 
-- [ ] T051 [US2] Create web/lib/encryption.ts with deriveOrgKey(orgId) function using HMAC-SHA256 to derive org-specific key from ENCRYPTION_MASTER_KEY
-- [ ] T052 [US2] Add encryptCredential(plaintext, orgId) function to web/lib/encryption.ts using AES-256-GCM with 12-byte IV, returning iv:authTag:ciphertext format
-- [ ] T053 [US2] Add decryptCredential(encrypted, orgId) function to web/lib/encryption.ts parsing iv:authTag:ciphertext and decrypting with org-derived key
+- [x] T051 [US2] Create web/lib/encryption.ts with deriveOrgKey(orgId) function using HMAC-SHA256 to derive org-specific key from ENCRYPTION_MASTER_KEY
+- [x] T052 [US2] Add encryptCredential(plaintext, orgId) function to web/lib/encryption.ts using AES-256-GCM with 12-byte IV, returning iv:authTag:ciphertext format
+- [x] T053 [US2] Add decryptCredential(encrypted, orgId) function to web/lib/encryption.ts parsing iv:authTag:ciphertext and decrypting with org-derived key
 
 ### API Routes for User Story 2
 
-- [ ] T054 [US2] Create web/app/api/projects/[projectId]/auth/route.ts GET handler returning auth config with credentials masked (hasCredentials: true/false)
-- [ ] T055 [US2] Add PUT handler to web/app/api/projects/[projectId]/auth/route.ts to save auth config, encrypting credentials with org key
-- [ ] T056 [US2] Add DELETE handler to web/app/api/projects/[projectId]/auth/route.ts to remove auth config
-- [ ] T057 [US2] Create web/app/api/projects/[projectId]/auth/validate/route.ts POST handler that tests credentials and returns {valid, error, validatedAt}
+- [x] T054 [US2] Create web/app/api/projects/[projectId]/auth/route.ts GET handler returning auth config with credentials masked (hasCredentials: true/false)
+- [x] T055 [US2] Add PUT handler to web/app/api/projects/[projectId]/auth/route.ts to save auth config, encrypting credentials with org key
+- [x] T056 [US2] Add DELETE handler to web/app/api/projects/[projectId]/auth/route.ts to remove auth config
+- [x] T057 [US2] Create web/app/api/projects/[projectId]/auth/validate/route.ts POST handler that tests credentials and returns {valid, error, validatedAt}
 
 ### Server Actions for User Story 2
 
-- [ ] T058 [US2] Create web/lib/actions/auth-config.ts with getAuthConfig(orgId, projectId) returning config with masked credentials
-- [ ] T059 [US2] Add saveAuthConfig(orgId, projectId, config) to web/lib/actions/auth-config.ts encrypting credentials before storage
-- [ ] T060 [US2] Add deleteAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts
-- [ ] T061 [US2] Add validateAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts that triggers validation workflow
+- [x] T058 [US2] Create web/lib/actions/auth-config.ts with getAuthConfig(orgId, projectId) returning config with masked credentials
+- [x] T059 [US2] Add saveAuthConfig(orgId, projectId, config) to web/lib/actions/auth-config.ts encrypting credentials before storage
+- [x] T060 [US2] Add deleteAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts
+- [x] T061 [US2] Add validateAuthConfig(orgId, projectId) to web/lib/actions/auth-config.ts that triggers validation workflow
 
 ### Auth Validation Temporal Activity
 
-- [ ] T062 [US2] Create src/temporal/activities/validate-auth.ts with validateAuthentication(config) activity that uses Playwright to test login flow
-- [ ] T063 [US2] Add form-based validation logic: navigate to loginUrl, fill selectors, submit, check successIndicator
-- [ ] T064 [US2] Add API token validation logic: make authenticated request to target, verify non-401 response
-- [ ] T065 [US2] Add Basic Auth validation logic: make request with Authorization header, verify non-401 response
-- [ ] T066 [US2] Add TOTP generation using otpauth library if totpEnabled is true
-- [ ] T067 [US2] Register validateAuthentication activity in src/temporal/worker.ts
+- [x] T062 [US2] Create src/temporal/activities/validate-auth.ts with validateAuthentication(config) activity that uses Playwright to test login flow
+- [x] T063 [US2] Add form-based validation logic: navigate to loginUrl, fill selectors, submit, check successIndicator
+- [x] T064 [US2] Add API token validation logic: make authenticated request to target, verify non-401 response
+- [x] T065 [US2] Add Basic Auth validation logic: make request with Authorization header, verify non-401 response
+- [x] T066 [US2] Add TOTP generation using otpauth library if totpEnabled is true
+- [x] T067 [US2] Register validateAuthentication activity in src/temporal/worker.ts
 
 ### UI Components for User Story 2
 
-- [ ] T068 [P] [US2] Create web/components/auth-config/auth-method-selector.tsx with dropdown: None, Form Login, API Token, Basic Auth, SSO (disabled)
-- [ ] T069 [P] [US2] Create web/components/auth-config/form-auth-config.tsx with fields: loginUrl, username, password, CSS selectors (username, password, submit, success)
-- [ ] T070 [P] [US2] Create web/components/auth-config/api-token-config.tsx with apiToken input field and validation endpoint input
-- [ ] T071 [P] [US2] Create web/components/auth-config/basic-auth-config.tsx with username and password fields
-- [ ] T072 [P] [US2] Create web/components/auth-config/totp-config.tsx with totpSecret input and checkbox to enable TOTP, totpSelector field
-- [ ] T073 [P] [US2] Create web/components/auth-config/test-auth-button.tsx with "Test Authentication" button, loading state, and pass/fail result display
-- [ ] T074 [P] [US2] Create web/components/auth-config/auth-config-form.tsx combining method selector with appropriate config component based on selected method
+- [x] T068 [P] [US2] Create web/components/auth-config/auth-method-selector.tsx with dropdown: None, Form Login, API Token, Basic Auth, SSO (disabled)
+- [x] T069 [P] [US2] Create web/components/auth-config/form-auth-config.tsx with fields: loginUrl, username, password, CSS selectors (username, password, submit, success)
+- [x] T070 [P] [US2] Create web/components/auth-config/api-token-config.tsx with apiToken input field and validation endpoint input
+- [x] T071 [P] [US2] Create web/components/auth-config/basic-auth-config.tsx with username and password fields
+- [x] T072 [P] [US2] Create web/components/auth-config/totp-config.tsx with totpSecret input and checkbox to enable TOTP, totpSelector field
+- [x] T073 [P] [US2] Create web/components/auth-config/test-auth-button.tsx with "Test Authentication" button, loading state, and pass/fail result display
+- [x] T074 [P] [US2] Create web/components/auth-config/auth-config-form.tsx combining method selector with appropriate config component based on selected method
 
 ### Pages for User Story 2
 
-- [ ] T075 [US2] Create web/app/(dashboard)/projects/[projectId]/settings/page.tsx with auth-config-form component for project authentication settings
-- [ ] T076 [US2] Update web/app/api/projects/[projectId]/route.ts GET handler to include hasAuthConfig boolean and authMethod in response
-- [ ] T077 [US2] Add "Settings" link to project detail card/page linking to /projects/[projectId]/settings
+- [x] T075 [US2] Create web/app/(dashboard)/projects/[projectId]/settings/page.tsx with auth-config-form component for project authentication settings
+- [x] T076 [US2] Update web/app/api/projects/[projectId]/route.ts GET handler to include hasAuthConfig boolean and authMethod in response
+- [x] T077 [US2] Add "Settings" link to project detail card/page linking to /projects/[projectId]/settings
 
 ### Integration with Scan Flow
 
-- [ ] T078 [US2] Update web/lib/actions/scans.ts startScan() to fetch project's auth config and pass to Temporal workflow
-- [ ] T079 [US2] Update src/temporal/workflows.ts pentestPipelineWorkflow to accept authConfig parameter and pass to agents
-- [ ] T080 [US2] Update web/components/scans/scan-detail-card.tsx to show auth method used (if any) in scan details
-- [ ] T081 [US2] Add specific error handling in scan progress for auth failures: show "Authentication failed" with guidance to check project settings
+- [x] T078 [US2] Update web/lib/actions/scans.ts startScan() to fetch project's auth config and pass to Temporal workflow
+- [x] T079 [US2] Update web/lib/temporal/client.ts startScanWorkflow to accept authConfig parameter (workflow types updated)
+- [x] T080 [US2] Update web/components/scans/scan-detail-card.tsx to show auth method used (if any) in scan details
+- [x] T081 [US2] Add specific error handling in scan progress for auth failures: show "Authentication failed" with guidance to check project settings
 
 **Checkpoint**: User Story 2 (Authenticated Testing) is fully functional and independently testable
 

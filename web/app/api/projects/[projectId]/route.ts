@@ -49,6 +49,12 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
             createdAt: true,
           },
         },
+        authenticationConfig: {
+          select: {
+            method: true,
+            validationStatus: true,
+          },
+        },
         _count: {
           select: { scans: true },
         },
@@ -85,7 +91,9 @@ export async function GET(request: NextRequest, { params }: RouteParams) {
       description: project.description,
       targetUrl: project.targetUrl,
       repositoryUrl: project.repositoryUrl,
-      hasAuthConfig: false, // Will be updated in US2
+      hasAuthConfig: !!project.authenticationConfig,
+      authMethod: project.authenticationConfig?.method || null,
+      authValidationStatus: project.authenticationConfig?.validationStatus || null,
       schedulesCount: 0, // Will be updated in US4
       lastScanAt: project.scans[0]?.createdAt || null,
       scansCount: project._count.scans,
