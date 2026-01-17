@@ -1,7 +1,7 @@
 // Report templates
 // Executive, Technical, and Compliance-focused PDF templates
 
-// To be implemented in Phase 3 (User Story 1):
-// export * from './executive';
-// export * from './technical';
-// export * from './compliance';
+export * from './types';
+export { ExecutiveReport } from './executive';
+export { TechnicalReport } from './technical';
+export { ComplianceReport } from './compliance';

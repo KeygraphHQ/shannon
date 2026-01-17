@@ -5,6 +5,6 @@
 export * from './access-control';
 export * from './storage';
 
-// To be implemented in Phase 3 (User Story 1):
-// export * from './generator';
-// export * from './risk-score';
+// Report generation (Phase 3)
+export * from './generator';
+export * from './risk-score';

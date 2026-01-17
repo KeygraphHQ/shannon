@@ -1,8 +1,7 @@
-// Report UI components
-// Cards, viewers, selectors, and sharing dialogs
+/**
+ * Report components exports
+ */
 
-// To be implemented in Phase 3 (User Story 1):
-// export * from './ReportCard';
-// export * from './ReportViewer';
-// export * from './TemplateSelector';
-// export * from './ShareDialog';
+export { ReportCard } from './ReportCard';
+export { TemplateSelector, TemplateSelectorCompact, type ReportTemplateType } from './TemplateSelector';
+export { ReportViewer } from './ReportViewer';

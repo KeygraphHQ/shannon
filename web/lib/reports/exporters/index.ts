@@ -1,8 +1,9 @@
 // Report exporters
 // PDF, HTML, JSON, and CSV export functionality
 
-// To be implemented in Phase 3 (User Story 1):
-// export * from './pdf';
-// export * from './html';
-// export * from './json';
+export * from './pdf';
+export * from './html';
+export * from './json';
+
+// To be implemented in Phase 5 (User Story 3):
 // export * from './csv';
