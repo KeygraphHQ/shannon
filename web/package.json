@@ -16,7 +16,8 @@
     "next": "16.1.2",
     "react": "19.2.3",
     "react-dom": "19.2.3",
-    "svix": "^1.84.1"
+    "svix": "^1.84.1",
+    "zod": "^4.3.5"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",

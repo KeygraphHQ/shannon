@@ -21,34 +21,51 @@ model User {
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
+  invitations Invitation[]
+
+  @@index([createdAt])
 }
 
 // Organization (tenant/workspace)
 model Organization {
-  id        String   @id @default(cuid())
-  name      String
-  slug      String   @unique
-  plan      String   @default("free") // free, pro, enterprise
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  plan        String    @default("free") // free, pro, enterprise
+  logoUrl     String?
+  require2FA  Boolean   @default(false) // Enterprise feature: enforce 2FA for all members
+  deletedAt   DateTime? // Soft delete: set to current time when deleted, purged after 30 days
+  scheduledDeletionAt DateTime? // When the org will be permanently deleted
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   memberships OrganizationMembership[]
   auditLogs   AuditLog[]
+  projects    Project[]
+  scans       Scan[]
+  invitations Invitation[]
+
+  @@index([deletedAt])
+  @@index([plan])
+  @@index([createdAt])
 }
 
 // Organization membership with role
 model OrganizationMembership {
-  id             String   @id @default(cuid())
+  id             String    @id @default(cuid())
   userId         String
   organizationId String
-  role           String   @default("owner") // owner, admin, member, viewer
-  createdAt      DateTime @default(now())
+  role           String    @default("owner") // owner, admin, member, viewer
+  createdAt      DateTime  @default(now())
+  lastActiveAt   DateTime?
 
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([userId, organizationId])
   @@index([organizationId])
+  @@index([userId])
+  @@index([role])
 }
 
 // Audit log for security events
@@ -68,4 +85,99 @@ model AuditLog {
 
   @@index([organizationId])
   @@index([createdAt])
+  @@index([action])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, action])
+}
+
+// Project (grouping for scans)
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans        Scan[]
+
+  @@index([organizationId])
+}
+
+// Security scan
+model Scan {
+  id              String    @id @default(cuid())
+  organizationId  String
+  projectId       String?
+  targetUrl       String
+  status          String    @default("pending") // pending, running, completed, failed
+  workflowId      String?   // Temporal workflow ID
+  progress        Int       @default(0) // 0-100
+  currentPhase    String?   // pre-recon, recon, vuln-analysis, exploitation, reporting
+  startedAt       DateTime  @default(now())
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  findings     Finding[]
+
+  @@index([organizationId])
+  @@index([projectId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, status])
+}
+
+// Team invitation
+model Invitation {
+  id             String   @id @default(cuid())
+  token          String   @unique @default(cuid())
+  email          String
+  organizationId String
+  role           String   @default("member") // owner, admin, member, viewer
+  invitedById    String
+  status         String   @default("pending") // pending, accepted, expired, revoked
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  acceptedAt     DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy    User         @relation(fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([email])
+  @@index([token])
+  @@index([expiresAt])
+  @@index([status])
+  @@index([organizationId, status])
+}
+
+// Security finding (vulnerability)
+model Finding {
+  id          String   @id @default(cuid())
+  scanId      String
+  title       String
+  description String
+  severity    String // critical, high, medium, low, info
+  category    String // injection, xss, auth, authz, ssrf, etc.
+  status      String   @default("open") // open, fixed, accepted_risk, false_positive
+  cvss        Float?
+  cwe         String?
+  remediation String?
+  evidence    Json?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([severity])
+  @@index([status])
+  @@index([category])
+  @@index([scanId, severity])
+  @@index([scanId, status])
 }
