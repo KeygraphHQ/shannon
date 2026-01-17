@@ -1,0 +1,498 @@
+openapi: 3.1.0
+info:
+  title: Shannon Reports API
+  version: 1.0.0
+  description: API endpoints for report generation, retrieval, and sharing
+
+servers:
+  - url: /api
+    description: Next.js API routes
+
+paths:
+  /reports:
+    get:
+      summary: List reports
+      description: List all reports for the current organization
+      operationId: listReports
+      tags: [Reports]
+      parameters:
+        - name: scanId
+          in: query
+          schema:
+            type: string
+          description: Filter by scan ID
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [GENERATING, COMPLETED, FAILED]
+        - name: type
+          in: query
+          schema:
+            type: string
+            enum: [EXECUTIVE, TECHNICAL, COMPLIANCE, CUSTOM]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+      responses:
+        '200':
+          description: List of reports
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  reports:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportSummary'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+    post:
+      summary: Generate report
+      description: Start generating a new report from a scan
+      operationId: generateReport
+      tags: [Reports]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateReportRequest'
+      responses:
+        '202':
+          description: Report generation started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '400':
+          description: Invalid request
+        '429':
+          description: Concurrent generation limit reached (5 per org)
+
+  /reports/{reportId}:
+    get:
+      summary: Get report details
+      description: Get detailed information about a report
+      operationId: getReport
+      tags: [Reports]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Report'
+        '404':
+          description: Report not found
+
+    delete:
+      summary: Delete report
+      description: Soft delete a report (org admin only)
+      operationId: deleteReport
+      tags: [Reports]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Report deleted
+        '403':
+          description: Admin permission required
+        '404':
+          description: Report not found
+
+  /reports/{reportId}/export/{format}:
+    get:
+      summary: Export report
+      description: Download report in specified format
+      operationId: exportReport
+      tags: [Reports]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: format
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [pdf, html, json, csv]
+      responses:
+        '200':
+          description: Report file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+            text/csv:
+              schema:
+                type: string
+        '404':
+          description: Report not found
+
+  /reports/{reportId}/shares:
+    get:
+      summary: List report shares
+      description: List all share links for a report
+      operationId: listReportShares
+      tags: [Sharing]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: List of shares
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  shares:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReportShare'
+
+    post:
+      summary: Create share link
+      description: Create a new share link for a report
+      operationId: createShare
+      tags: [Sharing]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateShareRequest'
+      responses:
+        '201':
+          description: Share created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ShareCreatedResponse'
+
+  /reports/{reportId}/shares/{shareId}:
+    delete:
+      summary: Revoke share
+      description: Revoke a share link
+      operationId: revokeShare
+      tags: [Sharing]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: shareId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Share revoked
+
+  /reports/share/{token}:
+    get:
+      summary: Access shared report
+      description: View a report via share token (no auth required)
+      operationId: accessSharedReport
+      tags: [Sharing]
+      security: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Shared report view
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SharedReportView'
+        '404':
+          description: Invalid, expired, or revoked link
+
+  /reports/{reportId}/access-logs:
+    get:
+      summary: Get access logs
+      description: Get audit trail for report access
+      operationId: getAccessLogs
+      tags: [Reports]
+      parameters:
+        - name: reportId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Access logs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  logs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/AccessLog'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+components:
+  schemas:
+    GenerateReportRequest:
+      type: object
+      required:
+        - scanId
+        - type
+      properties:
+        scanId:
+          type: string
+          description: ID of the scan to generate report from
+        type:
+          type: string
+          enum: [EXECUTIVE, TECHNICAL, COMPLIANCE, CUSTOM]
+        templateId:
+          type: string
+          description: Custom template ID (required for CUSTOM type)
+        title:
+          type: string
+          description: Report title (auto-generated if not provided)
+        frameworkIds:
+          type: array
+          items:
+            type: string
+          description: Compliance frameworks to include
+          example: ['owasp-top-10-2021', 'pci-dss-4.0']
+
+    Report:
+      type: object
+      properties:
+        id:
+          type: string
+        scanId:
+          type: string
+        type:
+          type: string
+          enum: [EXECUTIVE, TECHNICAL, COMPLIANCE, CUSTOM]
+        status:
+          type: string
+          enum: [GENERATING, COMPLETED, FAILED]
+        title:
+          type: string
+        generatedAt:
+          type: string
+          format: date-time
+        generatedBy:
+          $ref: '#/components/schemas/UserSummary'
+        findingsCount:
+          type: integer
+        criticalCount:
+          type: integer
+        highCount:
+          type: integer
+        mediumCount:
+          type: integer
+        lowCount:
+          type: integer
+        riskScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        frameworkIds:
+          type: array
+          items:
+            type: string
+        createdAt:
+          type: string
+          format: date-time
+
+    ReportSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        scanId:
+          type: string
+        type:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        findingsCount:
+          type: integer
+        riskScore:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    CreateShareRequest:
+      type: object
+      properties:
+        recipientEmail:
+          type: string
+          format: email
+        recipientName:
+          type: string
+        message:
+          type: string
+          maxLength: 500
+        expiresInDays:
+          type: integer
+          minimum: 1
+          maximum: 30
+          default: 7
+        maxAccesses:
+          type: integer
+          minimum: 1
+
+    ShareCreatedResponse:
+      type: object
+      properties:
+        shareId:
+          type: string
+        shareUrl:
+          type: string
+          format: uri
+        expiresAt:
+          type: string
+          format: date-time
+
+    ReportShare:
+      type: object
+      properties:
+        id:
+          type: string
+        recipientEmail:
+          type: string
+        recipientName:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+        accessCount:
+          type: integer
+        maxAccesses:
+          type: integer
+        revokedAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+
+    SharedReportView:
+      type: object
+      properties:
+        report:
+          $ref: '#/components/schemas/Report'
+        watermark:
+          type: string
+        expiresAt:
+          type: string
+          format: date-time
+
+    AccessLog:
+      type: object
+      properties:
+        id:
+          type: string
+        accessedAt:
+          type: string
+          format: date-time
+        accessedBy:
+          type: string
+        accessType:
+          type: string
+          enum: [view, download_pdf, download_html, download_json, download_csv]
+        ipAddress:
+          type: string
+        viaShare:
+          type: boolean
+
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+  securitySchemes:
+    clerk:
+      type: http
+      scheme: bearer
+      description: Clerk session token
+
+security:
+  - clerk: []

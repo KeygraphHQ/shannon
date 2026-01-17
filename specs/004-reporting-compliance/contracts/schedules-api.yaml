@@ -1,0 +1,609 @@
+openapi: 3.1.0
+info:
+  title: Shannon Report Schedules API
+  version: 1.0.0
+  description: API endpoints for automated report scheduling
+
+servers:
+  - url: /api
+    description: Next.js API routes
+
+paths:
+  /schedules:
+    get:
+      summary: List schedules
+      description: List all report schedules for the organization
+      operationId: listSchedules
+      tags: [Schedules]
+      parameters:
+        - name: projectId
+          in: query
+          schema:
+            type: string
+          description: Filter by project
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ACTIVE, PAUSED, FAILED]
+      responses:
+        '200':
+          description: List of schedules
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  schedules:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Schedule'
+
+    post:
+      summary: Create schedule
+      description: Create a new report schedule
+      operationId: createSchedule
+      tags: [Schedules]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScheduleRequest'
+      responses:
+        '201':
+          description: Schedule created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Invalid request
+
+  /schedules/{scheduleId}:
+    get:
+      summary: Get schedule
+      description: Get schedule details
+      operationId: getSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '404':
+          description: Schedule not found
+
+    patch:
+      summary: Update schedule
+      description: Update schedule configuration
+      operationId: updateSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateScheduleRequest'
+      responses:
+        '200':
+          description: Schedule updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+
+    delete:
+      summary: Delete schedule
+      description: Delete a report schedule
+      operationId: deleteSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Schedule deleted
+        '404':
+          description: Schedule not found
+
+  /schedules/{scheduleId}/pause:
+    post:
+      summary: Pause schedule
+      description: Pause an active schedule
+      operationId: pauseSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule paused
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Schedule not active
+
+  /schedules/{scheduleId}/resume:
+    post:
+      summary: Resume schedule
+      description: Resume a paused schedule
+      operationId: resumeSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Schedule resumed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Schedule'
+        '400':
+          description: Schedule not paused
+
+  /schedules/{scheduleId}/trigger:
+    post:
+      summary: Trigger schedule
+      description: Manually trigger a scheduled report generation
+      operationId: triggerSchedule
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '202':
+          description: Report generation triggered
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runId:
+                    type: string
+                  message:
+                    type: string
+
+  /schedules/{scheduleId}/runs:
+    get:
+      summary: List schedule runs
+      description: Get history of schedule executions
+      operationId: listScheduleRuns
+      tags: [Schedules]
+      parameters:
+        - name: scheduleId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+      responses:
+        '200':
+          description: List of runs
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  runs:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ScheduleRun'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+
+  /templates:
+    get:
+      summary: List templates
+      description: List all report templates for the organization
+      operationId: listTemplates
+      tags: [Templates]
+      responses:
+        '200':
+          description: List of templates
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  templates:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Template'
+
+    post:
+      summary: Create template
+      description: Create a custom report template
+      operationId: createTemplate
+      tags: [Templates]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTemplateRequest'
+      responses:
+        '201':
+          description: Template created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+
+  /templates/{templateId}:
+    get:
+      summary: Get template
+      description: Get template details
+      operationId: getTemplate
+      tags: [Templates]
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Template'
+
+    patch:
+      summary: Update template
+      description: Update template configuration
+      operationId: updateTemplate
+      tags: [Templates]
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateTemplateRequest'
+      responses:
+        '200':
+          description: Template updated
+
+    delete:
+      summary: Delete template
+      description: Delete a custom template
+      operationId: deleteTemplate
+      tags: [Templates]
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Template deleted
+
+  /templates/{templateId}/default:
+    post:
+      summary: Set as default
+      description: Set template as organization default
+      operationId: setDefaultTemplate
+      tags: [Templates]
+      parameters:
+        - name: templateId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Template set as default
+
+components:
+  schemas:
+    CreateScheduleRequest:
+      type: object
+      required:
+        - name
+        - projectId
+        - frequency
+        - recipients
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        projectId:
+          type: string
+        frequency:
+          type: string
+          enum: [DAILY, WEEKLY, MONTHLY, CUSTOM]
+        cronExpression:
+          type: string
+          description: Required for CUSTOM frequency
+        timezone:
+          type: string
+          default: UTC
+        templateId:
+          type: string
+        reportType:
+          type: string
+          enum: [EXECUTIVE, TECHNICAL, COMPLIANCE, CUSTOM]
+          default: EXECUTIVE
+        frameworkIds:
+          type: array
+          items:
+            type: string
+        recipients:
+          type: array
+          items:
+            type: string
+            format: email
+          minItems: 1
+          maxItems: 10
+        skipIfNoNewScans:
+          type: boolean
+          default: true
+
+    UpdateScheduleRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        frequency:
+          type: string
+          enum: [DAILY, WEEKLY, MONTHLY, CUSTOM]
+        cronExpression:
+          type: string
+        timezone:
+          type: string
+        templateId:
+          type: string
+        reportType:
+          type: string
+          enum: [EXECUTIVE, TECHNICAL, COMPLIANCE, CUSTOM]
+        frameworkIds:
+          type: array
+          items:
+            type: string
+        recipients:
+          type: array
+          items:
+            type: string
+            format: email
+          maxItems: 10
+        skipIfNoNewScans:
+          type: boolean
+
+    Schedule:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        projectId:
+          type: string
+        projectName:
+          type: string
+        frequency:
+          type: string
+        cronExpression:
+          type: string
+        timezone:
+          type: string
+        templateId:
+          type: string
+        templateName:
+          type: string
+        reportType:
+          type: string
+        frameworkIds:
+          type: array
+          items:
+            type: string
+        recipients:
+          type: array
+          items:
+            type: string
+        skipIfNoNewScans:
+          type: boolean
+        status:
+          type: string
+          enum: [ACTIVE, PAUSED, FAILED]
+        lastRunAt:
+          type: string
+          format: date-time
+        lastRunStatus:
+          type: string
+        nextRunAt:
+          type: string
+          format: date-time
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+
+    ScheduleRun:
+      type: object
+      properties:
+        id:
+          type: string
+        startedAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [running, completed, skipped, failed]
+        reportId:
+          type: string
+        skipReason:
+          type: string
+        errorMessage:
+          type: string
+
+    CreateTemplateRequest:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 100
+        description:
+          type: string
+        logoUrl:
+          type: string
+          format: uri
+        primaryColor:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        secondaryColor:
+          type: string
+          pattern: '^#[0-9A-Fa-f]{6}$'
+        sections:
+          type: array
+          items:
+            type: string
+            enum:
+              - executive_summary
+              - risk_score
+              - findings_overview
+              - findings_detail
+              - compliance_mapping
+              - remediation_timeline
+              - appendices
+        customContent:
+          type: object
+          properties:
+            headerText:
+              type: string
+            footerText:
+              type: string
+            disclaimer:
+              type: string
+
+    UpdateTemplateRequest:
+      type: object
+      properties:
+        name:
+          type: string
+        description:
+          type: string
+        logoUrl:
+          type: string
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        sections:
+          type: array
+          items:
+            type: string
+        customContent:
+          type: object
+
+    Template:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        logoUrl:
+          type: string
+        primaryColor:
+          type: string
+        secondaryColor:
+          type: string
+        sections:
+          type: array
+          items:
+            type: string
+        customContent:
+          type: object
+        isDefault:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+        createdBy:
+          $ref: '#/components/schemas/UserSummary'
+
+    UserSummary:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        email:
+          type: string
+
+    Pagination:
+      type: object
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+
+  securitySchemes:
+    clerk:
+      type: http
+      scheme: bearer
+
+security:
+  - clerk: []

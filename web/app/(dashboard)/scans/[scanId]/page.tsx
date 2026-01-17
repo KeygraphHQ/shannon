@@ -11,6 +11,7 @@ import {
   Eye,
 } from "lucide-react";
 import { SeverityBadge, SeverityCount } from "@/components/severity-badge";
+import { ScanDetailTabs } from "@/components/scans/ScanDetailTabs";
 
 export default async function ScanPage({
   params,
@@ -142,119 +143,126 @@ export default async function ScanPage({
         </div>
       )}
 
-      {/* Findings List */}
-      {scan.status === "COMPLETED" && (scan.findings?.length ?? 0) > 0 ? (
-        <div className="rounded-lg border border-gray-200 bg-white">
-          <div className="border-b border-gray-200 px-6 py-4">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Vulnerability Findings
-            </h2>
-            <p className="mt-1 text-sm text-gray-500">
-              Security issues discovered during the scan
-            </p>
-          </div>
-
-          <div className="divide-y divide-gray-200">
-            {scan.findings?.map((finding) => (
-              <div key={finding.id} className="p-6">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <div className="flex items-center gap-3">
-                      <h3 className="font-semibold text-gray-900">
-                        {finding.title}
-                      </h3>
-                      <SeverityBadge
-                        severity={
-                          finding.severity as
-                            | "critical"
-                            | "high"
-                            | "medium"
-                            | "low"
-                            | "info"
-                        }
-                        size="sm"
-                      />
-                      <FindingStatusBadge status={finding.status} />
-                    </div>
-
-                    <p className="mt-2 text-sm text-gray-600 line-clamp-2">
-                      {finding.description}
-                    </p>
-
-                    <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
-                      <span className="rounded-full bg-gray-100 px-2.5 py-0.5 font-medium capitalize">
-                        {finding.category}
-                      </span>
-                      {finding.cwe && (
-                        <span className="text-xs">{finding.cwe}</span>
-                      )}
-                      {finding.cvss && (
-                        <span className="text-xs">CVSS: {finding.cvss}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <Link
-                    href={`/dashboard/findings/${finding.id}`}
-                    className="ml-4 inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors flex-shrink-0"
-                  >
-                    <Eye className="h-4 w-4" />
-                    View Details
-                  </Link>
-                </div>
-
-                {finding.remediation && (
-                  <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-4">
-                    <p className="text-sm font-medium text-blue-900">
-                      Remediation
-                    </p>
-                    <p className="mt-1 text-sm text-blue-800 line-clamp-2">
-                      {finding.remediation}
-                    </p>
-                  </div>
-                )}
+      {/* Findings and Compliance Tabs */}
+      <ScanDetailTabs
+        scanId={scan.id}
+        scanStatus={scan.status}
+        showCompliance={scan.status === "COMPLETED"}
+        findingsContent={
+          scan.status === "COMPLETED" && (scan.findings?.length ?? 0) > 0 ? (
+            <div className="rounded-lg border border-gray-200 bg-white">
+              <div className="border-b border-gray-200 px-6 py-4">
+                <h2 className="text-lg font-semibold text-gray-900">
+                  Vulnerability Findings
+                </h2>
+                <p className="mt-1 text-sm text-gray-500">
+                  Security issues discovered during the scan
+                </p>
               </div>
-            ))}
-          </div>
-        </div>
-      ) : scan.status === "COMPLETED" ? (
-        <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
-            <FileText className="h-8 w-8 text-emerald-600" />
-          </div>
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">
-            No Vulnerabilities Found
-          </h3>
-          <p className="mt-2 text-sm text-gray-500">
-            This scan did not identify any security issues. Your application
-            appears to be secure based on our tests.
-          </p>
-        </div>
-      ) : scan.status === "FAILED" ? (
-        <div className="rounded-lg border border-red-200 bg-red-50 p-12 text-center">
-          <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
-            <AlertTriangle className="h-8 w-8 text-red-600" />
-          </div>
-          <h3 className="mt-4 text-lg font-semibold text-red-900">
-            Scan Failed
-          </h3>
-          <p className="mt-2 text-sm text-red-700">
-            The scan encountered an error and could not complete. Please try
-            again or contact support if the issue persists.
-          </p>
-        </div>
-      ) : (
-        <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
-          <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
-          <h3 className="mt-4 text-lg font-semibold text-gray-900">
-            Scan in Progress
-          </h3>
-          <p className="mt-2 text-sm text-gray-500">
-            Shannon is analyzing your application for security vulnerabilities.
-            This typically takes 10-30 minutes.
-          </p>
-        </div>
-      )}
+
+              <div className="divide-y divide-gray-200">
+                {scan.findings?.map((finding) => (
+                  <div key={finding.id} className="p-6">
+                    <div className="flex items-start justify-between">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-3">
+                          <h3 className="font-semibold text-gray-900">
+                            {finding.title}
+                          </h3>
+                          <SeverityBadge
+                            severity={
+                              finding.severity as
+                                | "critical"
+                                | "high"
+                                | "medium"
+                                | "low"
+                                | "info"
+                            }
+                            size="sm"
+                          />
+                          <FindingStatusBadge status={finding.status} />
+                        </div>
+
+                        <p className="mt-2 text-sm text-gray-600 line-clamp-2">
+                          {finding.description}
+                        </p>
+
+                        <div className="mt-3 flex items-center gap-4 text-sm text-gray-500">
+                          <span className="rounded-full bg-gray-100 px-2.5 py-0.5 font-medium capitalize">
+                            {finding.category}
+                          </span>
+                          {finding.cwe && (
+                            <span className="text-xs">{finding.cwe}</span>
+                          )}
+                          {finding.cvss && (
+                            <span className="text-xs">CVSS: {finding.cvss}</span>
+                          )}
+                        </div>
+                      </div>
+
+                      <Link
+                        href={`/dashboard/findings/${finding.id}`}
+                        className="ml-4 inline-flex items-center gap-2 rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 transition-colors flex-shrink-0"
+                      >
+                        <Eye className="h-4 w-4" />
+                        View Details
+                      </Link>
+                    </div>
+
+                    {finding.remediation && (
+                      <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-4">
+                        <p className="text-sm font-medium text-blue-900">
+                          Remediation
+                        </p>
+                        <p className="mt-1 text-sm text-blue-800 line-clamp-2">
+                          {finding.remediation}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : scan.status === "COMPLETED" ? (
+            <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-emerald-100">
+                <FileText className="h-8 w-8 text-emerald-600" />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold text-gray-900">
+                No Vulnerabilities Found
+              </h3>
+              <p className="mt-2 text-sm text-gray-500">
+                This scan did not identify any security issues. Your application
+                appears to be secure based on our tests.
+              </p>
+            </div>
+          ) : scan.status === "FAILED" ? (
+            <div className="rounded-lg border border-red-200 bg-red-50 p-12 text-center">
+              <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-red-100">
+                <AlertTriangle className="h-8 w-8 text-red-600" />
+              </div>
+              <h3 className="mt-4 text-lg font-semibold text-red-900">
+                Scan Failed
+              </h3>
+              <p className="mt-2 text-sm text-red-700">
+                The scan encountered an error and could not complete. Please try
+                again or contact support if the issue persists.
+              </p>
+            </div>
+          ) : (
+            <div className="rounded-lg border border-gray-200 bg-white p-12 text-center">
+              <div className="mx-auto h-16 w-16 animate-spin rounded-full border-4 border-gray-200 border-t-indigo-600" />
+              <h3 className="mt-4 text-lg font-semibold text-gray-900">
+                Scan in Progress
+              </h3>
+              <p className="mt-2 text-sm text-gray-500">
+                Shannon is analyzing your application for security vulnerabilities.
+                This typically takes 10-30 minutes.
+              </p>
+            </div>
+          )
+        }
+      />
     </div>
   );
 }
