@@ -19,9 +19,10 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  memberships OrganizationMembership[]
-  auditLogs   AuditLog[]
-  invitations Invitation[]
+  memberships  OrganizationMembership[]
+  auditLogs    AuditLog[]
+  invitations  Invitation[]
+  findingNotes FindingNote[]
 
   @@index([createdAt])
 }
@@ -244,7 +245,8 @@ model Finding {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  scan Scan @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  scan  Scan          @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  notes FindingNote[]
 
   @@index([scanId])
   @@index([severity])
@@ -252,6 +254,22 @@ model Finding {
   @@index([category])
   @@index([scanId, severity])
   @@index([scanId, status])
+  @@index([status, severity]) // Cross-scan dashboard queries
+}
+
+// Finding note (user comment on a finding)
+model FindingNote {
+  id        String   @id @default(cuid())
+  findingId String
+  userId    String? // Nullable for onDelete: SetNull
+  content   String   @db.VarChar(10000)
+  createdAt DateTime @default(now())
+
+  finding Finding @relation(fields: [findingId], references: [id], onDelete: Cascade)
+  user    User?   @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([findingId])
+  @@index([findingId, createdAt])
 }
 
 // Authentication method enum

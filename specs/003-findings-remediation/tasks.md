@@ -19,13 +19,13 @@
 
 **Purpose**: Database schema updates and shared types
 
-- [ ] T001 Create Prisma migration for FindingNote model in web/prisma/migrations/
-- [ ] T002 [P] Add FindingNote model to web/prisma/schema.prisma with relations to Finding and User
-- [ ] T003 [P] Add notes relation to existing Finding model in web/prisma/schema.prisma
-- [ ] T004 [P] Add findingNotes relation to existing User model in web/prisma/schema.prisma
-- [ ] T005 [P] Add composite index [status, severity] on Finding for cross-scan queries in web/prisma/schema.prisma
-- [ ] T006 Run prisma migrate dev to apply schema changes
-- [ ] T007 [P] Create shared TypeScript types for findings in web/lib/types/findings.ts
+- [x] T001 Create Prisma migration for FindingNote model in web/prisma/migrations/
+- [x] T002 [P] Add FindingNote model to web/prisma/schema.prisma with relations to Finding and User
+- [x] T003 [P] Add notes relation to existing Finding model in web/prisma/schema.prisma
+- [x] T004 [P] Add findingNotes relation to existing User model in web/prisma/schema.prisma
+- [x] T005 [P] Add composite index [status, severity] on Finding for cross-scan queries in web/prisma/schema.prisma
+- [x] T006 Run prisma migrate dev to apply schema changes
+- [x] T007 [P] Create shared TypeScript types for findings in web/lib/types/findings.ts
 
 ---
 
@@ -35,11 +35,11 @@
 
 **CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T008 Create web/lib/actions/findings.ts with "use server" directive and imports
-- [ ] T009 Implement getFinding(findingId) server action with org access check in web/lib/actions/findings.ts
-- [ ] T010 Implement updateFindingStatus(findingId, status, justification?) server action with audit log in web/lib/actions/findings.ts
-- [ ] T011 [P] Create web/components/findings/ directory for all finding components
-- [ ] T012 [P] Create findings route group at web/app/(dashboard)/findings/ with layout.tsx
+- [x] T008 Create web/lib/actions/findings.ts with "use server" directive and imports
+- [x] T009 Implement getFinding(findingId) server action with org access check in web/lib/actions/findings.ts
+- [x] T010 Implement updateFindingStatus(findingId, status, justification?) server action with audit log in web/lib/actions/findings.ts
+- [x] T011 [P] Create web/components/findings/ directory for all finding components
+- [x] T012 [P] Create findings route group at web/app/(dashboard)/findings/ with layout.tsx
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
