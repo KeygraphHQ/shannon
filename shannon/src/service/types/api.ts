@@ -99,7 +99,7 @@ export const CreateScanRequestSchema = z.object({
     .object({
       authMethod: AuthMethodEnum.optional(),
       phases: z.array(z.string()).optional(),
-      options: z.record(z.unknown()).optional(),
+      options: z.record(z.string(), z.unknown()).optional(),
     })
     .optional(),
   /** Container isolation configuration (Epic 006) */
@@ -209,7 +209,7 @@ export const BasicAuthCredentialsSchema = z.object({
 export const SsoCredentialsSchema = z.object({
   provider: z.string(),
   idpUrl: z.string().url(),
-  credentials: z.record(z.string()),
+  credentials: z.record(z.string(), z.string()),
 });
 
 export const ValidationRequestSchema = z.object({

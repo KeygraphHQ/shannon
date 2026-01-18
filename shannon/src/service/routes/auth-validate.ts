@@ -201,7 +201,7 @@ Credentials are NOT stored or logged - only the validation outcome is recorded.
       // Log validation error (NOT credentials)
       request.log.warn({
         requestId: request.id,
-        errors: parseResult.error.errors.map(e => ({
+        errors: parseResult.error.issues.map(e => ({
           path: e.path.join('.'),
           message: e.message,
         })),
@@ -214,7 +214,7 @@ Credentials are NOT stored or logged - only the validation outcome is recorded.
         detail: 'Request body validation failed',
         requestId: request.id,
         timestamp: new Date().toISOString(),
-        errors: parseResult.error.errors.map(e => ({
+        errors: parseResult.error.issues.map(e => ({
           field: e.path.join('.'),
           message: e.message,
         })),

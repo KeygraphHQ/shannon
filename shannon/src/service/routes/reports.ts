@@ -125,7 +125,7 @@ export async function reportRoutes(fastify: FastifyInstance): Promise<void> {
           detail: `Invalid request: ${parseResult.error.message}`,
           requestId: request.id,
           timestamp: new Date().toISOString(),
-          errors: parseResult.error.errors.map((e) => ({
+          errors: parseResult.error.issues.map((e) => ({
             code: 'INVALID_FIELD',
             field: e.path.join('.'),
             message: e.message,

@@ -46,7 +46,7 @@
     "otpauth": "^9.4.1",
     "pg": "^8.17.1",
     "playwright": "^1.57.0",
-    "zod": "^3.22.4",
+    "zod": "^4.3.5",
     "zx": "^8.0.0"
   },
   "devDependencies": {

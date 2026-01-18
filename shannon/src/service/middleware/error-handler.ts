@@ -64,7 +64,7 @@ function zodErrorToProblemDetail(
   request: FastifyRequest,
   error: ZodError
 ): ProblemDetail {
-  const errors = error.errors.map((err) => ({
+  const errors = error.issues.map((err) => ({
     code: 'VALIDATION_ERROR',
     field: err.path.join('.'),
     message: err.message,
