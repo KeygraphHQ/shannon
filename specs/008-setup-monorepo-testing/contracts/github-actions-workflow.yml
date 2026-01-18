@@ -1,0 +1,70 @@
+# GitHub Actions Workflow Contract
+# Location: .github/workflows/test.yml
+#
+# This file defines the expected CI workflow structure.
+# Actual implementation should match this specification.
+
+name: Tests
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # Safety limit
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build packages
+        run: npm run build
+
+      - name: Run tests with coverage
+        run: npm run test:coverage
+
+      - name: Upload coverage report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: coverage-report
+          path: coverage/
+          retention-days: 7
+
+  # Optional: Separate job for coverage threshold check
+  coverage-check:
+    name: Coverage Threshold Check
+    runs-on: ubuntu-latest
+    needs: test
+
+    steps:
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+
+      # Note: Implementation may use codecov, coveralls, or custom script
+      # to enforce 70-80% coverage on changed files
+      - name: Check coverage thresholds
+        run: |
+          echo "Coverage threshold check for new/changed code"
+          echo "Threshold: 70-80%"
+          # Actual implementation will parse lcov.info and check thresholds

@@ -5,6 +5,12 @@ node_modules/
 audit-logs/
 dist/
 
+# Testing
+coverage/
+shannon/coverage/
+ghostshell/coverage/
+.vitest-cache/
+
 # Next.js (GhostShell)
 ghostshell/.next/
 ghostshell/out/

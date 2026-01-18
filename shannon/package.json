@@ -11,6 +11,9 @@
     "temporal:query": "node dist/temporal/query.js",
     "service:start": "node dist/service/index.js",
     "service:dev": "node --watch dist/service/index.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:service": "vitest run --dir src/service",
     "test:service:watch": "vitest --dir src/service"
   },
@@ -50,6 +53,7 @@
     "@types/js-yaml": "^4.0.9",
     "@types/node": "^25.0.3",
     "@types/pg": "^8.16.0",
+    "@vitest/coverage-v8": "^4.0.17",
     "typescript": "^5.9.3",
     "vitest": "^4.0.17"
   }
