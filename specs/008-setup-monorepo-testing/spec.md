@@ -5,6 +5,12 @@
 **Status**: Draft
 **Input**: User description: "Implementar infraestrutura de testes automatizados para monorepo Shannon com Vitest, Testing Library e GitHub Actions CI"
 
+## Clarifications
+
+### Session 2026-01-18
+
+- Q: Should code coverage be enforced as a quality gate in CI? → A: No enforcement - coverage reports are informational only
+
 ## User Scenarios & Testing *(mandatory)*
 
 ### User Story 1 - Developer Runs Local Tests (Priority: P1)
@@ -92,7 +98,7 @@ As a team lead, I want to see code coverage reports for the monorepo, so that I 
 - **FR-006**: System MUST display clear, actionable error messages when tests fail, including file path, test name, and failure reason
 - **FR-007**: System MUST integrate with the CI platform to automatically run tests on pull requests
 - **FR-008**: System MUST report test pass/fail status as a check on pull requests
-- **FR-009**: System MUST generate code coverage reports showing percentage coverage per package
+- **FR-009**: System MUST generate code coverage reports showing percentage coverage per package (informational only, no enforcement threshold)
 - **FR-010**: System MUST support watch mode for continuous test execution during development
 - **FR-011**: System MUST execute tests in parallel where possible to minimize execution time
 - **FR-012**: System MUST support test filtering to run specific tests or test files by name pattern
@@ -114,7 +120,7 @@ As a team lead, I want to see code coverage reports for the monorepo, so that I 
 - **SC-003**: 100% of pull requests have automated test validation before merge
 - **SC-004**: Test failures provide enough information for developers to identify the issue without additional debugging in 90% of cases
 - **SC-005**: New developers can write and run their first test within 15 minutes of reading documentation
-- **SC-006**: Code coverage reports are available for every CI run
+- **SC-006**: Code coverage reports are available for every CI run (informational, does not block merge)
 - **SC-007**: Both packages (Shannon and GhostShell) have independent test execution capability
 
 ## Assumptions
