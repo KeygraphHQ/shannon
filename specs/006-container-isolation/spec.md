@@ -166,7 +166,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 
 - **Network policy enforcement failure**: If network policies cannot be applied, container creation fails. Scan never starts without network isolation.
 
-- **Concurrent container limits**: Maximum 50 containers per node (configurable). Excess scans are queued at the service layer.
+- **Concurrent container limits**: Per NFR-003, excess scans are queued at the service layer when node capacity is reached.
 
 ## Requirements *(mandatory)*
 
@@ -193,7 +193,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 - **FR-021**: System MUST block container access to internal Kubernetes services
 - **FR-022**: System MUST block container access to other scan containers
 - **FR-023**: System MUST block container access to cloud metadata endpoints (SSRF protection)
-- **FR-024**: System MUST log all network egress for audit purposes
+- **FR-024**: System MUST log all network egress for audit purposes; logs MUST be retained for minimum 1 year per constitution Observability principle
 - **FR-025**: System MUST allow DNS resolution for external hostnames only
 
 **Lifecycle Management:**
@@ -225,7 +225,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 - **NFR-003**: System MUST support 50 concurrent containers per node minimum
 - **NFR-004**: Resource overhead per container <100MB memory for container runtime
 - **NFR-005**: Network policy enforcement latency <100ms
-- **NFR-006**: 99.9% container creation success rate (excluding resource exhaustion)
+- **NFR-006**: 99.9% container creation success rate per rolling 30-day period (excluding resource exhaustion)
 
 ### Key Entities
 

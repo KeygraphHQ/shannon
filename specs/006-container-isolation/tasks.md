@@ -50,7 +50,7 @@ Based on plan.md structure:
 - [x] T011 Add KubernetesClient authentication (loadFromDefault for in-cluster) in shannon/src/container/kubernetes-client.ts
 - [x] T012 Add Prisma schema for ScanContainer model in ghostshell/prisma/schema.prisma per data-model.md
 - [x] T013 Add Prisma schema for ContainerConfig model in ghostshell/prisma/schema.prisma
-- [x] T014 Run Prisma migration for container isolation tables (schema validated, migration pending database)
+- [x] T014 Run Prisma migration for container isolation tables: `cd ghostshell && npx prisma migrate dev --name add_container_isolation`
 - [x] T015 [P] Create ResourceLimits plan defaults (free/pro/enterprise) in shannon/src/container/resource-limits.ts
 - [x] T016 [P] Implement getPlanLimits() function in shannon/src/container/resource-limits.ts
 - [x] T017 Implement toK8sResourceLimits() converter in shannon/src/container/resource-limits.ts
@@ -224,6 +224,12 @@ Based on plan.md structure:
 - [ ] T098 Add integration test for cleanup job in shannon/tests/integration/container/cleanup.test.ts
 - [ ] T099 Run quickstart.md validation to verify local development setup
 - [ ] T100 Update CLAUDE.md with container isolation documentation
+
+### NFR Validation
+
+- [ ] T101 [NFR-004] Add runtime overhead measurement test (<100MB per container) in shannon/tests/integration/container/overhead.test.ts
+- [ ] T102 [NFR-005] Add network policy latency test (<100ms enforcement) in shannon/tests/integration/container/network.test.ts
+- [ ] T103 [NFR-006] Implement container creation success rate tracking in shannon/src/container/metrics.ts
 
 ---
 

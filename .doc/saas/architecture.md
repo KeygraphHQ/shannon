@@ -269,8 +269,12 @@ erDiagram
     Scan ||--o{ Report : "generates"
     Scan ||--o{ ReportJob : "generates"
     Scan ||--o| Scan : "retries"
+    Scan ||--o| ScanContainer : "executes in"
 
     APIKey ||--o{ Scan : "initiates"
+
+    ScanContainer ||--o| EphemeralVolume : "mounts"
+    ScanContainer ||--o| NetworkPolicy : "applies"
 
     Finding ||--o{ FindingNote : "has"
     Finding ||--o{ ComplianceMapping : "maps to"
@@ -333,6 +337,34 @@ erDiagram
         string status
         int progress
         string outputPath
+    }
+
+    ScanContainer {
+        string id PK
+        string scanId FK
+        string podName
+        string status
+        string cpuLimit
+        string memoryLimit
+        string storageLimit
+        datetime startedAt
+        datetime terminatedAt
+    }
+
+    EphemeralVolume {
+        string id PK
+        string containerId FK
+        string mountPath
+        string sizeLimit
+        boolean destroyed
+    }
+
+    NetworkPolicy {
+        string id PK
+        string containerId FK
+        string targetFqdn
+        string[] allowedEgress
+        string[] blockedRanges
     }
 
     Finding {

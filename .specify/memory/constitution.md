@@ -1,23 +1,22 @@
 <!--
 Sync Impact Report
 ==================
-Version change: 0.0.0 → 1.0.0
-Type: MAJOR (Initial constitution creation)
+Version change: 1.0.0 → 1.1.0
+Type: MINOR (New section added)
 
-Modified principles: N/A (initial version)
+Modified principles: N/A
 
 Added sections:
-- 7 Core Principles (Security-First, AI-Native, Multi-Tenant Isolation, Temporal-First Orchestration, Progressive Delivery, Observability-Driven, Simplicity)
-- Security & Compliance Requirements section
-- Quality Gates & Development Workflow section
-- Governance section
+- Package-Specific Testing Requirements (under Quality Gates & Development Workflow)
+  - GhostShell: Tests REQUIRED (70% coverage target)
+  - Shannon: Tests RECOMMENDED
 
-Removed sections: N/A (initial version)
+Removed sections: N/A
 
 Templates requiring updates:
-- ✅ .specify/templates/plan-template.md - No updates required (Constitution Check placeholder present)
-- ✅ .specify/templates/spec-template.md - No updates required (compatible with progressive delivery)
-- ✅ .specify/templates/tasks-template.md - No updates required (user story independence aligns)
+- ✅ .specify/templates/plan-template.md - No updates required
+- ✅ .specify/templates/spec-template.md - No updates required
+- ✅ .specify/templates/tasks-template.md - No updates required
 
 Follow-up TODOs: None
 -->
@@ -162,6 +161,24 @@ All code changes MUST pass through defined quality gates:
 - Commits MUST follow conventional commit format
 - PR descriptions MUST link to relevant specs/tasks
 
+**Package-Specific Testing Requirements:**
+
+*GhostShell (Web Application) - Tests REQUIRED:*
+- All new features and changes to `ghostshell/` MUST include corresponding tests
+- Unit tests MUST be written for utility functions, hooks, and business logic
+- Component tests MUST be written for React components
+- API route handlers MUST have integration tests
+- Minimum coverage target: 70% for lines, functions, branches, and statements
+- Use Vitest for test runner and `@testing-library/react` for component tests
+
+*Shannon (Pentest Engine) - Tests RECOMMENDED:*
+- Tests are RECOMMENDED but not strictly required due to AI-agent-driven execution nature
+- Unit tests SHOULD cover configuration parsing, error handling, and utility modules
+- Integration tests SHOULD verify Temporal workflow orchestration
+- Mocking patterns available in `shannon/__tests__/unit/mocking-example.test.ts`
+
+**Rationale:** GhostShell is the user-facing web application where bugs directly impact user experience and trust. Shannon's AI-agent execution is inherently exploratory, making comprehensive test coverage less practical.
+
 ## Governance
 
 This constitution supersedes all other development practices and guidelines. It represents the non-negotiable constraints for Shannon SaaS development.
@@ -187,4 +204,4 @@ This constitution supersedes all other development practices and guidelines. It 
 - Feedback and improvement suggestions are welcome
 - Context and rationale MUST be preserved for future understanding
 
-**Version**: 1.0.0 | **Ratified**: 2026-01-16 | **Last Amended**: 2026-01-16
+**Version**: 1.1.0 | **Ratified**: 2026-01-16 | **Last Amended**: 2026-01-18
