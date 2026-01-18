@@ -24,9 +24,9 @@ This is a monorepo restructure:
 
 **Purpose**: Ensure clean state before restructure begins
 
-- [ ] T001 Create backup branch with `git checkout -b backup-pre-restructure && git checkout 007-monorepo-restructure`
-- [ ] T002 Verify clean working directory with `git status` (no uncommitted changes)
-- [ ] T003 Document current file structure snapshot for rollback reference
+- [x] T001 Create backup branch with `git checkout -b backup-pre-restructure && git checkout 007-monorepo-restructure`
+- [x] T002 Verify clean working directory with `git status` (no uncommitted changes)
+- [x] T003 Document current file structure snapshot for rollback reference
 
 ---
 
@@ -38,19 +38,19 @@ This is a monorepo restructure:
 
 ### Implementation for User Story 1
 
-- [ ] T004 [US1] Create shannon/ directory structure with `mkdir -p shannon`
-- [ ] T005 [US1] Move src/ directory with `git mv src shannon/src`
-- [ ] T006 [P] [US1] Move prompts/ directory with `git mv prompts shannon/prompts`
-- [ ] T007 [P] [US1] Move configs/ directory with `git mv configs shannon/configs`
-- [ ] T008 [P] [US1] Move docker/ directory with `git mv docker shannon/docker`
-- [ ] T009 [P] [US1] Move mcp-server/ directory with `git mv mcp-server shannon/mcp-server`
-- [ ] T010 [US1] Move Dockerfile with `git mv Dockerfile shannon/Dockerfile`
-- [ ] T011 [US1] Move tsconfig.json with `git mv tsconfig.json shannon/tsconfig.json`
-- [ ] T012 [US1] Create shannon/package.json with dependencies from root package.json (see quickstart.md Step 2)
-- [ ] T013 [US1] Update shannon/tsconfig.json paths for new structure (baseUrl, outDir to dist/)
-- [ ] T014 [US1] Update internal import paths in shannon/src/ if any use absolute paths
-- [ ] T015 [US1] Verify Shannon builds with `cd shannon && npm install && npm run build`
-- [ ] T016 [US1] Verify Shannon tests pass with `cd shannon && npm run test:service`
+- [x] T004 [US1] Create shannon/ directory structure with `mkdir -p shannon`
+- [x] T005 [US1] Move src/ directory with `git mv src shannon/src`
+- [x] T006 [P] [US1] Move prompts/ directory with `git mv prompts shannon/prompts`
+- [x] T007 [P] [US1] Move configs/ directory with `git mv configs shannon/configs`
+- [x] T008 [P] [US1] Move docker/ directory with `git mv docker shannon/docker`
+- [x] T009 [P] [US1] Move mcp-server/ directory with `git mv mcp-server shannon/mcp-server`
+- [x] T010 [US1] Move Dockerfile with `git mv Dockerfile shannon/Dockerfile`
+- [x] T011 [US1] Move tsconfig.json with `git mv tsconfig.json shannon/tsconfig.json`
+- [x] T012 [US1] Create shannon/package.json with dependencies from root package.json (see quickstart.md Step 2)
+- [x] T013 [US1] Update shannon/tsconfig.json paths for new structure (baseUrl, outDir to dist/)
+- [x] T014 [US1] Update internal import paths in shannon/src/ if any use absolute paths
+- [x] T015 [US1] Verify Shannon builds with `cd shannon && npm install && npm run build`
+- [x] T016 [US1] Verify Shannon tests pass with `cd shannon && npm run test:service`
 
 **Checkpoint**: Shannon package is independently buildable and testable
 
@@ -64,13 +64,13 @@ This is a monorepo restructure:
 
 ### Implementation for User Story 2
 
-- [ ] T017 [US2] Rename web/ to ghostshell/ with `git mv web ghostshell`
-- [ ] T018 [US2] Update package name in ghostshell/package.json from "web" to "ghostshell"
-- [ ] T019 [US2] Update database name in ghostshell/prisma/schema.prisma comments/docs (connection string uses env var)
-- [ ] T020 [US2] Update any hardcoded "shannon" database references in ghostshell/ to "ghostshell"
-- [ ] T021 [US2] Search and replace "web" references in ghostshell/next.config.ts if any
-- [ ] T022 [US2] Verify GhostShell builds with `cd ghostshell && npm install && npm run build`
-- [ ] T023 [US2] Verify GhostShell dev server starts with `cd ghostshell && npm run dev`
+- [x] T017 [US2] Rename web/ to ghostshell/ with `git mv web ghostshell`
+- [x] T018 [US2] Update package name in ghostshell/package.json from "web" to "ghostshell"
+- [x] T019 [US2] Update database name in ghostshell/prisma/schema.prisma comments/docs (connection string uses env var)
+- [x] T020 [US2] Update any hardcoded "shannon" database references in ghostshell/ to "ghostshell"
+- [x] T021 [US2] Search and replace "web" references in ghostshell/next.config.ts if any
+- [x] T022 [US2] Verify GhostShell builds with `cd ghostshell && npm install && npm run build`
+- [x] T023 [US2] Verify GhostShell dev server starts with `cd ghostshell && npm run dev`
 
 **Checkpoint**: GhostShell package is independently buildable and runnable
 
@@ -84,17 +84,17 @@ This is a monorepo restructure:
 
 ### Implementation for User Story 3
 
-- [ ] T024 [US3] Create root package.json with npm workspaces config (see quickstart.md Step 8)
-- [ ] T025 [US3] Update docker-compose.yml build contexts from `.` to `./shannon` for worker service
-- [ ] T026 [US3] Update docker-compose.yml to add ghostshell service with context `./ghostshell`
-- [ ] T027 [US3] Update docker-compose.yml postgres POSTGRES_DB from "shannon" to "ghostshell"
-- [ ] T028 [US3] Update docker-compose.yml DATABASE_URL references to use ghostshell database
-- [ ] T029 [US3] Update shannon CLI script paths from `dist/` to `shannon/dist/`
-- [ ] T030 [US3] Update shannon CLI script paths from `src/` to `shannon/src/`
-- [ ] T031 [US3] Update .env.example with new DATABASE_URL pointing to ghostshell database
-- [ ] T032 [US3] Verify workspace install with `npm install` at root
-- [ ] T033 [US3] Verify `npm run build` at root builds both packages
-- [ ] T034 [US3] Verify `docker compose up -d` starts all services
+- [x] T024 [US3] Create root package.json with npm workspaces config (see quickstart.md Step 8)
+- [x] T025 [US3] Update docker-compose.yml build contexts from `.` to `./shannon` for worker service
+- [x] T026 [US3] Update docker-compose.yml to add ghostshell service with context `./ghostshell`
+- [x] T027 [US3] Update docker-compose.yml postgres POSTGRES_DB from "shannon" to "ghostshell"
+- [x] T028 [US3] Update docker-compose.yml DATABASE_URL references to use ghostshell database
+- [x] T029 [US3] Update shannon CLI script paths from `dist/` to `shannon/dist/`
+- [x] T030 [US3] Update shannon CLI script paths from `src/` to `shannon/src/`
+- [x] T031 [US3] Update .env.example with new DATABASE_URL pointing to ghostshell database
+- [x] T032 [US3] Verify workspace install with `npm install` at root
+- [x] T033 [US3] Verify `npm run build` at root builds both packages
+- [ ] T034 [US3] Verify `docker compose up -d` starts all services (SKIPPED - requires Docker)
 
 **Checkpoint**: Full system deploys and runs from root
 
@@ -108,11 +108,11 @@ This is a monorepo restructure:
 
 ### Implementation for User Story 4
 
-- [ ] T035 [US4] Create migration guide section in README.md for database rename
-- [ ] T036 [US4] Document SQL command `ALTER DATABASE shannon RENAME TO ghostshell` for existing deployments
-- [ ] T037 [US4] Verify no remaining "shannon" database references in ghostshell/ with `grep -r "shannon" ghostshell/`
-- [ ] T038 [US4] Verify no remaining "shannon" database references in docker-compose.yml
-- [ ] T039 [US4] Test fresh database creation with ghostshell name via docker compose
+- [x] T035 [US4] Create migration guide section in README.md for database rename
+- [x] T036 [US4] Document SQL command `ALTER DATABASE shannon RENAME TO ghostshell` for existing deployments
+- [x] T037 [US4] Verify no remaining "shannon" database references in ghostshell/ with `grep -r "shannon" ghostshell/`
+- [x] T038 [US4] Verify no remaining "shannon" database references in docker-compose.yml
+- [ ] T039 [US4] Test fresh database creation with ghostshell name via docker compose (SKIPPED - requires Docker)
 
 **Checkpoint**: Database migration path documented and verified
 
@@ -122,15 +122,15 @@ This is a monorepo restructure:
 
 **Purpose**: Documentation updates, cleanup, and final verification
 
-- [ ] T040 Update README.md with new monorepo structure and commands
-- [ ] T041 Update CLAUDE.md with new directory paths and package structure
-- [ ] T042 [P] Remove orphaned root dist/ directory
-- [ ] T043 [P] Remove orphaned root node_modules/ directory
-- [ ] T044 [P] Remove orphaned root package-lock.json
-- [ ] T045 Verify git history preserved with `git log --follow shannon/src/temporal/workflows.ts`
-- [ ] T046 Verify git history preserved with `git log --follow ghostshell/app/page.tsx`
-- [ ] T047 Run full integration test: docker compose up, run pentest workflow
-- [ ] T048 Commit all changes with descriptive message documenting restructure
+- [x] T040 Update README.md with new monorepo structure and commands
+- [x] T041 Update CLAUDE.md with new directory paths and package structure
+- [x] T042 [P] Remove orphaned root dist/ directory
+- [x] T043 [P] Remove orphaned root node_modules/ directory (handled by workspace install)
+- [x] T044 [P] Remove orphaned root package-lock.json
+- [x] T045 Verify git history preserved with `git log --follow shannon/src/temporal/workflows.ts`
+- [x] T046 Verify git history preserved with `git log --follow ghostshell/app/page.tsx`
+- [ ] T047 Run full integration test: docker compose up, run pentest workflow (SKIPPED - requires Docker)
+- [x] T048 Commit all changes with descriptive message documenting restructure
 
 ---
 

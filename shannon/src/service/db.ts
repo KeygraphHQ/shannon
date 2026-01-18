@@ -46,7 +46,7 @@ export async function getPrismaClient(): Promise<any> {
   await initPrisma();
   if (!prismaInstance) {
     // Create pg pool for Prisma 7.x adapter
-    const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/shannon';
+    const databaseUrl = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/ghostshell';
     pgPool = new pg.Pool({ connectionString: databaseUrl });
     const adapter = new PrismaPg(pgPool);
 

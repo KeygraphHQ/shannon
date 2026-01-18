@@ -6,6 +6,32 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is an AI-powered penetration testing agent designed for defensive security analysis. The tool automates vulnerability assessment by combining external reconnaissance tools with AI-powered code analysis to identify security weaknesses in web applications and their source code.
 
+## Monorepo Structure
+
+This repository uses npm workspaces with two independent packages:
+
+```
+shannon/                  # Penetration testing engine (Temporal + Claude Agent SDK)
+├── src/                  # Core application source
+├── configs/              # YAML configuration files
+├── prompts/              # AI prompt templates
+├── docker/               # Docker-related files
+├── mcp-server/           # MCP server implementation
+└── package.json          # Shannon package dependencies
+
+ghostshell/               # Web application (Next.js + Prisma)
+├── app/                  # Next.js app router
+├── components/           # React components
+├── lib/                  # Utilities and business logic
+├── prisma/               # Database schema and migrations
+└── package.json          # GhostShell package dependencies
+
+docker-compose.yml        # Orchestrates all services
+package.json              # Workspace root configuration
+```
+
+**Database**: The web application uses PostgreSQL with database name `ghostshell`.
+
 ## Commands
 
 ### Prerequisites
@@ -57,8 +83,19 @@ TOTP generation is handled automatically via the `generate_totp` MCP tool during
 
 ### Development Commands
 ```bash
-# Build TypeScript
+# Install all dependencies (both packages)
+npm install
+
+# Build both packages
 npm run build
+
+# Build individual packages
+npm run build:shannon
+npm run build:ghostshell
+
+# Development servers
+npm run dev:shannon       # Start Shannon HTTP service
+npm run dev:ghostshell    # Start GhostShell dev server
 
 # Run with pipeline testing mode (fast, minimal deliverables)
 ./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
@@ -67,20 +104,20 @@ npm run build
 ## Architecture & Components
 
 ### Core Modules
-- `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
-- `src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
-- `src/tool-checker.ts` - Validates availability of external security tools before execution
-- `src/session-manager.ts` - Agent definitions, execution order, and parallel groups
-- `src/queue-validation.ts` - Validates deliverables and agent prerequisites
+- `shannon/src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
+- `shannon/src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
+- `shannon/src/tool-checker.ts` - Validates availability of external security tools before execution
+- `shannon/src/session-manager.ts` - Agent definitions, execution order, and parallel groups
+- `shannon/src/queue-validation.ts` - Validates deliverables and agent prerequisites
 
 ### Temporal Orchestration Layer
 Shannon uses Temporal for durable workflow orchestration:
-- `src/temporal/shared.ts` - Types, interfaces, query definitions
-- `src/temporal/workflows.ts` - Main workflow (pentestPipelineWorkflow)
-- `src/temporal/activities.ts` - Activity implementations with heartbeats
-- `src/temporal/worker.ts` - Worker process entry point
-- `src/temporal/client.ts` - CLI client for starting workflows
-- `src/temporal/query.ts` - Query tool for progress inspection
+- `shannon/src/temporal/shared.ts` - Types, interfaces, query definitions
+- `shannon/src/temporal/workflows.ts` - Main workflow (pentestPipelineWorkflow)
+- `shannon/src/temporal/activities.ts` - Activity implementations with heartbeats
+- `shannon/src/temporal/worker.ts` - Worker process entry point
+- `shannon/src/temporal/client.ts` - CLI client for starting workflows
+- `shannon/src/temporal/query.ts` - Query tool for progress inspection
 
 Key features:
 - **Crash recovery** - Workflows resume automatically after worker restart
@@ -108,13 +145,13 @@ Key features:
 
 ### Configuration System
 The agent supports YAML configuration files with JSON Schema validation:
-- `configs/config-schema.json` - JSON Schema for configuration validation
-- `configs/example-config.yaml` - Template configuration file
-- `configs/juice-shop-config.yaml` - Example configuration for OWASP Juice Shop
-- `configs/keygraph-config.yaml` - Configuration for Keygraph applications
-- `configs/chatwoot-config.yaml` - Configuration for Chatwoot applications
-- `configs/metabase-config.yaml` - Configuration for Metabase applications
-- `configs/cal-com-config.yaml` - Configuration for Cal.com applications
+- `shannon/configs/config-schema.json` - JSON Schema for configuration validation
+- `shannon/configs/example-config.yaml` - Template configuration file
+- `shannon/configs/juice-shop-config.yaml` - Example configuration for OWASP Juice Shop
+- `shannon/configs/keygraph-config.yaml` - Configuration for Keygraph applications
+- `shannon/configs/chatwoot-config.yaml` - Configuration for Chatwoot applications
+- `shannon/configs/metabase-config.yaml` - Configuration for Metabase applications
+- `shannon/configs/cal-com-config.yaml` - Configuration for Cal.com applications
 
 Configuration includes:
 - Authentication settings (form, SSO, API, basic auth)
@@ -123,7 +160,7 @@ Configuration includes:
 - Application-specific testing parameters
 
 ### Prompt Templates
-The `prompts/` directory contains specialized prompt templates for each testing phase:
+The `shannon/prompts/` directory contains specialized prompt templates for each testing phase:
 - `pre-recon-code.txt` - Initial code analysis prompts
 - `recon.txt` - Reconnaissance analysis prompts  
 - `vuln-*.txt` - Vulnerability assessment prompts (injection, XSS, auth, authz, SSRF)
@@ -139,7 +176,7 @@ The agent uses the `@anthropic-ai/claude-agent-sdk` with maximum autonomy config
 - Configuration context injection for authenticated testing
 
 ### Authentication & Login Resources
-- `prompts/shared/login-instructions.txt` - Login flow template for all agents
+- `shannon/prompts/shared/login-instructions.txt` - Login flow template for all agents
 - TOTP token generation via MCP `generate_totp` tool
 - Support for multi-factor authentication workflows
 - Configurable authentication mechanisms (form, SSO, API, basic)
@@ -205,14 +242,14 @@ A working POC exists at `/Users/arjunmalleswaran/Code/shannon-pocs` that demonst
 - **Temporal + Claude Agent SDK**: `/Users/arjunmalleswaran/Code/shannon-pocs` - working implementation demonstrating workflows, activities, worker setup, and SDK integration
 
 ### Adding a New Agent
-1. Define the agent in `src/session-manager.ts` (add to `AGENT_QUEUE` and appropriate parallel group)
-2. Create prompt template in `prompts/` (e.g., `vuln-newtype.txt` or `exploit-newtype.txt`)
-3. Add activity function in `src/temporal/activities.ts`
-4. Register activity in `src/temporal/workflows.ts` within the appropriate phase
+1. Define the agent in `shannon/src/session-manager.ts` (add to `AGENT_QUEUE` and appropriate parallel group)
+2. Create prompt template in `shannon/prompts/` (e.g., `vuln-newtype.txt` or `exploit-newtype.txt`)
+3. Add activity function in `shannon/src/temporal/activities.ts`
+4. Register activity in `shannon/src/temporal/workflows.ts` within the appropriate phase
 
 ### Modifying Prompts
 - Prompt templates use variable substitution: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
-- Shared partials in `prompts/shared/` are included via `prompt-manager.ts`
+- Shared partials in `shannon/prompts/shared/` are included via `shannon/src/prompt-manager.ts`
 - Test changes with `PIPELINE_TESTING=true` for faster iteration
 
 ### Key Design Patterns
@@ -245,23 +282,29 @@ The tool should only be used on systems you own or have explicit permission to t
 
 ## Key Files & Directories
 
-**Entry Points:**
-- `src/temporal/workflows.ts` - Temporal workflow definition
-- `src/temporal/activities.ts` - Activity implementations with heartbeats
-- `src/temporal/worker.ts` - Worker process entry point
-- `src/temporal/client.ts` - CLI client for starting workflows
+**Shannon Package (Pentest Engine):**
+- `shannon/src/temporal/workflows.ts` - Temporal workflow definition
+- `shannon/src/temporal/activities.ts` - Activity implementations with heartbeats
+- `shannon/src/temporal/worker.ts` - Worker process entry point
+- `shannon/src/temporal/client.ts` - CLI client for starting workflows
+- `shannon/src/session-manager.ts` - Agent definitions, execution order, parallel groups
+- `shannon/src/ai/claude-executor.ts` - Claude Agent SDK integration
+- `shannon/src/config-parser.ts` - YAML config parsing with JSON Schema validation
+- `shannon/src/audit/` - Crash-safe logging and metrics system
+- `shannon/configs/` - YAML configs with `config-schema.json` for validation
+- `shannon/prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
 
-**Core Logic:**
-- `src/session-manager.ts` - Agent definitions, execution order, parallel groups
-- `src/ai/claude-executor.ts` - Claude Agent SDK integration
-- `src/config-parser.ts` - YAML config parsing with JSON Schema validation
-- `src/audit/` - Crash-safe logging and metrics system
+**GhostShell Package (Web Application):**
+- `ghostshell/app/` - Next.js app router pages and API routes
+- `ghostshell/components/` - React UI components
+- `ghostshell/lib/` - Utilities, actions, and business logic
+- `ghostshell/prisma/schema.prisma` - Database schema
+- `ghostshell/prisma/migrations/` - Database migrations
 
-**Configuration:**
+**Root Orchestration:**
 - `shannon` - CLI script for running pentests
-- `docker-compose.yml` - Temporal server + worker containers
-- `configs/` - YAML configs with `config-schema.json` for validation
-- `prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
+- `docker-compose.yml` - Orchestrates Temporal server, worker, postgres, and ghostshell
+- `package.json` - npm workspaces configuration
 
 **Output:**
 - `audit-logs/{hostname}_{sessionId}/` - Session metrics, agent logs, deliverables

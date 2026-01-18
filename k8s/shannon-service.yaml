@@ -34,7 +34,7 @@ metadata:
 type: Opaque
 stringData:
   # Replace these with actual values in production
-  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/shannon"
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/ghostshell"
   # Add other secrets as needed
 ---
 apiVersion: apps/v1

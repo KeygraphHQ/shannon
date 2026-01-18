@@ -15,7 +15,9 @@ services:
       start_period: 30s
 
   worker:
-    build: .
+    build:
+      context: ./shannon
+      dockerfile: Dockerfile
     entrypoint: ["node", "dist/temporal/worker.js"]
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
@@ -26,7 +28,7 @@ services:
       temporal:
         condition: service_healthy
     volumes:
-      - ./prompts:/app/prompts
+      - ./shannon/prompts:/app/prompts
       - ./audit-logs:/app/audit-logs
       - ${OUTPUT_DIR:-./audit-logs}:/app/output
       - ${TARGET_REPO:-.}:/target-repo
@@ -38,14 +40,14 @@ services:
 
   shannon-service:
     build:
-      context: .
+      context: ./shannon
       dockerfile: docker/Dockerfile.service
     ports:
       - "3001:3001"
     environment:
       - SERVICE_PORT=3001
       - SERVICE_HOST=0.0.0.0
-      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/shannon}
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/ghostshell}
       - TEMPORAL_ADDRESS=temporal:7233
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
@@ -61,6 +63,21 @@ services:
       retries: 3
       start_period: 10s
 
+  ghostshell:
+    build:
+      context: ./ghostshell
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-postgresql://postgres:postgres@postgres:5432/ghostshell}
+      - SHANNON_SERVICE_URL=http://shannon-service:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      shannon-service:
+        condition: service_healthy
+
   postgres:
     image: postgres:15
     ports:
@@ -68,7 +85,7 @@ services:
     environment:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
-      - POSTGRES_DB=shannon
+      - POSTGRES_DB=ghostshell
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
