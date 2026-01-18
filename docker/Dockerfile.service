@@ -1,0 +1,77 @@
+#
+# Dockerfile for Shannon Service
+# Lightweight HTTP API service that wraps Temporal workflows
+#
+
+# Builder stage - Build TypeScript
+FROM node:22-slim AS builder
+
+WORKDIR /app
+
+# Copy package files for dependency installation
+COPY package*.json ./
+COPY mcp-server/package*.json ./mcp-server/
+
+# Install all dependencies (including devDependencies for TypeScript build)
+RUN npm ci && \
+    cd mcp-server && npm ci && cd ..
+
+# Copy source code
+COPY . .
+
+# Build TypeScript
+RUN npm run build
+
+# Remove devDependencies after build
+RUN npm prune --production && \
+    cd mcp-server && npm prune --production
+
+# Runtime stage - Minimal production image
+FROM node:22-slim AS runtime
+
+# Install required system packages
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user for security
+RUN groupadd -g 1001 shannon && \
+    useradd -u 1001 -g shannon -s /bin/bash -m shannon
+
+# Set working directory
+WORKDIR /app
+
+# Copy built application from builder
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/mcp-server/dist ./mcp-server/dist
+COPY --from=builder /app/mcp-server/node_modules ./mcp-server/node_modules
+COPY --from=builder /app/package*.json ./
+
+# Copy web prisma schema for database access
+COPY --from=builder /app/web/prisma ./web/prisma
+
+# Generate Prisma client
+RUN cd web && npx prisma generate
+
+# Set ownership
+RUN chown -R shannon:shannon /app
+
+# Switch to non-root user
+USER shannon
+
+# Environment variables
+ENV NODE_ENV=production
+ENV SERVICE_PORT=3001
+ENV SERVICE_HOST=0.0.0.0
+
+# Expose the service port
+EXPOSE 3001
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:3001/health/live || exit 1
+
+# Start the service
+ENTRYPOINT ["node", "dist/service/index.js"]

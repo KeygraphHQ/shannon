@@ -1,0 +1,263 @@
+# Shannon Service Kubernetes Deployment
+# This manifest deploys the Shannon HTTP API service
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: shannon
+  labels:
+    app.kubernetes.io/name: shannon
+    app.kubernetes.io/component: namespace
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shannon-service-config
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: config
+data:
+  SERVICE_PORT: "3001"
+  SERVICE_HOST: "0.0.0.0"
+  LOG_LEVEL: "info"
+  TEMPORAL_NAMESPACE: "default"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: shannon-service-secrets
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: secrets
+type: Opaque
+stringData:
+  # Replace these with actual values in production
+  DATABASE_URL: "postgresql://postgres:postgres@postgres:5432/shannon"
+  # Add other secrets as needed
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: api
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shannon-service
+      app.kubernetes.io/component: api
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: shannon-service
+        app.kubernetes.io/component: api
+        app.kubernetes.io/version: "1.0.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "3001"
+        prometheus.io/path: "/metrics"
+    spec:
+      serviceAccountName: shannon-service
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+      containers:
+        - name: shannon-service
+          image: shannon/service:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 3001
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: shannon-service-config
+            - secretRef:
+                name: shannon-service-secrets
+          env:
+            - name: TEMPORAL_ADDRESS
+              value: "temporal:7233"
+            - name: NODE_ENV
+              value: "production"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: shannon-service
+                topologyKey: kubernetes.io/hostname
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  ports:
+    - port: 3001
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: api
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: serviceaccount
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: shannon-service
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: pdb
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: shannon-service
+      app.kubernetes.io/component: api
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: shannon-service
+  namespace: shannon
+  labels:
+    app.kubernetes.io/name: shannon-service
+    app.kubernetes.io/component: networkpolicy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: shannon-service
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from web app and ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: shannon-web
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3001
+  egress:
+    # Allow traffic to Temporal
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: temporal
+      ports:
+        - protocol: TCP
+          port: 7233
+    # Allow traffic to PostgreSQL
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow DNS
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
