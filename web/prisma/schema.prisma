@@ -5,6 +5,13 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// Secondary generator for root project (Shannon service)
+generator serviceClient {
+  provider   = "prisma-client-js"
+  output     = "../../node_modules/.prisma/client"
+  engineType = "binary"
+}
+
 datasource db {
   provider = "postgresql"
 }
@@ -45,6 +52,10 @@ model Organization {
   projects    Project[]
   scans       Scan[]
   invitations Invitation[]
+
+  // Shannon Service API relations
+  apiKeys           APIKey[]
+  serviceReportJobs ServiceReportJob[]
 
   // Reporting & Compliance relations
   reports         Report[]
@@ -121,6 +132,54 @@ model Invitation {
 }
 
 // ===================
+// Shannon Service API
+// ===================
+
+// API Key - Authentication credential for service access, scoped to organization
+model APIKey {
+  id             String    @id @default(cuid())
+  organizationId String
+  name           String // Human-readable name (e.g., "Production Web App")
+  keyPrefix      String    @unique // First 8 chars for identification
+  keyHash        String    @unique // SHA-256 hash of full key (never store plaintext)
+  scopes         String[]  @default(["scan:read", "scan:write"])
+  lastUsedAt     DateTime?
+  expiresAt      DateTime? // Null = never expires
+  revokedAt      DateTime? // Null = active
+  createdAt      DateTime  @default(now())
+  createdBy      String // User ID who created
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scans        Scan[] // Scans initiated by this API key
+
+  @@index([organizationId])
+  @@index([keyHash])
+  @@index([keyPrefix])
+}
+
+// ServiceReportJob - Async report generation job with status tracking
+model ServiceReportJob {
+  id             String    @id @default(cuid())
+  scanId         String
+  organizationId String
+  format         String // PDF, HTML, JSON, SARIF
+  template       String?
+  status         String    @default("PENDING") // PENDING, GENERATING, COMPLETED, FAILED
+  progress       Int       @default(0)
+  outputPath     String?
+  errorMessage   String?
+  createdAt      DateTime  @default(now())
+  completedAt    DateTime?
+
+  scan         Scan         @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([scanId])
+  @@index([organizationId])
+  @@index([status])
+}
+
+// ===================
 // Security Scans Feature
 // ===================
 
@@ -172,6 +231,11 @@ model Scan {
   source             ScanSource @default(MANUAL)
   temporalWorkflowId String? // Temporal workflow ID for tracking
 
+  // Service layer fields
+  parentScanId String? // Reference to original scan if this is a retry
+  queuedAt     DateTime? // When scan was queued (if Temporal unavailable)
+  apiKeyId     String? // API key that initiated the scan
+
   // Timing
   startedAt   DateTime?
   completedAt DateTime?
@@ -203,6 +267,12 @@ model Scan {
   result       ScanResult?
   findings     Finding[]
 
+  // Service layer relations
+  parentScan       Scan?              @relation("ScanRetry", fields: [parentScanId], references: [id])
+  retries          Scan[]             @relation("ScanRetry")
+  apiKey           APIKey?            @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  serviceReportJobs ServiceReportJob[]
+
   // Reporting & Compliance relations
   reports Report[]
 
@@ -213,6 +283,8 @@ model Scan {
   @@index([temporalWorkflowId])
   @@index([organizationId, createdAt])
   @@index([organizationId, status])
+  @@index([parentScanId])
+  @@index([apiKeyId])
 }
 
 // ScanResult - detailed results from completed scan

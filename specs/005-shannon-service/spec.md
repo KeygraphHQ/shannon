@@ -138,9 +138,10 @@ As the Shannon web application, I need to request report generation asynchronous
 **Service Core:**
 - **FR-001**: Service MUST expose REST API at `/api/v1/` for all scan operations
 - **FR-002**: Service MUST authenticate all API requests using API keys or JWT tokens
-- **FR-003**: Service MUST validate API key ownership against organization before executing operations
+- **FR-003**: Service MUST validate API key ownership against organization before executing operations; all scans and resources accessed via that key ONLY return data for that organization
 - **FR-004**: Service MUST return consistent error responses with error codes, messages, and request IDs
 - **FR-005**: Service MUST log all API requests with correlation IDs for tracing
+- **FR-006**: Service MUST enforce organization-level isolation: scans initiated with an API key are scoped to that key's organization; cross-org access is forbidden (return 403 Forbidden)
 
 **Scan Operations:**
 - **FR-010**: Service MUST accept scan requests with target URL, authentication config, and scan options
@@ -149,6 +150,8 @@ As the Shannon web application, I need to request report generation asynchronous
 - **FR-013**: Service MUST support scan cancellation with graceful shutdown and partial result preservation
 - **FR-014**: Service MUST enforce concurrent scan limits per organization (configurable, default 3)
 - **FR-015**: Service MUST queue excess scan requests and process in FIFO order
+- **FR-016**: Service MUST retain all scans and results indefinitely in the database; deletion is admin-only via separate admin API endpoint. Organizations cannot delete their own scans (immutable audit trail)
+- **FR-017**: Service MUST support user-initiated scan retry via POST `/api/v1/scans/{scanId}/retry` for failed scans. Retry creates a new scan job with the same config. Original scan remains immutable and serves as audit trail
 
 **Health and Monitoring:**
 - **FR-020**: Service MUST expose `/health` endpoint with overall service status
@@ -162,6 +165,7 @@ As the Shannon web application, I need to request report generation asynchronous
 - **FR-031**: Service MUST support form-based, API token, Basic Auth, and SSO validation
 - **FR-032**: Service MUST support TOTP code generation for 2FA-enabled targets
 - **FR-033**: Service MUST return specific error codes for different validation failures
+- **FR-034**: Service MUST NOT persist validation requests beyond the response. Credentials are never logged or stored. Validation audit logs contain only success/failure outcome and error codes (no credential content)
 
 **Configuration Discovery:**
 - **FR-040**: Service MUST expose `/api/v1/config/*` endpoints for configuration discovery
@@ -172,6 +176,7 @@ As the Shannon web application, I need to request report generation asynchronous
 - **FR-050**: Service MUST expose async report generation via `/api/v1/scans/{scanId}/reports`
 - **FR-051**: Service MUST support multiple report formats (PDF, HTML, JSON, SARIF)
 - **FR-052**: Service MUST provide report generation status and progress tracking
+- **FR-053**: Service MUST allow any authenticated user with read access to a scan to download reports. All findings are included in reports (role-based filtering deferred to v2)
 
 ### Non-Functional Requirements
 
@@ -221,19 +226,31 @@ As the Shannon web application, I need to request report generation asynchronous
 
 ## Clarifications
 
-*Questions to be answered during planning phase:*
+### Session 2026-01-18
+
+- Q: How should multi-tenancy scoping work for API keys and scan access? → A: API keys are scoped to a single organization; a scan initiated by an API key ONLY accesses that organization's data. Users belong to exactly one organization.
+
+- Q: Should scans be retained indefinitely or subject to automatic deletion? → A: Indefinite retention; deletion is manual via admin API only. Organizations cannot self-delete scans (immutable audit trail).
+
+- Q: Who can download reports and should findings be filtered by role? → A: Any user in an organization with read access to a scan can download its reports. Reports include all findings. Role-based filtering is deferred to v2.
+
+- Q: Should validation requests persist and how should credentials be logged? → A: Validation requests execute immediately and don't persist beyond the response. Credentials are never logged or stored. Validation logs include only success/failure and error codes, not credential content.
+
+- Q: Should failed scans be retryable by users, or auto-retried, or manual admin-only? → A: Failed scans are retained indefinitely. Users can retry a failed scan via POST `/api/v1/scans/{scanId}/retry`, which creates a new scan job with the same config. Original scan remains immutable.
+
+*Resolved during planning phase:*
 
 - Q: Should the service use gRPC for internal communication or REST only?
-  - Recommendation: REST for v1 (simplicity), consider gRPC for v2 if performance requires
+  - **Decision**: REST for v1 (simplicity). gRPC deferred to v2 if performance requires.
 
 - Q: How should API keys be provisioned - via web UI or separate admin API?
-  - Recommendation: Web UI creates API keys, stored in shared database
+  - **Decision**: Web UI creates API keys, stored in shared PostgreSQL database.
 
 - Q: Should the service maintain its own database or share with web app?
-  - Recommendation: Shared PostgreSQL database, separate schema if needed
+  - **Decision**: Shared PostgreSQL database with Prisma schema extension.
 
 - Q: What authentication mechanism between web app and service?
-  - Recommendation: Internal API key or mTLS for service-to-service auth
+  - **Decision**: Internal API keys with organization-scoped access.
 
 ## Assumptions
 

@@ -1,0 +1,950 @@
+openapi: 3.1.0
+info:
+  title: Shannon Service API
+  description: |
+    REST API for the Shannon penetration testing service.
+    Consumed by the Shannon SaaS web application to trigger scans,
+    monitor progress, and retrieve results.
+  version: 1.0.0
+  contact:
+    name: Shannon Team
+  license:
+    name: Proprietary
+
+servers:
+  - url: http://localhost:3001/api/v1
+    description: Local development
+  - url: https://service.shannon.dev/api/v1
+    description: Production
+
+security:
+  - ApiKeyAuth: []
+
+tags:
+  - name: Scans
+    description: Scan lifecycle operations
+  - name: Health
+    description: Service health and monitoring
+  - name: Auth Validation
+    description: Credential validation
+  - name: Configuration
+    description: Configuration discovery
+  - name: Reports
+    description: Report generation
+
+paths:
+  # ============ SCAN ENDPOINTS ============
+  /scans:
+    post:
+      tags: [Scans]
+      operationId: createScan
+      summary: Create a new scan
+      description: |
+        Initiates a new penetration testing scan against the specified target.
+        Returns immediately with scan ID; scan executes asynchronously via Temporal.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateScanRequest'
+      responses:
+        '201':
+          description: Scan created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanJob'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+    get:
+      tags: [Scans]
+      operationId: listScans
+      summary: List scans for organization
+      description: Returns paginated list of scans for the authenticated organization.
+      parameters:
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/ScanStatus'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            maximum: 100
+        - name: cursor
+          in: query
+          schema:
+            type: string
+          description: Pagination cursor from previous response
+      responses:
+        '200':
+          description: List of scans
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /scans/{scanId}:
+    get:
+      tags: [Scans]
+      operationId: getScan
+      summary: Get scan details
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Scan details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [Scans]
+      operationId: cancelScan
+      summary: Cancel a running scan
+      description: |
+        Cancels a scan that is QUEUED or RUNNING.
+        Partial results are preserved.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Scan cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanJob'
+        '400':
+          description: Scan cannot be cancelled (already completed/failed)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /scans/{scanId}/progress:
+    get:
+      tags: [Scans]
+      operationId: getScanProgress
+      summary: Get real-time scan progress
+      description: Returns current progress snapshot from Temporal workflow query.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '200':
+          description: Current progress
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanProgress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /scans/{scanId}/results:
+    get:
+      tags: [Scans]
+      operationId: getScanResults
+      summary: Get scan results
+      description: |
+        Returns findings and metrics for a completed scan.
+        Supports pagination for large result sets.
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: cursor
+          in: query
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Scan results
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanResults'
+        '400':
+          description: Scan not yet completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /scans/{scanId}/retry:
+    post:
+      tags: [Scans]
+      operationId: retryScan
+      summary: Retry a failed scan
+      description: |
+        Creates a new scan with the same configuration as a failed scan.
+        Original scan remains unchanged (immutable audit trail).
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      responses:
+        '201':
+          description: New scan created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanJob'
+        '400':
+          description: Scan is not in FAILED status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============ REPORT ENDPOINTS ============
+  /scans/{scanId}/reports:
+    post:
+      tags: [Reports]
+      operationId: createReport
+      summary: Request async report generation
+      parameters:
+        - $ref: '#/components/parameters/ScanId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateReportRequest'
+      responses:
+        '202':
+          description: Report generation started
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportJob'
+        '400':
+          description: Scan not completed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reports/{jobId}/status:
+    get:
+      tags: [Reports]
+      operationId: getReportStatus
+      summary: Get report generation status
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report job status
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReportJob'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /reports/{jobId}/download:
+    get:
+      tags: [Reports]
+      operationId: downloadReport
+      summary: Download generated report
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Report file
+          content:
+            application/pdf:
+              schema:
+                type: string
+                format: binary
+            text/html:
+              schema:
+                type: string
+            application/json:
+              schema:
+                type: object
+        '400':
+          description: Report not ready
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ============ AUTH VALIDATION ============
+  /auth/validate:
+    post:
+      tags: [Auth Validation]
+      operationId: validateAuth
+      summary: Validate authentication credentials
+      description: |
+        Tests provided credentials against target without starting a full scan.
+        Credentials are NOT stored or logged.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ValidationRequest'
+      responses:
+        '200':
+          description: Validation result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '504':
+          description: Validation timed out
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProblemDetail'
+
+  # ============ CONFIGURATION ============
+  /config/auth-methods:
+    get:
+      tags: [Configuration]
+      operationId: getAuthMethods
+      summary: Get supported authentication methods
+      responses:
+        '200':
+          description: List of auth methods
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthMethodsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /config/scan-options:
+    get:
+      tags: [Configuration]
+      operationId: getScanOptions
+      summary: Get configurable scan options
+      responses:
+        '200':
+          description: Scan options with defaults
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ScanOptionsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /config/phases:
+    get:
+      tags: [Configuration]
+      operationId: getPhases
+      summary: Get scan phases
+      responses:
+        '200':
+          description: List of phases
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PhasesResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ============ HEALTH ============
+  /health:
+    get:
+      tags: [Health]
+      operationId: getHealth
+      summary: Get overall service health
+      security: []
+      responses:
+        '200':
+          description: Service healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+        '503':
+          description: Service unhealthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  /health/ready:
+    get:
+      tags: [Health]
+      operationId: getReadiness
+      summary: Kubernetes readiness probe
+      security: []
+      responses:
+        '200':
+          description: Ready to accept traffic
+        '503':
+          description: Not ready
+
+  /health/live:
+    get:
+      tags: [Health]
+      operationId: getLiveness
+      summary: Kubernetes liveness probe
+      security: []
+      responses:
+        '200':
+          description: Service is alive
+        '503':
+          description: Service is unhealthy
+
+  /metrics:
+    get:
+      tags: [Health]
+      operationId: getMetrics
+      summary: Prometheus metrics
+      security: []
+      responses:
+        '200':
+          description: Prometheus format metrics
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /info:
+    get:
+      tags: [Health]
+      operationId: getInfo
+      summary: Service information
+      security: []
+      responses:
+        '200':
+          description: Service info
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ServiceInfo'
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      description: |
+        API key in format: `sk_live_org123_xxxxxxxxx`
+        Include in Authorization header: `Bearer sk_live_org123_xxx`
+
+  parameters:
+    ScanId:
+      name: scanId
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Unique scan identifier
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    Forbidden:
+      description: API key lacks permission or resource belongs to different org
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    ValidationError:
+      description: Request validation failed
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+    RateLimited:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+        X-RateLimit-Limit:
+          schema:
+            type: integer
+        X-RateLimit-Remaining:
+          schema:
+            type: integer
+        X-RateLimit-Reset:
+          schema:
+            type: string
+            format: date-time
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProblemDetail'
+
+  schemas:
+    # ============ SCAN SCHEMAS ============
+    CreateScanRequest:
+      type: object
+      required: [targetUrl]
+      properties:
+        targetUrl:
+          type: string
+          format: uri
+          description: Target application URL
+        config:
+          $ref: '#/components/schemas/ScanConfig'
+
+    ScanConfig:
+      type: object
+      properties:
+        auth:
+          $ref: '#/components/schemas/AuthConfig'
+        phases:
+          type: array
+          items:
+            type: string
+          description: Phases to execute (default all)
+        timeout:
+          type: integer
+          description: Max scan duration in minutes
+          default: 120
+
+    AuthConfig:
+      type: object
+      properties:
+        method:
+          $ref: '#/components/schemas/AuthMethod'
+        credentials:
+          type: object
+          additionalProperties: true
+        totpSecret:
+          type: string
+
+    AuthMethod:
+      type: string
+      enum: [form, api_token, basic, sso]
+
+    ScanStatus:
+      type: string
+      enum: [QUEUED, RUNNING, COMPLETED, FAILED, CANCELLED]
+
+    ScanJob:
+      type: object
+      properties:
+        id:
+          type: string
+        organizationId:
+          type: string
+        targetUrl:
+          type: string
+          format: uri
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        workflowId:
+          type: string
+        parentScanId:
+          type: string
+          nullable: true
+        config:
+          $ref: '#/components/schemas/ScanConfig'
+        createdAt:
+          type: string
+          format: date-time
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ScanListResponse:
+      type: object
+      properties:
+        scans:
+          type: array
+          items:
+            $ref: '#/components/schemas/ScanJob'
+        nextCursor:
+          type: string
+          nullable: true
+        total:
+          type: integer
+
+    ScanProgress:
+      type: object
+      properties:
+        scanId:
+          type: string
+        status:
+          $ref: '#/components/schemas/ScanStatus'
+        phase:
+          type: string
+          description: Current phase name
+        percentage:
+          type: integer
+          minimum: 0
+          maximum: 100
+        agentStatuses:
+          type: array
+          items:
+            $ref: '#/components/schemas/AgentStatus'
+        startedAt:
+          type: string
+          format: date-time
+        eta:
+          type: string
+          format: date-time
+          nullable: true
+        currentActivity:
+          type: string
+          nullable: true
+
+    AgentStatus:
+      type: object
+      properties:
+        agentId:
+          type: string
+        name:
+          type: string
+        status:
+          type: string
+          enum: [pending, running, completed, failed, skipped]
+        startedAt:
+          type: string
+          format: date-time
+          nullable: true
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+
+    ScanResults:
+      type: object
+      properties:
+        scanId:
+          type: string
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+        metrics:
+          $ref: '#/components/schemas/ScanMetrics'
+        reportPaths:
+          type: object
+          additionalProperties:
+            type: string
+        nextCursor:
+          type: string
+          nullable: true
+
+    Finding:
+      type: object
+      properties:
+        id:
+          type: string
+        severity:
+          type: string
+          enum: [critical, high, medium, low, info]
+        category:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        location:
+          type: string
+        evidence:
+          type: string
+        remediation:
+          type: string
+        cwe:
+          type: string
+          nullable: true
+
+    ScanMetrics:
+      type: object
+      properties:
+        duration:
+          type: integer
+          description: Duration in seconds
+        findingsCount:
+          type: object
+          properties:
+            critical:
+              type: integer
+            high:
+              type: integer
+            medium:
+              type: integer
+            low:
+              type: integer
+            info:
+              type: integer
+        phasesCompleted:
+          type: integer
+        agentsRun:
+          type: integer
+
+    # ============ REPORT SCHEMAS ============
+    CreateReportRequest:
+      type: object
+      required: [format]
+      properties:
+        format:
+          $ref: '#/components/schemas/ReportFormat'
+        template:
+          type: string
+          description: Report template name
+
+    ReportFormat:
+      type: string
+      enum: [PDF, HTML, JSON, SARIF]
+
+    ReportJob:
+      type: object
+      properties:
+        id:
+          type: string
+        scanId:
+          type: string
+        format:
+          $ref: '#/components/schemas/ReportFormat'
+        status:
+          type: string
+          enum: [PENDING, GENERATING, COMPLETED, FAILED]
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: string
+          format: date-time
+          nullable: true
+        errorMessage:
+          type: string
+          nullable: true
+
+    # ============ VALIDATION SCHEMAS ============
+    ValidationRequest:
+      type: object
+      required: [targetUrl, authMethod, credentials]
+      properties:
+        targetUrl:
+          type: string
+          format: uri
+        authMethod:
+          $ref: '#/components/schemas/AuthMethod'
+        credentials:
+          type: object
+          additionalProperties: true
+        totpSecret:
+          type: string
+
+    ValidationResult:
+      type: object
+      properties:
+        valid:
+          type: boolean
+        validatedAt:
+          type: string
+          format: date-time
+        error:
+          type: string
+          nullable: true
+        errorCode:
+          type: string
+          nullable: true
+          description: Machine-readable error code
+
+    # ============ CONFIG SCHEMAS ============
+    AuthMethodsResponse:
+      type: object
+      properties:
+        methods:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              requiredFields:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    field:
+                      type: string
+                    label:
+                      type: string
+                    type:
+                      type: string
+                      enum: [text, password, url]
+                    required:
+                      type: boolean
+
+    ScanOptionsResponse:
+      type: object
+      properties:
+        options:
+          type: array
+          items:
+            type: object
+            properties:
+              key:
+                type: string
+              label:
+                type: string
+              type:
+                type: string
+              default:
+                type: string
+              min:
+                type: number
+              max:
+                type: number
+
+    PhasesResponse:
+      type: object
+      properties:
+        phases:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              description:
+                type: string
+              defaultEnabled:
+                type: boolean
+
+    # ============ HEALTH SCHEMAS ============
+    HealthResponse:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [healthy, unhealthy, degraded]
+        dependencies:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [available, unavailable, degraded]
+        timestamp:
+          type: string
+          format: date-time
+
+    ServiceInfo:
+      type: object
+      properties:
+        version:
+          type: string
+        buildTime:
+          type: string
+          format: date-time
+        apiVersions:
+          type: array
+          items:
+            type: string
+
+    # ============ ERROR SCHEMAS ============
+    ProblemDetail:
+      type: object
+      description: RFC 7807 Problem Details
+      properties:
+        type:
+          type: string
+          format: uri
+        title:
+          type: string
+        status:
+          type: integer
+        detail:
+          type: string
+        instance:
+          type: string
+        requestId:
+          type: string
+        timestamp:
+          type: string
+          format: date-time
+        errors:
+          type: array
+          items:
+            type: object
+            properties:
+              code:
+                type: string
+              field:
+                type: string
+              message:
+                type: string
