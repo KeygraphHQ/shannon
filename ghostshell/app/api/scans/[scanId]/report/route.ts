@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getScan } from "@/lib/actions/scans";
+import { getScanWithFindings } from "@/lib/actions/scans";
 
 export async function GET(
   request: Request,
@@ -7,9 +7,16 @@ export async function GET(
 ) {
   try {
     const { scanId } = await params;
-    const scan = await getScan(scanId);
+    const scan = await getScanWithFindings(scanId);
 
-    if (scan.status !== "completed") {
+    if (!scan) {
+      return NextResponse.json(
+        { error: "Scan not found" },
+        { status: 404 }
+      );
+    }
+
+    if (scan.status !== "COMPLETED") {
       return NextResponse.json(
         { error: "Scan is not yet completed" },
         { status: 400 }

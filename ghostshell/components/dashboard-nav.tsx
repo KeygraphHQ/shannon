@@ -19,7 +19,7 @@ interface DashboardNavProps {
   currentOrgId: string;
 }
 
-const getMainNavigation = (orgId: string) => [
+const getMainNavigation = (orgId: string): Array<{ name: string; href: string; icon: typeof Home; disabled?: boolean }> => [
   { name: "Dashboard", href: "/dashboard", icon: Home },
   { name: "Scans", href: "/dashboard/scans", icon: Shield },
   { name: "Findings", href: "/findings", icon: FileText },

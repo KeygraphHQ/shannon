@@ -27,7 +27,12 @@ export default async function DashboardPage() {
 
   // Fetch scans, stats, and findings summary
   const scans = await getScans(currentOrg.id);
-  const stats = await getScanStats(currentOrg.id);
+  const stats = await getScanStats(currentOrg.id) ?? {
+    totalScans: 0,
+    openFindings: 0,
+    fixedFindings: 0,
+    completedScans: 0,
+  };
   const findingsSummary = await getFindingsSummary();
 
   return (
@@ -111,7 +116,7 @@ export default async function DashboardPage() {
                     <div className="mt-2 flex items-center gap-4 text-sm text-gray-500">
                       <div className="flex items-center gap-1">
                         <Clock className="h-4 w-4" />
-                        {new Date(scan.startedAt).toLocaleDateString()}
+                        {scan.startedAt ? new Date(scan.startedAt).toLocaleDateString() : "Pending"}
                       </div>
                       {scan._count.findings > 0 && (
                         <div className="flex items-center gap-1">
@@ -124,7 +129,7 @@ export default async function DashboardPage() {
 
                   <div className="ml-4 flex shrink-0 items-center gap-3">
                     <ScanStatusBadge status={scan.status} />
-                    {scan.status === "running" && (
+                    {scan.status === "RUNNING" && (
                       <div className="text-sm text-gray-500">
                         {scan.progress}%
                       </div>

@@ -40,8 +40,8 @@ services:
 
   shannon-service:
     build:
-      context: ./shannon
-      dockerfile: docker/Dockerfile.service
+      context: .
+      dockerfile: shannon/docker/Dockerfile.service
     ports:
       - "3001:3001"
     environment:

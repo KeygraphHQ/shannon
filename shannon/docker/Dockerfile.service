@@ -1,6 +1,7 @@
 #
 # Dockerfile for Shannon Service
 # Lightweight HTTP API service that wraps Temporal workflows
+# Build context: repository root (monorepo)
 #
 
 # Builder stage - Build TypeScript
@@ -8,22 +9,25 @@ FROM node:22-slim AS builder
 
 WORKDIR /app
 
-# Copy package files for dependency installation
-COPY package*.json ./
-COPY mcp-server/package*.json ./mcp-server/
+# Copy shannon package files for dependency installation
+COPY shannon/package*.json ./shannon/
+COPY shannon/mcp-server/package*.json ./shannon/mcp-server/
+
+# Copy ghostshell prisma schema
+COPY ghostshell/prisma ./ghostshell/prisma
 
 # Install all dependencies (including devDependencies for TypeScript build)
-RUN npm ci && \
+RUN cd shannon && npm ci && \
     cd mcp-server && npm ci && cd ..
 
-# Copy source code
-COPY . .
+# Copy shannon source code
+COPY shannon/ ./shannon/
 
 # Build TypeScript
-RUN npm run build
+RUN cd shannon && npm run build
 
 # Remove devDependencies after build
-RUN npm prune --production && \
+RUN cd shannon && npm prune --production && \
     cd mcp-server && npm prune --production
 
 # Runtime stage - Minimal production image
@@ -43,17 +47,17 @@ RUN groupadd -g 1001 shannon && \
 WORKDIR /app
 
 # Copy built application from builder
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/mcp-server/dist ./mcp-server/dist
-COPY --from=builder /app/mcp-server/node_modules ./mcp-server/node_modules
-COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/shannon/dist ./dist
+COPY --from=builder /app/shannon/node_modules ./node_modules
+COPY --from=builder /app/shannon/mcp-server/dist ./mcp-server/dist
+COPY --from=builder /app/shannon/mcp-server/node_modules ./mcp-server/node_modules
+COPY --from=builder /app/shannon/package*.json ./
 
-# Copy web prisma schema for database access
-COPY --from=builder /app/web/prisma ./web/prisma
+# Copy ghostshell prisma schema for database access
+COPY --from=builder /app/ghostshell/prisma ./ghostshell/prisma
 
 # Generate Prisma client
-RUN cd web && npx prisma generate
+RUN cd ghostshell && npx prisma generate
 
 # Set ownership
 RUN chown -R shannon:shannon /app
