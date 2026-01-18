@@ -142,6 +142,36 @@ export async function pentestPipelineWorkflow(
   };
 
   try {
+    // === Container Setup (Epic 006) ===
+    // Spawn isolated container if enabled for this scan
+    if (input.containerIsolationEnabled && input.scanId && input.organizationId) {
+      state.currentPhase = 'container-setup';
+      state.currentAgent = null;
+      await a.logPhaseTransition(activityInput, 'container-setup', 'start');
+
+      // Extract hostname from target URL for network policy
+      const targetHostname = input.targetHostname ?? new URL(input.webUrl).hostname;
+
+      const containerResult = await a.createScanContainer({
+        scanId: input.scanId,
+        organizationId: input.organizationId,
+        planId: input.planId ?? 'free',
+        targetHostname,
+        image: input.containerImage,
+        imageDigest: input.containerImageDigest,
+        workflowId,
+      });
+
+      state.containerInfo = {
+        containerId: containerResult.containerId,
+        podName: containerResult.podName,
+        namespace: containerResult.namespace,
+        status: containerResult.status,
+      };
+
+      await a.logPhaseTransition(activityInput, 'container-setup', 'complete');
+    }
+
     // === Phase 1: Pre-Reconnaissance ===
     state.currentPhase = 'pre-recon';
     state.currentAgent = 'pre-recon';
@@ -301,6 +331,23 @@ export async function pentestPipelineWorkflow(
       ),
     });
 
+    // === Container Cleanup (Epic 006) ===
+    // Terminate container after successful completion
+    if (state.containerInfo?.podName) {
+      state.currentPhase = 'container-cleanup';
+      await a.logPhaseTransition(activityInput, 'container-cleanup', 'start');
+
+      await a.terminateScanContainer({
+        podName: state.containerInfo.podName,
+        namespace: state.containerInfo.namespace,
+        gracePeriodSeconds: 30,
+      });
+
+      state.containerInfo.status = 'TERMINATED';
+      await a.logPhaseTransition(activityInput, 'container-cleanup', 'complete');
+      state.currentPhase = null;
+    }
+
     return state;
   } catch (error) {
     state.status = 'failed';
@@ -322,6 +369,24 @@ export async function pentestPipelineWorkflow(
       ),
       error: state.error ?? undefined,
     });
+
+    // === Container Cleanup (Epic 006) ===
+    // Terminate container after failure (best-effort, don't throw)
+    if (state.containerInfo?.podName) {
+      try {
+        await a.terminateScanContainer({
+          podName: state.containerInfo.podName,
+          namespace: state.containerInfo.namespace,
+          gracePeriodSeconds: 30,
+        });
+        state.containerInfo.status = 'TERMINATED';
+      } catch (cleanupError) {
+        // Log but don't fail - cleanup is best-effort
+        console.log(
+          `⚠️ Container cleanup failed: ${cleanupError instanceof Error ? cleanupError.message : String(cleanupError)}`
+        );
+      }
+    }
 
     throw error;
   }

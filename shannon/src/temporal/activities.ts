@@ -467,3 +467,171 @@ export async function logWorkflowComplete(
   await auditSession.initialize();
   await auditSession.logWorkflowComplete(summary);
 }
+
+// === Container Isolation Activities (Epic 006) ===
+
+import { ContainerManager } from '../container/container-manager.js';
+import {
+  ContainerErrorCode,
+  type CreateScanContainerInput,
+  type CreateScanContainerOutput,
+  type TerminateScanContainerInput,
+  type TerminateScanContainerOutput,
+} from '../container/types.js';
+
+/**
+ * Create a scan container for isolated execution.
+ *
+ * This activity spawns a Kubernetes pod for the scan with:
+ * - Resource limits based on subscription plan
+ * - Security context (non-root, seccomp profile)
+ * - Network policy for egress control
+ * - Ephemeral storage for workspace
+ *
+ * @param input - Container creation parameters
+ * @returns Container details including pod name and namespace
+ */
+export async function createScanContainer(
+  input: CreateScanContainerInput
+): Promise<CreateScanContainerOutput> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  // Heartbeat loop for long-running container creation
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({ activity: 'createScanContainer', elapsedSeconds: elapsed, attempt: attemptNumber });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  try {
+    const containerManager = new ContainerManager();
+
+    console.log(chalk.blue(`🐳 Creating scan container for scan ${input.scanId}...`));
+
+    const result = await containerManager.create({
+      scanId: input.scanId,
+      organizationId: input.organizationId,
+      planId: input.planId,
+      targetHostname: input.targetHostname,
+      image: input.image,
+      imageDigest: input.imageDigest,
+      environmentVars: input.environmentVars,
+      command: input.command,
+      args: input.args,
+      secretRefs: input.secretRefs,
+      presignedUploadUrl: input.presignedUploadUrl,
+      workflowId: input.workflowId,
+    });
+
+    console.log(
+      chalk.green(`✅ Container created: ${result.podName} in namespace ${result.namespace}`)
+    );
+
+    return {
+      containerId: result.containerId,
+      podName: result.podName,
+      namespace: result.namespace,
+      status: result.status,
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.log(chalk.red(`❌ Container creation failed: ${message}`));
+
+    // Classify container errors
+    let errorCode = ContainerErrorCode.CONTAINER_CREATION_FAILED;
+    let retryable = true;
+
+    if (message.includes('Concurrent container limit')) {
+      errorCode = ContainerErrorCode.RESOURCE_QUOTA_EXCEEDED;
+      retryable = true; // May become available as other scans complete
+    } else if (message.includes('image') || message.includes('pull')) {
+      errorCode = ContainerErrorCode.IMAGE_PULL_FAILED;
+      retryable = true;
+    } else if (message.includes('forbidden') || message.includes('unauthorized')) {
+      errorCode = ContainerErrorCode.CONTAINER_CREATION_FAILED;
+      retryable = false;
+    }
+
+    if (retryable) {
+      throw ApplicationFailure.create({
+        message: truncateErrorMessage(message),
+        type: errorCode,
+        details: [{ scanId: input.scanId, attemptNumber, elapsed: Date.now() - startTime }],
+      });
+    } else {
+      throw ApplicationFailure.nonRetryable(truncateErrorMessage(message), errorCode, [
+        { scanId: input.scanId, attemptNumber, elapsed: Date.now() - startTime },
+      ]);
+    }
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
+}
+
+/**
+ * Terminate a scan container with graceful shutdown.
+ *
+ * This activity:
+ * 1. Sends SIGTERM to the container
+ * 2. Waits for graceful shutdown (default 30s)
+ * 3. Force kills if necessary
+ * 4. Cleans up associated resources (network policy, volumes)
+ *
+ * @param input - Container termination parameters
+ * @returns Termination status
+ */
+export async function terminateScanContainer(
+  input: TerminateScanContainerInput
+): Promise<TerminateScanContainerOutput> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  // Heartbeat loop for termination
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({
+      activity: 'terminateScanContainer',
+      elapsedSeconds: elapsed,
+      attempt: attemptNumber,
+    });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  try {
+    const containerManager = new ContainerManager({
+      namespace: input.namespace,
+    });
+
+    console.log(chalk.blue(`🛑 Terminating container ${input.podName}...`));
+
+    await containerManager.terminate(input.podName, input.gracePeriodSeconds ?? 30);
+
+    console.log(chalk.green(`✅ Container ${input.podName} terminated`));
+
+    return {
+      success: true,
+      terminatedAt: new Date(),
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    // Pod not found is not an error - it may have already been cleaned up
+    if (message.includes('not found') || message.includes('NotFound')) {
+      console.log(chalk.yellow(`⚠️ Container ${input.podName} not found (already terminated)`));
+      return {
+        success: true,
+        terminatedAt: new Date(),
+      };
+    }
+
+    console.log(chalk.red(`❌ Container termination failed: ${message}`));
+
+    // Termination failures are retryable
+    throw ApplicationFailure.create({
+      message: truncateErrorMessage(message),
+      type: 'CONTAINER_TERMINATION_FAILED',
+      details: [{ podName: input.podName, attemptNumber, elapsed: Date.now() - startTime }],
+    });
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
+}

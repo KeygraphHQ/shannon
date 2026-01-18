@@ -160,7 +160,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 
 - **Image pull failure**: If scan image cannot be pulled (registry unavailable, auth failure), scan fails immediately with `IMAGE_PULL_FAILED` error code.
 
-- **Zombie containers**: Containers without heartbeat for >5 minutes are considered zombies. Cleanup job terminates them and marks associated scans as failed.
+- **Zombie containers**: Containers without Temporal activity heartbeat for >5 minutes are considered zombies. Cleanup job terminates them and marks associated scans as failed.
 
 - **Storage exhaustion**: If node storage is exhausted, new container creation fails. Alert is generated and existing containers continue operation.
 
@@ -178,6 +178,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 - **FR-003**: System MUST prevent containers from accessing host filesystem except explicitly mounted paths
 - **FR-004**: System MUST prevent containers from escalating privileges (no root, no capabilities)
 - **FR-005**: System MUST terminate containers when associated scan completes or times out
+- **FR-006**: System MUST inject credentials (API keys, registry auth) via Kubernetes Secrets mounted as files or environment variables
 
 **Resource Management:**
 - **FR-010**: System MUST enforce CPU limits per container (configurable per plan)
@@ -188,7 +189,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 - **FR-015**: System MUST implement resource quotas at tenant level (total resources across all running scans)
 
 **Network Isolation:**
-- **FR-020**: System MUST apply network policies restricting container egress to target URL and required services
+- **FR-020**: System MUST apply DNS-based (FQDN) network policies restricting container egress to target hostname and required services
 - **FR-021**: System MUST block container access to internal Kubernetes services
 - **FR-022**: System MUST block container access to other scan containers
 - **FR-023**: System MUST block container access to cloud metadata endpoints (SSRF protection)
@@ -202,10 +203,11 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 - **FR-033**: System MUST run cleanup job every 5 minutes to remove orphaned containers
 - **FR-034**: System MUST handle graceful shutdown on cancellation (SIGTERM → wait → SIGKILL)
 - **FR-035**: System MUST retry container creation on transient failures (max 3 attempts)
+- **FR-036**: System MUST emit Temporal activity heartbeats during scan execution for zombie detection
 
 **Storage Management:**
 - **FR-040**: System MUST provision ephemeral storage volume per container
-- **FR-041**: System MUST copy deliverables to persistent storage before container termination
+- **FR-041**: System MUST upload deliverables to cloud storage (S3/GCS) via presigned URLs before container termination
 - **FR-042**: System MUST destroy ephemeral storage on container termination
 - **FR-043**: System MUST enforce storage quotas per container
 - **FR-044**: Storage paths MUST be tenant-prefixed (`tenant-{orgId}/scans/{scanId}/`)
@@ -229,7 +231,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 
 - **ScanContainer**: Runtime container executing a scan, with resource limits and lifecycle state
 
-- **ContainerConfig**: Configuration for container creation including image, resources, network policy, and mounts
+- **ContainerConfig**: Configuration for container creation including image, resources, network policy, mounts, and Kubernetes Secret references for credentials
 
 - **ResourceLimits**: CPU, memory, and storage limits for a container, derived from subscription plan
 
@@ -263,7 +265,16 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 
 ## Clarifications
 
-*Questions to be answered during planning phase:*
+### Session 2026-01-18
+
+- Q: How should sensitive credentials (Anthropic API key, registry auth, Temporal connection) be injected into scan containers? → A: Kubernetes Secrets (mounted as files or env vars)
+- Q: How should container health be monitored for zombie detection? → A: Temporal activity heartbeats (workflow orchestration level)
+- Q: How should deliverables be transferred from container to persistent storage? → A: Direct upload to cloud storage (S3/GCS) using presigned URLs
+- Q: How should network policies allow egress to dynamic scan targets? → A: DNS-based egress policy with FQDN support (Cilium CNI)
+
+### Planning Phase Questions
+
+*Questions answered during initial spec drafting:*
 
 - Q: Which container runtime - Docker, containerd, or Kubernetes pods?
   - Recommendation: Kubernetes pods with containerd runtime for production; Docker for local development
@@ -281,7 +292,7 @@ As a DevOps engineer, I need scan container images to be versioned, secured, and
 
 1. **Kubernetes deployment**: Production deployment uses Kubernetes for container orchestration. Docker Compose for local development.
 
-2. **Network policy support**: Kubernetes cluster has CNI supporting NetworkPolicy (Calico, Cilium, or similar).
+2. **Network policy support**: Kubernetes cluster uses Cilium CNI for FQDN-based network policy support (required for dynamic target hostname egress rules).
 
 3. **Container runtime security**: Runtime is hardened (seccomp, AppArmor/SELinux, no privileged containers).
 

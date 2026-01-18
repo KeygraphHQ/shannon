@@ -11,6 +11,13 @@ export interface PipelineInput {
   workflowId?: string; // Added by client, used for audit correlation
   scanId?: string; // Database scan ID for web application integration
   organizationId?: string; // Organization ID for multi-tenant isolation
+
+  // Container isolation settings (Epic 006)
+  containerIsolationEnabled?: boolean | undefined; // Enable container isolation for this scan
+  planId?: string | undefined; // Subscription plan for resource limits (free, pro, enterprise)
+  containerImage?: string | undefined; // Override default scanner image
+  containerImageDigest?: string | undefined; // Pin to specific image digest
+  targetHostname?: string | undefined; // Hostname for network policy egress rules
 }
 
 export interface AgentMetrics {
@@ -38,6 +45,14 @@ export interface PipelineState {
   startTime: number;
   agentMetrics: Record<string, AgentMetrics>;
   summary: PipelineSummary | null;
+
+  // Container isolation state (Epic 006)
+  containerInfo?: {
+    containerId: string;
+    podName: string;
+    namespace: string;
+    status: string;
+  };
 }
 
 // Extended state returned by getProgress query (includes computed fields)

@@ -62,6 +62,9 @@ model Organization {
   reportTemplates ReportTemplate[]
   reportSchedules ReportSchedule[]
 
+  // Container isolation relations (Epic 006)
+  scanContainers ScanContainer[]
+
   @@index([deletedAt])
   @@index([plan])
   @@index([createdAt])
@@ -268,10 +271,13 @@ model Scan {
   findings     Finding[]
 
   // Service layer relations
-  parentScan       Scan?              @relation("ScanRetry", fields: [parentScanId], references: [id])
-  retries          Scan[]             @relation("ScanRetry")
-  apiKey           APIKey?            @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
+  parentScan        Scan?              @relation("ScanRetry", fields: [parentScanId], references: [id])
+  retries           Scan[]             @relation("ScanRetry")
+  apiKey            APIKey?            @relation(fields: [apiKeyId], references: [id], onDelete: SetNull)
   serviceReportJobs ServiceReportJob[]
+
+  // Container isolation relation (Epic 006)
+  container ScanContainer?
 
   // Reporting & Compliance relations
   reports Report[]
@@ -404,16 +410,16 @@ model AuthenticationConfig {
 // Report status enum
 enum ReportStatus {
   GENERATING // In progress
-  COMPLETED  // Successfully generated
-  FAILED     // Generation failed
+  COMPLETED // Successfully generated
+  FAILED // Generation failed
 }
 
 // Report type enum
 enum ReportType {
-  EXECUTIVE  // Executive Summary template
-  TECHNICAL  // Technical Detail template
+  EXECUTIVE // Executive Summary template
+  TECHNICAL // Technical Detail template
   COMPLIANCE // Compliance-Focused template
-  CUSTOM     // Custom template
+  CUSTOM // Custom template
 }
 
 // Schedule frequency enum
@@ -434,9 +440,9 @@ enum ScheduleStatus {
 // Report - Generated security report (immutable after creation)
 model Report {
   id             String       @id @default(cuid())
-  organizationId String       // Denormalized for query efficiency
+  organizationId String // Denormalized for query efficiency
   scanId         String
-  templateId     String?      // Null for built-in templates
+  templateId     String? // Null for built-in templates
   type           ReportType
   status         ReportStatus @default(GENERATING)
 
@@ -446,11 +452,11 @@ model Report {
   generatedById String // User who triggered generation
 
   // Findings snapshot at generation time
-  findingsCount Int @default(0)
-  criticalCount Int @default(0)
-  highCount     Int @default(0)
-  mediumCount   Int @default(0)
-  lowCount      Int @default(0)
+  findingsCount Int  @default(0)
+  criticalCount Int  @default(0)
+  highCount     Int  @default(0)
+  mediumCount   Int  @default(0)
+  lowCount      Int  @default(0)
   riskScore     Int? // 0-100
 
   // Compliance frameworks included (JSON array of framework IDs)
@@ -475,9 +481,9 @@ model Report {
   createdAt DateTime @default(now())
 
   // Relations
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  scan         Scan             @relation(fields: [scanId], references: [id], onDelete: Cascade)
-  template     ReportTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  scan         Scan              @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  template     ReportTemplate?   @relation(fields: [templateId], references: [id], onDelete: SetNull)
   shares       ReportShare[]
   accessLogs   ReportAccessLog[]
 
@@ -517,7 +523,7 @@ model ReportTemplate {
   createdById String
 
   // Relations
-  organization Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   reports      Report[]
   schedules    ReportSchedule[]
 
@@ -539,7 +545,7 @@ model ReportShare {
 
   // Access control
   expiresAt   DateTime // Default: 7 days from creation
-  maxAccesses Int?     // Optional limit (null = unlimited)
+  maxAccesses Int? // Optional limit (null = unlimited)
   accessCount Int      @default(0)
 
   // Revocation
@@ -569,8 +575,8 @@ model ReportAccessLog {
 
   // Access details
   accessedAt      DateTime @default(now())
-  accessedById    String?  // User ID if authenticated
-  accessedByEmail String?  // Email if via share link
+  accessedById    String? // User ID if authenticated
+  accessedByEmail String? // Email if via share link
   ipAddress       String?
   userAgent       String?
 
@@ -597,7 +603,7 @@ model ReportSchedule {
   name           String
   frequency      ScheduleFrequency
   cronExpression String? // For CUSTOM frequency
-  timezone       String  @default("UTC")
+  timezone       String            @default("UTC")
 
   // Report configuration
   templateId   String? // Null for default template
@@ -612,7 +618,7 @@ model ReportSchedule {
 
   // Status and tracking
   status             ScheduleStatus @default(ACTIVE)
-  temporalScheduleId String?        // Temporal schedule handle
+  temporalScheduleId String? // Temporal schedule handle
 
   // Last run info
   lastRunAt       DateTime?
@@ -626,9 +632,9 @@ model ReportSchedule {
   createdById String
 
   // Relations
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  project      Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  template     ReportTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  template     ReportTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   runs         ScheduleRun[]
 
   @@index([organizationId])
@@ -683,4 +689,115 @@ model ComplianceMapping {
   @@index([frameworkId])
   @@index([controlId])
   @@index([frameworkId, controlId])
+}
+
+// ===================
+// Container Isolation Feature (Epic 006)
+// ===================
+
+// Container status enum
+enum ContainerStatus {
+  PENDING // Waiting for container creation
+  CREATING // Container being provisioned
+  RUNNING // Container executing scan
+  SUCCEEDED // Scan completed successfully
+  FAILED // Scan failed or container crashed
+  TERMINATED // Container forcefully terminated (timeout/cancellation)
+  CLEANUP // Container terminated, awaiting resource cleanup
+}
+
+// ScanContainer - Runtime container executing a scan
+model ScanContainer {
+  id             String          @id @default(uuid())
+  scanId         String          @unique
+  organizationId String
+  containerId    String? // Docker/containerd container ID
+  podName        String? // Kubernetes pod name
+  namespace      String          @default("scans")
+  status         ContainerStatus @default(PENDING)
+  image          String
+  imageDigest    String?
+  startedAt      DateTime?
+  terminatedAt   DateTime?
+  exitCode       Int?
+  errorMessage   String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  // Relations
+  scan            Scan                    @relation(fields: [scanId], references: [id], onDelete: Cascade)
+  organization    Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  config          ContainerConfig?
+  networkPolicy   ContainerNetworkPolicy?
+  ephemeralVolume EphemeralVolume?
+  metrics         ContainerMetrics[]
+
+  @@index([organizationId, status])
+  @@index([status, createdAt])
+}
+
+// ContainerConfig - Configuration for container creation (immutable after scan starts)
+model ContainerConfig {
+  id                String   @id @default(uuid())
+  scanContainerId   String   @unique
+  image             String
+  imageDigest       String?
+  resourceLimits    Json // { cpu: {request, limit}, memory: {request, limit}, ephemeralStorage: {request, limit} }
+  networkPolicyName String?
+  targetHostname    String
+  secretRefs        Json // { envFrom: [], volumeMounts: [] }
+  environmentVars   Json     @default("{}")
+  volumeMounts      Json     @default("[]")
+  command           String[] @default([])
+  args              String[] @default([])
+
+  scanContainer ScanContainer @relation(fields: [scanContainerId], references: [id], onDelete: Cascade)
+}
+
+// ContainerNetworkPolicy - CiliumNetworkPolicy tracking
+model ContainerNetworkPolicy {
+  id              String    @id @default(uuid())
+  scanContainerId String    @unique
+  policyName      String
+  namespace       String    @default("scans")
+  targetHostnames String[]
+  targetPorts     Int[]     @default([80, 443])
+  createdAt       DateTime  @default(now())
+  deletedAt       DateTime?
+
+  scanContainer ScanContainer @relation(fields: [scanContainerId], references: [id], onDelete: Cascade)
+
+  @@unique([policyName, namespace])
+}
+
+// EphemeralVolume - Temporary storage attached to container
+model EphemeralVolume {
+  id              String    @id @default(uuid())
+  scanContainerId String    @unique
+  volumeName      String
+  mountPath       String    @default("/workspace")
+  sizeGb          Decimal
+  storageClass    String?
+  destroyed       Boolean   @default(false)
+  destroyedAt     DateTime?
+
+  scanContainer ScanContainer @relation(fields: [scanContainerId], references: [id], onDelete: Cascade)
+}
+
+// ContainerMetrics - Time-series resource usage data
+model ContainerMetrics {
+  id              String   @id @default(uuid())
+  scanContainerId String
+  timestamp       DateTime
+  cpuUsagePercent Decimal
+  memoryUsedMb    Int
+  memoryLimitMb   Int
+  networkTxBytes  BigInt
+  networkRxBytes  BigInt
+  storageUsedMb   Int
+
+  scanContainer ScanContainer @relation(fields: [scanContainerId], references: [id], onDelete: Cascade)
+
+  @@index([scanContainerId, timestamp(sort: Desc)])
+  @@index([timestamp])
 }

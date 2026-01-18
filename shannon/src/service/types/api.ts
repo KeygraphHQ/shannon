@@ -78,6 +78,19 @@ export const PaginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =
     }),
   });
 
+// Container isolation config (Epic 006)
+export const ContainerIsolationConfigSchema = z.object({
+  /** Enable container isolation for this scan */
+  enabled: z.boolean().default(false),
+  /** Subscription plan for resource limits (free, pro, enterprise) */
+  planId: z.enum(['free', 'pro', 'enterprise']).optional(),
+  /** Override default scanner image */
+  image: z.string().optional(),
+  /** Pin to specific image digest */
+  imageDigest: z.string().optional(),
+});
+export type ContainerIsolationConfig = z.infer<typeof ContainerIsolationConfigSchema>;
+
 // Scan Request
 export const CreateScanRequestSchema = z.object({
   targetUrl: z.string().url(),
@@ -89,6 +102,8 @@ export const CreateScanRequestSchema = z.object({
       options: z.record(z.unknown()).optional(),
     })
     .optional(),
+  /** Container isolation configuration (Epic 006) */
+  containerIsolation: ContainerIsolationConfigSchema.optional(),
 });
 export type CreateScanRequest = z.infer<typeof CreateScanRequestSchema>;
 

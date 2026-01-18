@@ -98,6 +98,15 @@ export class ScanService {
     // Check Temporal availability
     const temporalAvailable = await checkTemporalHealth();
 
+    // Build metadata including container isolation config
+    const metadata: Record<string, unknown> = {};
+    if (request.config) {
+      metadata.config = request.config;
+    }
+    if (request.containerIsolation) {
+      metadata.containerIsolation = request.containerIsolation;
+    }
+
     // Create scan record
     const scan = await prisma.scan.create({
       data: {
@@ -107,7 +116,7 @@ export class ScanService {
         source: 'API',
         apiKeyId,
         queuedAt: temporalAvailable ? null : new Date(),
-        metadata: request.config ? { config: request.config } : null,
+        metadata: Object.keys(metadata).length > 0 ? metadata : null,
       },
       include: {
         project: true,
@@ -118,12 +127,23 @@ export class ScanService {
     if (temporalAvailable) {
       try {
         const workflowId = generateWorkflowId(organizationId, scan.id);
+
+        // Extract target hostname from URL for network policy
+        const targetUrl = new URL(request.targetUrl);
+        const targetHostname = targetUrl.hostname;
+
         const workflowInput: PipelineInput = {
           webUrl: request.targetUrl,
           repoPath: project.repositoryUrl || '',
           scanId: scan.id,
           organizationId,
           workflowId,
+          // Container isolation settings (Epic 006)
+          containerIsolationEnabled: request.containerIsolation?.enabled ?? false,
+          planId: request.containerIsolation?.planId,
+          containerImage: request.containerIsolation?.image,
+          containerImageDigest: request.containerIsolation?.imageDigest,
+          targetHostname,
         };
 
         await startScanWorkflow(workflowInput, workflowId);
@@ -408,12 +428,34 @@ export class ScanService {
 
       try {
         const workflowId = generateWorkflowId(scan.organizationId, scan.id);
+
+        // Extract container isolation config from metadata
+        const scanMetadata = scan.metadata as {
+          config?: Record<string, unknown>;
+          containerIsolation?: {
+            enabled?: boolean;
+            planId?: string;
+            image?: string;
+            imageDigest?: string;
+          };
+        } | null;
+
+        // Extract target hostname from URL for network policy
+        const targetUrl = new URL(scan.project.targetUrl);
+        const targetHostname = targetUrl.hostname;
+
         const workflowInput: PipelineInput = {
           webUrl: scan.project.targetUrl,
           repoPath: scan.project.repositoryUrl || '',
           scanId: scan.id,
           organizationId: scan.organizationId,
           workflowId,
+          // Container isolation settings (Epic 006)
+          containerIsolationEnabled: scanMetadata?.containerIsolation?.enabled ?? false,
+          planId: scanMetadata?.containerIsolation?.planId,
+          containerImage: scanMetadata?.containerIsolation?.image,
+          containerImageDigest: scanMetadata?.containerIsolation?.imageDigest,
+          targetHostname,
         };
 
         await startScanWorkflow(workflowInput, workflowId);

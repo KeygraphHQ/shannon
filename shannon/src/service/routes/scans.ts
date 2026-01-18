@@ -87,6 +87,16 @@ export async function scanRoutes(app: FastifyInstance): Promise<void> {
                 options: { type: 'object' },
               },
             },
+            containerIsolation: {
+              type: 'object',
+              description: 'Container isolation configuration (Epic 006)',
+              properties: {
+                enabled: { type: 'boolean', default: false, description: 'Enable container isolation' },
+                planId: { type: 'string', enum: ['free', 'pro', 'enterprise'], description: 'Resource plan' },
+                image: { type: 'string', description: 'Override scanner image' },
+                imageDigest: { type: 'string', description: 'Pin to specific image digest' },
+              },
+            },
           },
         },
         response: {
