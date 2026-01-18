@@ -1,11 +1,11 @@
 # Product Requirements Document (PRD)
 # Shannon SaaS - AI-Powered Security Testing Platform
 
-**Version:** 1.0
+**Version:** 1.1
 **Status:** Draft
 **Author:** Product Team
 **Created:** 2026-01-16
-**Last Updated:** 2026-01-16
+**Last Updated:** 2026-01-18
 
 ---
 
@@ -706,6 +706,26 @@ Code:         Mono, 12-14px
 ---
 
 ## 6. Technical Requirements
+
+### 6.0 Platform Architecture
+
+The Shannon SaaS platform is organized as a monorepo with two main packages:
+
+**Shannon Package** (`/shannon`):
+- AI-powered penetration testing engine
+- Temporal workflows for scan orchestration
+- Claude Agent SDK integration
+- REST API service layer
+- Security tools (nmap, subfinder, whatweb)
+- MCP server implementation
+
+**GhostShell Package** (`/ghostshell`):
+- Next.js web application
+- User dashboard and authentication (Clerk)
+- Scan management and monitoring
+- Findings and remediation tracking
+- Reporting and compliance features
+- Prisma ORM with PostgreSQL (database: `ghostshell`)
 
 ### 6.1 Functional Requirements
 

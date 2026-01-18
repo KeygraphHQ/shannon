@@ -1,9 +1,15 @@
 # Shannon SaaS - Plano de Transformação
 
-**Versão:** 1.0
-**Data:** 2026-01-16
+**Versão:** 1.1
+**Data:** 2026-01-18
 **Autor:** Claude Code Analysis
-**Status:** Proposta Inicial
+**Status:** Em Implementação
+
+> **Nota de Atualização (2026-01-18):** O projeto foi reestruturado como monorepo com dois pacotes:
+> - **Shannon** (`/shannon`): Motor de pentest AI (Temporal + Claude Agent SDK)
+> - **GhostShell** (`/ghostshell`): Aplicação web Next.js (database: `ghostshell`)
+>
+> A infraestrutura de testes foi implementada com Vitest e Testing Library. Ver `specs/007-monorepo-restructure` e `specs/008-setup-monorepo-testing` para detalhes.
 
 ---
 

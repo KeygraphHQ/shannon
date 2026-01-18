@@ -1,12 +1,17 @@
 # Shannon SaaS Solution Architecture
 
-**Version**: 1.0.0
-**Date**: 2026-01-17
+**Version**: 1.1.0
+**Date**: 2026-01-18
 **Status**: Draft
 
 ## Executive Summary
 
-Shannon SaaS is a multi-tenant, AI-powered penetration testing platform that transforms the existing Shannon CLI tool into a cloud-native service. The architecture is designed around **7 constitutional principles** and comprises **6 functional domains**.
+Shannon SaaS is a multi-tenant, AI-powered penetration testing platform that transforms the existing Shannon CLI tool into a cloud-native service. The platform consists of two main packages in a monorepo structure:
+
+- **Shannon**: The AI-powered penetration testing engine (Temporal workflows + Claude Agent SDK)
+- **GhostShell**: The web application providing dashboard, reports, and management UI (Next.js + Prisma)
+
+The architecture is designed around **7 constitutional principles** and comprises **8 functional epics**.
 
 ---
 
@@ -22,22 +27,22 @@ graph TB
     end
 
     subgraph Platform["Shannon SaaS Platform"]
-        Web["Web Application<br/>(Next.js)"]
+        GhostShell["GhostShell<br/>(Next.js Web App)"]
         Service["Shannon Service<br/>(REST API)"]
         Temporal["Temporal<br/>(Orchestration)"]
         Containers["Scan Containers<br/>(Kubernetes)"]
-        DB[(PostgreSQL)]
+        DB[(PostgreSQL<br/>ghostshell)]
         Storage[(Object Storage)]
     end
 
-    Users --> Web
-    CICD --> Web
-    Auditors --> Web
-    Web --> Service
+    Users --> GhostShell
+    CICD --> GhostShell
+    Auditors --> GhostShell
+    GhostShell --> Service
     Service --> Temporal
     Temporal --> Containers
     Containers --> Targets
-    Web --> DB
+    GhostShell --> DB
     Service --> DB
     Containers --> Storage
 ```
@@ -48,31 +53,31 @@ graph TB
 
 ```mermaid
 flowchart TB
-    subgraph Presentation["Presentation Layer"]
+    subgraph Presentation["GhostShell - Presentation Layer"]
         Dashboard["Dashboard<br/>(React 19)"]
         Auth["Authentication<br/>(Clerk)"]
         Public["Public Reports<br/>(Token Access)"]
     end
 
-    subgraph Application["Application Layer"]
+    subgraph Application["GhostShell - Application Layer"]
         API["Next.js API Routes"]
         Actions["Server Actions"]
         Webhooks["Webhook Handlers<br/>(GitHub, Temporal)"]
     end
 
-    subgraph Service["Service Layer (Epic 005)"]
+    subgraph Service["Shannon - Service Layer (Epic 005)"]
         ShannonAPI["Shannon Service API<br/>/api/v1/*"]
         Health["Health & Metrics<br/>/health, /metrics"]
     end
 
-    subgraph Orchestration["Orchestration Layer"]
+    subgraph Orchestration["Shannon - Orchestration Layer"]
         TemporalServer["Temporal Server"]
         PentestWorkflow["Pentest Workflow"]
         ReportWorkflow["Report Workflow"]
         ScheduleWorkflow["Schedule Triggers"]
     end
 
-    subgraph Execution["Execution Layer (Epic 006)"]
+    subgraph Execution["Shannon - Execution Layer (Epic 006)"]
         K8s["Kubernetes"]
         Container1["Scan Container<br/>(Tenant A)"]
         Container2["Scan Container<br/>(Tenant B)"]
@@ -80,7 +85,7 @@ flowchart TB
     end
 
     subgraph Data["Data Layer"]
-        Postgres[(PostgreSQL<br/>via Prisma)]
+        Postgres[(PostgreSQL<br/>ghostshell DB)]
         S3[(S3/Blob<br/>Storage)]
         Redis[(Redis<br/>Cache)]
     end
@@ -112,11 +117,11 @@ flowchart TB
 
 ## Component Architecture
 
-### Web Application Layer
+### GhostShell - Web Application Layer
 
 ```mermaid
 graph LR
-    subgraph NextJS["Next.js 16 Application"]
+    subgraph NextJS["GhostShell (Next.js 16)"]
         subgraph Routes["App Router"]
             AuthRoutes["(auth)/*<br/>Sign-in, Sign-up, 2FA"]
             DashRoutes["(dashboard)/*<br/>Scans, Findings, Reports"]
@@ -133,7 +138,7 @@ graph LR
         subgraph Lib["Library"]
             Actions["Server Actions"]
             DB["Prisma Client"]
-            Temporal["Temporal Client"]
+            ShannonClient["Shannon API Client"]
             Audit["Audit Logging"]
         end
     end
@@ -147,7 +152,7 @@ graph LR
     DashRoutes --> Components
     APIRoutes --> Actions
     Actions --> DB
-    Actions --> Temporal
+    Actions --> ShannonClient
     Actions --> Audit
     Actions --> Resend
 ```
@@ -526,12 +531,14 @@ graph TB
 ```mermaid
 graph TD
     E001["Epic 001<br/>Onboarding & Setup<br/>✅ COMPLETE"]
-    E002["Epic 002<br/>Security Scans<br/>🔄 58%"]
-    E003["Epic 003<br/>Findings & Remediation<br/>🔄 92%"]
-    E004["Epic 004<br/>Reporting & Compliance<br/>🔄 41%"]
+    E002["Epic 002<br/>Security Scans<br/>🔄 IN PROGRESS"]
+    E003["Epic 003<br/>Findings & Remediation<br/>🔄 IN PROGRESS"]
+    E004["Epic 004<br/>Reporting & Compliance<br/>🔄 IN PROGRESS"]
     E005["Epic 005<br/>Shannon Service<br/>📋 SPECIFIED"]
     E006["Epic 006<br/>Container Isolation<br/>📋 SPECIFIED"]
-    E007["Epic 007<br/>Billing & Subscriptions<br/>⏳ PLANNED"]
+    E007["Epic 007<br/>Monorepo Restructure<br/>✅ COMPLETE"]
+    E008["Epic 008<br/>Monorepo Testing<br/>✅ COMPLETE"]
+    E009["Epic 009<br/>Billing & Subscriptions<br/>⏳ PLANNED"]
 
     E001 --> E002
     E002 --> E003
@@ -539,6 +546,8 @@ graph TD
     E002 --> E005
     E005 --> E006
     E001 --> E007
+    E007 --> E008
+    E001 --> E009
 
     style E001 fill:#22c55e
     style E002 fill:#eab308
@@ -546,7 +555,9 @@ graph TD
     style E004 fill:#eab308
     style E005 fill:#3b82f6
     style E006 fill:#3b82f6
-    style E007 fill:#6b7280
+    style E007 fill:#22c55e
+    style E008 fill:#22c55e
+    style E009 fill:#6b7280
 ```
 
 ---
@@ -584,15 +595,19 @@ graph LR
 
 ## Implementation Status
 
-| Epic | Tasks | Complete | Progress |
-|------|-------|----------|----------|
-| 001-onboarding-setup | 88 | 88 | 100% |
-| 002-security-scans | 180 | 104 | 58% |
-| 003-findings-remediation | 50 | 46 | 92% |
-| 004-reporting-compliance | 119 | 49 | 41% |
-| 005-shannon-service | ~65 | 0 | 0% |
-| 006-container-isolation | ~50 | 0 | 0% |
-| **Total** | **~552** | **287** | **52%** |
+| Epic | Description | Status |
+|------|-------------|--------|
+| 001-onboarding-setup | Authentication, organization, team management | ✅ Complete |
+| 002-security-scans | Quick scan, authenticated testing, scheduling, CI/CD | 🔄 In Progress |
+| 003-findings-remediation | Finding detail, notes, filtering, bulk updates | 🔄 In Progress |
+| 004-reporting-compliance | Reports, compliance mapping, sharing, scheduling | 🔄 In Progress |
+| 005-shannon-service | Shannon REST API service layer | 📋 Specified |
+| 006-container-isolation | Per-scan container sandboxing | 📋 Specified |
+| 007-monorepo-restructure | Shannon/GhostShell separation, DB rename | ✅ Complete |
+| 008-monorepo-testing | Vitest testing infrastructure | ✅ Complete |
+| 009-billing | Stripe integration, subscriptions | ⏳ Planned |
+
+**Legend:** ✅ Complete | 🔄 In Progress | 📋 Specified | ⏳ Planned
 
 ---
 
@@ -610,11 +625,48 @@ graph LR
 
 ---
 
+## Monorepo Structure
+
+```
+shannon/                  # Penetration testing engine (Temporal + Claude Agent SDK)
+├── src/                  # Core application source
+├── configs/              # YAML configuration files
+├── prompts/              # AI prompt templates
+├── docker/               # Docker-related files
+├── mcp-server/           # MCP server implementation
+├── __tests__/            # Shannon package tests
+└── package.json          # Shannon package dependencies
+
+ghostshell/               # Web application (Next.js + Prisma)
+├── app/                  # Next.js app router
+├── components/           # React components
+├── lib/                  # Utilities and business logic
+├── prisma/               # Database schema and migrations
+├── __tests__/            # GhostShell package tests
+└── package.json          # GhostShell package dependencies
+
+specs/                    # Feature specifications
+├── 001-onboarding-setup/
+├── 002-security-scans/
+├── 003-findings-remediation/
+├── 004-reporting-compliance/
+├── 005-shannon-service/
+├── 006-container-isolation/
+├── 007-monorepo-restructure/
+└── 008-setup-monorepo-testing/
+
+docker-compose.yml        # Orchestrates all services
+package.json              # Workspace root configuration
+vitest.workspace.ts       # Shared test configuration
+```
+
+---
+
 ## Next Steps
 
 1. **Complete Epic 002** - Scheduled Scans (US4) and CI/CD Integration (US5)
-2. **Complete Epic 003** - Final polish tasks (T044, T046, T050)
+2. **Complete Epic 003** - Final polish tasks
 3. **Complete Epic 004** - Sharing, Scheduling, Dashboard, Templates
 4. **Plan Epic 005** - Run `/speckit.plan specs/005-shannon-service`
 5. **Plan Epic 006** - Run `/speckit.plan specs/006-container-isolation`
-6. **Create Epic 007** - Billing & Subscription management
+6. **Create Epic 009** - Billing & Subscription management
