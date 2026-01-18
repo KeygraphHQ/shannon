@@ -5,13 +5,13 @@ node_modules/
 audit-logs/
 dist/
 
-# Next.js
-web/.next/
-web/out/
-web/build/
+# Next.js (GhostShell)
+ghostshell/.next/
+ghostshell/out/
+ghostshell/build/
 
 # Prisma
-web/prisma/migrations/*_migration.sql.backup
+ghostshell/prisma/migrations/*_migration.sql.backup
 
 # IDE
 .idea/

@@ -77,6 +77,7 @@ Shannon is available in two editions:
 - [See Shannon in Action](#-see-shannon-in-action)
 - [Features](#-features)
 - [Product Line](#-product-line)
+- [Repository Structure](#-repository-structure)
 - [Setup & Usage Instructions](#-setup--usage-instructions)
   - [Prerequisites](#prerequisites)
   - [Quick Start](#quick-start)
@@ -92,6 +93,49 @@ Shannon is available in two editions:
 - [License](#-license)
 - [Community & Support](#-community--support)
 - [Get in Touch](#-get-in-touch)
+
+---
+
+## 📁 Repository Structure
+
+This is a monorepo containing two independent packages:
+
+```
+shannon/                  # Penetration testing engine (Temporal + Claude Agent SDK)
+├── src/                  # Core application source
+├── configs/              # YAML configuration files
+├── prompts/              # AI prompt templates
+├── docker/               # Docker-related files
+└── package.json          # Shannon package dependencies
+
+ghostshell/               # Web application (Next.js)
+├── app/                  # Next.js app router
+├── components/           # React components
+├── lib/                  # Utilities and business logic
+├── prisma/               # Database schema and migrations
+└── package.json          # GhostShell package dependencies
+
+docker-compose.yml        # Orchestrates all services
+package.json              # Workspace configuration (npm workspaces)
+```
+
+### Workspace Commands
+
+```bash
+# Install all dependencies (both packages)
+npm install
+
+# Build both packages
+npm run build
+
+# Build individual packages
+npm run build:shannon
+npm run build:ghostshell
+
+# Development
+npm run dev:shannon      # Start Shannon service
+npm run dev:ghostshell   # Start GhostShell dev server
+```
 
 ---
 
@@ -251,6 +295,20 @@ rules:
 #### TOTP Setup for 2FA
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+
+### Database Migration (Existing Deployments)
+
+If you're upgrading from a previous version that used the `shannon` database, you'll need to rename it to `ghostshell`:
+
+```sql
+-- PostgreSQL: Rename the database
+ALTER DATABASE shannon RENAME TO ghostshell;
+```
+
+Update your `.env` or environment variables:
+```bash
+DATABASE_URL=postgresql://postgres:postgres@localhost:5432/ghostshell
+```
 
 ### Output and Results
 

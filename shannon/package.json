@@ -1,0 +1,53 @@
+{
+  "name": "shannon",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
+    "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
+    "temporal:worker": "node dist/temporal/worker.js",
+    "temporal:start": "node dist/temporal/client.js",
+    "temporal:query": "node dist/temporal/query.js",
+    "service:start": "node dist/service/index.js",
+    "service:dev": "node --watch dist/service/index.js",
+    "test:service": "vitest run --dir src/service",
+    "test:service:watch": "vitest --dir src/service"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@fastify/cors": "^11.2.0",
+    "@fastify/helmet": "^13.0.2",
+    "@fastify/rate-limit": "^10.3.0",
+    "@fastify/sensible": "^6.0.4",
+    "@fastify/swagger": "^9.6.1",
+    "@fastify/swagger-ui": "^5.2.4",
+    "@prisma/adapter-pg": "^7.2.0",
+    "@prisma/client": "^7.2.0",
+    "@temporalio/activity": "^1.11.0",
+    "@temporalio/client": "^1.11.0",
+    "@temporalio/worker": "^1.11.0",
+    "@temporalio/workflow": "^1.11.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1",
+    "boxen": "^8.0.1",
+    "chalk": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "fastify": "^5.7.1",
+    "figlet": "^1.9.3",
+    "gradient-string": "^3.0.0",
+    "js-yaml": "^4.1.0",
+    "otpauth": "^9.4.1",
+    "pg": "^8.17.1",
+    "playwright": "^1.57.0",
+    "zod": "^3.22.4",
+    "zx": "^8.0.0"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.0.3",
+    "@types/pg": "^8.16.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.17"
+  }
+}
