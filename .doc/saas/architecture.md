@@ -253,6 +253,8 @@ erDiagram
     Organization ||--o{ AuditLog : "tracks"
     Organization ||--o{ Report : "generates"
     Organization ||--o{ ReportTemplate : "customizes"
+    Organization ||--o{ APIKey : "owns"
+    Organization ||--o{ ReportJob : "generates"
 
     User ||--o{ OrganizationMembership : "belongs to"
     OrganizationMembership }o--|| Organization : "member of"
@@ -265,6 +267,10 @@ erDiagram
     Scan ||--o| ScanResult : "produces"
     Scan ||--o{ Finding : "discovers"
     Scan ||--o{ Report : "generates"
+    Scan ||--o{ ReportJob : "generates"
+    Scan ||--o| Scan : "retries"
+
+    APIKey ||--o{ Scan : "initiates"
 
     Finding ||--o{ FindingNote : "has"
     Finding ||--o{ ComplianceMapping : "maps to"
@@ -303,6 +309,30 @@ erDiagram
         string temporalWorkflowId
         int progressPercent
         int findingsCount
+        string parentScanId FK
+        string apiKeyId FK
+        datetime queuedAt
+    }
+
+    APIKey {
+        string id PK
+        string organizationId FK
+        string name
+        string keyPrefix
+        string keyHash
+        string[] scopes
+        datetime expiresAt
+        datetime revokedAt
+    }
+
+    ReportJob {
+        string id PK
+        string scanId FK
+        string organizationId FK
+        string format
+        string status
+        int progress
+        string outputPath
     }
 
     Finding {

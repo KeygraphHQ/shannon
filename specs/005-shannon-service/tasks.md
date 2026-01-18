@@ -14,9 +14,9 @@
 ## Path Conventions
 
 Based on plan.md structure:
-- **Service Layer**: `src/service/` (NEW)
-- **Existing Code**: `src/temporal/`, `src/types/`, etc. (preserved)
-- **Web App**: `web/prisma/`, `web/lib/`
+- **Service Layer**: `shannon/src/service/` (NEW)
+- **Existing Code**: `shannon/src/temporal/`, `shannon/src/types/`, etc. (preserved)
+- **Web App**: `ghostshell/prisma/`, `ghostshell/lib/`
 
 ---
 
@@ -42,12 +42,12 @@ Based on plan.md structure:
 
 ### Database Schema Extensions
 
-- [x] T007 Add APIKey model to `web/prisma/schema.prisma` per data-model.md specification
-- [x] T008 Add ReportJob model to `web/prisma/schema.prisma` per data-model.md specification
-- [x] T009 Extend Scan model with `parentScanId`, `queuedAt`, `apiKeyId` fields in `web/prisma/schema.prisma`
-- [x] T010 Add Organization relations for `apiKeys` and `reportJobs` in `web/prisma/schema.prisma`
-- [x] T011 Run Prisma migrations: `cd web && npx prisma migrate dev --name add_service_models`
-- [x] T012 Generate Prisma client: `cd web && npx prisma generate`
+- [x] T007 Add APIKey model to `ghostshell/prisma/schema.prisma` per data-model.md specification
+- [x] T008 Add ReportJob model to `ghostshell/prisma/schema.prisma` per data-model.md specification
+- [x] T009 Extend Scan model with `parentScanId`, `queuedAt`, `apiKeyId` fields in `ghostshell/prisma/schema.prisma`
+- [x] T010 Add Organization relations for `apiKeys` and `reportJobs` in `ghostshell/prisma/schema.prisma`
+- [x] T011 Run Prisma migrations: `cd ghostshell && npx prisma migrate dev --name add_service_models`
+- [x] T012 Generate Prisma client: `cd ghostshell && npx prisma generate`
 
 ### Core Service Infrastructure
 
@@ -186,8 +186,8 @@ Based on plan.md structure:
 
 ### Web App Integration
 
-- [x] T072 [P] Create Shannon API client in `web/lib/shannon-client.ts`
-- [x] T073 Add environment variables for service URL and API key in `web/.env.example`
+- [x] T072 [P] Create Shannon API client in `ghostshell/lib/shannon-client.ts`
+- [x] T073 Add environment variables for service URL and API key in `ghostshell/.env.example`
 
 ### OpenAPI Documentation
 
@@ -268,10 +268,10 @@ Config Templates                          Report Generation
 
 ```bash
 # Parallel Group A: Schema changes
-Task T007: Add APIKey model to web/prisma/schema.prisma
-Task T008: Add ReportJob model to web/prisma/schema.prisma
-Task T009: Extend Scan model in web/prisma/schema.prisma
-Task T010: Add Organization relations in web/prisma/schema.prisma
+Task T007: Add APIKey model to ghostshell/prisma/schema.prisma
+Task T008: Add ReportJob model to ghostshell/prisma/schema.prisma
+Task T009: Extend Scan model in ghostshell/prisma/schema.prisma
+Task T010: Add Organization relations in ghostshell/prisma/schema.prisma
 
 # Sequential: Migrations (after A)
 Task T011: Run Prisma migrations

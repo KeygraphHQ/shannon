@@ -88,15 +88,15 @@ src/
     └── activities/
         └── validate-auth.ts  # Exists, may need enhancement
 
-# Web app changes (minimal)
-web/
+# GhostShell web app changes (minimal)
+ghostshell/
 ├── lib/
 │   └── shannon-client.ts    # NEW: API client for service
 └── prisma/
     └── schema.prisma        # EXTEND: Add APIKey model
 ```
 
-**Structure Decision**: Option 2 (Web application) - Existing monorepo with `/src/` for service backend and `/web/` for Next.js frontend. Service layer added under `src/service/` to avoid disrupting existing Temporal infrastructure.
+**Structure Decision**: Existing monorepo with `/shannon/src/` for service backend and `/ghostshell/` for Next.js frontend. Service layer added under `shannon/src/service/` to avoid disrupting existing Temporal infrastructure.
 
 ## Complexity Tracking
 

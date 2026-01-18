@@ -6,7 +6,7 @@
 
 ## Overview
 
-This document defines the data model for the Shannon Service layer. It extends the existing Prisma schema (`web/prisma/schema.prisma`) with service-specific entities while maintaining compatibility with the existing Organization, User, and Scan models.
+This document defines the data model for the Shannon Service layer. It extends the existing Prisma schema (`ghostshell/prisma/schema.prisma`) with service-specific entities while maintaining compatibility with the existing Organization, User, and Scan models.
 
 ## Entity Relationship Diagram
 

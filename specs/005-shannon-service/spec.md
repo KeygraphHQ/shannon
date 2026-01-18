@@ -138,10 +138,11 @@ As the Shannon web application, I need to request report generation asynchronous
 **Service Core:**
 - **FR-001**: Service MUST expose REST API at `/api/v1/` for all scan operations
 - **FR-002**: Service MUST authenticate all API requests using API keys or JWT tokens
-- **FR-003**: Service MUST validate API key ownership against organization before executing operations; all scans and resources accessed via that key ONLY return data for that organization
+- **FR-003**: Service MUST validate API key ownership against organization before executing operations; all database queries MUST include organizationId filter derived from the authenticated API key
 - **FR-004**: Service MUST return consistent error responses with error codes, messages, and request IDs
 - **FR-005**: Service MUST log all API requests with correlation IDs for tracing
-- **FR-006**: Service MUST enforce organization-level isolation: scans initiated with an API key are scoped to that key's organization; cross-org access is forbidden (return 403 Forbidden)
+- **FR-006**: Service MUST reject cross-organization access attempts with 403 Forbidden; if a resource exists but belongs to a different organization, return 403 (not 404) to prevent enumeration
+- **FR-007**: Service MUST enforce rate limiting per API key (default: 1000 requests/hour); return 429 Too Many Requests with Retry-After header when exceeded
 
 **Scan Operations:**
 - **FR-010**: Service MUST accept scan requests with target URL, authentication config, and scan options
@@ -149,7 +150,7 @@ As the Shannon web application, I need to request report generation asynchronous
 - **FR-012**: Service MUST provide real-time scan progress via polling endpoint (SSE optional for v2)
 - **FR-013**: Service MUST support scan cancellation with graceful shutdown and partial result preservation
 - **FR-014**: Service MUST enforce concurrent scan limits per organization (configurable, default 3)
-- **FR-015**: Service MUST queue excess scan requests and process in FIFO order
+- **FR-015**: Service MUST queue excess scan requests and process in FIFO order; max queue depth is 10 per organization; requests exceeding queue limit return 429 with error code QUEUE_FULL; queued requests timeout after 30 minutes if not processed
 - **FR-016**: Service MUST retain all scans and results indefinitely in the database; deletion is admin-only via separate admin API endpoint. Organizations cannot delete their own scans (immutable audit trail)
 - **FR-017**: Service MUST support user-initiated scan retry via POST `/api/v1/scans/{scanId}/retry` for failed scans. Retry creates a new scan job with the same config. Original scan remains immutable and serves as audit trail
 
@@ -182,9 +183,9 @@ As the Shannon web application, I need to request report generation asynchronous
 
 - **NFR-001**: API response time <500ms for non-scan operations (p95)
 - **NFR-002**: Service startup time <30 seconds including dependency checks
-- **NFR-003**: Service MUST handle 100 concurrent API requests without degradation
+- **NFR-003**: Service MUST handle 100 concurrent API requests while maintaining p95 response time <500ms for GET endpoints and <2s for POST /scans
 - **NFR-004**: Service MUST gracefully handle Temporal unavailability (queue requests, retry)
-- **NFR-005**: Service MUST support horizontal scaling behind load balancer
+- **NFR-005**: Service MUST support horizontal scaling; multiple instances can run behind load balancer with stateless request handling (no sticky sessions required)
 
 ### Key Entities
 
