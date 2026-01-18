@@ -10,6 +10,7 @@
 ### Session 2026-01-18
 
 - Q: Should code coverage be enforced as a quality gate in CI? → A: Enforce minimum threshold (70-80%) for new/changed code only
+- Q: What timeout threshold should be used for individual tests? → A: 30 seconds per test
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -82,7 +83,7 @@ As a team lead, I want to see code coverage reports for the monorepo, so that I 
 ### Edge Cases
 
 - What happens when a test file has syntax errors? The test runner should report the syntax error clearly without crashing
-- How does the system handle tests that time out? Long-running tests should be terminated after a reasonable threshold and marked as failed
+- How does the system handle tests that time out? Long-running tests should be terminated after 30 seconds and marked as failed
 - What happens when CI runs on a branch with no test files? The pipeline should complete successfully with a warning that no tests were found
 - How are flaky tests handled? The system should report intermittent failures consistently so developers can identify and fix flaky tests
 
