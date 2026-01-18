@@ -25,10 +25,10 @@ This is a monorepo with two packages:
 
 **Purpose**: Project initialization and workspace configuration
 
-- [ ] T001 Create Vitest workspace configuration in vitest.workspace.ts
-- [ ] T002 [P] Create test directory structure for Shannon in shannon/__tests__/unit/ and shannon/__tests__/integration/
-- [ ] T003 [P] Create test directory structure for GhostShell in ghostshell/__tests__/unit/ and ghostshell/__tests__/components/
-- [ ] T004 [P] Create .github/workflows/ directory for CI workflow
+- [x] T001 Create Vitest workspace configuration in vitest.workspace.ts
+- [x] T002 [P] Create test directory structure for Shannon in shannon/__tests__/unit/ and shannon/__tests__/integration/
+- [x] T003 [P] Create test directory structure for GhostShell in ghostshell/__tests__/unit/ and ghostshell/__tests__/components/
+- [x] T004 [P] Create .github/workflows/ directory for CI workflow
 
 ---
 
@@ -38,11 +38,11 @@ This is a monorepo with two packages:
 
 **⚠️ CRITICAL**: No user story work can begin until this phase is complete
 
-- [ ] T005 Install @vitest/coverage-v8 as devDependency in shannon/package.json
-- [ ] T006 [P] Install Vitest, @testing-library/react, @testing-library/jest-dom, and happy-dom as devDependencies in ghostshell/package.json
-- [ ] T007 Create Shannon package Vitest configuration in shannon/vitest.config.ts with 30s timeout and coverage settings
-- [ ] T008 [P] Create GhostShell package Vitest configuration in ghostshell/vitest.config.ts with happy-dom environment and 30s timeout
-- [ ] T009 Create Testing Library setup file in ghostshell/test-setup.ts with jest-dom matchers
+- [x] T005 Install @vitest/coverage-v8 as devDependency in shannon/package.json
+- [x] T006 [P] Install Vitest, @testing-library/react, @testing-library/jest-dom, and happy-dom as devDependencies in ghostshell/package.json
+- [x] T007 Create Shannon package Vitest configuration in shannon/vitest.config.ts with 30s timeout and coverage settings
+- [x] T008 [P] Create GhostShell package Vitest configuration in ghostshell/vitest.config.ts with happy-dom environment and 30s timeout
+- [x] T009 Create Testing Library setup file in ghostshell/test-setup.ts with jest-dom matchers
 
 **Checkpoint**: Foundation ready - user story implementation can now begin
 
@@ -56,12 +56,12 @@ This is a monorepo with two packages:
 
 ### Implementation for User Story 1
 
-- [ ] T010 [US1] Add test scripts to root package.json (test, test:watch, test:coverage)
-- [ ] T011 [P] [US1] Add test scripts to shannon/package.json (test, test:watch)
-- [ ] T012 [P] [US1] Add test scripts to ghostshell/package.json (test, test:watch)
-- [ ] T013 [P] [US1] Create example unit test for Shannon in shannon/__tests__/unit/config-parser.test.ts
-- [ ] T014 [P] [US1] Create example component test for GhostShell in ghostshell/__tests__/components/example.test.tsx
-- [ ] T015 [US1] Verify local test execution works by running npm test from root
+- [x] T010 [US1] Add test scripts to root package.json (test, test:watch, test:coverage)
+- [x] T011 [P] [US1] Add test scripts to shannon/package.json (test, test:watch)
+- [x] T012 [P] [US1] Add test scripts to ghostshell/package.json (test, test:watch)
+- [x] T013 [P] [US1] Create example unit test for Shannon in shannon/__tests__/unit/config-parser.test.ts
+- [x] T014 [P] [US1] Create example component test for GhostShell in ghostshell/__tests__/components/example.test.tsx
+- [x] T015 [US1] Verify local test execution works by running npm test from root
 
 **Checkpoint**: At this point, developers can run `npm test` locally and see test results for both packages
 
@@ -75,13 +75,13 @@ This is a monorepo with two packages:
 
 ### Implementation for User Story 2
 
-- [ ] T016 [US2] Create GitHub Actions workflow file in .github/workflows/test.yml
-- [ ] T017 [US2] Configure workflow to trigger on pull_request and push to main
-- [ ] T018 [US2] Add checkout, Node.js setup, and npm ci steps to workflow
-- [ ] T019 [US2] Add build step to workflow (npm run build)
-- [ ] T020 [US2] Add test execution step with coverage to workflow (npm run test:coverage)
-- [ ] T021 [US2] Configure coverage artifact upload in workflow
-- [ ] T022 [US2] Add concurrency configuration to cancel duplicate workflow runs
+- [x] T016 [US2] Create GitHub Actions workflow file in .github/workflows/test.yml
+- [x] T017 [US2] Configure workflow to trigger on pull_request and push to main
+- [x] T018 [US2] Add checkout, Node.js setup, and npm ci steps to workflow
+- [x] T019 [US2] Add build step to workflow (npm run build)
+- [x] T020 [US2] Add test execution step with coverage to workflow (npm run test:coverage)
+- [x] T021 [US2] Configure coverage artifact upload in workflow
+- [x] T022 [US2] Add concurrency configuration to cancel duplicate workflow runs
 
 **Checkpoint**: PRs now automatically run tests and show pass/fail status checks
 

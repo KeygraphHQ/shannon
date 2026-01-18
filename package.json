@@ -10,6 +10,12 @@
     "build:shannon": "npm run build -w shannon",
     "build:ghostshell": "npm run build -w ghostshell",
     "dev:shannon": "npm run service:dev -w shannon",
-    "dev:ghostshell": "npm run dev -w ghostshell"
+    "dev:ghostshell": "npm run dev -w ghostshell",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
+  },
+  "devDependencies": {
+    "vitest": "^4.0.17"
   }
 }
