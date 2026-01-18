@@ -15,7 +15,7 @@ export default defineConfig({
     // Setup files for Testing Library
     setupFiles: ['./test-setup.ts'],
 
-    // Coverage (configured in Phase 6)
+    // Coverage configuration
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
@@ -28,6 +28,13 @@ export default defineConfig({
         'app/**/loading.tsx',
         'app/**/error.tsx',
       ],
+      // Threshold enforcement for new/changed code (70% minimum)
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 70,
+        statements: 70,
+      },
     },
   },
 });

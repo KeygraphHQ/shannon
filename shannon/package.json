@@ -13,6 +13,7 @@
     "service:dev": "node --watch dist/service/index.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "test:service": "vitest run --dir src/service",
     "test:service:watch": "vitest --dir src/service"
   },

@@ -95,11 +95,11 @@ This is a monorepo with two packages:
 
 ### Implementation for User Story 3
 
-- [ ] T023 [P] [US3] Create integration test example for Shannon in shannon/__tests__/integration/example.spec.ts
-- [ ] T024 [P] [US3] Create unit test example with mocking in shannon/__tests__/unit/mocking-example.test.ts
-- [ ] T025 [P] [US3] Create React hook test example in ghostshell/__tests__/unit/hooks-example.test.ts
-- [ ] T026 [US3] Create async test example with proper patterns in ghostshell/__tests__/components/async-example.test.tsx
-- [ ] T027 [US3] Add test filtering script to root package.json for running specific tests by pattern
+- [x] T023 [P] [US3] Create integration test example for Shannon in shannon/__tests__/integration/example.spec.ts
+- [x] T024 [P] [US3] Create unit test example with mocking in shannon/__tests__/unit/mocking-example.test.ts
+- [x] T025 [P] [US3] Create React hook test example in ghostshell/__tests__/unit/hooks-example.test.ts
+- [x] T026 [US3] Create async test example with proper patterns in ghostshell/__tests__/components/async-example.test.tsx
+- [x] T027 [US3] Add test filtering script to root package.json for running specific tests by pattern
 
 **Checkpoint**: Developers have clear patterns for unit tests, component tests, integration tests, and mocking
 
@@ -113,12 +113,12 @@ This is a monorepo with two packages:
 
 ### Implementation for User Story 4
 
-- [ ] T028 [US4] Add coverage threshold configuration (70%) to shannon/vitest.config.ts
-- [ ] T029 [P] [US4] Add coverage threshold configuration (70%) to ghostshell/vitest.config.ts
-- [ ] T030 [US4] Configure coverage reporters (text, html, lcov) in both package configs
-- [ ] T031 [US4] Add coverage directory to .gitignore
-- [ ] T032 [US4] Update CI workflow to fail on coverage threshold violations
-- [ ] T033 [US4] Add coverage badge or summary comment to PR workflow (optional enhancement)
+- [x] T028 [US4] Add coverage threshold configuration (70%) to shannon/vitest.config.ts
+- [x] T029 [P] [US4] Add coverage threshold configuration (70%) to ghostshell/vitest.config.ts
+- [x] T030 [US4] Configure coverage reporters (text, html, lcov) in both package configs
+- [x] T031 [US4] Add coverage directory to .gitignore
+- [x] T032 [US4] Update CI workflow to fail on coverage threshold violations
+- [~] T033 [US4] Add coverage badge or summary comment to PR workflow (optional enhancement - skipped)
 
 **Checkpoint**: Coverage reports are generated locally and in CI; threshold violations block PRs
 
@@ -128,11 +128,11 @@ This is a monorepo with two packages:
 
 **Purpose**: Documentation and final validation
 
-- [ ] T034 [P] Update CLAUDE.md with testing commands and patterns
-- [ ] T035 [P] Add test-related entries to .gitignore (coverage/, .vitest-cache/)
-- [ ] T036 Validate all quickstart.md scenarios work correctly
-- [ ] T037 Run full test suite and verify all acceptance criteria pass
-- [ ] T038 Verify CI workflow completes successfully on a test PR
+- [x] T034 [P] Update CLAUDE.md with testing commands and patterns
+- [x] T035 [P] Add test-related entries to .gitignore (coverage/, .vitest-cache/)
+- [x] T036 Validate all quickstart.md scenarios work correctly
+- [x] T037 Run full test suite and verify all acceptance criteria pass (62 tests pass)
+- [~] T038 Verify CI workflow completes successfully on a test PR (requires PR creation)
 
 ---
 

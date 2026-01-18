@@ -11,9 +11,11 @@
     "build:ghostshell": "npm run build -w ghostshell",
     "dev:shannon": "npm run service:dev -w shannon",
     "dev:ghostshell": "npm run dev -w ghostshell",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage"
+    "test": "npm run test --workspaces",
+    "test:watch": "npm run test:watch --workspaces --if-present",
+    "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "test:shannon": "npm run test -w shannon",
+    "test:ghostshell": "npm run test -w ghostshell"
   },
   "devDependencies": {
     "vitest": "^4.0.17"

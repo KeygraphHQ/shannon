@@ -101,6 +101,49 @@ npm run dev:ghostshell    # Start GhostShell dev server
 ./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
 ```
 
+### Testing Commands
+```bash
+# Run all tests (both packages)
+npm test
+
+# Run tests in watch mode for development
+npm run test:watch
+
+# Run tests with coverage report
+npm run test:coverage
+
+# Run tests for specific package
+npm run test:shannon
+npm run test:ghostshell
+
+# Run tests by type
+npm run test:unit
+npm run test:integration
+npm run test:components
+
+# Run specific test file or pattern
+npx vitest run config-parser    # Runs tests matching "config-parser"
+npx vitest run --project shannon  # Only Shannon tests
+```
+
+### Test File Locations
+- **Shannon unit tests**: `shannon/__tests__/unit/*.test.ts`
+- **Shannon integration tests**: `shannon/__tests__/integration/*.spec.ts`
+- **GhostShell unit tests**: `ghostshell/__tests__/unit/*.test.ts`
+- **GhostShell component tests**: `ghostshell/__tests__/components/*.test.tsx`
+
+### Writing Tests
+- Use `vitest` for test runner and assertions
+- Use `@testing-library/react` for React component testing
+- Use `happy-dom` environment for fast DOM testing (configured automatically)
+- Test timeout: 30 seconds per test
+- Coverage threshold: 70% for lines, functions, branches, and statements
+
+Example patterns available in:
+- `shannon/__tests__/unit/mocking-example.test.ts` - Mocking with vi.fn(), vi.spyOn()
+- `ghostshell/__tests__/unit/hooks-example.test.ts` - Testing React hooks
+- `ghostshell/__tests__/components/async-example.test.tsx` - Async component patterns
+
 ## Architecture & Components
 
 ### Core Modules

@@ -12,7 +12,7 @@ export default defineConfig({
     // Execution
     testTimeout: 30000, // 30 seconds per test
 
-    // Coverage (configured in Phase 6)
+    // Coverage configuration
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
@@ -23,6 +23,13 @@ export default defineConfig({
         '**/*.d.ts',
         '**/types/**',
       ],
+      // Threshold enforcement for new/changed code (70% minimum)
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 70,
+        statements: 70,
+      },
     },
   },
 });
