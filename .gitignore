@@ -28,3 +28,16 @@ ghostshell/prisma/migrations/*_migration.sql.backup
 # OS
 .DS_Store
 Thumbs.db
+
+# Terraform
+infrastructure/**/.terraform/
+infrastructure/**/*.tfstate
+infrastructure/**/*.tfstate.*
+infrastructure/**/.terraform.lock.hcl
+infrastructure/**/crash.log
+infrastructure/**/crash.*.log
+infrastructure/**/*.tfvars.json
+infrastructure/**/override.tf
+infrastructure/**/override.tf.json
+infrastructure/**/*_override.tf
+infrastructure/**/*_override.tf.json

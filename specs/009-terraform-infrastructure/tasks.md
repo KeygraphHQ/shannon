@@ -31,10 +31,10 @@ infrastructure/
 
 **Purpose**: Create project structure and configure Terraform tooling
 
-- [ ] T001 Create infrastructure directory structure per plan.md in infrastructure/
-- [ ] T002 [P] Create .terraform-version file with version constraint in infrastructure/.terraform-version
-- [ ] T003 [P] Create TFLint configuration in infrastructure/.tflint.hcl
-- [ ] T004 [P] Create base README.md with project overview in infrastructure/README.md
+- [x] T001 Create infrastructure directory structure per plan.md in infrastructure/
+- [x] T002 [P] Create .terraform-version file with version constraint in infrastructure/.terraform-version
+- [x] T003 [P] Create TFLint configuration in infrastructure/.tflint.hcl
+- [x] T004 [P] Create base README.md with project overview in infrastructure/README.md
 
 ---
 
@@ -44,10 +44,10 @@ infrastructure/
 
 **⚠️ CRITICAL**: No environment can use remote state until this phase is complete
 
-- [ ] T005 Create bootstrap module directory structure in infrastructure/bootstrap/
-- [ ] T006 [P] Implement bootstrap variables.tf with state_bucket_name, lock_table_name, aws_region in infrastructure/bootstrap/variables.tf
-- [ ] T007 [P] Implement bootstrap outputs.tf with bucket and table outputs in infrastructure/bootstrap/outputs.tf
-- [ ] T008 Implement bootstrap main.tf with S3 bucket (encryption, versioning, public block) and DynamoDB table in infrastructure/bootstrap/main.tf
+- [x] T005 Create bootstrap module directory structure in infrastructure/bootstrap/
+- [x] T006 [P] Implement bootstrap variables.tf with state_bucket_name, lock_table_name, aws_region in infrastructure/bootstrap/variables.tf
+- [x] T007 [P] Implement bootstrap outputs.tf with bucket and table outputs in infrastructure/bootstrap/outputs.tf
+- [x] T008 Implement bootstrap main.tf with S3 bucket (encryption, versioning, public block) and DynamoDB table in infrastructure/bootstrap/main.tf
 - [ ] T009 Run terraform validate on bootstrap module
 - [ ] T010 Run terraform fmt -check on bootstrap module
 
@@ -63,24 +63,24 @@ infrastructure/
 
 ### Networking Module (Required for US1)
 
-- [ ] T011 [P] [US1] Create networking module directory structure in infrastructure/modules/networking/
-- [ ] T012 [P] [US1] Implement networking variables.tf with VPC, subnet, and security group inputs in infrastructure/modules/networking/variables.tf
-- [ ] T013 [P] [US1] Implement networking outputs.tf with vpc_id, subnet_ids, security_group_ids in infrastructure/modules/networking/outputs.tf
-- [ ] T014 [US1] Implement networking main.tf with VPC resource in infrastructure/modules/networking/main.tf
-- [ ] T015 [US1] Add public and private subnets to networking main.tf in infrastructure/modules/networking/main.tf
-- [ ] T016 [US1] Add internet gateway and NAT gateway to networking main.tf in infrastructure/modules/networking/main.tf
-- [ ] T017 [US1] Add route tables and associations to networking main.tf in infrastructure/modules/networking/main.tf
-- [ ] T018 [US1] Add security groups (app, db, alb) to networking main.tf in infrastructure/modules/networking/main.tf
-- [ ] T019 [P] [US1] Create networking README.md with usage examples in infrastructure/modules/networking/README.md
+- [x] T011 [P] [US1] Create networking module directory structure in infrastructure/modules/networking/
+- [x] T012 [P] [US1] Implement networking variables.tf with VPC, subnet, and security group inputs in infrastructure/modules/networking/variables.tf
+- [x] T013 [P] [US1] Implement networking outputs.tf with vpc_id, subnet_ids, security_group_ids in infrastructure/modules/networking/outputs.tf
+- [x] T014 [US1] Implement networking main.tf with VPC resource in infrastructure/modules/networking/main.tf
+- [x] T015 [US1] Add public and private subnets to networking main.tf in infrastructure/modules/networking/main.tf
+- [x] T016 [US1] Add internet gateway and NAT gateway to networking main.tf in infrastructure/modules/networking/main.tf
+- [x] T017 [US1] Add route tables and associations to networking main.tf in infrastructure/modules/networking/main.tf
+- [x] T018 [US1] Add security groups (app, db, alb) to networking main.tf in infrastructure/modules/networking/main.tf
+- [x] T019 [P] [US1] Create networking README.md with usage examples in infrastructure/modules/networking/README.md
 
 ### Dev Environment (Required for US1)
 
-- [ ] T020 [US1] Create dev environment directory structure in infrastructure/environments/dev/
-- [ ] T021 [P] [US1] Implement dev backend.tf with S3 backend configuration (local state initially) in infrastructure/environments/dev/backend.tf
-- [ ] T022 [P] [US1] Implement dev variables.tf with environment-specific variable declarations in infrastructure/environments/dev/variables.tf
-- [ ] T023 [P] [US1] Implement dev terraform.tfvars with dev-specific values (t3.micro, single NAT) in infrastructure/environments/dev/terraform.tfvars
-- [ ] T024 [P] [US1] Implement dev outputs.tf with environment outputs in infrastructure/environments/dev/outputs.tf
-- [ ] T025 [US1] Implement dev main.tf with provider configuration and networking module call in infrastructure/environments/dev/main.tf
+- [x] T020 [US1] Create dev environment directory structure in infrastructure/environments/dev/
+- [x] T021 [P] [US1] Implement dev backend.tf with S3 backend configuration (local state initially) in infrastructure/environments/dev/backend.tf
+- [x] T022 [P] [US1] Implement dev variables.tf with environment-specific variable declarations in infrastructure/environments/dev/variables.tf
+- [x] T023 [P] [US1] Implement dev terraform.tfvars with dev-specific values (t3.micro, single NAT) in infrastructure/environments/dev/terraform.tfvars
+- [x] T024 [P] [US1] Implement dev outputs.tf with environment outputs in infrastructure/environments/dev/outputs.tf
+- [x] T025 [US1] Implement dev main.tf with provider configuration and networking module call in infrastructure/environments/dev/main.tf
 
 ### Validation for US1
 
@@ -100,21 +100,21 @@ infrastructure/
 
 ### Staging Environment
 
-- [ ] T029 [US2] Create staging environment directory structure in infrastructure/environments/staging/
-- [ ] T030 [P] [US2] Implement staging backend.tf with S3 backend configuration in infrastructure/environments/staging/backend.tf
-- [ ] T031 [P] [US2] Implement staging variables.tf mirroring dev structure in infrastructure/environments/staging/variables.tf
-- [ ] T032 [P] [US2] Implement staging terraform.tfvars with staging values (t3.small, multi-AZ consideration) in infrastructure/environments/staging/terraform.tfvars
-- [ ] T033 [P] [US2] Implement staging outputs.tf mirroring dev structure in infrastructure/environments/staging/outputs.tf
-- [ ] T034 [US2] Implement staging main.tf with provider and module calls in infrastructure/environments/staging/main.tf
+- [x] T029 [US2] Create staging environment directory structure in infrastructure/environments/staging/
+- [x] T030 [P] [US2] Implement staging backend.tf with S3 backend configuration in infrastructure/environments/staging/backend.tf
+- [x] T031 [P] [US2] Implement staging variables.tf mirroring dev structure in infrastructure/environments/staging/variables.tf
+- [x] T032 [P] [US2] Implement staging terraform.tfvars with staging values (t3.small, multi-AZ consideration) in infrastructure/environments/staging/terraform.tfvars
+- [x] T033 [P] [US2] Implement staging outputs.tf mirroring dev structure in infrastructure/environments/staging/outputs.tf
+- [x] T034 [US2] Implement staging main.tf with provider and module calls in infrastructure/environments/staging/main.tf
 
 ### Production Environment
 
-- [ ] T035 [US2] Create prod environment directory structure in infrastructure/environments/prod/
-- [ ] T036 [P] [US2] Implement prod backend.tf with S3 backend configuration in infrastructure/environments/prod/backend.tf
-- [ ] T037 [P] [US2] Implement prod variables.tf mirroring dev structure in infrastructure/environments/prod/variables.tf
-- [ ] T038 [P] [US2] Implement prod terraform.tfvars with production values (t3.medium, multi-AZ, larger ASG) in infrastructure/environments/prod/terraform.tfvars
-- [ ] T039 [P] [US2] Implement prod outputs.tf mirroring dev structure in infrastructure/environments/prod/outputs.tf
-- [ ] T040 [US2] Implement prod main.tf with provider and module calls in infrastructure/environments/prod/main.tf
+- [x] T035 [US2] Create prod environment directory structure in infrastructure/environments/prod/
+- [x] T036 [P] [US2] Implement prod backend.tf with S3 backend configuration in infrastructure/environments/prod/backend.tf
+- [x] T037 [P] [US2] Implement prod variables.tf mirroring dev structure in infrastructure/environments/prod/variables.tf
+- [x] T038 [P] [US2] Implement prod terraform.tfvars with production values (t3.medium, multi-AZ, larger ASG) in infrastructure/environments/prod/terraform.tfvars
+- [x] T039 [P] [US2] Implement prod outputs.tf mirroring dev structure in infrastructure/environments/prod/outputs.tf
+- [x] T040 [US2] Implement prod main.tf with provider and module calls in infrastructure/environments/prod/main.tf
 
 ### Validation for US2
 

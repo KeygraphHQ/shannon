@@ -19,6 +19,11 @@
 - Q: Partial deployment failure handling? → A: Preserve-and-retry (keep created resources in state, re-run terraform apply to complete deployment)
 - Q: Module versioning strategy? → A: Git tags (version modules via git tags, reference by tag in module source)
 - Q: Sensitive output handling? → A: Sensitive flag (use Terraform's `sensitive = true` on output definitions)
+- Q: IAM permission model for Terraform operations? → A: Role-based permission sets (separate roles for read-only, plan, apply, destroy)
+- Q: Environment promotion workflow (dev→staging→prod)? → A: Git-based promotion (merge/cherry-pick commits between environments, PR review required for prod)
+- Q: Resource naming convention for AWS resources? → A: Environment-project-resource pattern (`{env}-{project}-{resource}`, e.g., `dev-shannon-vpc`)
+- Q: Deployment timeout handling for long-running operations? → A: Per-resource timeout blocks (configure timeouts for RDS, NAT Gateway, and other long-creation resources)
+- Q: Module input validation level? → A: Critical input validation (validation blocks for CIDRs, instance types, environment names)
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -51,6 +56,7 @@ As a DevOps engineer, I need to manage separate environments (development, stagi
 1. **Given** an infrastructure configuration with environment-specific variables, **When** deploying to development environment, **Then** resources are created with development-specific settings (e.g., smaller instance sizes, dev naming conventions)
 2. **Given** an infrastructure configuration, **When** deploying to staging environment, **Then** resources mirror production configuration but remain isolated
 3. **Given** changes deployed to development, **When** promoting to staging, **Then** the same configuration applies with environment-appropriate variables
+4. **Given** changes ready for production, **When** creating a pull request to merge to prod, **Then** PR review is required before changes can be applied
 
 ---
 
@@ -120,12 +126,16 @@ As a security/compliance officer, I need to audit all infrastructure changes so 
 - **FR-003**: System MUST display a preview of changes (plan) before any infrastructure modifications are applied
 - **FR-004**: System MUST support remote state storage with state locking to enable team collaboration
 - **FR-004a**: Remote state backend MUST have encryption at rest enabled and IAM-based access controls configured
+- **FR-004b**: IAM permissions MUST follow role-based model with separate roles: read-only (state inspection, plan), apply (create/modify resources), and destroy (delete resources)
 - **FR-005**: System MUST use directory-based environment separation with dedicated directories for each environment (environments/dev/, environments/staging/, environments/prod/)
 - **FR-006**: System MUST support reusable modules for common infrastructure patterns
+- **FR-006a**: Module variables MUST include validation blocks for critical inputs (CIDR blocks, instance types, environment names) with descriptive error messages
 - **FR-007**: System MUST output deployment results including created resource identifiers and any output values
 - **FR-008**: System MUST support variable files and environment variables for configuration parameters
 - **FR-009**: System MUST provide clear error messages when deployments fail, including the specific resource and error cause
+- **FR-009a**: Resources with known long creation times (RDS, NAT Gateway, ALB) MUST have explicit timeout blocks configured
 - **FR-010**: System MUST support tagging resources with standard metadata (environment, project, owner)
+- **FR-010a**: Resource names MUST follow the pattern `{env}-{project}-{resource}` (e.g., `dev-shannon-vpc`, `prod-shannon-rds`)
 - **FR-011**: System MUST integrate with version control for infrastructure configuration management
 - **FR-012**: System MUST support importing existing cloud resources into managed state
 - **FR-013**: System MUST provide modules for core AWS infrastructure components: VPC networking (VPC, subnets, security groups, route tables), compute (EC2 instances, Auto Scaling Groups, launch templates), databases (RDS), storage (S3 buckets), load balancing (ALB/NLB), and DNS (Route53)
