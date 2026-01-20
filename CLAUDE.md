@@ -282,9 +282,7 @@ Shannon supports routing Claude Agent SDK requests through alternative LLM provi
 | Provider | Models | Use Case |
 |----------|--------|----------|
 | OpenAI | `gpt-5.2`, `gpt-5-mini` | Good tool use, balanced cost/performance |
-| Gemini | `gemini-2.5-pro` | Long context (1M+ tokens), strong reasoning |
-| DeepSeek | `deepseek-ai/DeepSeek-V3`, `deepseek-chat` | Cheapest option for dev/testing |
-| OpenRouter | `anthropic/claude-sonnet-4`, `google/gemini-3-pro-preview`, `openai/gpt-5.2` | Multi-provider access via single API |
+| OpenRouter | `google/gemini-3-pro-preview`, `google/gemini-3-flash-preview` | Access to Gemini 3 models via single API |
 
 **Configuration (in .env):**
 ```bash
@@ -292,17 +290,9 @@ Shannon supports routing Claude Agent SDK requests through alternative LLM provi
 OPENAI_API_KEY=sk-your-key
 ROUTER_DEFAULT=openai,gpt-5.2
 
-# Gemini
-GEMINI_API_KEY=your-gemini-key
-ROUTER_DEFAULT=gemini,gemini-2.5-pro
-
-# DeepSeek (via Together.ai)
-DEEPSEEK_API_KEY=your-together-key
-ROUTER_DEFAULT=deepseek,deepseek-ai/DeepSeek-V3
-
 # OpenRouter
 OPENROUTER_API_KEY=sk-or-your-key
-ROUTER_DEFAULT=openrouter,anthropic/claude-sonnet-4
+ROUTER_DEFAULT=openrouter,google/gemini-3-pro-preview
 ```
 
 **Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.

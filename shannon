@@ -125,12 +125,12 @@ cmd_start() {
 
   # Check for API key (router mode can use alternative provider API keys)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$GEMINI_API_KEY" ] || [ -n "$DEEPSEEK_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-      echo "       (or use ROUTER=true with OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, or OPENROUTER_API_KEY)"
+      echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
       exit 1
     fi
   fi
@@ -166,8 +166,8 @@ cmd_start() {
       echo "Starting claude-code-router..."
 
       # Check for provider API keys
-      if [ -z "$OPENAI_API_KEY" ] && [ -z "$GEMINI_API_KEY" ] && [ -z "$DEEPSEEK_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
-        echo "WARNING: No provider API key set (OPENAI_API_KEY, GEMINI_API_KEY, DEEPSEEK_API_KEY, or OPENROUTER_API_KEY). Router may not work."
+      if [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+        echo "WARNING: No provider API key set (OPENAI_API_KEY or OPENROUTER_API_KEY). Router may not work."
       fi
 
       # Start router with profile

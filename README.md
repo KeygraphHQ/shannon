@@ -269,10 +269,6 @@ Shannon can route requests through alternative AI providers instead of Anthropic
    # Choose one provider:
    OPENAI_API_KEY=sk-...
    # OR
-   GEMINI_API_KEY=...
-   # OR
-   DEEPSEEK_API_KEY=...
-   # OR
    OPENROUTER_API_KEY=sk-or-...
 
    # Set default model:
@@ -286,13 +282,11 @@ Shannon can route requests through alternative AI providers instead of Anthropic
 
 #### Supported Providers
 
-| Provider | Models | Approx. Cost | Notes |
-|----------|--------|--------------|-------|
-| **Anthropic** (default) | Claude Sonnet 4 | $3/$15 per M tokens | Best quality, recommended |
-| **OpenAI** | gpt-5.2, gpt-5-mini | $2.50/$10 per M tokens | Good alternative |
-| **Google Gemini** | gemini-2.5-pro | ~$1.25/$5 per M tokens | Long context (1M+), strong reasoning |
-| **DeepSeek** | DeepSeek-V3 | ~$0.14/$0.28 per M tokens | Cheapest option |
-| **OpenRouter** | 100+ models | Varies | Single API for many models |
+| Provider | Models | Notes |
+|----------|--------|-------|
+| **Anthropic** | Claude Sonnet 4 | Best quality, recommended |
+| **OpenAI** | gpt-5.2, gpt-5-mini | Good alternative |
+| **OpenRouter** | google/gemini-3-pro-preview, google/gemini-3-flash-preview | Access to Gemini 3 models |
 
 #### Disclaimer
 
