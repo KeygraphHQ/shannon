@@ -144,10 +144,15 @@ cmd_start() {
   # Handle custom OUTPUT directory
   # Export OUTPUT_DIR for docker-compose volume mount BEFORE starting containers
   if [ -n "$OUTPUT" ]; then
-    # Create output directory if it doesn't exist
+    # Create output directory with write permissions for container user (UID 1001)
     mkdir -p "$OUTPUT"
+    chmod 777 "$OUTPUT"
     export OUTPUT_DIR="$OUTPUT"
   fi
+
+  # Ensure audit-logs directory exists with write permissions for container user (UID 1001)
+  mkdir -p ./audit-logs
+  chmod 777 ./audit-logs
 
   # Ensure containers are running (starts them if needed)
   ensure_containers
