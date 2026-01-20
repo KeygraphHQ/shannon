@@ -58,9 +58,6 @@ services:
       - HOST=0.0.0.0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
-      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
-      - DEEPSEEK_API_BASE=${DEEPSEEK_API_BASE:-https://api.together.xyz/v1/chat/completions}
       - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
       - ROUTER_DEFAULT=${ROUTER_DEFAULT:-openai,gpt-4o}
     healthcheck:
