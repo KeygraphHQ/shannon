@@ -285,7 +285,7 @@ Shannon can route requests through alternative AI providers using [claude-code-r
 |----------|--------|
 | **Anthropic** | Claude Sonnet 4 |
 | **OpenAI** | gpt-5.2, gpt-5-mini |
-| **OpenRouter** | google/gemini-3-pro-preview, google/gemini-3-flash-preview |
+| **OpenRouter** | google/gemini-3-flash-preview |
 
 #### Disclaimer
 
