@@ -282,7 +282,7 @@ Shannon supports routing Claude Agent SDK requests through alternative LLM provi
 | Provider | Models | Use Case |
 |----------|--------|----------|
 | OpenAI | `gpt-5.2`, `gpt-5-mini` | Good tool use, balanced cost/performance |
-| OpenRouter | `google/gemini-3-pro-preview`, `google/gemini-3-flash-preview` | Access to Gemini 3 models via single API |
+| OpenRouter | `google/gemini-3-flash-preview` | Access to Gemini 3 models via single API |
 
 **Configuration (in .env):**
 ```bash
@@ -292,7 +292,7 @@ ROUTER_DEFAULT=openai,gpt-5.2
 
 # OpenRouter
 OPENROUTER_API_KEY=sk-or-your-key
-ROUTER_DEFAULT=openrouter,google/gemini-3-pro-preview
+ROUTER_DEFAULT=openrouter,google/gemini-3-flash-preview
 ```
 
 **Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.
