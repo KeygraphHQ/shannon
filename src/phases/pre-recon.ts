@@ -18,9 +18,9 @@ import type { DistributedConfig } from '../types/config.js';
 interface AgentResult {
   success: boolean;
   duration: number;
-  cost?: number;
-  error?: string;
-  retryable?: boolean;
+  cost?: number | undefined;
+  error?: string | undefined;
+  retryable?: boolean | undefined;
 }
 
 type ToolName = 'nmap' | 'subfinder' | 'whatweb' | 'schemathesis';

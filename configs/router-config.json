@@ -1,0 +1,33 @@
+{
+  "HOST": "0.0.0.0",
+  "APIKEY": "shannon-router-key",
+  "LOG": true,
+  "LOG_LEVEL": "info",
+  "NON_INTERACTIVE_MODE": true,
+  "API_TIMEOUT_MS": 600000,
+  "Providers": [
+    {
+      "name": "openai",
+      "api_base_url": "https://api.openai.com/v1/chat/completions",
+      "api_key": "$OPENAI_API_KEY",
+      "models": ["gpt-5.2", "gpt-5-mini"],
+      "transformer": {
+        "use": [["maxcompletiontokens", { "max_completion_tokens": 16384 }]]
+      }
+    },
+    {
+      "name": "openrouter",
+      "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
+      "api_key": "$OPENROUTER_API_KEY",
+      "models": [
+        "google/gemini-3-flash-preview"
+      ],
+      "transformer": {
+        "use": ["openrouter"]
+      }
+    }
+  ],
+  "Router": {
+    "default": "$ROUTER_DEFAULT"
+  }
+}

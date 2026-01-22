@@ -50,6 +50,7 @@ CONFIG=<file>          YAML configuration file for authentication and testing pa
 OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
 PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
 REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
+ROUTER=true            Route requests through claude-code-router for multi-model support
 ```
 
 ### Generate TOTP for Authentication
@@ -261,10 +262,40 @@ The tool should only be used on systems you own or have explicit permission to t
 - `shannon` - CLI script for running pentests
 - `docker-compose.yml` - Temporal server + worker containers
 - `configs/` - YAML configs with `config-schema.json` for validation
+- `configs/router-config.json` - Router service configuration for multi-model support
 - `prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
 
 **Output:**
 - `audit-logs/{hostname}_{sessionId}/` - Session metrics, agent logs, deliverables
+
+### Router Mode (Multi-Model Support)
+
+Shannon supports routing Claude Agent SDK requests through alternative LLM providers via [claude-code-router](https://github.com/musistudio/claude-code-router).
+
+**Enable router mode:**
+```bash
+./shannon start URL=<url> REPO=<path> ROUTER=true
+```
+
+**Supported Providers:**
+
+| Provider | Models | Use Case |
+|----------|--------|----------|
+| OpenAI | `gpt-5.2`, `gpt-5-mini` | Good tool use, balanced cost/performance |
+| OpenRouter | `google/gemini-3-flash-preview` | Access to Gemini 3 models via single API |
+
+**Configuration (in .env):**
+```bash
+# OpenAI
+OPENAI_API_KEY=sk-your-key
+ROUTER_DEFAULT=openai,gpt-5.2
+
+# OpenRouter
+OPENROUTER_API_KEY=sk-or-your-key
+ROUTER_DEFAULT=openrouter,google/gemini-3-flash-preview
+```
+
+**Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.
 
 ## Troubleshooting
 
