@@ -35,6 +35,7 @@ Options for 'start':
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
+  ROUTER=true            Route requests through claude-code-router (multi-model support)
 
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
@@ -63,6 +64,7 @@ parse_args() {
       CLEAN=*) CLEAN="${arg#CLEAN=}" ;;
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
+      ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
     esac
   done
 }
@@ -121,10 +123,16 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key
+  # Check for API key (router mode can use alternative provider API keys)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-    exit 1
+    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+      # Router mode with alternative provider - set a placeholder for SDK init
+      export ANTHROPIC_API_KEY="router-mode"
+    else
+      echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
+      echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      exit 1
+    fi
   fi
 
   # Determine container path for REPO
@@ -148,6 +156,33 @@ cmd_start() {
     mkdir -p "$OUTPUT"
     chmod 777 "$OUTPUT"
     export OUTPUT_DIR="$OUTPUT"
+  fi
+
+  # Handle ROUTER flag - start claude-code-router for multi-model support
+  if [ "$ROUTER" = "true" ]; then
+    # Check if router is already running
+    if docker compose -f "$COMPOSE_FILE" --profile router ps router 2>/dev/null | grep -q "running"; then
+      echo "Router already running, skipping startup..."
+    else
+      echo "Starting claude-code-router..."
+
+      # Check for provider API keys
+      if [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ]; then
+        echo "WARNING: No provider API key set (OPENAI_API_KEY or OPENROUTER_API_KEY). Router may not work."
+      fi
+
+      # Start router with profile
+      docker compose -f "$COMPOSE_FILE" --profile router up -d router
+
+      # Give router a few seconds to start (health check disabled for now - TODO: debug later)
+      echo "Waiting for router to start..."
+      sleep 5
+    fi
+
+    # Set ANTHROPIC_BASE_URL to route through router
+    export ANTHROPIC_BASE_URL="http://router:3456"
+    # Set auth token to match router's APIKEY
+    export ANTHROPIC_AUTH_TOKEN="shannon-router-key"
   fi
 
   # Ensure audit-logs directory exists with write permissions for container user (UID 1001)
@@ -231,9 +266,9 @@ cmd_stop() {
   parse_args "$@"
 
   if [ "$CLEAN" = "true" ]; then
-    docker compose -f "$COMPOSE_FILE" down -v
+    docker compose -f "$COMPOSE_FILE" --profile router down -v
   else
-    docker compose -f "$COMPOSE_FILE" down
+    docker compose -f "$COMPOSE_FILE" --profile router down
   fi
 }
 
