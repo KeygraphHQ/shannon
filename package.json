@@ -24,6 +24,7 @@
     "figlet": "^1.9.3",
     "gradient-string": "^3.0.0",
     "js-yaml": "^4.1.0",
+    "posthog-node": "^5.20.0",
     "zod": "^3.22.4",
     "zx": "^8.0.0"
   },

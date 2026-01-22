@@ -136,6 +136,9 @@ export async function pentestPipelineWorkflow(
     ...(input.pipelineTestingMode !== undefined && {
       pipelineTestingMode: input.pipelineTestingMode,
     }),
+    ...(input.installationId !== undefined && {
+      installationId: input.installationId,
+    }),
   };
 
   try {
@@ -274,7 +277,17 @@ export async function pentestPipelineWorkflow(
     await a.assembleReportActivity(activityInput);
 
     // Then run the report agent to add executive summary and clean up
-    state.agentMetrics['report'] = await a.runReportAgent(activityInput);
+    // Pass workflow start time and stats for accurate telemetry
+    const reportInput = {
+      ...activityInput,
+      workflowStartTime: state.startTime,
+      workflowStats: {
+        totalAgents: 13, // pre-recon, recon, 5 vuln, 5 exploit, report
+        agentsSucceeded: state.completedAgents.length,
+        agentsFailed: failedPipelines.length,
+      },
+    };
+    state.agentMetrics['report'] = await a.runReportAgent(reportInput);
     state.completedAgents.push('report');
 
     // Inject model metadata into the final report

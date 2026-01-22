@@ -26,6 +26,7 @@ import path from 'node:path';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import * as activities from './activities.js';
+import { telemetry } from '../telemetry/index.js';
 
 dotenv.config();
 
@@ -36,6 +37,9 @@ async function runWorker(): Promise<void> {
   console.log(chalk.cyan(`Connecting to Temporal at ${address}...`));
 
   const connection = await NativeConnection.connect({ address });
+
+  // Initialize telemetry for activity execution
+  telemetry.initialize();
 
   // Bundle workflows for Temporal's V8 isolate
   console.log(chalk.gray('Bundling workflows...'));
@@ -68,6 +72,7 @@ async function runWorker(): Promise<void> {
   try {
     await worker.run();
   } finally {
+    await telemetry.shutdown();
     await connection.close();
     console.log(chalk.gray('Worker stopped'));
   }

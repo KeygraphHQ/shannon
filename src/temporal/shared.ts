@@ -9,6 +9,7 @@ export interface PipelineInput {
   outputPath?: string;
   pipelineTestingMode?: boolean;
   workflowId?: string; // Added by client, used for audit correlation
+  installationId?: string; // Persistent anonymous ID for counting unique installations
 }
 
 export interface AgentMetrics {
