@@ -84,12 +84,12 @@ Shannon is available in two editions:
   - [Stopping Shannon](#stopping-shannon)
   - [Usage Examples](#usage-examples)
   - [Configuration (Optional)](#configuration-optional)
-  - [Router Mode (Alternative Providers)](#router-mode-alternative-providers)
+  - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
-- [Sample Reports & Benchmarks](#-sample-reports--benchmarks)
-- [Architecture](#-architecture)
+- [Sample Reports](#-sample-reports)
+- [Architecture](#️-architecture)
 - [Coverage and Roadmap](#-coverage-and-roadmap)
-- [Disclaimers](#-disclaimers)
+- [Disclaimers](#️-disclaimers)
 - [License](#-license)
 - [Community & Support](#-community--support)
 - [Get in Touch](#-get-in-touch)
@@ -102,8 +102,9 @@ Shannon is available in two editions:
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
 - **AI Provider Credentials** (choose one):
-  - **Anthropic API key or Claude Code OAuth token** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
-  - **Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#router-mode-alternative-providers))
+  - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
+  - **Claude Code OAuth token**
+  - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
 
@@ -255,41 +256,43 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
-### Router Mode (Alternative Providers)
+### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
-Shannon can route requests through alternative AI providers using [claude-code-router](https://github.com/musistudio/claude-code-router). This is useful for:
-- **Model experimentation** - Test with GPT-5.2 or Gemini 3 models
-- **API availability** - Use OpenRouter if Anthropic API is unavailable in your region
+Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
+
+* **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3–family models
 
 #### Quick Setup
 
 1. Add your provider API key to `.env`:
-   ```bash
-   # Choose one provider:
-   OPENAI_API_KEY=sk-...
-   # OR
-   OPENROUTER_API_KEY=sk-or-...
 
-   # Set default model:
-   ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
-   ```
+```bash
+# Choose one provider:
+OPENAI_API_KEY=sk-...
+# OR
+OPENROUTER_API_KEY=sk-or-...
+
+# Set default model:
+ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+```
 
 2. Run with `ROUTER=true`:
-   ```bash
-   ./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
-   ```
 
-#### Supported Providers
+```bash
+./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
+```
+
+#### Experimental Models
 
 | Provider | Models |
 |----------|--------|
-| **Anthropic** | Claude Sonnet 4 |
-| **OpenAI** | gpt-5.2, gpt-5-mini |
-| **OpenRouter** | google/gemini-3-flash-preview |
+| Anthropic | Claude Sonnet 4 |
+| OpenAI | gpt-5.2, gpt-5-mini |
+| OpenRouter | google/gemini-3-flash-preview |
 
 #### Disclaimer
 
-> **Output quality depends on model choice.** Shannon is optimized for and tested with Anthropic's Claude models. Alternative providers may produce varying results depending on the model's reasoning capabilities.
+This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
 
 ### Output and Results
 
