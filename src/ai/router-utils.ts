@@ -32,3 +32,23 @@ export function getActualModelName(sdkReportedModel?: string): string | undefine
 export function isRouterMode(): boolean {
   return !!process.env.ANTHROPIC_BASE_URL && !!process.env.ROUTER_DEFAULT;
 }
+
+/**
+ * Check if Ollama mode is active.
+ * Ollama uses a separate base URL since it provides an OpenAI-compatible API directly.
+ */
+export function isOllamaMode(): boolean {
+  return !!process.env.OLLAMA_BASE_URL && !!process.env.ROUTER_DEFAULT;
+}
+
+/**
+ * Get the provider name from ROUTER_DEFAULT.
+ * Returns the first part of the "provider,model" format.
+ */
+export function getProviderName(): string | undefined {
+  const routerDefault = process.env.ROUTER_DEFAULT;
+  if (!routerDefault) return undefined;
+
+  const parts = routerDefault.split(',');
+  return parts[0];
+}

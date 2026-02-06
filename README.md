@@ -261,6 +261,7 @@ If your application uses two-factor authentication, simply add the TOTP secret t
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
 
 * **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3–family models
+* **Local model usage** — run Shannon with Ollama for privacy or cost savings
 
 #### Quick Setup
 
@@ -282,12 +283,48 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 ./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
 ```
 
+#### Ollama (Local Models)
+
+Shannon supports Ollama for running local models. Ollama provides an OpenAI-compatible API that Shannon can use via router mode.
+
+1. Install and run Ollama:
+
+```bash
+# Install Ollama (https://ollama.ai)
+# Pull a capable model (70B+ recommended for security analysis)
+ollama pull llama3.3:70b
+
+# Start Ollama server
+ollama serve
+```
+
+2. Configure `.env`:
+
+```bash
+# For local development:
+OLLAMA_BASE_URL=http://localhost:11434/v1
+ROUTER_DEFAULT=ollama,llama3.3:70b
+
+# For Docker (use host.docker.internal to reach host machine):
+OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+ROUTER_DEFAULT=ollama,llama3.3:70b
+```
+
+3. Run with `ROUTER=true`:
+
+```bash
+./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
+```
+
+> **Note:** Ollama models require significant compute resources. For best results, use 70B+ parameter models with adequate GPU memory.
+
 #### Experimental Models
 
-| Provider | Models |
-|----------|--------|
-| OpenAI | gpt-5.2, gpt-5-mini |
-| OpenRouter | google/gemini-3-flash-preview |
+| Provider | Models | Notes |
+|----------|--------|-------|
+| OpenAI | gpt-5.2, gpt-5-mini | Cloud API |
+| OpenRouter | google/gemini-3-flash-preview | Cloud API |
+| Ollama | llama3.3:70b, qwen2.5:72b, deepseek-r1:70b | Local, any pulled model |
 
 #### Disclaimer
 
