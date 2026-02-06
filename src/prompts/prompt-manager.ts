@@ -124,6 +124,37 @@ async function processIncludes(content: string, baseDir: string): Promise<string
   return content;
 }
 
+// Build language instruction string from config
+function buildLanguageInstruction(language: string | null): string {
+  if (!language) return '';
+
+  // Map common language codes to full names for clarity
+  const languageNames: Record<string, string> = {
+    en: 'English',
+    zh: 'Chinese (Simplified)',
+    'zh-cn': 'Chinese (Simplified)',
+    'zh-tw': 'Chinese (Traditional)',
+    es: 'Spanish',
+    ja: 'Japanese',
+    ko: 'Korean',
+    fr: 'French',
+    de: 'German',
+    pt: 'Portuguese',
+    ru: 'Russian',
+    ar: 'Arabic',
+    hi: 'Hindi',
+    it: 'Italian',
+    nl: 'Dutch',
+    pl: 'Polish',
+    tr: 'Turkish',
+    vi: 'Vietnamese',
+    th: 'Thai',
+  };
+
+  const languageName = languageNames[language.toLowerCase()] || language;
+  return `\n\n<language_instruction>\nIMPORTANT: Write the entire report in ${languageName}. All section headers, descriptions, vulnerability details, and recommendations must be in ${languageName}.\n</language_instruction>`;
+}
+
 // Pure function: Variable interpolation
 async function interpolateVariables(
   template: string,
@@ -179,11 +210,24 @@ async function interpolateVariables(
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
       }
+
+      // Inject language instruction if specified
+      if (config.reportLanguage) {
+        const languageInstruction = buildLanguageInstruction(config.reportLanguage);
+        result = result.replace(/{{LANGUAGE_INSTRUCTION}}/g, languageInstruction);
+        // Also append to the end of the prompt if placeholder not found
+        if (!template.includes('{{LANGUAGE_INSTRUCTION}}') && languageInstruction) {
+          result += languageInstruction;
+        }
+      } else {
+        result = result.replace(/{{LANGUAGE_INSTRUCTION}}/g, '');
+      }
     } else {
       // Replace the entire rules section with a clean message when no config provided
       const cleanRulesSection = '<rules>\nNo specific rules or focus areas provided for this test.\n</rules>';
       result = result.replace(/<rules>[\s\S]*?<\/rules>/g, cleanRulesSection);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
+      result = result.replace(/{{LANGUAGE_INSTRUCTION}}/g, '');
     }
 
     // Validate that all placeholders have been replaced (excluding instructional text)

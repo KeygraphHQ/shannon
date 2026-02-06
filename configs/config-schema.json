@@ -105,12 +105,19 @@
       "type": "object",
       "description": "Deprecated: Use 'authentication' section instead",
       "deprecated": true
+    },
+    "report_language": {
+      "type": "string",
+      "description": "Language for report output (e.g., 'en', 'zh', 'es', 'ja', 'ko', 'fr', 'de')",
+      "minLength": 2,
+      "maxLength": 50
     }
   },
   "anyOf": [
     {"required": ["authentication"]},
     {"required": ["rules"]},
-    {"required": ["authentication", "rules"]}
+    {"required": ["authentication", "rules"]},
+    {"required": ["report_language"]}
   ],
   "additionalProperties": false,
   "$defs": {

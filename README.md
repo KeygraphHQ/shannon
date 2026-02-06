@@ -256,6 +256,45 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
+#### Report Language
+
+Shannon can generate reports in different languages. Set the language via environment variable or config file:
+
+**Option 1: Environment variable**
+
+```bash
+export REPORT_LANGUAGE=zh  # Chinese
+./shannon start URL=https://example.com REPO=/path/to/repo
+```
+
+**Option 2: Config file**
+
+```yaml
+# In your config.yaml
+report_language: ja  # Japanese
+```
+
+**Supported language codes:**
+
+| Code | Language |
+|------|----------|
+| en | English (default) |
+| zh, zh-cn | Chinese (Simplified) |
+| zh-tw | Chinese (Traditional) |
+| es | Spanish |
+| ja | Japanese |
+| ko | Korean |
+| fr | French |
+| de | German |
+| pt | Portuguese |
+| ru | Russian |
+| ar | Arabic |
+| hi | Hindi |
+| vi | Vietnamese |
+| th | Thai |
+
+You can also specify any language name directly (e.g., `report_language: Vietnamese`).
+
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:

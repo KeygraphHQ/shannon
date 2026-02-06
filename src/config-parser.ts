@@ -330,11 +330,14 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const avoid = config?.rules?.avoid || [];
   const focus = config?.rules?.focus || [];
   const authentication = config?.authentication || null;
+  // Report language can come from config file or REPORT_LANGUAGE env var
+  const reportLanguage = config?.report_language || process.env.REPORT_LANGUAGE || null;
 
   return {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
+    reportLanguage: reportLanguage ? reportLanguage.trim() : null,
   };
 };
 

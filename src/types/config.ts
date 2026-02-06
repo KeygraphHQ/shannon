@@ -54,10 +54,12 @@ export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   login?: unknown; // Deprecated
+  report_language?: string; // Language for report output (e.g., 'en', 'zh', 'es', 'ja')
 }
 
 export interface DistributedConfig {
   avoid: Rule[];
   focus: Rule[];
   authentication: Authentication | null;
+  reportLanguage: string | null;
 }
