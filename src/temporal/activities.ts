@@ -20,6 +20,7 @@
 
 import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
 import chalk from 'chalk';
+import { mkdirSync } from 'fs';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -28,6 +29,21 @@ const MAX_STACK_TRACE_LENGTH = 1000;
 // Max retries for output validation errors (agent didn't save deliverables)
 // Lower than default 50 since this is unlikely to self-heal
 const MAX_OUTPUT_VALIDATION_RETRIES = 3;
+
+// Default workspace for blind mode (no source code repo)
+const BLIND_WORKSPACE_PREFIX = '/tmp/shannon-workspace';
+
+/**
+ * Resolve workspace path for an activity.
+ * In blind mode (no repo), creates and returns a temp workspace directory.
+ */
+function resolveWorkspacePath(input: ActivityInput): string {
+  const effectivePath = input.repoPath || `${BLIND_WORKSPACE_PREFIX}-${input.workflowId}`;
+  if (!input.repoPath || input.blindMode) {
+    mkdirSync(effectivePath, { recursive: true });
+  }
+  return effectivePath;
+}
 
 /**
  * Truncate error message to prevent buffer overflow in Temporal serialization.
@@ -84,7 +100,8 @@ const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min product
  */
 export interface ActivityInput {
   webUrl: string;
-  repoPath: string;
+  repoPath?: string;
+  blindMode?: boolean; // When true, no source code - external reconnaissance only
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
@@ -111,12 +128,20 @@ async function runAgentActivity(
 ): Promise<AgentMetrics> {
   const {
     webUrl,
-    repoPath,
+    repoPath: inputRepoPath,
+    blindMode = false,
     configPath,
     outputPath,
     pipelineTestingMode = false,
     workflowId,
   } = input;
+
+  // Resolve effective workspace: use provided repoPath, or create a temp workspace for blind mode
+  const repoPath = inputRepoPath || `${BLIND_WORKSPACE_PREFIX}-${workflowId}`;
+  if (!inputRepoPath || blindMode) {
+    mkdirSync(repoPath, { recursive: true });
+    console.log(chalk.yellow(`🔍 Blind mode: using workspace ${repoPath}`));
+  }
 
   const startTime = Date.now();
 
@@ -363,7 +388,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * This must be called BEFORE runReportAgent to create the file that the report agent will modify.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath } = input;
+  const repoPath = resolveWorkspacePath(input);
   console.log(chalk.blue('📝 Assembling deliverables from specialist agents...'));
   try {
     await assembleFinalReport(repoPath);
@@ -379,7 +404,8 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * This must be called AFTER runReportAgent to add the model information to the Executive Summary.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, outputPath } = input;
+  const repoPath = resolveWorkspacePath(input);
+  const { outputPath } = input;
   if (!outputPath) {
     console.log(chalk.yellow('⚠️ No output path provided, skipping model injection'));
     return;
@@ -408,7 +434,7 @@ export async function checkExploitationQueue(
   input: ActivityInput,
   vulnType: VulnType
 ): Promise<ExploitationDecision> {
-  const { repoPath } = input;
+  const repoPath = resolveWorkspacePath(input);
 
   const result = await safeValidateQueueAndDeliverable(vulnType, repoPath);
 
@@ -451,7 +477,8 @@ export async function logPhaseTransition(
   phase: string,
   event: 'start' | 'complete'
 ): Promise<void> {
-  const { webUrl, repoPath, outputPath, workflowId } = input;
+  const { webUrl, outputPath, workflowId } = input;
+  const repoPath = resolveWorkspacePath(input);
 
   const sessionMetadata: SessionMetadata = {
     id: workflowId,
@@ -478,7 +505,8 @@ export async function logWorkflowComplete(
   input: ActivityInput,
   summary: WorkflowSummary
 ): Promise<void> {
-  const { webUrl, repoPath, outputPath, workflowId } = input;
+  const { webUrl, outputPath, workflowId } = input;
+  const repoPath = resolveWorkspacePath(input);
 
   const sessionMetadata: SessionMetadata = {
     id: workflowId,

@@ -25,13 +25,15 @@ show_help() {
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
+  ./shannon start URL=<url> REPO=<path>   Start a pentest workflow with source code
+  ./shannon start URL=<url>               Start a blind pentest (no source code)
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon query ID=<workflow-id>        Query workflow progress
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
 
 Options for 'start':
+  REPO=<path>            Local repository path (optional - omit for blind/black-box testing)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
@@ -44,6 +46,7 @@ Examples:
   ./shannon start URL=https://example.com REPO=/path/to/repo
   ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+  ./shannon start URL=https://example.com                     # Blind/black-box test
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
@@ -116,10 +119,10 @@ ensure_containers() {
 cmd_start() {
   parse_args "$@"
 
-  # Validate required vars
-  if [ -z "$URL" ] || [ -z "$REPO" ]; then
-    echo "ERROR: URL and REPO are required"
-    echo "Usage: ./shannon start URL=<url> REPO=<path>"
+  # Validate required vars (only URL is required; REPO is optional for blind testing)
+  if [ -z "$URL" ]; then
+    echo "ERROR: URL is required"
+    echo "Usage: ./shannon start URL=<url> [REPO=<path>]"
     exit 1
   fi
 
@@ -136,18 +139,27 @@ cmd_start() {
   fi
 
   # Determine container path for REPO
+  # - If REPO is not set, run in blind mode (no source code analysis)
   # - If REPO is already a container path (/benchmarks/*, /target-repo), use as-is
   # - Otherwise, it's a host path - mount to /target-repo and use that
-  case "$REPO" in
-    /benchmarks/*|/target-repo|/target-repo/*)
-      CONTAINER_REPO="$REPO"
-      ;;
-    *)
-      # Host path - export for docker-compose mount
-      export TARGET_REPO="$REPO"
-      CONTAINER_REPO="/target-repo"
-      ;;
-  esac
+  if [ -z "$REPO" ]; then
+    # Blind mode - no repo mounted, use temp workspace inside container
+    CONTAINER_REPO=""
+    BLIND_MODE="true"
+    echo "Running in blind mode (no source code) - external reconnaissance only"
+  else
+    BLIND_MODE=""
+    case "$REPO" in
+      /benchmarks/*|/target-repo|/target-repo/*)
+        CONTAINER_REPO="$REPO"
+        ;;
+      *)
+        # Host path - export for docker-compose mount
+        export TARGET_REPO="$REPO"
+        CONTAINER_REPO="/target-repo"
+        ;;
+    esac
+  fi
 
   # Handle custom OUTPUT directory
   # Export OUTPUT_DIR for docker-compose volume mount BEFORE starting containers
@@ -203,10 +215,16 @@ cmd_start() {
   fi
 
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
+  [ "$BLIND_MODE" = "true" ] && ARGS="$ARGS --blind"
 
   # Run the client to submit workflow
-  docker compose -f "$COMPOSE_FILE" exec -T worker \
-    node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
+  if [ "$BLIND_MODE" = "true" ]; then
+    docker compose -f "$COMPOSE_FILE" exec -T worker \
+      node dist/temporal/client.js "$URL" $ARGS
+  else
+    docker compose -f "$COMPOSE_FILE" exec -T worker \
+      node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
+  fi
 }
 
 cmd_logs() {

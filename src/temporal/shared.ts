@@ -4,7 +4,8 @@ import { defineQuery } from '@temporalio/workflow';
 
 export interface PipelineInput {
   webUrl: string;
-  repoPath: string;
+  repoPath?: string;
+  blindMode?: boolean; // When true, no source code - external reconnaissance only
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;

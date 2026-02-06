@@ -44,9 +44,10 @@ function showUsage(): void {
   console.log(chalk.gray('Start a pentest pipeline workflow\n'));
   console.log(chalk.yellow('Usage:'));
   console.log(
-    '  node dist/temporal/client.js <webUrl> <repoPath> [options]\n'
+    '  node dist/temporal/client.js <webUrl> [repoPath] [options]\n'
   );
   console.log(chalk.yellow('Options:'));
+  console.log('  --blind               Blind/black-box mode (no source code)');
   console.log('  --config <path>       Configuration file path');
   console.log('  --output <path>       Output directory for audit logs');
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
@@ -56,6 +57,7 @@ function showUsage(): void {
   console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log(chalk.yellow('Examples:'));
   console.log('  node dist/temporal/client.js https://example.com /path/to/repo');
+  console.log('  node dist/temporal/client.js https://example.com --blind');
   console.log(
     '  node dist/temporal/client.js https://example.com /path/to/repo --config config.yaml\n'
   );
@@ -76,6 +78,7 @@ async function startPipeline(): Promise<void> {
   let outputPath: string | undefined;
   let displayOutputPath: string | undefined; // Host path for display purposes
   let pipelineTestingMode = false;
+  let blindMode = false;
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
 
@@ -107,6 +110,8 @@ async function startPipeline(): Promise<void> {
       }
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
+    } else if (arg === '--blind') {
+      blindMode = true;
     } else if (arg === '--wait') {
       waitForCompletion = true;
     } else if (arg && !arg.startsWith('-')) {
@@ -118,8 +123,15 @@ async function startPipeline(): Promise<void> {
     }
   }
 
-  if (!webUrl || !repoPath) {
-    console.log(chalk.red('Error: webUrl and repoPath are required'));
+  if (!webUrl) {
+    console.log(chalk.red('Error: webUrl is required'));
+    showUsage();
+    process.exit(1);
+  }
+
+  // In blind mode, no repoPath is needed - agents use a temp workspace
+  if (!repoPath && !blindMode) {
+    console.log(chalk.red('Error: repoPath is required (use --blind for black-box testing without source code)'));
     showUsage();
     process.exit(1);
   }
@@ -139,7 +151,8 @@ async function startPipeline(): Promise<void> {
 
     const input: PipelineInput = {
       webUrl,
-      repoPath,
+      ...(repoPath && { repoPath }),
+      ...(blindMode && { blindMode: true }),
       ...(configPath && { configPath }),
       ...(outputPath && { outputPath }),
       ...(pipelineTestingMode && { pipelineTestingMode }),
@@ -153,7 +166,11 @@ async function startPipeline(): Promise<void> {
     console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
     console.log();
     console.log(chalk.white('  Target:     ') + chalk.cyan(webUrl));
-    console.log(chalk.white('  Repository: ') + chalk.cyan(repoPath));
+    if (blindMode) {
+      console.log(chalk.white('  Mode:       ') + chalk.yellow('Blind / Black-box (no source code)'));
+    } else {
+      console.log(chalk.white('  Repository: ') + chalk.cyan(repoPath!));
+    }
     if (configPath) {
       console.log(chalk.white('  Config:     ') + chalk.cyan(configPath));
     }
@@ -161,7 +178,7 @@ async function startPipeline(): Promise<void> {
       console.log(chalk.white('  Output:     ') + chalk.cyan(displayOutputPath));
     }
     if (pipelineTestingMode) {
-      console.log(chalk.white('  Mode:       ') + chalk.yellow('Pipeline Testing'));
+      console.log(chalk.white('  Testing:    ') + chalk.yellow('Pipeline Testing'));
     }
     console.log();
 

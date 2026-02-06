@@ -12,7 +12,8 @@ import type { Authentication, DistributedConfig } from '../types/config.js';
 
 interface PromptVariables {
   webUrl: string;
-  repoPath: string;
+  repoPath: string; // Workspace path - may be a temp dir in blind mode
+  blindMode?: boolean;
   MCP_SERVER?: string;
 }
 

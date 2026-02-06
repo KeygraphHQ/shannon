@@ -127,10 +127,12 @@ export async function pentestPipelineWorkflow(
   // Build ActivityInput with required workflowId for audit correlation
   // Activities require workflowId (non-optional), PipelineInput has it optional
   // Use spread to conditionally include optional properties (exactOptionalPropertyTypes)
+  // In blind mode, repoPath is resolved to a temp workspace by activities
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
-    repoPath: input.repoPath,
     workflowId,
+    ...(input.repoPath !== undefined && { repoPath: input.repoPath }),
+    ...(input.blindMode !== undefined && { blindMode: input.blindMode }),
     ...(input.configPath !== undefined && { configPath: input.configPath }),
     ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
     ...(input.pipelineTestingMode !== undefined && {
