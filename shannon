@@ -84,6 +84,14 @@ ensure_containers() {
     docker compose -f "$COMPOSE_FILE" up -d worker 2>/dev/null || true
   fi
 
+  # Always refresh worker when TARGET_REPO is set to ensure correct repo mount
+  # This fixes the issue where changing REPO= between runs didn't take effect
+  # Use --force-recreate to guarantee the container picks up the new mount
+  if [ -n "$TARGET_REPO" ]; then
+    echo "Ensuring worker has correct repo mount..."
+    docker compose -f "$COMPOSE_FILE" up -d --force-recreate worker 2>/dev/null || true
+  fi
+
   # Quick check: if Temporal is already healthy, we're good
   if is_temporal_ready; then
     return 0
