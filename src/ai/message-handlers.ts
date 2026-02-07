@@ -49,6 +49,20 @@ export function extractMessageContent(message: AssistantMessage): string {
   return String(messageContent.content);
 }
 
+// Extracts only text content (no tool_use JSON) to avoid false positives in error detection
+export function extractTextOnlyContent(message: AssistantMessage): string {
+  const messageContent = message.message;
+
+  if (Array.isArray(messageContent.content)) {
+    return messageContent.content
+      .filter((c: ContentBlock) => c.type === 'text' || c.text)
+      .map((c: ContentBlock) => c.text || '')
+      .join('\n');
+  }
+
+  return String(messageContent.content);
+}
+
 export function detectApiError(content: string): ApiErrorDetection {
   if (!content || typeof content !== 'string') {
     return { detected: false };
@@ -106,7 +120,10 @@ export function handleAssistantMessage(
 ): AssistantResult {
   const content = extractMessageContent(message);
   const cleanedContent = filterJsonToolCalls(content);
-  const errorDetection = detectApiError(content);
+  // Use text-only content for error detection to avoid false positives
+  // from tool_use JSON (e.g. security reports containing "usage limit")
+  const textOnlyContent = extractTextOnlyContent(message);
+  const errorDetection = detectApiError(textOnlyContent);
 
   const result: AssistantResult = {
     content,
