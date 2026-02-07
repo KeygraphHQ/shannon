@@ -104,6 +104,7 @@ Shannon is available in two editions:
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
+  - **MiniMax API key (Anthropic-compatible)** - Get from [MiniMax Coding Plan](https://platform.minimax.io/subscribe/coding-plan), then set `ANTHROPIC_API_KEY`, `ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic`, and `MODEL=MiniMax-M2.1` (or another supported MiniMax model)
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
@@ -124,6 +125,11 @@ cat > .env << 'EOF'
 ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
+
+# MiniMax via Anthropic-compatible API (optional)
+# ANTHROPIC_API_KEY=your-minimax-api-key
+# ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic
+# MODEL=MiniMax-M2.1
 
 # 3. Run a pentest
 ./shannon start URL=https://your-app.com REPO=/path/to/your/repo
