@@ -11,7 +11,7 @@
 Critical authentication failures including SQL injection authentication bypass, brute force attacks due to missing rate limiting, MD5 password cracking, OAuth nOAuth attacks with predictable passwords, account enumeration via reset flows, and token replay vulnerabilities. These vulnerabilities provide complete system compromise and unauthorized access to all user accounts.
 
 **Authorization Vulnerabilities:**
-Systemic authorization bypass including anonymous access to all user memories, admin role injection during registratio, horizontal privilege escalation via IDOR vulnerabilities across user profiles, baskets, and feedback systems, and business logic bypasses including deluxe membership payment bypass and cross-user order checkout.
+Systemic authorization bypass including anonymous access to all user memories, admin role injection during registration, horizontal privilege escalation via IDOR vulnerabilities across user profiles, baskets, and feedback systems, and business logic bypasses including deluxe membership payment bypass and cross-user order checkout.
 
 **Cross-Site Scripting (XSS) Vulnerabilities:**
 Multiple XSS attack vectors including reflected XSS in search parameters via Angular security bypass, JSONP callback XSS enabling cross-domain attacks, and potential stored XSS in admin panels and data export functionality (blocked by CAPTCHA protection).
