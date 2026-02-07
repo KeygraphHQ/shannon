@@ -16,6 +16,8 @@
 
 import { tool } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
+import * as fs from 'fs';
+import * as nodePath from 'path';
 import { DeliverableType, DELIVERABLE_FILENAMES, isQueueType } from '../types/deliverables.js';
 import { createToolResult, type ToolResult, type SaveDeliverableResponse } from '../types/tool-responses.js';
 import { validateQueueJson } from '../validation/queue-validator.js';
@@ -24,10 +26,12 @@ import { createValidationError, createGenericError } from '../utils/error-format
 
 /**
  * Input schema for save_deliverable tool
+ * Accepts either inline content OR a file_path to read content from (for large reports).
  */
 export const SaveDeliverableInputSchema = z.object({
   deliverable_type: z.nativeEnum(DeliverableType).describe('Type of deliverable to save'),
-  content: z.string().min(1).describe('File content (markdown for analysis/evidence, JSON for queues)'),
+  content: z.string().optional().describe('File content (markdown for analysis/evidence, JSON for queues). Optional if file_path is provided.'),
+  file_path: z.string().optional().describe('Path to a file to read content from. Use this for large reports to avoid output token limits.'),
 });
 
 export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
@@ -41,7 +45,33 @@ export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
 function createSaveDeliverableHandler(targetDir: string) {
   return async function saveDeliverable(args: SaveDeliverableInput): Promise<ToolResult> {
     try {
-      const { deliverable_type, content } = args;
+      const { deliverable_type } = args;
+
+      // Resolve content: either from inline content or by reading file_path
+      let content: string;
+      if (args.file_path) {
+        const resolvedPath = nodePath.isAbsolute(args.file_path)
+          ? args.file_path
+          : nodePath.join(targetDir, args.file_path);
+        if (!fs.existsSync(resolvedPath)) {
+          const errorResponse = createGenericError(
+            new Error(`File not found: ${resolvedPath}`),
+            true,
+            { deliverableType: deliverable_type }
+          );
+          return createToolResult(errorResponse);
+        }
+        content = fs.readFileSync(resolvedPath, 'utf-8');
+      } else if (args.content) {
+        content = args.content;
+      } else {
+        const errorResponse = createGenericError(
+          new Error('Either content or file_path must be provided'),
+          true,
+          { deliverableType: deliverable_type }
+        );
+        return createToolResult(errorResponse);
+      }
 
       // Validate queue JSON if applicable
       if (isQueueType(deliverable_type)) {

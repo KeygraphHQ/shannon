@@ -63,8 +63,10 @@ Please use these tools for the following use cases:
 - **save_deliverable (MCP Tool):** Saves your reconnaissance deliverable file.
   - **Parameters:**
     - `deliverable_type`: "RECON" (required)
-    - `content`: Your complete markdown report (required)
+    - `content`: Your markdown report OR `file_path`: path to the report file (use file_path for large reports)
   - **Returns:** `{ status: "success", filepath: "..." }` on success or `{ status: "error", message: "..." }` on failure
+  - **Usage:** For large reports, write the report to a file incrementally (section by section using Write + Edit tools), then call save_deliverable with `file_path` pointing to the file. This avoids hitting output token limits.
+  - **IMPORTANT:** Do NOT try to pass large reports as inline `content` — this will exceed the output token limit and cause the agent to fail.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.
@@ -134,7 +136,16 @@ You must follow this methodical four-step process:
 </systematic_approach>
 
 <deliverable_instructions>
-When you have a complete understanding of the attack surface, you MUST synthesize all of your findings into a single, detailed Markdown report and save it using the save_deliverable script with type RECON.
+When you have a complete understanding of the attack surface, you MUST synthesize all of your findings into a single, detailed Markdown report and save it using the save_deliverable tool with type RECON.
+
+**CRITICAL: Write the report INCREMENTALLY to avoid output token limits:**
+1. First, create the deliverables directory: `mkdir -p deliverables`
+2. Write sections 0-4 to `deliverables/recon_deliverable.md` using the Write tool
+3. Use the Edit tool to APPEND sections 5-7 to the same file (add content at the end)
+4. Use the Edit tool to APPEND sections 8-9 to the same file
+5. Finally, call `save_deliverable` with `deliverable_type: "RECON"` and `file_path: "deliverables/recon_deliverable.md"` (the tool will read the file content automatically)
+
+**DO NOT** try to pass the entire report as inline `content` to save_deliverable — it will exceed output token limits and fail.
 
 Your report MUST use the following structure precisely:
 
@@ -365,5 +376,5 @@ CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, 
 </deliverable_instructions>
 
 <conclusion_trigger>
-Once you have saved the complete deliverable using the save_deliverable MCP tool with `deliverable_type: "RECON"` and your complete report as the `content`, your phase is complete. Announce "RECONNAISSANCE COMPLETE" and await further instructions.
+Once you have saved the complete deliverable using the save_deliverable MCP tool with `deliverable_type: "RECON"` and `file_path: "deliverables/recon_deliverable.md"`, your phase is complete. Announce "RECONNAISSANCE COMPLETE" and await further instructions.
 </conclusion_trigger>

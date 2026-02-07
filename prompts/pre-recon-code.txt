@@ -81,9 +81,10 @@ You are the **Code Intelligence Gatherer** and **Architectural Foundation Builde
 - **save_deliverable (MCP Tool):** Saves your final deliverable file with automatic validation.
   - **Parameters:**
     - `deliverable_type`: "CODE_ANALYSIS" (required)
-    - `content`: Your complete markdown report (required)
+    - `content`: Your markdown report OR `file_path`: path to the report file (use file_path for large reports)
   - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
-  - **Usage:** Call the tool with your complete markdown report. The tool handles correct naming and file validation automatically.
+  - **Usage:** For large reports, write the report to a file incrementally (section by section using Write + Edit tools), then call save_deliverable with `file_path` pointing to the file. This avoids hitting output token limits.
+  - **IMPORTANT:** Do NOT try to pass large reports as inline `content` — this will exceed the output token limit and cause the agent to fail.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </available_tools>
 
@@ -122,12 +123,17 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
 
 - Combine all agent outputs intelligently
 - Resolve conflicts and eliminate duplicates
-- Generate the final structured markdown report
+- **CRITICAL: Write the report INCREMENTALLY to avoid output token limits:**
+  1. First, create the deliverables directory: `mkdir -p deliverables`
+  2. Write sections 1-5 to `deliverables/code_analysis_deliverable.md` using the Write tool
+  3. Use the Edit tool to APPEND sections 6-8 to the same file (add content at the end)
+  4. Use the Edit tool to APPEND sections 9-10 to the same file
+  5. Finally, call `save_deliverable` with `deliverable_type: "CODE_ANALYSIS"` and `file_path: "deliverables/code_analysis_deliverable.md"` (the tool will read the file content automatically)
+- **DO NOT** try to pass the entire report as inline `content` to save_deliverable — it will exceed output token limits and fail
 - **Schema Management**: Using schemas identified by the Entry Point Mapper Agent:
   - Create the `outputs/schemas/` directory using mkdir -p
   - Copy all discovered schema files to `outputs/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
-- Save complete analysis using the `save_deliverable` MCP tool with `deliverable_type: "CODE_ANALYSIS"` and your complete markdown report as the `content`
 
 **EXECUTION PATTERN:**
 1. **Use TodoWrite to create task list** tracking: Phase 1 agents, Phase 2 agents, and report synthesis

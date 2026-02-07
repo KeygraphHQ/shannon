@@ -224,6 +224,11 @@ export async function runClaudePrompt(
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
     mcpServers,
+    env: {
+      CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
+      ...(process.env.CLAUDE_CODE_OAUTH_TOKEN && { CLAUDE_CODE_OAUTH_TOKEN: process.env.CLAUDE_CODE_OAUTH_TOKEN }),
+      ...(process.env.ANTHROPIC_API_KEY && { ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY }),
+    },
   };
 
   if (!execContext.useCleanOutput) {
