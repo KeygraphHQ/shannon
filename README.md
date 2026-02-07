@@ -258,6 +258,19 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
+### Custom Anthropic-Compatible Endpoint
+
+Use any Anthropic API-compatible endpoint (Kimi K2.5, AWS Bedrock, etc.) without the router:
+
+```bash
+# In .env:
+ANTHROPIC_BASE_URL=https://api.example.com/v1
+ANTHROPIC_API_KEY=your-api-key
+
+# Run normally:
+./shannon start URL=https://example.com REPO=/path/to/repo
+```
+
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:

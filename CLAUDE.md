@@ -268,6 +268,19 @@ The tool should only be used on systems you own or have explicit permission to t
 **Output:**
 - `audit-logs/{hostname}_{sessionId}/` - Session metrics, agent logs, deliverables
 
+### Custom Anthropic-Compatible Endpoint
+
+Use any Anthropic API-compatible endpoint (Kimi K2.5, AWS Bedrock, etc.) without the router:
+
+```bash
+# In .env:
+ANTHROPIC_BASE_URL=https://api.example.com/v1
+ANTHROPIC_API_KEY=your-api-key
+
+# Run normally (no ROUTER=true needed):
+./shannon start URL=<url> REPO=<path>
+```
+
 ### Router Mode (Multi-Model Support)
 
 Shannon supports routing Claude Agent SDK requests through alternative LLM providers via [claude-code-router](https://github.com/musistudio/claude-code-router).
