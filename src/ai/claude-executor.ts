@@ -26,6 +26,8 @@ import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } fr
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
+import { getAiBackend } from './backend/factory.js';
+import { processOpenCodeMessageStream } from './backend/opencode-backend.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -207,6 +209,7 @@ export async function runClaudePrompt(
 ): Promise<ClaudePromptResult> {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const aiBackend = getAiBackend();
 
   const execContext = detectExecutionContext(description);
   const progress = createProgressManager(
@@ -215,19 +218,29 @@ export async function runClaudePrompt(
   );
   const auditLogger = createAuditLogger(auditSession);
 
-  console.log(chalk.blue(`  Running Claude Code: ${description}...`));
+  console.log(chalk.blue(`  Running ${aiBackend} backend: ${description}...`));
 
-  const mcpServers = buildMcpServers(sourceDir, agentName);
-  const options = {
-    model: 'claude-sonnet-4-5-20250929',
-    maxTurns: 10_000,
-    cwd: sourceDir,
-    permissionMode: 'bypassPermissions' as const,
-    mcpServers,
-  };
+  let options: {
+    model: string;
+    maxTurns: number;
+    cwd: string;
+    permissionMode: 'bypassPermissions';
+    mcpServers: Record<string, McpServer>;
+  } | null = null;
 
-  if (!execContext.useCleanOutput) {
-    console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+  if (aiBackend === 'anthropic') {
+    const mcpServers = buildMcpServers(sourceDir, agentName);
+    options = {
+      model: 'claude-sonnet-4-5-20250929',
+      maxTurns: 10_000,
+      cwd: sourceDir,
+      permissionMode: 'bypassPermissions' as const,
+      mcpServers,
+    };
+
+    if (!execContext.useCleanOutput) {
+      console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+    }
   }
 
   let turnCount = 0;
@@ -238,12 +251,19 @@ export async function runClaudePrompt(
   progress.start();
 
   try {
-    const messageLoopResult = await processMessageStream(
-      fullPrompt,
-      options,
-      { execContext, description, colorFn, progress, auditLogger },
-      timer
-    );
+    const messageLoopResult = aiBackend === 'opencode'
+      ? await processOpenCodeMessageStream(
+        fullPrompt,
+        sourceDir,
+        { execContext, description, colorFn, progress, auditLogger },
+        timer
+      )
+      : await processMessageStream(
+        fullPrompt,
+        options,
+        { execContext, description, colorFn, progress, auditLogger },
+        timer
+      );
 
     turnCount = messageLoopResult.turnCount;
     result = messageLoopResult.result;
@@ -333,12 +353,16 @@ interface MessageLoopDeps {
 
 async function processMessageStream(
   fullPrompt: string,
-  options: NonNullable<Parameters<typeof query>[0]['options']>,
+  options: NonNullable<Parameters<typeof query>[0]['options']> | null,
   deps: MessageLoopDeps,
   timer: Timer
 ): Promise<MessageLoopResult> {
   const { execContext, description, colorFn, progress, auditLogger } = deps;
   const HEARTBEAT_INTERVAL = 30000;
+
+  if (!options) {
+    throw new Error('Anthropic backend options not initialized');
+  }
 
   let turnCount = 0;
   let result: string | null = null;

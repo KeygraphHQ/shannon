@@ -117,6 +117,9 @@ RUN npm ci && \
     cd mcp-server && npm ci && cd .. && \
     npm cache clean --force
 
+# Install OpenCode CLI for optional OpenCode backend
+RUN npm install -g opencode-ai@latest && npm cache clean --force
+
 # Copy application source code
 COPY . .
 

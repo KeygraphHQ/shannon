@@ -106,6 +106,7 @@ Shannon is available in two editions:
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
+  - **[EXPERIMENTAL] OpenCode backend** - use `AI_BACKEND=opencode` with the `opencode` CLI installed
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
@@ -294,6 +295,24 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 #### Disclaimer
 
 This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
+
+### [EXPERIMENTAL] OpenCode Backend
+
+Shannon can run agent execution through the OpenCode SDK.
+
+```bash
+# Use OpenCode as the execution backend
+AI_BACKEND=opencode ./shannon start URL=https://example.com REPO=/path/to/repo
+
+# Optional: choose model and agent
+OPENCODE_MODEL=openai/gpt-5.2 OPENCODE_AGENT=build AI_BACKEND=opencode ./shannon start URL=https://example.com REPO=/path/to/repo
+```
+
+Notes:
+
+- The `opencode` CLI must be available in the worker environment.
+- Provider credentials can come from environment variables (for example `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `GOOGLE_API_KEY`, or `OPENCODE_API_KEY`) or existing OpenCode configuration.
+- This backend is early-stage and should be treated as experimental.
 
 ### Output and Results
 

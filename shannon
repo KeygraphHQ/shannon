@@ -35,6 +35,7 @@ Options for 'start':
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
+  AI_BACKEND=opencode    Use OpenCode SDK backend (experimental)
   ROUTER=true            Route requests through claude-code-router (multi-model support)
 
 Options for 'stop':
@@ -116,6 +117,8 @@ ensure_containers() {
 cmd_start() {
   parse_args "$@"
 
+  AI_BACKEND="${AI_BACKEND:-anthropic}"
+
   # Validate required vars
   if [ -z "$URL" ] || [ -z "$REPO" ]; then
     echo "ERROR: URL and REPO are required"
@@ -123,15 +126,23 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key (router mode can use alternative provider API keys)
-  if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
-      # Router mode with alternative provider - set a placeholder for SDK init
-      export ANTHROPIC_API_KEY="router-mode"
-    else
-      echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-      echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
-      exit 1
+  # Validate credentials for selected AI backend
+  if [ "$AI_BACKEND" = "opencode" ]; then
+    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$OPENAI_API_KEY" ] && [ -z "$OPENROUTER_API_KEY" ] && [ -z "$GOOGLE_API_KEY" ] && [ -z "$OPENCODE_API_KEY" ]; then
+      echo "WARNING: AI_BACKEND=opencode set but no provider API key detected in environment"
+      echo "         OpenCode may fail unless credentials are available via opencode config"
+    fi
+  else
+    # Anthropic backend: check for API key (router mode can use alternative provider API keys)
+    if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+      if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+        # Router mode with alternative provider - set a placeholder for SDK init
+        export ANTHROPIC_API_KEY="router-mode"
+      else
+        echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
+        echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+        exit 1
+      fi
     fi
   fi
 

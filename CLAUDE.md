@@ -50,6 +50,9 @@ CONFIG=<file>          YAML configuration file for authentication and testing pa
 OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
 PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
 REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
+AI_BACKEND=opencode    Use OpenCode SDK backend instead of Anthropic SDK (experimental)
+OPENCODE_MODEL=<id>    Optional OpenCode model override (provider/model)
+OPENCODE_AGENT=<name>  Optional OpenCode agent (default: build)
 ROUTER=true            Route requests through claude-code-router for multi-model support
 ```
 
