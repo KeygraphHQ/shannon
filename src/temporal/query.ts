@@ -113,7 +113,11 @@ async function queryWorkflow(): Promise<void> {
     console.log(
       `${chalk.white('Current Agent:')} ${progress.currentAgent || 'none'}`
     );
-    console.log(`${chalk.white('Elapsed:')} ${formatDuration(progress.elapsedMs)}`);
+    // Compute elapsed from startTime on client side (workflow's Date.now() is deterministic, not wall-clock)
+    const elapsedMs = progress.status === 'running'
+      ? Date.now() - progress.startTime
+      : progress.elapsedMs;
+    console.log(`${chalk.white('Elapsed:')} ${formatDuration(elapsedMs)}`);
     console.log(
       `${chalk.white('Completed:')} ${progress.completedAgents.length}/13 agents`
     );
