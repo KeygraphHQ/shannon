@@ -46,8 +46,14 @@ export function base32Decode(encoded: string): Buffer {
 }
 
 /**
+ * Minimum base32 secret length.
+ * RFC 4226 Section 4 recommends at least 160 bits (20 bytes = 32 base32 characters).
+ */
+export const TOTP_MIN_SECRET_LENGTH = 32;
+
+/**
  * Validate TOTP secret
- * Must be base32-encoded string
+ * Must be base32-encoded string with minimum length per RFC 4226.
  *
  * @returns true if valid, throws Error if invalid
  */
@@ -56,10 +62,20 @@ export function validateTotpSecret(secret: string): boolean {
     throw new Error('TOTP secret cannot be empty');
   }
 
+  // Strip non-base32 characters (padding, whitespace) for validation
+  const cleanSecret = secret.replace(/[^A-Z2-7]/gi, '');
+
   // Check if it's valid base32 (only A-Z and 2-7, case-insensitive)
   const base32Regex = /^[A-Z2-7]+$/i;
-  if (!base32Regex.test(secret.replace(/[^A-Z2-7]/gi, ''))) {
+  if (!base32Regex.test(cleanSecret)) {
     throw new Error('TOTP secret must be base32-encoded (characters A-Z and 2-7)');
+  }
+
+  // Enforce minimum length per RFC 4226 (160 bits = 32 base32 chars)
+  if (cleanSecret.length < TOTP_MIN_SECRET_LENGTH) {
+    throw new Error(
+      `TOTP secret too short: ${cleanSecret.length} base32 characters (minimum ${TOTP_MIN_SECRET_LENGTH} required per RFC 4226)`
+    );
   }
 
   // Try to decode to ensure it's valid

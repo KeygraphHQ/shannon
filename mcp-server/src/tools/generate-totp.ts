@@ -18,6 +18,7 @@ import { z } from 'zod';
 import { createToolResult, type ToolResult, type GenerateTotpResponse } from '../types/tool-responses.js';
 import { base32Decode, validateTotpSecret } from '../validation/totp-validator.js';
 import { createCryptoError, createGenericError } from '../utils/error-formatter.js';
+import { TOTP_MIN_SECRET_LENGTH } from '../validation/totp-validator.js';
 
 /**
  * Input schema for generate_totp tool
@@ -25,9 +26,9 @@ import { createCryptoError, createGenericError } from '../utils/error-formatter.
 export const GenerateTotpInputSchema = z.object({
   secret: z
     .string()
-    .min(1)
+    .min(TOTP_MIN_SECRET_LENGTH, `Must be at least ${TOTP_MIN_SECRET_LENGTH} base32 characters (RFC 4226)`)
     .regex(/^[A-Z2-7]+$/i, 'Must be base32-encoded')
-    .describe('Base32-encoded TOTP secret'),
+    .describe('Base32-encoded TOTP secret (minimum 32 characters per RFC 4226)'),
 });
 
 export type GenerateTotpInput = z.infer<typeof GenerateTotpInputSchema>;
