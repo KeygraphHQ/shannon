@@ -221,13 +221,17 @@ export async function runClaudePrompt(
   const options = {
     model: 'claude-sonnet-4-5-20250929',
     maxTurns: 10_000,
+    maxOutputTokensOverride: parseInt(
+      process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
+      10
+    ),
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
     mcpServers,
   };
 
   if (!execContext.useCleanOutput) {
-    console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+    console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, maxOutputTokens=${options.maxOutputTokensOverride}, cwd=${sourceDir}, permissions=BYPASS`));
   }
 
   let turnCount = 0;
