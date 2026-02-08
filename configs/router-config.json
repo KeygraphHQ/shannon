@@ -25,6 +25,15 @@
       "transformer": {
         "use": ["openrouter"]
       }
+    },
+    {
+      "name": "zai",
+      "api_base_url": "https://api.z.ai/api/paas/v4/chat/completions",
+      "api_key": "$ZAI_API_KEY",
+      "models": ["glm"],
+      "transformer": {
+        "use": [["maxcompletiontokens", { "max_completion_tokens": 16384 }]]
+      }
     }
   ],
   "Router": {

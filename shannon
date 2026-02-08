@@ -36,6 +36,7 @@ Options for 'start':
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
+  GLM=true               Use Z.AI GLM model via direct API endpoint
 
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
@@ -46,6 +47,7 @@ Examples:
   ./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
+  ./shannon start URL=https://example.com REPO=/path/to/repo GLM=true
   ./shannon stop CLEAN=true
 
 Monitor workflows at http://localhost:8233
@@ -65,6 +67,7 @@ parse_args() {
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
+      GLM=*) GLM="${arg#GLM=}" ;;
     esac
   done
 }
@@ -128,9 +131,12 @@ cmd_start() {
     if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
+    elif [ "$GLM" = "true" ] && [ -n "$ZAI_API_KEY" ]; then
+      export ANTHROPIC_API_KEY="glm-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
       echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       (or use GLM=true with ZAI_API_KEY)"
       exit 1
     fi
   fi
@@ -156,6 +162,22 @@ cmd_start() {
     mkdir -p "$OUTPUT"
     chmod 777 "$OUTPUT"
     export OUTPUT_DIR="$OUTPUT"
+  fi
+
+  # Handle GLM flag - direct Anthropic-compatible endpoint via Z.AI
+  if [ "$GLM" = "true" ]; then
+    if [ -z "$ZAI_API_KEY" ]; then
+      echo "ERROR: ZAI_API_KEY is required when using GLM=true"
+      exit 1
+    fi
+    echo "Using Z.AI GLM model via Anthropic-compatible endpoint..."
+    export ANTHROPIC_BASE_URL="https://api.z.ai/api/anthropic"
+    export ANTHROPIC_AUTH_TOKEN="$ZAI_API_KEY"
+    export ROUTER_DEFAULT="zai,glm"
+    if [ "$ROUTER" = "true" ]; then
+      echo "WARNING: GLM=true and ROUTER=true are mutually exclusive. Using GLM direct mode."
+      ROUTER=""
+    fi
   fi
 
   # Handle ROUTER flag - start claude-code-router for multi-model support

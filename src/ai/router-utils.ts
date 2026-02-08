@@ -27,8 +27,15 @@ export function getActualModelName(sdkReportedModel?: string): string | undefine
 }
 
 /**
- * Check if router mode is active.
+ * Check if GLM direct mode is active (Z.AI Anthropic-compatible endpoint).
+ */
+export function isGlmDirectMode(): boolean {
+  return process.env.ANTHROPIC_BASE_URL?.includes('api.z.ai') ?? false;
+}
+
+/**
+ * Check if router mode is active (excludes GLM direct mode).
  */
 export function isRouterMode(): boolean {
-  return !!process.env.ANTHROPIC_BASE_URL && !!process.env.ROUTER_DEFAULT;
+  return !!process.env.ANTHROPIC_BASE_URL && !!process.env.ROUTER_DEFAULT && !isGlmDirectMode();
 }
