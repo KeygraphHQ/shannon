@@ -22,6 +22,10 @@ export function validateWebUrl(url: string): ValidationResult {
     if (!parsed.hostname) {
       return { valid: false, error: 'Web URL must have a valid hostname' };
     }
+    // Reject URLs with embedded credentials (e.g., http://user:pass@host)
+    if (parsed.username || parsed.password) {
+      return { valid: false, error: 'Web URL must not contain embedded credentials' };
+    }
     return { valid: true };
   } catch {
     return { valid: false, error: 'Invalid web URL format' };
