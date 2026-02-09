@@ -25,13 +25,14 @@ show_help() {
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
+  ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon query ID=<workflow-id>        Query workflow progress
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
 
 Options for 'start':
+  REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
@@ -41,9 +42,9 @@ Options for 'stop':
   CLEAN=true             Remove all data including volumes
 
 Examples:
-  ./shannon start URL=https://example.com REPO=/path/to/repo
-  ./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./config.yaml
-  ./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+  ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
+  ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
@@ -119,7 +120,7 @@ cmd_start() {
   # Validate required vars
   if [ -z "$URL" ] || [ -z "$REPO" ]; then
     echo "ERROR: URL and REPO are required"
-    echo "Usage: ./shannon start URL=<url> REPO=<path>"
+    echo "Usage: ./shannon start URL=<url> REPO=<name>"
     exit 1
   fi
 
@@ -136,16 +137,20 @@ cmd_start() {
   fi
 
   # Determine container path for REPO
-  # - If REPO is already a container path (/benchmarks/*, /target-repo), use as-is
-  # - Otherwise, it's a host path - mount to /target-repo and use that
+  # - If REPO is already a container path (/benchmarks/*, /repos/*), use as-is
+  # - Otherwise, treat as a folder name under ./repos/ (mounted at /repos in container)
   case "$REPO" in
-    /benchmarks/*|/target-repo|/target-repo/*)
+    /benchmarks/*|/repos/*)
       CONTAINER_REPO="$REPO"
       ;;
     *)
-      # Host path - export for docker-compose mount
-      export TARGET_REPO="$REPO"
-      CONTAINER_REPO="/target-repo"
+      if [ ! -d "./repos/$REPO" ]; then
+        echo "ERROR: Repository not found at ./repos/$REPO"
+        echo ""
+        echo "Place your target repository under the ./repos/ directory"
+        exit 1
+      fi
+      CONTAINER_REPO="/repos/$REPO"
       ;;
   esac
 
