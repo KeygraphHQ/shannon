@@ -87,6 +87,7 @@ Shannon is available in two editions:
   - [Usage Examples](#usage-examples)
   - [Configuration (Optional)](#configuration-optional)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
+  - [Custom Anthropic Endpoint](#custom-anthropic-endpoint)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
 - [Architecture](#️-architecture)
@@ -294,6 +295,26 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 #### Disclaimer
 
 This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
+
+### Custom Anthropic Endpoint
+
+Shannon supports custom Anthropic-compatible API endpoints with configurable model names. This is useful for:
+
+* **Proxied Anthropic access** — route through corporate proxies or API gateways
+* **Custom deployments** — use self-hosted or alternative Anthropic-compatible endpoints
+* **Model selection** — specify a different Claude model than the default
+
+#### Configuration
+
+Add to your `.env` file:
+
+```bash
+ANTHROPIC_API_KEY=your-api-key
+ANTHROPIC_BASE_URL=https://your-custom-endpoint.com  # Optional: custom endpoint
+ANTHROPIC_MODEL=claude-sonnet-4-5-20250929     # Optional: custom model name
+```
+
+The `ANTHROPIC_MODEL` environment variable overrides the default model (`claude-sonnet-4-5-20250929`). Your endpoint must support the specified model.
 
 ### Output and Results
 
