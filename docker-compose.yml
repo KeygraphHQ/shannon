@@ -29,6 +29,7 @@ services:
       temporal:
         condition: service_healthy
     volumes:
+      - ./configs:/app/configs
       - ./prompts:/app/prompts
       - ./audit-logs:/app/audit-logs
       - ${OUTPUT_DIR:-./audit-logs}:/app/output
