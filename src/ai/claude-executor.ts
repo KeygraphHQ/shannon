@@ -219,7 +219,7 @@ export async function runClaudePrompt(
 
   const mcpServers = buildMcpServers(sourceDir, agentName);
   const options = {
-    model: 'claude-sonnet-4-5-20250929',
+    model: process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-5-20250929',
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
