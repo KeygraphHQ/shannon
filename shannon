@@ -128,9 +128,11 @@ cmd_start() {
     if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
+    elif [ -f "$HOME/.claude/.credentials.json" ]; then
+      echo "Using Claude Code login credentials..."
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-      echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       Or log in with: claude login"
       exit 1
     fi
   fi
