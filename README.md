@@ -104,7 +104,8 @@ Shannon is available in two editions:
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
 - **AI Provider Credentials** (choose one):
-  - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
+  - **Claude Code login** (easiest) - Just run `claude login` on the host
+  - **Anthropic API key** - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
@@ -117,11 +118,17 @@ cd shannon
 
 # 2. Configure credentials (choose one method)
 
-# Option A: Export environment variables
+# Option A: Use Claude Code login (easiest — no API key needed)
+claude login
+cat > .env << 'EOF'
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+EOF
+
+# Option B: Export environment variables
 export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
 
-# Option B: Create a .env file
+# Option C: Create a .env file with API key
 cat > .env << 'EOF'
 ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
