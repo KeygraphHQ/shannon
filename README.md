@@ -128,7 +128,7 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
 # 3. Run a pentest
-./shannon start URL=https://your-app.com REPO=/path/to/your/repo
+./shannon start URL=https://your-app.com REPO=your-repo
 ```
 
 Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
@@ -160,33 +160,30 @@ open http://localhost:8233
 
 ```bash
 # Basic pentest
-./shannon start URL=https://example.com REPO=/path/to/repo
+./shannon start URL=https://example.com REPO=repo-name
 
 # With a configuration file
-./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
+./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
 
 # Custom output directory
-./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
 ```
 
 ### Prepare Your Repository
 
-Shannon is designed for **web application security testing** and expects all application code to be available in a single directory structure. This works well for:
-
-- **Monorepos** - Single repository containing all components
-- **Consolidated setups** - Multiple repositories organized in a shared folder
+Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`.
 
 **For monorepos:**
 
 ```bash
-git clone https://github.com/your-org/your-monorepo.git /path/to/your-app
+git clone https://github.com/your-org/your-monorepo.git ./repos/your-monorepo
 ```
 
 **For multi-repository applications** (e.g., separate frontend/backend):
 
 ```bash
-mkdir /path/to/your-app
-cd /path/to/your-app
+mkdir ./repos/your-app
+cd ./repos/your-app
 git clone https://github.com/your-org/frontend.git
 git clone https://github.com/your-org/backend.git
 git clone https://github.com/your-org/api.git
@@ -207,7 +204,7 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-./shannon start URL=http://host.docker.internal:3000 REPO=/path/to/repo
+./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
 ```
 
 ### Configuration (Optional)
@@ -281,7 +278,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 2. Run with `ROUTER=true`:
 
 ```bash
-./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
+./shannon start URL=https://example.com REPO=repo-name ROUTER=true
 ```
 
 #### Experimental Models

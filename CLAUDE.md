@@ -21,14 +21,14 @@ cp .env.example .env
 #   CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000  # Prevents token limits during long reports
 
 # Start a pentest workflow
-./shannon start URL=<url> REPO=<path>
+./shannon start URL=<url> REPO=<name>
 ```
 
 Examples:
 ```bash
-./shannon start URL=https://example.com REPO=/path/to/repo
-./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
-./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+./shannon start URL=https://example.com REPO=repo-name
+./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
+./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
 ```
 
 ### Monitoring Progress
@@ -62,7 +62,7 @@ TOTP generation is handled automatically via the `generate_totp` MCP tool during
 npm run build
 
 # Run with pipeline testing mode (fast, minimal deliverables)
-./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
+./shannon start URL=<url> REPO=<name> PIPELINE_TESTING=true
 ```
 
 ## Architecture & Components
@@ -232,7 +232,7 @@ The application uses a comprehensive error handling system with:
 ### Testing Mode
 The agent includes a testing mode that skips external tool execution for faster development cycles:
 ```bash
-./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
+./shannon start URL=<url> REPO=<name> PIPELINE_TESTING=true
 ```
 
 ### Security Focus
@@ -274,7 +274,7 @@ Shannon supports routing Claude Agent SDK requests through alternative LLM provi
 
 **Enable router mode:**
 ```bash
-./shannon start URL=<url> REPO=<path> ROUTER=true
+./shannon start URL=<url> REPO=<name> ROUTER=true
 ```
 
 **Supported Providers:**
