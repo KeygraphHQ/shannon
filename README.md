@@ -171,7 +171,11 @@ open http://localhost:8233
 
 ### Prepare Your Repository
 
-Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`.
+Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
+
+```bash
+git clone https://github.com/your-org/your-repo.git ./repos/your-repo
+```
 
 **For monorepos:**
 
@@ -209,7 +213,7 @@ Docker containers cannot reach `localhost` on your host machine. Use `host.docke
 
 ### Configuration (Optional)
 
-While you can run without a config file, creating one enables authenticated testing and customized analysis.
+While you can run without a config file, creating one enables authenticated testing and customized analysis. Place your configuration files inside the `./configs/` directory — this folder is mounted into the Docker container automatically.
 
 #### Create Configuration File
 
