@@ -3,7 +3,17 @@
 
 set -e
 
-COMPOSE_FILE="docker-compose.yml"
+# Detect Podman vs Docker and set compose files accordingly
+# Podman doesn't support host-gateway, so we only include the Docker override for actual Docker
+COMPOSE_BASE="docker-compose.yml"
+if command -v podman &>/dev/null; then
+  # Podman detected (either native or via Docker Desktop shim) - use base config only
+  COMPOSE_OVERRIDE=""
+else
+  # Docker detected - include extra_hosts override for Linux localhost access
+  COMPOSE_OVERRIDE="-f docker-compose.docker.yml"
+fi
+COMPOSE_FILE="$COMPOSE_BASE"
 
 # Load .env if present
 if [ -f .env ]; then
@@ -72,7 +82,7 @@ parse_args() {
 
 # Check if Temporal is running and healthy
 is_temporal_ready() {
-  docker compose -f "$COMPOSE_FILE" exec -T temporal \
+  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T temporal \
     temporal operator cluster health --address localhost:7233 2>/dev/null | grep -q "SERVING"
 }
 
@@ -82,7 +92,7 @@ ensure_containers() {
   # Docker compose will only recreate if the mount actually changed
   if [ -n "$OUTPUT_DIR" ]; then
     echo "Ensuring worker has correct output mount..."
-    docker compose -f "$COMPOSE_FILE" up -d worker 2>/dev/null || true
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d worker 2>/dev/null || true
   fi
 
   # Quick check: if Temporal is already healthy, we're good
@@ -95,9 +105,9 @@ ensure_containers() {
   if [ "$REBUILD" = "true" ]; then
     # Force rebuild without cache (use when code changes aren't being picked up)
     echo "Rebuilding with --no-cache..."
-    docker compose -f "$COMPOSE_FILE" build --no-cache worker
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE build --no-cache worker
   fi
-  docker compose -f "$COMPOSE_FILE" up -d --build
+  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d --build
 
   # Wait for Temporal to be ready
   echo "Waiting for Temporal to be ready..."
@@ -166,7 +176,7 @@ cmd_start() {
   # Handle ROUTER flag - start claude-code-router for multi-model support
   if [ "$ROUTER" = "true" ]; then
     # Check if router is already running
-    if docker compose -f "$COMPOSE_FILE" --profile router ps router 2>/dev/null | grep -q "running"; then
+    if docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router ps router 2>/dev/null | grep -q "running"; then
       echo "Router already running, skipping startup..."
     else
       echo "Starting claude-code-router..."
@@ -177,7 +187,7 @@ cmd_start() {
       fi
 
       # Start router with profile
-      docker compose -f "$COMPOSE_FILE" --profile router up -d router
+      docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router up -d router
 
       # Give router a few seconds to start (health check disabled for now - TODO: debug later)
       echo "Waiting for router to start..."
@@ -216,7 +226,7 @@ cmd_start() {
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
 
   # Run the client to submit workflow
-  docker compose -f "$COMPOSE_FILE" exec -T worker \
+  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
     node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
 }
 
@@ -269,7 +279,7 @@ cmd_query() {
     exit 1
   fi
 
-  docker compose -f "$COMPOSE_FILE" exec -T worker \
+  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
     node dist/temporal/query.js "$ID"
 }
 
@@ -277,9 +287,9 @@ cmd_stop() {
   parse_args "$@"
 
   if [ "$CLEAN" = "true" ]; then
-    docker compose -f "$COMPOSE_FILE" --profile router down -v
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down -v
   else
-    docker compose -f "$COMPOSE_FILE" --profile router down
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down
   fi
 }
 
