@@ -194,6 +194,12 @@ cmd_start() {
   mkdir -p ./audit-logs
   chmod 777 ./audit-logs
 
+  # Ensure repo deliverables directory is writable by container user (UID 1001)
+  if [ -d "./repos/$REPO" ]; then
+    mkdir -p "./repos/$REPO/deliverables"
+    chmod 777 "./repos/$REPO/deliverables"
+  fi
+
   # Ensure containers are running (starts them if needed)
   ensure_containers
 
