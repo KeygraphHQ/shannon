@@ -139,9 +139,6 @@ RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
 # Switch to non-root user
 USER pentest
 
-# Configure Git to trust all directories
-RUN git config --global --add safe.directory '*'
-
 # Set environment variables
 ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:$PATH"
@@ -152,6 +149,11 @@ ENV npm_config_cache=/tmp/.npm
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache
 ENV XDG_CONFIG_HOME=/tmp/.config
+
+# Configure Git identity and trust all directories
+RUN git config --global user.email "agent@localhost" && \
+    git config --global user.name "Pentest Agent" && \
+    git config --global --add safe.directory '*'
 
 # Set entrypoint
 ENTRYPOINT ["node", "dist/shannon.js"]
