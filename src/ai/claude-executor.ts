@@ -223,6 +223,7 @@ export async function runClaudePrompt(
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
+    allowDangerouslySkipPermissions: true,
     mcpServers,
   };
 
