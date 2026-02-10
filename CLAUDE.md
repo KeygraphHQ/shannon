@@ -18,7 +18,6 @@ This is an AI-powered penetration testing agent designed for defensive security 
 cp .env.example .env
 # Edit .env:
 #   ANTHROPIC_API_KEY=your-key
-#   CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000  # Prevents token limits during long reports
 
 # Start a pentest workflow
 ./shannon start URL=<url> REPO=<name>

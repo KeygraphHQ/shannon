@@ -8,8 +8,8 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
-    "zod": "^3.22.4"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.38",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.0.3",

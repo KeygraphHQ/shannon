@@ -22,6 +22,7 @@ import type { AuditLogger } from './audit-logger.js';
 import type { ProgressManager } from './progress-manager.js';
 import type {
   AssistantMessage,
+  SDKAssistantMessageError,
   ResultMessage,
   ToolUseMessage,
   ToolResultMessage,
@@ -100,13 +101,86 @@ export function detectApiError(content: string): ApiErrorDetection {
   return { detected: false };
 }
 
+// Maps SDK structured error types to our error handling.
+function handleStructuredError(
+  errorType: SDKAssistantMessageError,
+  content: string
+): ApiErrorDetection {
+  switch (errorType) {
+    case 'billing_error':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Billing error (structured): ${content.slice(0, 100)}`,
+          'billing',
+          true // Retryable with backoff
+        ),
+      };
+    case 'rate_limit':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Rate limit hit (structured): ${content.slice(0, 100)}`,
+          'network',
+          true // Retryable with backoff
+        ),
+      };
+    case 'authentication_failed':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Authentication failed: ${content.slice(0, 100)}`,
+          'config',
+          false // Not retryable - needs API key fix
+        ),
+      };
+    case 'server_error':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Server error (structured): ${content.slice(0, 100)}`,
+          'network',
+          true // Retryable
+        ),
+      };
+    case 'invalid_request':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Invalid request: ${content.slice(0, 100)}`,
+          'config',
+          false // Not retryable - needs code fix
+        ),
+      };
+    case 'max_output_tokens':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Max output tokens reached: ${content.slice(0, 100)}`,
+          'billing',
+          true // Retryable - may succeed with different content
+        ),
+      };
+    case 'unknown':
+    default:
+      return { detected: true };
+  }
+}
+
 export function handleAssistantMessage(
   message: AssistantMessage,
   turnCount: number
 ): AssistantResult {
   const content = extractMessageContent(message);
   const cleanedContent = filterJsonToolCalls(content);
-  const errorDetection = detectApiError(content);
+
+  // Prefer structured error field from SDK, fall back to text-sniffing
+  let errorDetection: ApiErrorDetection;
+  if (message.error) {
+    errorDetection = handleStructuredError(message.error, content);
+  } else {
+    errorDetection = detectApiError(content);
+  }
 
   const result: AssistantResult = {
     content,
@@ -139,6 +213,14 @@ export function handleResultMessage(message: ResultMessage): ResultData {
   // Only add subtype if it exists (exactOptionalPropertyTypes compliance)
   if (message.subtype) {
     result.subtype = message.subtype;
+  }
+
+  // Capture stop_reason for diagnostics (helps debug early stops, budget exceeded, etc.)
+  if (message.stop_reason !== undefined) {
+    result.stop_reason = message.stop_reason;
+    if (message.stop_reason && message.stop_reason !== 'end_turn') {
+      console.log(chalk.yellow(`    Stop reason: ${message.stop_reason}`));
+    }
   }
 
   return result;
@@ -247,6 +329,9 @@ export async function dispatchMessage(
     }
 
     case 'user':
+    case 'tool_progress':
+    case 'tool_use_summary':
+    case 'auth_status':
       return { type: 'continue' };
 
     case 'tool_use': {
