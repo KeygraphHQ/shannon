@@ -29,7 +29,7 @@ export function saveDeliverableFile(targetDir: string, filename: string, content
   try {
     mkdirSync(deliverablesDir, { recursive: true });
   } catch {
-    // Directory might already exist, ignore
+    throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
   }
 
   // Write file (atomic write - single operation)
