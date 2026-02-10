@@ -46,6 +46,7 @@ export interface ResultData {
   cost: number;
   duration_ms: number;
   subtype?: string;
+  stop_reason?: string | null;
   permissionDenials: number;
 }
 
@@ -66,8 +67,18 @@ export interface ContentBlock {
   text?: string;
 }
 
+export type SDKAssistantMessageError =
+  | 'authentication_failed'
+  | 'billing_error'
+  | 'rate_limit'
+  | 'invalid_request'
+  | 'server_error'
+  | 'max_output_tokens'
+  | 'unknown';
+
 export interface AssistantMessage {
   type: 'assistant';
+  error?: SDKAssistantMessageError;
   message: {
     content: ContentBlock[] | string;
   };
@@ -79,6 +90,7 @@ export interface ResultMessage {
   total_cost_usd?: number;
   duration_ms?: number;
   subtype?: string;
+  stop_reason?: string | null;
   permission_denials?: unknown[];
 }
 
