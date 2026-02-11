@@ -73,6 +73,7 @@ export type SDKAssistantMessageError =
   | 'rate_limit'
   | 'invalid_request'
   | 'server_error'
+  | 'max_output_tokens'
   | 'unknown';
 
 export interface AssistantMessage {

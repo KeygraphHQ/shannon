@@ -166,6 +166,15 @@ function handleStructuredError(
           false // Not retryable - needs code fix
         ),
       };
+    case 'max_output_tokens':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Max output tokens reached: ${content.slice(0, 100)}`,
+          'billing',
+          true // Retryable - may succeed with different content
+        ),
+      };
     case 'unknown':
     default:
       return { detected: true };
