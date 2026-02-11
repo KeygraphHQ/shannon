@@ -112,6 +112,9 @@ WORKDIR /app
 COPY package*.json ./
 COPY mcp-server/package*.json ./mcp-server/
 
+# openai wants zod ^3, @anthropic-ai/claude-agent-sdk wants zod ^4 - use legacy peer deps for all npm ops
+ENV npm_config_legacy_peer_deps=true
+
 # Install Node.js dependencies (including devDependencies for TypeScript build)
 RUN npm ci && \
     cd mcp-server && npm ci && cd .. && \
