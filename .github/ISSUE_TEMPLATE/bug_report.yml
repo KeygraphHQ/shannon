@@ -1,0 +1,151 @@
+name: Bug report
+description: Create a report to help us improve
+title: "[BUG]: "
+labels: []
+assignees: []
+body:
+  - type: textarea
+    id: describe-the-bug
+    attributes:
+      label: Describe the bug
+      description: Provide a clear and concise description of the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps-to-reproduce
+    attributes:
+      label: Steps to reproduce
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behaviour
+    attributes:
+      label: Expected behaviour
+      description: Describe what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual-behaviour
+    attributes:
+      label: Actual behaviour
+      description: Describe what actually happened.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: pre-submission-checklist
+    attributes:
+      label: Pre-submission checklist (required)
+      options:
+        - label: I have searched the existing open issues and confirmed this bug has not already been reported.
+          required: true
+        - label: I am running the latest released version of `shannon`.
+          required: true
+
+  - type: checkboxes
+    id: applicable-checklist
+    attributes:
+      label: If applicable
+      options:
+        - label: I have included relevant error messages, stack traces, or failure details.
+        - label: I have checked the audit logs and pasted the relevant errors.
+        - label: I have inspected the failed Temporal workflow run and included the failure reason.
+        - label: I have included clear steps to reproduce the issue.
+        - label: I have redacted any sensitive information (tokens, URLs, repo names).
+
+  - type: markdown
+    attributes:
+      value: |
+        ### Debugging checklist (required)
+
+        Please include any **error messages, stack traces, or failure details** you find from the steps below.
+
+        Issues without this information may be difficult to triage.
+
+        - Check the audit logs at: `./audit-logs/target_url_shannon-123/workflow.log`
+          Use `grep` or search to identify errors.
+          Paste the relevant error output below.
+        - Temporal:
+            - Open the Temporal UI: http://localhost:8233/namespaces/default/workflows
+            - Navigate to failed workflow runs
+            - Open the failed workflow run
+            - In Event History, click on the failed event
+            Copy the error message or failure reason here.
+
+  - type: textarea
+    id: debugging-details
+    attributes:
+      label: Debugging details
+      description: Paste any error messages, stack traces, or failure details from the audit logs or Temporal UI.
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots of the audit logs or Temporal failure details.
+
+  - type: markdown
+    attributes:
+      value: |
+        ### CLI details
+
+        Provide the following information (redact sensitive data such as repository names, URLs, and tokens):
+
+  - type: dropdown
+    id: auth-method
+    attributes:
+      label: Authentication method used
+      options:
+        - CLAUDE_CODE_OAUTH_TOKEN
+        - ANTHROPIC_API_KEY
+    validations:
+      required: true
+
+  - type: input
+    id: shannon-command
+    attributes:
+      label: Full ./shannon command with all flags used (with redactions)
+
+  - type: dropdown
+    id: experimental-models
+    attributes:
+      label: Are you using any experimental models or providers other than default Anthropic models?
+      options:
+        - "No"
+        - "Yes"
+    validations:
+      required: true
+
+  - type: input
+    id: experimental-model-details
+    attributes:
+      label: If Yes, which one (model/provider)?
+
+  - type: input
+    id: os-version
+    attributes:
+      label: "OS (with version)"
+      placeholder: "e.g. macOS 26.2"
+    validations:
+      required: true
+
+  - type: input
+    id: docker-version
+    attributes:
+      label: "Docker version ('docker -v')"
+      placeholder: "e.g. 25.0.3"
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add any other context that may help us analyze the root cause.
