@@ -3,6 +3,14 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+dist/
+
+# Environment and runtime data (passed or mounted at run time, not needed in image)
+.env
+.env.*
+!.env.example
+audit-logs/
+repos/
 
 # Runtime directories
 sessions/

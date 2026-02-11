@@ -26,6 +26,8 @@ import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } fr
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
+import { isOpenAIProvider } from './provider-config.js';
+import { openaiQuery } from './openai-executor.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -254,7 +256,9 @@ export async function runClaudePrompt(
       fullPrompt,
       options,
       { execContext, description, colorFn, progress, auditLogger },
-      timer
+      timer,
+      sourceDir,
+      agentName
     );
 
     turnCount = messageLoopResult.turnCount;
@@ -347,7 +351,9 @@ async function processMessageStream(
   fullPrompt: string,
   options: NonNullable<Parameters<typeof query>[0]['options']>,
   deps: MessageLoopDeps,
-  timer: Timer
+  timer: Timer,
+  sourceDir: string,
+  agentName: string | null
 ): Promise<MessageLoopResult> {
   const { execContext, description, colorFn, progress, auditLogger } = deps;
   const HEARTBEAT_INTERVAL = 30000;
@@ -359,7 +365,20 @@ async function processMessageStream(
   let model: string | undefined;
   let lastHeartbeat = Date.now();
 
-  for await (const message of query({ prompt: fullPrompt, options })) {
+  const messageSource = isOpenAIProvider()
+    ? openaiQuery({
+        prompt: fullPrompt,
+        options: {
+          cwd: sourceDir,
+          maxTurns: options.maxTurns ?? 10_000,
+          ...(options.mcpServers && { mcpServers: options.mcpServers as Record<string, unknown> }),
+        },
+        sourceDir,
+        agentName,
+      })
+    : query({ prompt: fullPrompt, options });
+
+  for await (const message of messageSource) {
     // Heartbeat logging when loader is disabled
     const now = Date.now();
     if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {

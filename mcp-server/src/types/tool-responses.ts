@@ -47,7 +47,7 @@ export type ToolResponse =
   | GenerateTotpResponse;
 
 export interface ToolResultContent {
-  type: string;
+  type: 'text';
   text: string;
 }
 

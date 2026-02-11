@@ -379,6 +379,8 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
   - Service mesh configuration retrievers
 
 <conclusion_trigger>
+**CRITICAL - SAVE_DELIVERABLE USAGE:** Call `save_deliverable` with type `CODE_ANALYSIS` **exactly once**. After you receive a success response from the tool, do **not** call any more tools. Reply with your completion message only (e.g. "PRE-RECON CODE ANALYSIS COMPLETE") and stop.
+
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Systematic Analysis:** ALL phases of the task agent strategy must be completed:
