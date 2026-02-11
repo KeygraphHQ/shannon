@@ -218,6 +218,16 @@ export async function runClaudePrompt(
   console.log(chalk.blue(`  Running Claude Code: ${description}...`));
 
   const mcpServers = buildMcpServers(sourceDir, agentName);
+
+  // Build env vars to pass to SDK subprocesses
+  const sdkEnv: Record<string, string> = {};
+  if (process.env.ANTHROPIC_API_KEY) {
+    sdkEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
+  }
+  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  }
+
   const options = {
     model: 'claude-sonnet-4-5-20250929',
     maxTurns: 10_000,
@@ -225,6 +235,7 @@ export async function runClaudePrompt(
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
     mcpServers,
+    env: sdkEnv,
   };
 
   if (!execContext.useCleanOutput) {
