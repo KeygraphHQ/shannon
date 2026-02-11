@@ -83,9 +83,11 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 - **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
   - **Parameters:**
     - `deliverable_type`: "INJECTION_ANALYSIS" or "INJECTION_QUEUE" (required)
-    - `content`: Your markdown report or JSON queue (required)
+    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
+    - `content`: Inline content string (use only for small content like JSON queues)
   - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
-  - **Usage:** Call the tool with your deliverable type and content. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+  - **Usage:** For analysis reports, write to disk first then call with `file_path`. For JSON queues, you may pass inline `content`. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
+  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **{{MCP_SERVER}} (Playwright):** To interact with the live web application to understand multi-step flows like password reset or registration.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each injection source that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
@@ -362,10 +364,12 @@ This file serves as the handoff mechanism to the Exploitation phase and must alw
 
 1. **Todo Completion:** ALL tasks in your TodoWrite list must be marked as "completed"
 2. **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable MCP tool:
-   - Analysis report: Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_ANALYSIS"` and your report as `content`
+   - Analysis report: Write to `deliverables/injection_analysis_deliverable.md`, then call `save_deliverable` with `deliverable_type: "INJECTION_ANALYSIS"` and `file_path` (not inline `content`)
    - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
 **ONLY AFTER** both todo completion AND successful deliverable generation, announce "**INJECTION ANALYSIS COMPLETE**" and stop.
+
+**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
 
 **FAILURE TO COMPLETE TODOS = INCOMPLETE ANALYSIS** - You will be considered to have failed the mission if you generate deliverables before completing comprehensive testing of all input vectors.
 </conclusion_trigger>
