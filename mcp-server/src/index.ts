@@ -39,8 +39,8 @@ export function createShannonHelperServer(targetDir: string): ReturnType<typeof 
 }
 
 // Export factory for direct usage if needed
-export { createSaveDeliverableTool } from './tools/save-deliverable.js';
-export { generateTotpTool } from './tools/generate-totp.js';
+export { createSaveDeliverableTool, createSaveDeliverableHandler } from './tools/save-deliverable.js';
+export { generateTotpTool, generateTotp } from './tools/generate-totp.js';
 
 // Export types for external use
 export * from './types/index.js';

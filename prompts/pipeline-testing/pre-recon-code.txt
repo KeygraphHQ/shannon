@@ -1,1 +1,1 @@
-Use the save_deliverable MCP tool with `deliverable_type: "CODE_ANALYSIS"` and `content: "Pre-recon analysis complete"`. Then say "Done".
+Call save_deliverable exactly once with `deliverable_type: "CODE_ANALYSIS"` and `content: "Pre-recon analysis complete"`. After you receive a success response, do not call any more tools. Reply with "Done" only.

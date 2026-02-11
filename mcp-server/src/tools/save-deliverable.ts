@@ -37,8 +37,9 @@ export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
  *
  * This factory pattern ensures each MCP server instance has its own targetDir,
  * preventing race conditions when multiple workflows run in parallel.
+ * Exported for direct use by OpenAI executor (bypasses MCP protocol).
  */
-function createSaveDeliverableHandler(targetDir: string) {
+export function createSaveDeliverableHandler(targetDir: string) {
   return async function saveDeliverable(args: SaveDeliverableInput): Promise<ToolResult> {
     try {
       const { deliverable_type, content } = args;
@@ -92,10 +93,11 @@ function createSaveDeliverableHandler(targetDir: string) {
  * deliverables are saved to the correct workflow's directory.
  */
 export function createSaveDeliverableTool(targetDir: string) {
+  const handler = createSaveDeliverableHandler(targetDir);
   return tool(
     'save_deliverable',
     'Saves deliverable files with automatic validation. Queue files must have {"vulnerabilities": [...]} structure.',
     SaveDeliverableInputSchema.shape,
-    createSaveDeliverableHandler(targetDir)
+    handler as unknown as (args: SaveDeliverableInput, extra?: unknown) => Promise<{ content: Array<{ type: 'text'; text: string }>; [key: string]: unknown }>
   );
 }

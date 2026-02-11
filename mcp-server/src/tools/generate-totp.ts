@@ -124,5 +124,5 @@ export const generateTotpTool = tool(
   'generate_totp',
   'Generates 6-digit TOTP code for authentication. Secret must be base32-encoded.',
   GenerateTotpInputSchema.shape,
-  generateTotp
+  generateTotp as unknown as (args: { secret: string }, extra?: unknown) => Promise<{ content: Array<{ type: 'text'; text: string }>; [key: string]: unknown }>
 );

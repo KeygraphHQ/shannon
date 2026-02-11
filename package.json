@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.38",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "openai": "^4.77.0",
     "@temporalio/activity": "^1.11.0",
     "@temporalio/client": "^1.11.0",
     "@temporalio/worker": "^1.11.0",

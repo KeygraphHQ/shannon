@@ -47,6 +47,10 @@ Options for 'start':
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
+  PROVIDER=openai        Use OpenAI-compatible API (local models, minimax, etc.)
+  AI_BASE_URL=<url>      Base URL for OpenAI-compatible API (e.g. http://localhost:8080/v1)
+  AI_MODEL=<model>       Model name (e.g. minimax, gpt-4o)
+  AI_API_KEY=<key>      API key (optional for local servers)
 
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
@@ -55,6 +59,7 @@ Examples:
   ./shannon start URL=https://example.com REPO=repo-name
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon start URL=https://example.com REPO=repo-name PROVIDER=openai AI_BASE_URL=http://localhost:8080/v1 AI_MODEL=minimax
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
@@ -76,6 +81,10 @@ parse_args() {
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
+      PROVIDER=*) PROVIDER="${arg#PROVIDER=}" ;;
+      AI_BASE_URL=*) AI_BASE_URL="${arg#AI_BASE_URL=}" ;;
+      AI_MODEL=*) AI_MODEL="${arg#AI_MODEL=}" ;;
+      AI_API_KEY=*) AI_API_KEY="${arg#AI_API_KEY=}" ;;
     esac
   done
 }
@@ -134,14 +143,25 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key (router mode can use alternative provider API keys)
-  if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
+  # Handle PROVIDER=openai - use OpenAI-compatible API (native, no router)
+  if [ "$PROVIDER" = "openai" ]; then
+    export AI_PROVIDER=openai
+  fi
+
+  # Check for API key (router mode and OpenAI provider have alternative requirements)
+  if [ "$AI_PROVIDER" = "openai" ]; then
+    # OpenAI provider uses AI_BASE_URL, AI_MODEL, AI_API_KEY - no Anthropic key needed
+    if [ -z "$AI_BASE_URL" ] && [ -z "$AI_MODEL" ]; then
+      echo "WARNING: AI_PROVIDER=openai but AI_BASE_URL and AI_MODEL not set. Using defaults from .env"
+    fi
+  elif [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
     if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
       echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       (or use PROVIDER=openai with AI_BASE_URL, AI_MODEL, AI_API_KEY)"
       exit 1
     fi
   fi

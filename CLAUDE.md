@@ -296,6 +296,25 @@ ROUTER_DEFAULT=openrouter,google/gemini-3-flash-preview
 
 **Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.
 
+### Native OpenAI-Compatible Provider
+
+Shannon supports a **native** OpenAI-compatible API path (no router) for local models and services like minimax, ollama, vLLM, etc. This bypasses the Claude Agent SDK entirely and uses direct API calls.
+
+**Enable OpenAI provider:**
+```bash
+./shannon start URL=<url> REPO=<name> PROVIDER=openai AI_BASE_URL=http://localhost:8080/v1 AI_MODEL=minimax AI_API_KEY=optional
+```
+
+**Configuration (in .env):**
+```bash
+AI_PROVIDER=openai
+AI_BASE_URL=http://localhost:8080/v1
+AI_MODEL=minimax
+AI_API_KEY=your-key-or-empty-for-local
+```
+
+**Benefits over router mode:** Direct API integration, no translation layer, works with any OpenAI-compatible endpoint. Supports built-in tools (bash, file read/write, search) and MCP (Shannon helper, Playwright).
+
 ## Troubleshooting
 
 ### Common Issues
