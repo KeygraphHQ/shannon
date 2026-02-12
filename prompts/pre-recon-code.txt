@@ -129,7 +129,12 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
   - Create the `outputs/schemas/` directory using mkdir -p
   - Copy all discovered schema files to `outputs/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
-- Write your report to `deliverables/code_analysis_deliverable.md`, then call `save_deliverable` with `deliverable_type: "CODE_ANALYSIS"` and `file_path: "deliverables/code_analysis_deliverable.md"` (do NOT use inline `content`)
+- **CHUNKED WRITING (MANDATORY):**
+  1. Use the **Write** tool to create `deliverables/code_analysis_deliverable.md` with the title and first major section
+  2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+  3. Repeat step 2 for all remaining sections
+  4. Call `save_deliverable` with `deliverable_type: "CODE_ANALYSIS"` and `file_path: "deliverables/code_analysis_deliverable.md"`
+- **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **EXECUTION PATTERN:**
 1. **Use TodoWrite to create task list** tracking: Phase 1 agents, Phase 2 agents, and report synthesis
