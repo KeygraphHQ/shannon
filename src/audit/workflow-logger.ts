@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { generateWorkflowLogPath, ensureDirectory, type SessionMetadata } from './utils.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
+import { isOpenAIProvider, getProviderConfig } from '../ai/provider-config.js';
 
 export interface AgentLogDetails {
   attemptNumber?: number;
@@ -83,18 +84,36 @@ export class WorkflowLogger {
    * Write header to log file
    */
   private async writeHeader(): Promise<void> {
-    const header = [
+    const lines = [
       `================================================================================`,
       `Shannon Pentest - Workflow Log`,
       `================================================================================`,
       `Workflow ID: ${this.sessionMetadata.id}`,
       `Target URL:  ${this.sessionMetadata.webUrl}`,
       `Started:     ${formatTimestamp()}`,
-      `================================================================================`,
-      ``,
-    ].join('\n');
+    ];
 
-    return this.writeRaw(header);
+    if (isOpenAIProvider()) {
+      const config = getProviderConfig();
+      const openai = config.openai;
+      const maxConcurrent = parseInt(process.env.AI_MAX_CONCURRENT_REQUESTS ?? '2', 10) || 2;
+      const requestTimeoutMs = parseInt(process.env.AI_REQUEST_TIMEOUT_MS ?? '120000', 10) || 120000;
+      const requestTimeoutSec = Math.round(requestTimeoutMs / 1000);
+      lines.push(
+        `--------------------------------------------------------------------------------`,
+        `OpenAI Provider`,
+        `--------------------------------------------------------------------------------`,
+        `Model:           ${openai?.model ?? 'N/A'}`,
+        `API URL:         ${openai?.baseUrl ?? 'N/A'}`,
+        `Max concurrent:   ${maxConcurrent}`,
+        `Request timeout:  ${requestTimeoutSec}s`,
+        `--------------------------------------------------------------------------------`
+      );
+    }
+
+    lines.push(`================================================================================`, ``);
+
+    return this.writeRaw(lines.join('\n'));
   }
 
   /**

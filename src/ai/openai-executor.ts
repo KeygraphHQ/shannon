@@ -23,6 +23,51 @@ import { MCP_AGENT_MAPPING } from '../constants.js';
 import type { AgentName } from '../types/index.js';
 
 const MAX_TURNS = 10_000;
+const PLAYWRIGHT_MCP_TIMEOUT_MS = 45_000;
+
+function createSemaphore(max: number): { acquire: () => Promise<void>; release: () => void } {
+  let permits = max;
+  const waitQueue: Array<() => void> = [];
+  return {
+    acquire: () => {
+      if (permits > 0) {
+        permits--;
+        return Promise.resolve();
+      }
+      return new Promise<void>((resolve) => {
+        waitQueue.push(() => {
+          permits--;
+          resolve();
+        });
+      });
+    },
+    release: () => {
+      permits++;
+      if (waitQueue.length > 0) {
+        const next = waitQueue.shift()!;
+        next();
+      }
+    },
+  };
+}
+
+let requestSemaphore: ReturnType<typeof createSemaphore> | null = null;
+
+function getRequestSemaphore(): ReturnType<typeof createSemaphore> {
+  if (!requestSemaphore) {
+    const max = Math.max(1, parseInt(process.env.AI_MAX_CONCURRENT_REQUESTS ?? '2', 10) || 2);
+    requestSemaphore = createSemaphore(max);
+  }
+  return requestSemaphore;
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId!));
+}
 
 export interface OpenAIOptions {
   cwd: string;
@@ -44,6 +89,8 @@ type MessageStreamYield =
   | { type: 'tool_result'; content?: unknown }
   | { type: 'result'; result?: string; total_cost_usd?: number; duration_ms?: number };
 
+const SKIP_PLAYWRIGHT_PROMPTS = new Set(['pre-recon-code', 'report-executive']);
+
 function buildPlaywrightStdioConfig(
   sourceDir: string,
   agentName: string | null
@@ -51,6 +98,8 @@ function buildPlaywrightStdioConfig(
   if (!agentName) return null;
 
   const promptName = getPromptNameForAgent(agentName as AgentName);
+  if (SKIP_PLAYWRIGHT_PROMPTS.has(promptName)) return null;
+
   const playwrightMcpName = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING] || null;
   if (!playwrightMcpName) return null;
 
@@ -91,9 +140,12 @@ async function* openaiQueryInternal(params: OpenAIQueryParams): AsyncGenerator<M
     throw new Error('OpenAI provider config missing');
   }
 
+  const requestTimeoutMs = parseInt(process.env.AI_REQUEST_TIMEOUT_MS ?? '120000', 10) || 120000;
+
   const client = new OpenAI({
     baseURL: openaiConfig.baseUrl,
     apiKey: openaiConfig.apiKey || 'dummy', // Some local servers accept any key
+    timeout: requestTimeoutMs,
   });
 
   const ctx = { cwd: sourceDir };
@@ -112,7 +164,11 @@ async function* openaiQueryInternal(params: OpenAIQueryParams): AsyncGenerator<M
   const playwrightConfig = buildPlaywrightStdioConfig(sourceDir, agentName);
   if (playwrightConfig) {
     try {
-      playwrightClient = await createPlaywrightMcpClient(playwrightConfig);
+      playwrightClient = await withTimeout(
+        createPlaywrightMcpClient(playwrightConfig),
+        PLAYWRIGHT_MCP_TIMEOUT_MS,
+        `Playwright MCP failed to connect within ${PLAYWRIGHT_MCP_TIMEOUT_MS / 1000}s`
+      );
       tools.push(...playwrightClient.tools);
       for (const t of playwrightClient.tools) {
         toolHandlers.set(t.function.name, (args) => playwrightClient!.executeTool(t.function.name, args));
@@ -160,7 +216,14 @@ async function* openaiQueryInternal(params: OpenAIQueryParams): AsyncGenerator<M
     if (openaiTools.length > 0) {
       requestParams.tools = openaiTools;
     }
-    const response = await client.chat.completions.create(requestParams);
+    const semaphore = getRequestSemaphore();
+    await semaphore.acquire();
+    let response: Awaited<ReturnType<typeof client.chat.completions.create>>;
+    try {
+      response = await client.chat.completions.create(requestParams);
+    } finally {
+      semaphore.release();
+    }
 
     const choice = response.choices[0];
     if (!choice?.message) {

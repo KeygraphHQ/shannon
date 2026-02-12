@@ -5,12 +5,15 @@ set -e
 
 # Detect Podman vs Docker and set compose files accordingly
 # Podman doesn't support host-gateway, so we only include the Docker override for actual Docker
+# Check the actual runtime (docker info), not just whether podman is installed - avoids
+# false negative when both docker and podman exist (e.g. podman for other tools)
 COMPOSE_BASE="docker-compose.yml"
-if command -v podman &>/dev/null; then
-  # Podman detected (either native or via Docker Desktop shim) - use base config only
+if docker info 2>/dev/null | grep -qi "podman"; then
+  # Actually running Podman - skip override (host-gateway not supported)
   COMPOSE_OVERRIDE=""
 else
-  # Docker detected - include extra_hosts override for Linux localhost access
+  # Docker runtime - include extra_hosts for host.docker.internal (required for
+  # OpenAI-compatible servers on host, e.g. AI_BASE_URL=http://host.docker.internal:8080/v1)
   COMPOSE_OVERRIDE="-f docker-compose.docker.yml"
 fi
 COMPOSE_FILE="$COMPOSE_BASE"
@@ -147,6 +150,12 @@ cmd_start() {
   if [ "$PROVIDER" = "openai" ]; then
     export AI_PROVIDER=openai
   fi
+
+  # Export AI_* vars for docker compose (env subst in compose file) - critical for
+  # command-line usage; .env vars are already exported via set -a
+  [ -n "$AI_BASE_URL" ] && export AI_BASE_URL
+  [ -n "$AI_MODEL" ] && export AI_MODEL
+  [ -n "$AI_API_KEY" ] && export AI_API_KEY
 
   # Check for API key (router mode and OpenAI provider have alternative requirements)
   if [ "$AI_PROVIDER" = "openai" ]; then

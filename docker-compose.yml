@@ -29,6 +29,8 @@ services:
       - AI_BASE_URL=${AI_BASE_URL:-}
       - AI_MODEL=${AI_MODEL:-}
       - AI_API_KEY=${AI_API_KEY:-}
+      - AI_REQUEST_TIMEOUT_MS=${AI_REQUEST_TIMEOUT_MS:-120000}
+      - AI_MAX_CONCURRENT_REQUESTS=${AI_MAX_CONCURRENT_REQUESTS:-2}
     depends_on:
       temporal:
         condition: service_healthy
