@@ -220,7 +220,9 @@ export async function runClaudePrompt(
   const mcpServers = buildMcpServers(sourceDir, agentName);
 
   // Build env vars to pass to SDK subprocesses
-  const sdkEnv: Record<string, string> = {};
+  const sdkEnv: Record<string, string> = {
+    CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
+  };
   if (process.env.ANTHROPIC_API_KEY) {
     sdkEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
   }
