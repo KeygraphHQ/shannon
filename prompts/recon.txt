@@ -368,10 +368,13 @@ CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, 
 
 <conclusion_trigger>
 **DELIVERABLE SAVING:**
-1. Write your report to `deliverables/recon_deliverable.md`
+1. **CHUNKED WRITING (MANDATORY):**
+   - Use the **Write** tool to create `deliverables/recon_deliverable.md` with the title and first major section
+   - Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+   - Repeat for all remaining sections
 2. Call `save_deliverable` with `deliverable_type: "RECON"` and `file_path: "deliverables/recon_deliverable.md"`
 
-**WARNING:** Do NOT pass your report as inline `content` — it will exceed output token limits. Always use `file_path`.
+**WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `content` to save_deliverable — always use `file_path`.
 
 Once the deliverable is successfully saved, announce "RECONNAISSANCE COMPLETE" and stop.
 

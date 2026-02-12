@@ -357,7 +357,12 @@ This file serves as the handoff mechanism and must always be created to signal c
 
 1. **Todo Completion:** ALL tasks in your TodoWrite list must be marked as "completed"
 2. **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable MCP tool:
-   - Analysis report: Write to `deliverables/authz_analysis_deliverable.md`, then call `save_deliverable` with `deliverable_type: "AUTHZ_ANALYSIS"` and `file_path` (not inline `content`)
+   - **CHUNKED WRITING (MANDATORY):**
+     1. Use the **Write** tool to create `deliverables/authz_analysis_deliverable.md` with the title and first major section
+     2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+     3. Repeat step 2 for all remaining sections
+     4. Call `save_deliverable` with `deliverable_type: "AUTHZ_ANALYSIS"` and `file_path: "deliverables/authz_analysis_deliverable.md"`
+     **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
    - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "AUTHZ_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
 **ONLY AFTER** both todo completion AND successful deliverable generation, announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
