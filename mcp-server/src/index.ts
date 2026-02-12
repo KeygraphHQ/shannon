@@ -19,6 +19,9 @@
 import { createSdkMcpServer } from '@anthropic-ai/claude-agent-sdk';
 import { createSaveDeliverableTool } from './tools/save-deliverable.js';
 import { generateTotpTool } from './tools/generate-totp.js';
+import { optimizeSkillsTool } from './tools/optimize-skills.js';
+import { forgeOptimizeTool } from './tools/forge-optimize.js';
+import { forgeStatusTool } from './tools/forge-status.js';
 
 /**
  * Create Shannon Helper MCP Server with target directory context
@@ -34,13 +37,26 @@ export function createShannonHelperServer(targetDir: string): ReturnType<typeof 
   return createSdkMcpServer({
     name: 'shannon-helper',
     version: '1.0.0',
-    tools: [saveDeliverableTool, generateTotpTool],
+    tools: [saveDeliverableTool, generateTotpTool, optimizeSkillsTool, forgeOptimizeTool, forgeStatusTool],
   });
 }
 
 // Export factory for direct usage if needed
 export { createSaveDeliverableTool } from './tools/save-deliverable.js';
 export { generateTotpTool } from './tools/generate-totp.js';
+export { optimizeSkillsTool } from './tools/optimize-skills.js';
+export { forgeOptimizeTool } from './tools/forge-optimize.js';
+export { forgeStatusTool } from './tools/forge-status.js';
+
+// Export forge modules for direct integration
+export * from './forge/types.js';
+export { getForgeDb, ForgeDatabase } from './forge/db.js';
+export { profileTool, logAgentPhaseExecution, ToolCallTracker, setForgeSessionId, setForgeAgentName } from './forge/profiler.js';
+export { analyzeSkills, getAnalysisSummary } from './forge/analyzer.js';
+export { generateOptimization, createOptimizationRequest, buildSubagentPrompt } from './forge/optimizer.js';
+export { runABTest, compareOutputs } from './forge/validator.js';
+export { checkpointSkill, promoteVersion, rollbackVersion, listVersions } from './forge/versioner.js';
+export { runForgeCycle, getForgeStatus } from './forge/core.js';
 
 // Export types for external use
 export * from './types/index.js';

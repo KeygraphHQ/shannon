@@ -1,0 +1,63 @@
+# ==============================================================================
+# Skill Forge Configuration
+# ==============================================================================
+#
+# Controls the Skill Forge optimization loop: profiling, analysis thresholds,
+# A/B testing, and version management.
+#
+# Place in configs/forge-config.yaml (project) or ~/.shannon/forge-config.yaml (global).
+
+forge:
+  # Master switch — set to false to disable all forge profiling/optimization
+  enabled: true
+
+  # Path to the forge database (JSON-backed store)
+  # Stores execution_log, skill_stats, and skill_versions
+  db_path: ~/.shannon/forge.db
+
+  # Approval mode:
+  #   false (v1) = manual: forge returns recommendations, human confirms
+  #   true  (v2) = auto:   promote if A/B test passes and improvement >= threshold
+  auto_promote: false
+
+  # ---------------------------------------------------------------------------
+  # Analysis thresholds — when to flag a skill for optimization
+  # ---------------------------------------------------------------------------
+  thresholds:
+    # Max average duration before flagging as "slow"
+    slow_tool_ms: 2000          # MCP tools (save_deliverable, generate_totp, etc.)
+    slow_agent_ms: 120000       # Agent phases (recon, vuln-injection, etc.)
+
+    # Minimum success rate — below this triggers "high_failure" flag
+    min_success_rate: 0.50      # 50%
+
+    # Max token output/input ratio for agent phases
+    # Flags "token_heavy" if output tokens > ratio × input tokens
+    max_token_ratio: 5.0
+
+    # Max cost per single agent phase run
+    max_cost_per_run: 0.50      # USD
+
+    # Minimum improvement required to promote a candidate version
+    # Weighted score: 30% duration + 40% tokens + 20% cost + 10% success rate
+    improvement_threshold: 0.20  # 20% better
+
+  # ---------------------------------------------------------------------------
+  # A/B testing configuration
+  # ---------------------------------------------------------------------------
+  ab_test:
+    # Minimum A/B runs before auto-promote is allowed
+    min_runs: 3
+
+    # Statistical confidence level for auto-promote decisions
+    confidence_level: 0.95
+
+  # ---------------------------------------------------------------------------
+  # Version management
+  # ---------------------------------------------------------------------------
+  versioning:
+    # Maximum versions to keep per skill (oldest non-active are pruned)
+    max_versions_per_skill: 10
+
+    # Directory where versioned skill files are stored
+    versions_dir: ~/.shannon/forge/versions/
