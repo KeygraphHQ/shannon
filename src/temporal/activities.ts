@@ -74,7 +74,7 @@ import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
-import type { SessionMetadata } from '../audit/utils.js';
+import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
 
 const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min production, 5min testing)
 
@@ -250,6 +250,13 @@ async function runAgentActivity(
       ...(commitHash && { checkpoint: commitHash }),
     });
     await commitGitSuccess(repoPath, agentName);
+
+    // 9.5. Copy deliverables to audit-logs (non-fatal)
+    try {
+      await copyDeliverablesToAudit(sessionMetadata, repoPath);
+    } catch (copyErr) {
+      console.error(`Failed to copy deliverables to audit-logs for ${agentName}:`, copyErr);
+    }
 
     // 10. Return metrics
     return {

@@ -187,14 +187,49 @@ export async function fileExists(filePath: string): Promise<boolean> {
 
 /**
  * Initialize audit directory structure for a session
- * Creates: audit-logs/{sessionId}/, agents/, prompts/
+ * Creates: audit-logs/{sessionId}/, agents/, prompts/, deliverables/
  */
 export async function initializeAuditStructure(sessionMetadata: SessionMetadata): Promise<void> {
   const auditPath = generateAuditPath(sessionMetadata);
   const agentsPath = path.join(auditPath, 'agents');
   const promptsPath = path.join(auditPath, 'prompts');
+  const deliverablesPath = path.join(auditPath, 'deliverables');
 
   await ensureDirectory(auditPath);
   await ensureDirectory(agentsPath);
   await ensureDirectory(promptsPath);
+  await ensureDirectory(deliverablesPath);
+}
+
+/**
+ * Copy deliverable files from repo to audit-logs for self-contained audit trail.
+ * No-ops if source directory doesn't exist. Idempotent and parallel-safe.
+ */
+export async function copyDeliverablesToAudit(
+  sessionMetadata: SessionMetadata,
+  repoPath: string
+): Promise<void> {
+  const sourceDir = path.join(repoPath, 'deliverables');
+  const destDir = path.join(generateAuditPath(sessionMetadata), 'deliverables');
+
+  let entries: string[];
+  try {
+    entries = await fs.readdir(sourceDir);
+  } catch {
+    // Source directory doesn't exist yet — nothing to copy
+    return;
+  }
+
+  await ensureDirectory(destDir);
+
+  for (const entry of entries) {
+    const sourcePath = path.join(sourceDir, entry);
+    const destPath = path.join(destDir, entry);
+
+    // Only copy files, skip subdirectories
+    const stat = await fs.stat(sourcePath);
+    if (stat.isFile()) {
+      await fs.copyFile(sourcePath, destPath);
+    }
+  }
 }
