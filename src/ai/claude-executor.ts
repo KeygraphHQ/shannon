@@ -181,6 +181,15 @@ export async function validateAgentOutput(
       console.log(chalk.green(`    Validation passed: Required files/structure present`));
     } else {
       console.log(chalk.red(`    Validation failed: Missing required deliverable files`));
+      // Log which file is expected for common agents to help with debugging
+      const expectedFiles: Record<string, string> = {
+        'pre-recon': 'deliverables/code_analysis_deliverable.md',
+        'recon': 'deliverables/recon_deliverable.md',
+        'report': 'deliverables/comprehensive_security_assessment_report.md',
+      };
+      if (agentName && expectedFiles[agentName]) {
+        console.log(chalk.yellow(`    Expected file: ${sourceDir}/${expectedFiles[agentName]}`));
+      }
     }
 
     return validationResult;
