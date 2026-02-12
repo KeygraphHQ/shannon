@@ -12,7 +12,7 @@
  */
 
 import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { join, resolve, basename } from 'path';
 
 /**
  * Save deliverable file to deliverables/ directory
@@ -22,8 +22,21 @@ import { join } from 'path';
  * @param content - File content to save
  */
 export function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const deliverablesDir = join(targetDir, 'deliverables');
-  const filepath = join(deliverablesDir, filename);
+  // Path traversal protection: reject filenames with path separators or traversal sequences
+  if (filename !== basename(filename)) {
+    throw new Error(`Invalid filename: must not contain path separators`);
+  }
+  if (filename.includes('..') || filename.includes('\0')) {
+    throw new Error(`Invalid filename: contains forbidden characters`);
+  }
+
+  const deliverablesDir = resolve(targetDir, 'deliverables');
+  const filepath = resolve(deliverablesDir, filename);
+
+  // Verify resolved path stays within the intended deliverables directory
+  if (!filepath.startsWith(deliverablesDir + '/') && filepath !== deliverablesDir) {
+    throw new Error(`Path traversal detected: resolved path escapes deliverables directory`);
+  }
 
   // Ensure deliverables directory exists
   try {

@@ -244,9 +244,19 @@ export function handleResultMessage(message: ResultMessage): ResultData {
 }
 
 export function handleToolUseMessage(message: ToolUseMessage): ToolUseData {
+  // Validate tool name is a non-empty string (defense-in-depth against malformed SDK messages)
+  const toolName = typeof message.name === 'string' && message.name.length > 0
+    ? message.name
+    : 'unknown';
+
+  // Ensure parameters is a plain object (never a string/array that could be misinterpreted)
+  const parameters = message.input !== null && typeof message.input === 'object' && !Array.isArray(message.input)
+    ? message.input
+    : {};
+
   return {
-    toolName: message.name,
-    parameters: message.input || {},
+    toolName,
+    parameters,
     timestamp: formatTimestamp(),
   };
 }

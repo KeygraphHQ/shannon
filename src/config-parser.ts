@@ -54,6 +54,31 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /file:/i, // File URLs
 ];
 
+// Keys that could cause prototype pollution
+const FORBIDDEN_KEYS = ['__proto__', 'constructor', 'prototype'];
+
+/**
+ * Recursively check an object tree for forbidden keys that could cause prototype pollution.
+ * Throws if any forbidden key is found at any depth.
+ */
+function checkForForbiddenKeys(obj: unknown, path: string = 'root'): void {
+  if (obj === null || obj === undefined || typeof obj !== 'object') {
+    return;
+  }
+  if (Array.isArray(obj)) {
+    obj.forEach((item, index) => checkForForbiddenKeys(item, `${path}[${index}]`));
+    return;
+  }
+  for (const key of Object.keys(obj)) {
+    if (FORBIDDEN_KEYS.includes(key)) {
+      throw new Error(
+        `Configuration contains forbidden key '${key}' at ${path}.${key} (potential prototype pollution)`
+      );
+    }
+    checkForForbiddenKeys((obj as Record<string, unknown>)[key], `${path}.${key}`);
+  }
+}
+
 // Parse and load YAML configuration file with enhanced safety
 export const parseConfig = async (configPath: string): Promise<Config> => {
   try {
@@ -84,7 +109,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     try {
       config = yaml.load(configContent, {
         schema: yaml.FAILSAFE_SCHEMA, // Only basic YAML types, no JS evaluation
-        json: false, // Don't allow JSON-specific syntax
+        json: true, // Duplicate key handling: later key wins (prevents ambiguity attacks)
         filename: configPath,
       });
     } catch (yamlError) {
@@ -96,6 +121,9 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     if (config === null || config === undefined) {
       throw new Error('Configuration file resulted in null/undefined after parsing');
     }
+
+    // Check for prototype pollution keys BEFORE any schema validation or object access
+    checkForForbiddenKeys(config);
 
     // Validate the configuration structure and content
     validateConfig(config as Config);
