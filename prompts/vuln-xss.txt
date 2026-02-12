@@ -290,7 +290,12 @@ COMPLETION REQUIREMENTS (ALL must be satisfied):
 
 1. Systematic Analysis: ALL input vectors identified from the reconnaissance deliverable must be analyzed.
 2. Deliverable Generation: Both required deliverables must be successfully saved using save_deliverable MCP tool:
-   - Analysis report: Write to `deliverables/xss_analysis_deliverable.md`, then call `save_deliverable` with `deliverable_type: "XSS_ANALYSIS"` and `file_path` (not inline `content`)
+   - **CHUNKED WRITING (MANDATORY):**
+     1. Use the **Write** tool to create `deliverables/xss_analysis_deliverable.md` with the title and first major section
+     2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+     3. Repeat step 2 for all remaining sections
+     4. Call `save_deliverable` with `deliverable_type: "XSS_ANALYSIS"` and `file_path: "deliverables/xss_analysis_deliverable.md"`
+     **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
    - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}`
 
 ONLY AFTER both systematic analysis AND successful deliverable generation, announce "XSS ANALYSIS COMPLETE" and stop.
