@@ -12,7 +12,8 @@
       "api_key": "$OPENAI_API_KEY",
       "models": [
         "gpt-5.2",
-        "gpt-5-mini"
+        "gpt-5-mini",
+        "gpt-4o"
       ],
       "transformer": {
         "use": [
