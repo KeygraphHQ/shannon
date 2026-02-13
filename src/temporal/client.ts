@@ -26,18 +26,85 @@
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
  */
 
-import { Connection, Client } from '@temporalio/client';
+import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import dotenv from 'dotenv';
 import chalk from 'chalk';
 import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
+import { readJson, fileExists } from '../audit/utils.js';
+import path from 'path';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
+
+/**
+ * Session.json structure for resume validation
+ */
+interface SessionJson {
+  session: {
+    id: string;
+    webUrl: string;
+    originalWorkflowId?: string;
+    resumeAttempts?: Array<{ workflowId: string }>;
+  };
+}
 
 dotenv.config();
 
 // Query name must match the one defined in workflows.ts
 const PROGRESS_QUERY = 'getProgress';
+
+/**
+ * Terminate any running workflows associated with a workspace.
+ * Returns the list of terminated workflow IDs.
+ */
+async function terminateExistingWorkflows(
+  client: Client,
+  workspaceName: string
+): Promise<string[]> {
+  const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
+
+  if (!(await fileExists(sessionPath))) {
+    throw new Error(
+      `Workspace not found: ${workspaceName}\n` +
+      `Expected path: ${sessionPath}`
+    );
+  }
+
+  const session = await readJson<SessionJson>(sessionPath);
+
+  // Collect all workflow IDs associated with this workspace
+  const workflowIds = [
+    session.session.originalWorkflowId || session.session.id,
+    ...(session.session.resumeAttempts?.map((r) => r.workflowId) || []),
+  ].filter((id): id is string => id != null);
+
+  const terminated: string[] = [];
+
+  for (const wfId of workflowIds) {
+    try {
+      const handle = client.workflow.getHandle(wfId);
+      const description = await handle.describe();
+
+      if (description.status.name === 'RUNNING') {
+        console.log(chalk.yellow(`Terminating running workflow: ${wfId}`));
+        await handle.terminate('Superseded by resume workflow');
+        terminated.push(wfId);
+        console.log(chalk.green(`Terminated: ${wfId}`));
+      } else {
+        console.log(chalk.gray(`Workflow already ${description.status.name}: ${wfId}`));
+      }
+    } catch (error) {
+      if (error instanceof WorkflowNotFoundError) {
+        console.log(chalk.gray(`Workflow not found (already cleaned up): ${wfId}`));
+      } else {
+        console.log(chalk.red(`Failed to terminate ${wfId}: ${error}`));
+        // Continue anyway - don't block resume on termination failure
+      }
+    }
+  }
+
+  return terminated;
+}
 
 function showUsage(): void {
   console.log(chalk.cyan.bold('\nShannon Temporal Client'));
@@ -50,6 +117,7 @@ function showUsage(): void {
   console.log('  --config <path>       Configuration file path');
   console.log('  --output <path>       Output directory for audit logs');
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
+  console.log('  --workspace <name>    Resume from existing workspace');
   console.log(
     '  --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)'
   );
@@ -78,6 +146,7 @@ async function startPipeline(): Promise<void> {
   let pipelineTestingMode = false;
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
+  let resumeFromWorkspace: string | undefined;
 
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
@@ -107,6 +176,12 @@ async function startPipeline(): Promise<void> {
       }
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
+    } else if (arg === '--workspace') {
+      const nextArg = args[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        resumeFromWorkspace = nextArg;
+        i++;
+      }
     } else if (arg === '--wait') {
       waitForCompletion = true;
     } else if (arg && !arg.startsWith('-')) {
@@ -134,26 +209,67 @@ async function startPipeline(): Promise<void> {
   const client = new Client({ connection });
 
   try {
-    const hostname = sanitizeHostname(webUrl);
-    const workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
+    let terminatedWorkflows: string[] = [];
+    let workflowId: string;
+    let sessionId: string; // Workspace name (persistent directory)
+
+    // === Resume Mode ===
+    if (resumeFromWorkspace) {
+      console.log(chalk.cyan('=== RESUME MODE ==='));
+      console.log(`Workspace: ${resumeFromWorkspace}\n`);
+
+      // Terminate any running workflows for this workspace
+      terminatedWorkflows = await terminateExistingWorkflows(client, resumeFromWorkspace);
+
+      if (terminatedWorkflows.length > 0) {
+        console.log(chalk.yellow(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`));
+      }
+
+      // Validate URL matches workspace
+      const sessionPath = path.join('./audit-logs', resumeFromWorkspace, 'session.json');
+      const session = await readJson<SessionJson>(sessionPath);
+
+      if (session.session.webUrl !== webUrl) {
+        console.error(chalk.red('ERROR: URL mismatch with workspace'));
+        console.error(`  Workspace URL: ${session.session.webUrl}`);
+        console.error(`  Provided URL:  ${webUrl}`);
+        process.exit(1);
+      }
+
+      // Generate resume workflow ID
+      workflowId = `${resumeFromWorkspace}_resume_${Date.now()}`;
+      sessionId = resumeFromWorkspace;
+    } else {
+      // === New Workflow ===
+      const hostname = sanitizeHostname(webUrl);
+      workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
+      sessionId = workflowId;
+    }
 
     const input: PipelineInput = {
       webUrl,
       repoPath,
+      workflowId, // Add for audit correlation
       ...(configPath && { configPath }),
       ...(outputPath && { outputPath }),
       ...(pipelineTestingMode && { pipelineTestingMode }),
+      ...(resumeFromWorkspace && { resumeFromWorkspace }),
+      ...(terminatedWorkflows.length > 0 && { terminatedWorkflows }),
     };
 
-    // Determine output directory for display
+    // Determine output directory for display (use sessionId for persistent directory)
     // Use displayOutputPath (host path) if provided, otherwise fall back to outputPath or default
     const effectiveDisplayPath = displayOutputPath || outputPath || './audit-logs';
-    const outputDir = `${effectiveDisplayPath}/${workflowId}`;
+    const outputDir = `${effectiveDisplayPath}/${sessionId}`;
 
     console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
+    if (resumeFromWorkspace) {
+      console.log(chalk.gray(`  (Resuming workspace: ${sessionId})`));
+    }
     console.log();
     console.log(chalk.white('  Target:     ') + chalk.cyan(webUrl));
     console.log(chalk.white('  Repository: ') + chalk.cyan(repoPath));
+    console.log(chalk.white('  Workspace:  ') + chalk.cyan(sessionId));
     if (configPath) {
       console.log(chalk.white('  Config:     ') + chalk.cyan(configPath));
     }

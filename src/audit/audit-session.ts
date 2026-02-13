@@ -64,8 +64,10 @@ export class AuditSession {
   /**
    * Initialize audit session (creates directories, session.json)
    * Idempotent and race-safe
+   *
+   * @param workflowId - Optional workflow ID for tracking original or resume workflows
    */
-  async initialize(): Promise<void> {
+  async initialize(workflowId?: string): Promise<void> {
     if (this.initialized) {
       return; // Already initialized
     }
@@ -74,7 +76,7 @@ export class AuditSession {
     await initializeAuditStructure(this.sessionMetadata);
 
     // Initialize metrics tracker (loads or creates session.json)
-    await this.metricsTracker.initialize();
+    await this.metricsTracker.initialize(workflowId);
 
     // Initialize workflow logger
     await this.workflowLogger.initialize();
@@ -251,5 +253,29 @@ export class AuditSession {
   async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
     await this.ensureInitialized();
     await this.workflowLogger.logWorkflowComplete(summary);
+  }
+
+  /**
+   * Add a resume attempt to the session
+   * Call this when a workflow is resuming from an existing workspace
+   *
+   * @param workflowId - The new workflow ID for this resume attempt
+   * @param terminatedWorkflows - IDs of workflows that were terminated
+   * @param checkpointHash - Git checkpoint hash that was restored
+   */
+  async addResumeAttempt(
+    workflowId: string,
+    terminatedWorkflows: string[],
+    checkpointHash?: string
+  ): Promise<void> {
+    await this.ensureInitialized();
+
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      await this.metricsTracker.addResumeAttempt(workflowId, terminatedWorkflows, checkpointHash);
+    } finally {
+      unlock();
+    }
   }
 }

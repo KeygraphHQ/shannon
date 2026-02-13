@@ -46,6 +46,13 @@ interface PhaseMetrics {
   agent_count: number;
 }
 
+export interface ResumeAttempt {
+  workflowId: string;
+  timestamp: string;
+  terminatedPrevious?: string;
+  resumedFromCheckpoint?: string;
+}
+
 interface SessionData {
   session: {
     id: string;
@@ -54,6 +61,8 @@ interface SessionData {
     status: 'in-progress' | 'completed' | 'failed';
     createdAt: string;
     completedAt?: string;
+    originalWorkflowId?: string; // First workflow that created this workspace
+    resumeAttempts?: ResumeAttempt[]; // Track all resume attempts
   };
   metrics: {
     total_duration_ms: number;
@@ -95,8 +104,10 @@ export class MetricsTracker {
 
   /**
    * Initialize session.json (idempotent)
+   *
+   * @param workflowId - Optional workflow ID to set as originalWorkflowId for new sessions
    */
-  async initialize(): Promise<void> {
+  async initialize(workflowId?: string): Promise<void> {
     // Check if session.json already exists
     const exists = await fileExists(this.sessionJsonPath);
 
@@ -105,21 +116,24 @@ export class MetricsTracker {
       this.data = await readJson<SessionData>(this.sessionJsonPath);
     } else {
       // Create new session.json
-      this.data = this.createInitialData();
+      this.data = this.createInitialData(workflowId);
       await this.save();
     }
   }
 
   /**
    * Create initial session.json structure
+   *
+   * @param workflowId - Optional workflow ID to set as originalWorkflowId
    */
-  private createInitialData(): SessionData {
+  private createInitialData(workflowId?: string): SessionData {
     const sessionData: SessionData = {
       session: {
         id: this.sessionMetadata.id,
         webUrl: this.sessionMetadata.webUrl,
         status: 'in-progress',
         createdAt: (this.sessionMetadata as { createdAt?: string }).createdAt || formatTimestamp(),
+        resumeAttempts: [],
       },
       metrics: {
         total_duration_ms: 0,
@@ -128,6 +142,12 @@ export class MetricsTracker {
         agents: {}, // Agent-level metrics
       },
     };
+
+    // Set originalWorkflowId if provided (for new workspaces)
+    if (workflowId) {
+      sessionData.session.originalWorkflowId = workflowId;
+    }
+
     // Only add repoPath if it exists
     if (this.sessionMetadata.repoPath) {
       sessionData.session.repoPath = this.sessionMetadata.repoPath;
@@ -225,6 +245,51 @@ export class MetricsTracker {
     if (status === 'completed' || status === 'failed') {
       this.data.session.completedAt = formatTimestamp();
     }
+
+    await this.save();
+  }
+
+  /**
+   * Add a resume attempt to the session
+   *
+   * @param workflowId - The new workflow ID for this resume attempt
+   * @param terminatedWorkflows - IDs of workflows that were terminated
+   * @param checkpointHash - Git checkpoint hash that was restored
+   */
+  async addResumeAttempt(
+    workflowId: string,
+    terminatedWorkflows: string[],
+    checkpointHash?: string
+  ): Promise<void> {
+    if (!this.data) {
+      throw new Error('MetricsTracker not initialized');
+    }
+
+    // Ensure originalWorkflowId is set (backfill if missing from old sessions)
+    if (!this.data.session.originalWorkflowId) {
+      this.data.session.originalWorkflowId = this.data.session.id;
+    }
+
+    // Ensure resumeAttempts array exists
+    if (!this.data.session.resumeAttempts) {
+      this.data.session.resumeAttempts = [];
+    }
+
+    // Add new resume attempt
+    const resumeAttempt: ResumeAttempt = {
+      workflowId,
+      timestamp: formatTimestamp(),
+    };
+
+    if (terminatedWorkflows.length > 0) {
+      resumeAttempt.terminatedPrevious = terminatedWorkflows.join(',');
+    }
+
+    if (checkpointHash) {
+      resumeAttempt.resumedFromCheckpoint = checkpointHash;
+    }
+
+    this.data.session.resumeAttempts.push(resumeAttempt);
 
     await this.save();
   }
