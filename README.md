@@ -85,6 +85,7 @@ Shannon is available in two editions:
   - [Monitoring Progress](#monitoring-progress)
   - [Stopping Shannon](#stopping-shannon)
   - [Usage Examples](#usage-examples)
+  - [Workspaces and Resuming](#workspaces-and-resuming)
   - [Configuration (Optional)](#configuration-optional)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
@@ -167,7 +168,40 @@ open http://localhost:8233
 
 # Custom output directory
 ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+
+# Named workspace
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+
+# List all workspaces
+./shannon workspaces
 ```
+
+### Workspaces and Resuming
+
+Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
+
+**How it works:**
+- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+- Use `WORKSPACE=<name>` to give your run a custom name for easier reference
+- To resume any run, pass its workspace name via `WORKSPACE=` — Shannon detects which agents completed successfully and picks up where it left off
+- Each agent's progress is checkpointed via git commits, so resumed runs start from a clean, validated state
+
+```bash
+# Start with a named workspace
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+
+# Resume the same workspace (skips completed agents)
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+
+# Resume an auto-named workspace from a previous run
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=example-com_shannon-1771007534808
+
+# List all workspaces and their status
+./shannon workspaces
+```
+
+> [!NOTE]
+> The `URL` must match the original workspace URL when resuming. Shannon will reject mismatched URLs to prevent cross-target contamination.
 
 ### Prepare Your Repository
 

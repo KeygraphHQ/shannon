@@ -246,7 +246,8 @@ async function runAgentActivity(
       throw new Error(`Agent ${agentName} failed output validation`);
     }
 
-    // 9. Success - commit and log
+    // 9. Success - commit deliverables, then capture checkpoint hash
+    await commitGitSuccess(repoPath, agentName);
     const commitHash = await getGitCommitHash(repoPath);
     await auditSession.endAgent(agentName, {
       attemptNumber,
@@ -256,7 +257,6 @@ async function runAgentActivity(
       model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
     });
-    await commitGitSuccess(repoPath, agentName);
 
     // 10. Return metrics
     return {
@@ -606,7 +606,8 @@ export async function restoreGitCheckpoint(
 ): Promise<void> {
   console.log(chalk.blue(`Restoring git workspace to ${checkpointHash}...`));
 
-  // Git reset to checkpoint
+  // Checkpoint hash points to the success commit (after commitGitSuccess),
+  // so git reset --hard naturally preserves all completed agent deliverables.
   await executeGitCommandWithRetry(
     ['git', 'reset', '--hard', checkpointHash],
     repoPath,
@@ -618,8 +619,7 @@ export async function restoreGitCheckpoint(
     'clean untracked files for resume'
   );
 
-
-  // Explicitly delete deliverables for incomplete agents
+  // Clean up any partial deliverables from incomplete agents
   for (const agentName of incompleteAgents) {
     const deliverablePath = getDeliverablePath(agentName, repoPath);
     try {
@@ -629,7 +629,6 @@ export async function restoreGitCheckpoint(
         await fs.unlink(deliverablePath);
       }
     } catch (error) {
-      // Non-fatal, just log
       console.log(chalk.gray(`Note: Failed to delete ${deliverablePath}: ${error}`));
     }
   }
@@ -709,7 +708,37 @@ export async function logWorkflowComplete(
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize(workflowId);
   await auditSession.updateSessionStatus(summary.status);
-  await auditSession.logWorkflowComplete(summary);
+
+  // Use cumulative metrics from session.json (includes all resume attempts)
+  const sessionData = await auditSession.getMetrics() as {
+    metrics: {
+      total_duration_ms: number;
+      total_cost_usd: number;
+      agents: Record<string, { final_duration_ms: number; total_cost_usd: number }>;
+    };
+  };
+
+  // Fill in metrics for skipped agents (completed in previous runs)
+  const agentMetrics = { ...summary.agentMetrics };
+  for (const agentName of summary.completedAgents) {
+    if (!agentMetrics[agentName]) {
+      const agentData = sessionData.metrics.agents[agentName];
+      if (agentData) {
+        agentMetrics[agentName] = {
+          durationMs: agentData.final_duration_ms,
+          costUsd: agentData.total_cost_usd,
+        };
+      }
+    }
+  }
+
+  const cumulativeSummary: WorkflowSummary = {
+    ...summary,
+    totalDurationMs: sessionData.metrics.total_duration_ms,
+    totalCostUsd: sessionData.metrics.total_cost_usd,
+    agentMetrics,
+  };
+  await auditSession.logWorkflowComplete(cumulativeSummary);
 
   // Copy all deliverables to audit-logs once at workflow end (non-fatal)
   try {
