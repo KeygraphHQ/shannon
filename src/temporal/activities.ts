@@ -678,7 +678,7 @@ export async function logPhaseTransition(
   phase: string,
   event: 'start' | 'complete'
 ): Promise<void> {
-  const { webUrl, repoPath, outputPath, sessionId } = input;
+  const { webUrl, repoPath, outputPath, sessionId, workflowId } = input;
 
   const sessionMetadata: SessionMetadata = {
     id: sessionId,
@@ -688,7 +688,7 @@ export async function logPhaseTransition(
   };
 
   const auditSession = new AuditSession(sessionMetadata);
-  await auditSession.initialize();
+  await auditSession.initialize(workflowId);
 
   if (event === 'start') {
     await auditSession.logPhaseStart(phase);
