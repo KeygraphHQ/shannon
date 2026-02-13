@@ -254,10 +254,16 @@ cmd_logs() {
   if [ -f "./audit-logs/${ID}/workflow.log" ]; then
     WORKFLOW_LOG="./audit-logs/${ID}/workflow.log"
   else
-    # Search for the workflow directory (handles custom OUTPUT paths)
-    FOUND=$(find . -maxdepth 3 -path "*/${ID}/workflow.log" -type f 2>/dev/null | head -1)
-    if [ -n "$FOUND" ]; then
-      WORKFLOW_LOG="$FOUND"
+    # For resume workflow IDs (e.g. workspace_resume_123), check the original workspace
+    WORKSPACE_ID="${ID%%_resume_*}"
+    if [ "$WORKSPACE_ID" != "$ID" ] && [ -f "./audit-logs/${WORKSPACE_ID}/workflow.log" ]; then
+      WORKFLOW_LOG="./audit-logs/${WORKSPACE_ID}/workflow.log"
+    else
+      # Search for the workflow directory (handles custom OUTPUT paths)
+      FOUND=$(find . -maxdepth 3 -path "*/${ID}/workflow.log" -type f 2>/dev/null | head -1)
+      if [ -n "$FOUND" ]; then
+        WORKFLOW_LOG="$FOUND"
+      fi
     fi
   fi
 
