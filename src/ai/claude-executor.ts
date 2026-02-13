@@ -229,6 +229,16 @@ export async function runClaudePrompt(
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
+  // Router mode: forward base URL, auth token, and model config to SDK subprocess
+  if (process.env.ANTHROPIC_BASE_URL) {
+    sdkEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
+  }
+  if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    sdkEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+  }
+  if (process.env.ROUTER_DEFAULT) {
+    sdkEnv.ROUTER_DEFAULT = process.env.ROUTER_DEFAULT;
+  }
 
   const options = {
     model: 'claude-sonnet-4-5-20250929',
@@ -472,7 +482,7 @@ export async function runClaudePromptWithRetry(
           await commitGitSuccess(sourceDir, description);
           console.log(chalk.green.bold(`${description} completed successfully on attempt ${attempt}/${maxRetries}`));
           return result;
-        // Validation failure is retryable - agent might succeed on retry with cleaner workspace
+          // Validation failure is retryable - agent might succeed on retry with cleaner workspace
         } else {
           console.log(chalk.yellow(`${description} completed but output validation failed`));
 

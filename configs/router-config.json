@@ -10,9 +10,19 @@
       "name": "openai",
       "api_base_url": "https://api.openai.com/v1/chat/completions",
       "api_key": "$OPENAI_API_KEY",
-      "models": ["gpt-5.2", "gpt-5-mini"],
+      "models": [
+        "gpt-5.2",
+        "gpt-5-mini"
+      ],
       "transformer": {
-        "use": [["maxcompletiontokens", { "max_completion_tokens": 16384 }]]
+        "use": [
+          [
+            "maxcompletiontokens",
+            {
+              "max_completion_tokens": 16384
+            }
+          ]
+        ]
       }
     },
     {
@@ -23,7 +33,29 @@
         "google/gemini-3-flash-preview"
       ],
       "transformer": {
-        "use": ["openrouter"]
+        "use": [
+          "openrouter"
+        ]
+      }
+    },
+    {
+      "name": "zai",
+      "api_base_url": "https://api.z.ai/api/coding/paas/v4/chat/completions",
+      "api_key": "$ZAI_API_KEY",
+      "models": [
+        "glm-5",
+        "glm-4.7",
+        "glm-4.7-flash"
+      ],
+      "transformer": {
+        "use": [
+          [
+            "maxcompletiontokens",
+            {
+              "max_completion_tokens": 16384
+            }
+          ]
+        ]
       }
     }
   ],
