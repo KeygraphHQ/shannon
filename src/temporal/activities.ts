@@ -393,13 +393,12 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * This must be called AFTER runReportAgent to add the model information to the Executive Summary.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, outputPath } = input;
-  if (!outputPath) {
-    console.log(chalk.yellow('⚠️ No output path provided, skipping model injection'));
-    return;
-  }
+  const { repoPath, sessionId, outputPath } = input;
+  const effectiveOutputPath = outputPath
+    ? path.join(outputPath, sessionId)
+    : path.join('./audit-logs', sessionId);
   try {
-    await injectModelIntoReport(repoPath, outputPath);
+    await injectModelIntoReport(repoPath, effectiveOutputPath);
   } catch (error) {
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Error injecting model into report: ${err.message}`));
@@ -716,5 +715,6 @@ export async function logWorkflowComplete(
 
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize(workflowId);
+  await auditSession.updateSessionStatus(summary.status);
   await auditSession.logWorkflowComplete(summary);
 }
