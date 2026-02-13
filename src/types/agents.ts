@@ -8,8 +8,6 @@
  * Agent type definitions
  */
 
-import path from 'path';
-
 /**
  * List of all agents in execution order.
  * Used for iteration during resume state checking.
@@ -118,5 +116,5 @@ export function getDeliverablePath(agentName: AgentName, repoPath: string): stri
   };
 
   const filename = deliverableMap[agentName];
-  return path.join(repoPath, 'deliverables', filename);
+  return `${repoPath}/deliverables/${filename}`;
 }
