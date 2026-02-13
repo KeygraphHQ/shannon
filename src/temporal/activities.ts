@@ -258,13 +258,6 @@ async function runAgentActivity(
     });
     await commitGitSuccess(repoPath, agentName);
 
-    // 9.5. Copy deliverables to audit-logs (non-fatal)
-    try {
-      await copyDeliverablesToAudit(sessionMetadata, repoPath);
-    } catch (copyErr) {
-      console.error(`Failed to copy deliverables to audit-logs for ${agentName}:`, copyErr);
-    }
-
     // 10. Return metrics
     return {
       durationMs: Date.now() - startTime,
@@ -717,4 +710,11 @@ export async function logWorkflowComplete(
   await auditSession.initialize(workflowId);
   await auditSession.updateSessionStatus(summary.status);
   await auditSession.logWorkflowComplete(summary);
+
+  // Copy all deliverables to audit-logs once at workflow end (non-fatal)
+  try {
+    await copyDeliverablesToAudit(sessionMetadata, repoPath);
+  } catch (copyErr) {
+    console.error('Failed to copy deliverables to audit-logs:', copyErr);
+  }
 }
