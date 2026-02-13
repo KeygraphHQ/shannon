@@ -46,6 +46,9 @@ interface SessionJson {
     originalWorkflowId?: string;
     resumeAttempts?: Array<{ workflowId: string }>;
   };
+  metrics: {
+    total_cost_usd: number;
+  };
 }
 
 dotenv.config();
@@ -356,7 +359,19 @@ async function startPipeline(): Promise<void> {
         console.log(chalk.gray(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`));
         console.log(chalk.gray(`Agents completed: ${result.summary.agentCount}`));
         console.log(chalk.gray(`Total turns: ${result.summary.totalTurns}`));
-        console.log(chalk.gray(`Total cost: $${result.summary.totalCostUsd.toFixed(4)}`));
+        console.log(chalk.gray(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`));
+
+        // Show cumulative cost from session.json (includes all resume attempts)
+        if (isResume) {
+          try {
+            const session = await readJson<SessionJson>(
+              path.join('./audit-logs', sessionId, 'session.json')
+            );
+            console.log(chalk.gray(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`));
+          } catch {
+            // Non-fatal, skip cumulative cost display
+          }
+        }
       }
     } catch (error) {
       clearInterval(progressInterval);
