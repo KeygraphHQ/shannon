@@ -106,6 +106,14 @@ async function terminateExistingWorkflows(
   return terminated;
 }
 
+/**
+ * Validate workspace name: alphanumeric, hyphens, underscores, 1-128 chars,
+ * must start with alphanumeric.
+ */
+function isValidWorkspaceName(name: string): boolean {
+  return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(name);
+}
+
 function showUsage(): void {
   console.log(chalk.cyan.bold('\nShannon Temporal Client'));
   console.log(chalk.gray('Start a pentest pipeline workflow\n'));
@@ -212,35 +220,54 @@ async function startPipeline(): Promise<void> {
     let terminatedWorkflows: string[] = [];
     let workflowId: string;
     let sessionId: string; // Workspace name (persistent directory)
+    let isResume = false;
 
-    // === Resume Mode ===
     if (resumeFromWorkspace) {
-      console.log(chalk.cyan('=== RESUME MODE ==='));
-      console.log(`Workspace: ${resumeFromWorkspace}\n`);
-
-      // Terminate any running workflows for this workspace
-      terminatedWorkflows = await terminateExistingWorkflows(client, resumeFromWorkspace);
-
-      if (terminatedWorkflows.length > 0) {
-        console.log(chalk.yellow(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`));
-      }
-
-      // Validate URL matches workspace
       const sessionPath = path.join('./audit-logs', resumeFromWorkspace, 'session.json');
-      const session = await readJson<SessionJson>(sessionPath);
+      const workspaceExists = await fileExists(sessionPath);
 
-      if (session.session.webUrl !== webUrl) {
-        console.error(chalk.red('ERROR: URL mismatch with workspace'));
-        console.error(`  Workspace URL: ${session.session.webUrl}`);
-        console.error(`  Provided URL:  ${webUrl}`);
-        process.exit(1);
+      if (workspaceExists) {
+        // === Resume Mode: existing workspace ===
+        isResume = true;
+        console.log(chalk.cyan('=== RESUME MODE ==='));
+        console.log(`Workspace: ${resumeFromWorkspace}\n`);
+
+        // Terminate any running workflows for this workspace
+        terminatedWorkflows = await terminateExistingWorkflows(client, resumeFromWorkspace);
+
+        if (terminatedWorkflows.length > 0) {
+          console.log(chalk.yellow(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`));
+        }
+
+        // Validate URL matches workspace
+        const session = await readJson<SessionJson>(sessionPath);
+
+        if (session.session.webUrl !== webUrl) {
+          console.error(chalk.red('ERROR: URL mismatch with workspace'));
+          console.error(`  Workspace URL: ${session.session.webUrl}`);
+          console.error(`  Provided URL:  ${webUrl}`);
+          process.exit(1);
+        }
+
+        // Generate resume workflow ID
+        workflowId = `${resumeFromWorkspace}_resume_${Date.now()}`;
+        sessionId = resumeFromWorkspace;
+      } else {
+        // === New Named Workspace ===
+        if (!isValidWorkspaceName(resumeFromWorkspace)) {
+          console.error(chalk.red(`ERROR: Invalid workspace name: "${resumeFromWorkspace}"`));
+          console.error(chalk.gray('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric'));
+          process.exit(1);
+        }
+
+        console.log(chalk.cyan('=== NEW NAMED WORKSPACE ==='));
+        console.log(`Workspace: ${resumeFromWorkspace}\n`);
+
+        workflowId = `${resumeFromWorkspace}_shannon-${Date.now()}`;
+        sessionId = resumeFromWorkspace;
       }
-
-      // Generate resume workflow ID
-      workflowId = `${resumeFromWorkspace}_resume_${Date.now()}`;
-      sessionId = resumeFromWorkspace;
     } else {
-      // === New Workflow ===
+      // === New Auto-Named Workflow ===
       const hostname = sanitizeHostname(webUrl);
       workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
       sessionId = workflowId;
@@ -250,10 +277,11 @@ async function startPipeline(): Promise<void> {
       webUrl,
       repoPath,
       workflowId, // Add for audit correlation
+      sessionId, // Workspace directory name
       ...(configPath && { configPath }),
       ...(outputPath && { outputPath }),
       ...(pipelineTestingMode && { pipelineTestingMode }),
-      ...(resumeFromWorkspace && { resumeFromWorkspace }),
+      ...(isResume && resumeFromWorkspace && { resumeFromWorkspace }),
       ...(terminatedWorkflows.length > 0 && { terminatedWorkflows }),
     };
 
@@ -263,7 +291,7 @@ async function startPipeline(): Promise<void> {
     const outputDir = `${effectiveDisplayPath}/${sessionId}`;
 
     console.log(chalk.green.bold(`✓ Workflow started: ${workflowId}`));
-    if (resumeFromWorkspace) {
+    if (isResume) {
       console.log(chalk.gray(`  (Resuming workspace: ${sessionId})`));
     }
     console.log();

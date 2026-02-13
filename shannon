@@ -36,6 +36,7 @@ show_help() {
 
 Usage:
   ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
+  ./shannon workspaces                    List all workspaces
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon query ID=<workflow-id>        Query workflow progress
   ./shannon stop                          Stop all containers
@@ -45,6 +46,7 @@ Options for 'start':
   REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
+  WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
 
@@ -53,8 +55,10 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
@@ -76,6 +80,7 @@ parse_args() {
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
+      WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
     esac
   done
 }
@@ -224,6 +229,7 @@ cmd_start() {
   fi
 
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
+  [ -n "$WORKSPACE" ] && ARGS="$ARGS --workspace $WORKSPACE"
 
   # Run the client to submit workflow
   docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
@@ -283,6 +289,14 @@ cmd_query() {
     node dist/temporal/query.js "$ID"
 }
 
+cmd_workspaces() {
+  # Ensure containers are running (need worker to execute node)
+  ensure_containers
+
+  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
+    node dist/temporal/workspaces.js
+}
+
 cmd_stop() {
   parse_args "$@"
 
@@ -306,6 +320,10 @@ case "${1:-help}" in
   query)
     shift
     cmd_query "$@"
+    ;;
+  workspaces)
+    shift
+    cmd_workspaces
     ;;
   stop)
     shift
