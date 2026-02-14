@@ -1,0 +1,524 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shannon MCP Architecture Explorer</title>
+    <style>
+        :root {
+            --bg-dark: #0f172a;
+            --bg-panel: #1e293b;
+            --border: #334155;
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --accent: #3b82f6;
+            --accent-hover: #2563eb;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --layer-host: #dbeafe;
+            --layer-infra: #f3e8ff;
+            --layer-docker: #dcfce7;
+            --layer-fs: #fce7f3;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            height: 100vh;
+            display: flex;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .sidebar {
+            width: 320px;
+            background: var(--bg-panel);
+            border-right: 1px solid var(--border);
+            display: flex;
+            flex-direction: column;
+            padding: 1.5rem;
+            overflow-y: auto;
+        }
+
+        .main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            position: relative;
+        }
+
+        .canvas-container {
+            flex: 1;
+            overflow: hidden;
+            background-image: radial-gradient(var(--border) 1px, transparent 1px);
+            background-size: 20px 20px;
+            position: relative;
+            cursor: grab;
+        }
+
+        .canvas-container:active {
+            cursor: grabbing;
+        }
+
+        .prompt-bar {
+            background: var(--bg-panel);
+            border-top: 1px solid var(--border);
+            padding: 1rem 1.5rem;
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        /* Controls */
+        h2 { font-size: 1rem; margin: 0 0 1rem 0; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+        h3 { font-size: 0.875rem; margin: 1.5rem 0 0.75rem 0; color: var(--text-secondary); }
+
+        .control-group { margin-bottom: 2rem; }
+
+        button.preset {
+            display: block;
+            width: 100%;
+            padding: 0.75rem;
+            margin-bottom: 0.5rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            color: var(--text-secondary);
+            text-align: left;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        button.preset:hover {
+            border-color: var(--text-secondary);
+            color: var(--text-primary);
+        }
+
+        button.preset.active {
+            background: rgba(59, 130, 246, 0.1);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+            cursor: pointer;
+        }
+
+        .toggle-row input { margin-right: 0.75rem; }
+        .toggle-row span { font-size: 0.9rem; }
+
+        .legend {
+            position: absolute;
+            bottom: 1.5rem;
+            left: 1.5rem;
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1rem;
+            font-size: 0.8rem;
+            pointer-events: none;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.5rem;
+        }
+
+        .legend-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+
+        /* Prompt Output */
+        .prompt-text {
+            flex: 1;
+            font-family: 'Menlo', 'Monaco', monospace;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+            line-height: 1.5;
+        }
+
+        .copy-btn {
+            background: var(--accent);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .copy-btn:hover { background: var(--accent-hover); }
+
+        /* Tool Simulation */
+        .tool-list {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.5rem;
+        }
+
+        .tool-btn {
+            padding: 0.5rem;
+            background: var(--bg-dark);
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            color: var(--text-primary);
+            font-family: monospace;
+            font-size: 0.8rem;
+            cursor: pointer;
+            text-align: left;
+        }
+
+        .tool-btn:hover { border-color: var(--text-secondary); }
+        .tool-btn.active {
+            border-color: var(--success);
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        /* SVG Styles */
+        svg { width: 100%; height: 100%; }
+        .node-rect {
+            filter: drop-shadow(0 4px 6px rgba(0,0,0,0.1));
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        .node-rect:hover { filter: drop-shadow(0 6px 8px rgba(0,0,0,0.2)); stroke: var(--text-primary); stroke-width: 2px; }
+        .node-title { font-weight: 600; font-size: 14px; fill: #1e293b; pointer-events: none; }
+        .node-sub { font-size: 11px; fill: #475569; pointer-events: none; }
+
+        .conn-path {
+            fill: none;
+            stroke-width: 2;
+            transition: all 0.3s;
+        }
+
+        .conn-label {
+            font-size: 10px;
+            fill: var(--text-secondary);
+            background: var(--bg-dark);
+        }
+
+        .active-path {
+            stroke-width: 3;
+            animation: dash 1s linear infinite;
+        }
+
+        @keyframes dash {
+            to { stroke-dashoffset: -20; }
+        }
+
+        .hidden { opacity: 0.1; }
+
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>Shannon MCP Explorer</h2>
+
+    <div class="control-group">
+        <h3>View Presets</h3>
+        <button class="preset active" onclick="setPreset('default')">Overview</button>
+        <button class="preset" onclick="setPreset('control')">Control Flow (Temporal)</button>
+        <button class="preset" onclick="setPreset('data')">Data Flow (Files)</button>
+        <button class="preset" onclick="setPreset('docker')">Infrastructure</button>
+    </div>
+
+    <div class="control-group">
+        <h3>Simulate Tool Call</h3>
+        <div class="tool-list">
+            <button class="tool-btn" onclick="simulateTool('start_scan')">start_scan</button>
+            <button class="tool-btn" onclick="simulateTool('query_progress')">query_progress</button>
+            <button class="tool-btn" onclick="simulateTool('get_report')">get_report</button>
+            <button class="tool-btn" onclick="simulateTool('validate_config')">validate_config</button>
+        </div>
+    </div>
+
+    <div class="control-group">
+        <h3>Layers</h3>
+        <label class="toggle-row">
+            <input type="checkbox" checked onchange="toggleLayer('host', this.checked)">
+            <span>Host (Claude/MCP)</span>
+        </label>
+        <label class="toggle-row">
+            <input type="checkbox" checked onchange="toggleLayer('infra', this.checked)">
+            <span>Infrastructure (Bridge)</span>
+        </label>
+        <label class="toggle-row">
+            <input type="checkbox" checked onchange="toggleLayer('docker', this.checked)">
+            <span>Docker Containers</span>
+        </label>
+        <label class="toggle-row">
+            <input type="checkbox" checked onchange="toggleLayer('fs', this.checked)">
+            <span>Filesystem</span>
+        </label>
+    </div>
+</div>
+
+<div class="main">
+    <div class="canvas-container" id="canvas-container">
+        <!-- SVG injected by JS -->
+    </div>
+
+    <div class="legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#3b82f6"></div>Data Flow</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#10b981"></div>Tool Call</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#ef4444"></div>Temporal/gRPC</div>
+    </div>
+
+    <div class="prompt-bar">
+        <div class="prompt-text" id="prompt-output">
+            Select a tool to see how it flows through the system.
+        </div>
+        <button class="copy-btn" onclick="copyPrompt()">Copy Explanation</button>
+    </div>
+</div>
+
+<script>
+    // --- State Management ---
+    const state = {
+        layers: { host: true, infra: true, docker: true, fs: true },
+        activeTool: null,
+        zoom: 1,
+        pan: { x: 0, y: 0 }
+    };
+
+    // --- Data Model ---
+    const NODES = [
+        // Host Layer
+        { id: 'claude', label: 'Claude Desktop', sub: 'Client Application', x: 50, y: 50, w: 160, h: 50, layer: 'host', color: '#dbeafe' },
+        { id: 'mcp', label: 'MCP Server', sub: 'desktop-mcp-server', x: 300, y: 50, w: 160, h: 50, layer: 'host', color: '#dbeafe' },
+
+        // Infra Layer
+        { id: 't-client', label: 'Temporal Client', sub: '@temporalio/client', x: 200, y: 200, w: 140, h: 50, layer: 'infra', color: '#f3e8ff' },
+        { id: 'docker-bridge', label: 'Docker Bridge', sub: 'child_process', x: 360, y: 200, w: 140, h: 50, layer: 'infra', color: '#f3e8ff' },
+        { id: 'path-res', label: 'Path Resolver', sub: 'fs/promises', x: 520, y: 200, w: 140, h: 50, layer: 'infra', color: '#f3e8ff' },
+
+        // Docker Layer
+        { id: 't-server', label: 'Temporal Server', sub: 'localhost:7233', x: 200, y: 350, w: 140, h: 50, layer: 'docker', color: '#dcfce7' },
+        { id: 'worker', label: 'Shannon Worker', sub: 'Workflow Engine', x: 40, y: 350, w: 140, h: 50, layer: 'docker', color: '#dcfce7' },
+        { id: 'daemon', label: 'Docker Daemon', sub: 'Engine / API', x: 360, y: 350, w: 140, h: 50, layer: 'docker', color: '#dcfce7' },
+
+        // Filesystem Layer
+        { id: 'fs-audit', label: 'Audit Logs', sub: './audit-logs/', x: 50, y: 500, w: 120, h: 40, layer: 'fs', color: '#fce7f3' },
+        { id: 'fs-repos', label: 'Repos', sub: './repos/', x: 200, y: 500, w: 120, h: 40, layer: 'fs', color: '#fce7f3' },
+        { id: 'fs-config', label: 'Configs', sub: './configs/', x: 350, y: 500, w: 120, h: 40, layer: 'fs', color: '#fce7f3' },
+        { id: 'fs-deliv', label: 'Deliverables', sub: './audit/deliverables', x: 500, y: 500, w: 120, h: 40, layer: 'fs', color: '#fce7f3' }
+    ];
+
+    const CONNECTIONS = [
+        { id: 'c1', from: 'claude', to: 'mcp', type: 'tool', label: 'STDIO' },
+        { id: 'c2', from: 'mcp', to: 't-client', type: 'tool', label: 'Call' },
+        { id: 'c3', from: 'mcp', to: 'docker-bridge', type: 'tool', label: 'Call' },
+        { id: 'c4', from: 'mcp', to: 'path-res', type: 'data', label: 'Resolve' },
+
+        { id: 'c5', from: 't-client', to: 't-server', type: 'grpc', label: 'gRPC 7233' },
+        { id: 'c6', from: 'docker-bridge', to: 'daemon', type: 'tool', label: 'Exec/Compose' },
+
+        { id: 'c7', from: 't-server', to: 'worker', type: 'grpc', label: 'Task Queue' },
+
+        { id: 'c8', from: 'worker', to: 'fs-audit', type: 'data', label: 'Write Logs' },
+        { id: 'c9', from: 'worker', to: 'fs-deliv', type: 'data', label: 'Save' },
+        { id: 'c10', from: 'worker', to: 'fs-repos', type: 'data', label: 'Read/Write' },
+
+        { id: 'c11', from: 'path-res', to: 'fs-config', type: 'data', label: 'Read' },
+        { id: 'c12', from: 'path-res', to: 'fs-audit', type: 'data', label: 'Read' },
+        { id: 'c13', from: 'path-res', to: 'fs-deliv', type: 'data', label: 'Read' }
+    ];
+
+    // Define which connections are active for each tool
+    const TOOL_PATHS = {
+        start_scan: ['c1', 'c2', 'c3', 'c5', 'c6', 'c7', 'c8', 'c10'],
+        query_progress: ['c1', 'c2', 'c5', 'c7', 'c12'], // Falls back to c12 if c5 fails
+        get_report: ['c1', 'c4', 'c12', 'c13'],
+        validate_config: ['c1', 'c4', 'c11']
+    };
+
+    const TOOL_EXPLANATIONS = {
+        start_scan: "Flow: Claude calls start_scan → MCP checks Docker (Bridge) → Starts containers if needed → Uses Temporal Client to submit workflow to localhost:7233 → Temporal Server schedules task → Worker picks up task and starts scanning repo.",
+        query_progress: "Flow: Claude calls query_progress → MCP uses Temporal Client to query 'getProgress' on localhost:7233. If Temporal is down, it falls back to reading session.json from Audit Logs directly.",
+        get_report: "Flow: Claude calls get_report → MCP resolves audit path → Reads directly from Deliverables directory on the host filesystem. No Docker interaction required.",
+        validate_config: "Flow: Claude calls validate_config → MCP reads file from Configs directory → Validates against JSON schema locally. Purely filesystem operation."
+    };
+
+    // --- Rendering ---
+    const container = document.getElementById('canvas-container');
+
+    function init() {
+        render();
+        window.addEventListener('resize', render);
+
+        // Basic Pan/Zoom logic
+        let isDragging = false;
+        let startPos = { x: 0, y: 0 };
+
+        container.addEventListener('mousedown', e => {
+            isDragging = true;
+            startPos = { x: e.clientX - state.pan.x, y: e.clientY - state.pan.y };
+        });
+
+        window.addEventListener('mousemove', e => {
+            if (!isDragging) return;
+            state.pan.x = e.clientX - startPos.x;
+            state.pan.y = e.clientY - startPos.y;
+            updateTransform();
+        });
+
+        window.addEventListener('mouseup', () => isDragging = false);
+    }
+
+    function updateTransform() {
+        const g = document.getElementById('diagram-group');
+        if (g) g.setAttribute('transform', `translate(${state.pan.x},${state.pan.y}) scale(${state.zoom})`);
+    }
+
+    function render() {
+        const svgW = container.clientWidth;
+        const svgH = container.clientHeight;
+
+        const activePathSet = state.activeTool ? new Set(TOOL_PATHS[state.activeTool]) : new Set();
+
+        // Generate SVG
+        let svg = `<svg viewBox="0 0 ${svgW} ${svgH}" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+                <marker id="arrow-blue" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#3b82f6"/></marker>
+                <marker id="arrow-green" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#10b981"/></marker>
+                <marker id="arrow-red" markerWidth="10" markerHeight="7" refX="10" refY="3.5" orient="auto"><polygon points="0 0, 10 3.5, 0 7" fill="#ef4444"/></marker>
+                <filter id="shadow"><feDropShadow dx="0" dy="2" stdDeviation="3" flood-opacity="0.1"/></filter>
+            </defs>
+            <g id="diagram-group" transform="translate(${state.pan.x},${state.pan.y}) scale(${state.zoom})">`;
+
+        // Draw Connections
+        CONNECTIONS.forEach(c => {
+            const n1 = NODES.find(n => n.id === c.from);
+            const n2 = NODES.find(n => n.id === c.to);
+
+            if (!state.layers[n1.layer] || !state.layers[n2.layer]) return;
+
+            const isActive = activePathSet.has(c.id);
+            const color = c.type === 'tool' ? '#10b981' : c.type === 'grpc' ? '#ef4444' : '#3b82f6';
+            const marker = c.type === 'tool' ? 'url(#arrow-green)' : c.type === 'grpc' ? 'url(#arrow-red)' : 'url(#arrow-blue)';
+            const dash = c.type === 'tool' ? '5,5' : '0';
+
+            // Bezier curve calculation
+            const x1 = n1.x + n1.w/2;
+            const y1 = n1.y + n1.h;
+            const x2 = n2.x + n2.w/2;
+            const y2 = n2.y;
+
+            // Adjust for side connections if layout is horizontal-ish
+            const isHorizontal = Math.abs(y1 - y2) < 50;
+            const pathD = isHorizontal
+                ? `M ${n1.x + n1.w} ${n1.y + n1.h/2} C ${n1.x + n1.w + 50} ${n1.y + n1.h/2}, ${n2.x - 50} ${n2.y + n2.h/2}, ${n2.x} ${n2.y + n2.h/2}`
+                : `M ${x1} ${y1} C ${x1} ${y1 + 50}, ${x2} ${y2 - 50}, ${x2} ${y2}`;
+
+            svg += `<path d="${pathD}"
+                     stroke="${color}"
+                     stroke-width="${isActive ? 3 : 1.5}"
+                     fill="none"
+                     marker-end="${marker}"
+                     stroke-dasharray="${isActive ? '5,5' : dash}"
+                     class="conn-path ${isActive ? 'active-path' : ''} ${state.activeTool && !isActive ? 'hidden' : ''}" />`;
+        });
+
+        // Draw Nodes
+        NODES.forEach(n => {
+            if (!state.layers[n.layer]) return;
+            const isDimmed = state.activeTool && !activePathSet.has(CONNECTIONS.find(c => c.to === n.id || c.from === n.id)?.id);
+
+            svg += `
+                <g transform="translate(${n.x},${n.y})" class="node-rect ${isDimmed ? '' : ''}">
+                    <rect width="${n.w}" height="${n.h}" rx="6" fill="${n.color}" stroke="#334155" stroke-width="1"></rect>
+                    <text x="10" y="20" class="node-title">${n.label}</text>
+                    <text x="10" y="38" class="node-sub">${n.sub}</text>
+                </g>
+            `;
+        });
+
+        svg += `</g></svg>`;
+        container.innerHTML = svg;
+    }
+
+    // --- Actions ---
+
+    function toggleLayer(layer, checked) {
+        state.layers[layer] = checked;
+        render();
+    }
+
+    function simulateTool(toolName) {
+        if (state.activeTool === toolName) {
+            state.activeTool = null; // Toggle off
+            document.getElementById('prompt-output').textContent = "Select a tool to see how it flows through the system.";
+        } else {
+            state.activeTool = toolName;
+            document.getElementById('prompt-output').textContent = TOOL_EXPLANATIONS[toolName];
+        }
+
+        // Update UI buttons
+        document.querySelectorAll('.tool-btn').forEach(btn => {
+            btn.classList.toggle('active', btn.textContent === toolName && state.activeTool === toolName);
+        });
+
+        render();
+    }
+
+    function setPreset(name) {
+        document.querySelectorAll('.preset').forEach(b => b.classList.remove('active'));
+        event.target.classList.add('active');
+
+        if (name === 'default') {
+            state.layers = { host: true, infra: true, docker: true, fs: true };
+            state.activeTool = null;
+        } else if (name === 'control') {
+            state.layers = { host: true, infra: true, docker: true, fs: false };
+            simulateTool('start_scan');
+        } else if (name === 'data') {
+            state.layers = { host: true, infra: true, docker: true, fs: true };
+            simulateTool('get_report');
+        } else if (name === 'docker') {
+            state.layers = { host: false, infra: true, docker: true, fs: false };
+            state.activeTool = null;
+        }
+
+        // Update checkboxes
+        document.querySelectorAll('.toggle-row input').forEach(input => {
+            const layer = input.getAttribute('onchange').match(/'([^']+)'/)[1];
+            input.checked = state.layers[layer];
+        });
+
+        render();
+    }
+
+    function copyPrompt() {
+        const text = document.getElementById('prompt-output').textContent;
+        navigator.clipboard.writeText(text);
+        const btn = document.querySelector('.copy-btn');
+        const orig = btn.textContent;
+        btn.textContent = "Copied!";
+        setTimeout(() => btn.textContent = orig, 1500);
+    }
+
+    // Start
+    init();
+
+    // Auto-center (basic)
+    state.pan.x = container.clientWidth / 2 - 300;
+    state.pan.y = 50;
+    updateTransform();
+
+</script>
+</body>
+</html>
