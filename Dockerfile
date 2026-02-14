@@ -117,6 +117,9 @@ RUN npm ci && \
     cd mcp-server && npm ci && cd .. && \
     npm cache clean --force
 
+# Install Claude Code CLI globally (required by claude-agent-sdk)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Copy application source code
 COPY . .
 
