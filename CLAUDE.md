@@ -14,9 +14,13 @@ cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 git clone https://github.com/org/repo.git ./repos/my-repo
 # or symlink: ln -s /path/to/existing/repo ./repos/my-repo
 
-# Run
+# Run (CLI)
 ./shannon start URL=<url> REPO=my-repo
 ./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
+
+# Run (Claude Desktop)
+npm run build:mcp                   # Build the MCP server
+# Add to Claude Desktop config (see below)
 
 # Monitor
 ./shannon logs                      # Real-time worker logs
@@ -33,6 +37,28 @@ npm run build
 
 **Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
 
+## Desktop Integration (MCP)
+
+Control Shannon directly from Claude Desktop to start scans, monitor progress, and read reports.
+
+1. **Build the Server:** `npm run build:mcp`
+2. **Configure Claude Desktop:** Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "shannon": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/shannon/desktop-mcp-server/dist/index.js"],
+      "env": {
+        "SHANNON_ROOT": "/ABSOLUTE/PATH/TO/shannon",
+        "ANTHROPIC_API_KEY": "sk-ant-..."
+      }
+    }
+  }
+}
+```
+
 ## Architecture
 
 ### Core Modules
@@ -42,6 +68,7 @@ npm run build
 - `src/error-handling.ts` — Categorized error types (PentestError, ConfigError, NetworkError) with retry logic
 - `src/tool-checker.ts` — Validates external security tool availability before execution
 - `src/queue-validation.ts` — Deliverable validation and agent prerequisites
+- `desktop-mcp-server/` — **(New)** Host-based MCP server bridging Claude Desktop to Dockerized infrastructure via Temporal gRPC
 
 ### Temporal Orchestration
 Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (5 concurrent agents in vuln/exploit phases).
@@ -117,6 +144,7 @@ Defensive security tool only. Use only on systems you own or have explicit permi
 ## Key Files
 
 **Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`, `src/temporal/client.ts`
+**MCP:** `desktop-mcp-server/src/index.ts`, `desktop-mcp-server/src/server.ts`
 
 **Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/audit/`
 
