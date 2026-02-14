@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "build:mcp": "cd desktop-mcp-server && npm run build",
     "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
     "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
     "temporal:worker": "node dist/temporal/worker.js",

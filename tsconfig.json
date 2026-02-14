@@ -51,6 +51,7 @@
   "exclude": [
     "node_modules",
     "dist",
-    "mcp-server"
+    "mcp-server",
+    "desktop-mcp-server"
   ]
 }

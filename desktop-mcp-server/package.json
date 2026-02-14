@@ -1,0 +1,29 @@
+{
+  "name": "@shannon/desktop-mcp-server",
+  "version": "1.0.0",
+  "description": "Shannon MCP server for Claude Desktop - start, monitor, and manage pentest workflows",
+  "type": "module",
+  "bin": {
+    "shannon-mcp": "./dist/index.js"
+  },
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "@temporalio/client": "^1.11.0",
+    "ajv": "^8.12.0",
+    "ajv-formats": "^2.1.1",
+    "js-yaml": "^4.1.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
+    "@types/node": "^25.0.3",
+    "typescript": "^5.9.3"
+  }
+}
