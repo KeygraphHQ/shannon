@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import Fastify from 'fastify';
+import Fastify, { type FastifyInstance } from 'fastify';
 import fastifyStatic from '@fastify/static';
 import fastifyCors from '@fastify/cors';
 import path from 'node:path';
@@ -12,8 +12,8 @@ import { closeTemporalConnection } from './temporal-client.js';
 const PORT = Number(process.env.PORT || 3000);
 const HOST = process.env.HOST || '0.0.0.0';
 
-async function main(): Promise<void> {
-  const app = Fastify({ logger: true });
+export async function buildApp(options?: { logger?: boolean }): Promise<FastifyInstance> {
+  const app = Fastify({ logger: options?.logger ?? true });
 
   await app.register(fastifyCors, { origin: true });
 
@@ -40,6 +40,12 @@ async function main(): Promise<void> {
     });
   }
 
+  return app;
+}
+
+async function main(): Promise<void> {
+  const app = await buildApp();
+
   // Graceful shutdown
   const shutdown = async (): Promise<void> => {
     app.log.info('Shutting down...');
@@ -64,7 +70,11 @@ async function main(): Promise<void> {
   console.log(`Shannon Web running at http://${HOST}:${PORT}`);
 }
 
-main().catch((err) => {
-  console.error('Failed to start server:', err);
-  process.exit(1);
-});
+// Only run when executed directly (not imported by tests)
+const isDirectRun = process.argv[1]?.endsWith('server.js');
+if (isDirectRun) {
+  main().catch((err) => {
+    console.error('Failed to start server:', err);
+    process.exit(1);
+  });
+}
