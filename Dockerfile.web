@@ -1,0 +1,45 @@
+# Multi-stage Dockerfile for Shannon Web App
+# Stage 1: Build Vue frontend
+# Stage 2: Build backend + run
+
+# --- Build frontend ---
+FROM node:22-slim AS frontend-builder
+
+WORKDIR /build/web
+COPY web/package*.json ./
+RUN npm ci
+COPY web/ ./
+RUN npm run build
+
+# --- Build backend & run ---
+FROM node:22-slim AS runtime
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Install root dependencies (backend)
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+# Copy source and compile
+COPY tsconfig.json ./
+COPY src/ ./src/
+RUN npx tsc
+
+# Copy built frontend
+COPY --from=frontend-builder /build/web/dist ./web/dist
+
+# Create data directory for SQLite
+RUN mkdir -p /app/data
+
+ENV NODE_ENV=production
+ENV PORT=3000
+
+EXPOSE 3000
+
+CMD ["node", "dist/web/server.js"]

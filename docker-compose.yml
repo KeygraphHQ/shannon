@@ -40,6 +40,22 @@ services:
     security_opt:
       - seccomp:unconfined
 
+  # Shannon Web UI
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.web
+    ports:
+      - "3000:3000"
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - SHANNON_DB_PATH=/app/data/shannon.db
+    depends_on:
+      temporal:
+        condition: service_healthy
+    volumes:
+      - webapp-data:/app/data
+
   # Optional: claude-code-router for multi-model support
   # Start with: ROUTER=true ./shannon start ...
   router:
@@ -70,3 +86,4 @@ services:
 
 volumes:
   temporal-data:
+  webapp-data:
