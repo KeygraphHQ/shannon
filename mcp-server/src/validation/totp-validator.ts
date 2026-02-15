@@ -33,7 +33,7 @@ export function base32Decode(encoded: string): Buffer {
       throw new Error(`Invalid base32 character: ${char}`);
     }
 
-    value = (value << 5) | index;
+    value = (value << 5) | (index as number);
     bits += 5;
 
     if (bits >= 8) {
