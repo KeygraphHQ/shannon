@@ -290,7 +290,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 | Provider | Models |
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
-| OpenRouter | google/gemini-3-flash-preview |
+| OpenRouter | google/gemini-3-flash-preview, z-ai/glm-4.7-flash |
 
 #### Disclaimer
 

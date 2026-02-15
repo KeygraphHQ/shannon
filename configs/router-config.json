@@ -20,7 +20,8 @@
       "api_base_url": "https://openrouter.ai/api/v1/chat/completions",
       "api_key": "$OPENROUTER_API_KEY",
       "models": [
-        "google/gemini-3-flash-preview"
+        "google/gemini-3-flash-preview",
+        "z-ai/glm-4.7-flash"
       ],
       "transformer": {
         "use": ["openrouter"]
