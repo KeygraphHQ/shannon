@@ -31,9 +31,9 @@
       "api_base_url": "https://api.z.ai/api/paas/v4/chat/completions",
       "api_key": "$ZAI_API_KEY",
       "models": [
-        "glm-4.7-flash",
-        "glm-4.5-flash",
-        "glm-4.6v-flash"
+        "zai/glm-4.7-flash",
+        "zai/glm-4.5-flash",
+        "zai/glm-4.6v-flash"
       ]
     }
   ],

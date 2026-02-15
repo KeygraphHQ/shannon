@@ -293,7 +293,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
 | OpenRouter | google/gemini-3-flash-preview |
-| Zhipu AI (ZAI) | glm-4.7-flash, glm-4.5-flash, glm-4.6v-flash |
+| Zhipu AI (ZAI) | zai/glm-4.7-flash, zai/glm-4.5-flash, zai/glm-4.6v-flash |
 
 #### Disclaimer
 
