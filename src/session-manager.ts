@@ -4,7 +4,6 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import { path } from 'zx';
 import type { AgentName } from './types/index.js';
 
 // Agent definition interface
@@ -81,29 +80,6 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Report agent',
     prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit']
   }
-});
-
-// Agent execution order
-export const AGENT_ORDER: readonly AgentName[] = Object.freeze([
-  'pre-recon',
-  'recon',
-  'injection-vuln',
-  'xss-vuln',
-  'auth-vuln',
-  'ssrf-vuln',
-  'authz-vuln',
-  'injection-exploit',
-  'xss-exploit',
-  'auth-exploit',
-  'ssrf-exploit',
-  'authz-exploit',
-  'report'
-] as const);
-
-// Parallel execution groups
-export const getParallelGroups = (): Readonly<{ vuln: AgentName[]; exploit: AgentName[] }> => Object.freeze({
-  vuln: ['injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'],
-  exploit: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit']
 });
 
 // Phase names for metrics aggregation

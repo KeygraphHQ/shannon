@@ -60,7 +60,7 @@ export const costResults: CostResults = {
 };
 
 // Function to display comprehensive timing summary
-export const displayTimingSummary = (): void => {
+const displayTimingSummary = (): void => {
   if (!timingResults.total) {
     console.log(chalk.yellow('No timing data available'));
     return;

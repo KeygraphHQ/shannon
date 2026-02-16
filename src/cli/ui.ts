@@ -8,7 +8,7 @@ import chalk from 'chalk';
 import { displaySplashScreen } from '../splash-screen.js';
 
 // Helper function: Display help information
-export function showHelp(): void {
+function showHelp(): void {
   console.log(chalk.cyan.bold('AI Penetration Testing Agent'));
   console.log(chalk.gray('Automated security assessment tool\n'));
 
