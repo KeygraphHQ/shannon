@@ -326,7 +326,6 @@ async function startPipeline(): Promise<void> {
       console.log(chalk.bold('Monitor progress:'));
       console.log(chalk.white('  Web UI:  ') + chalk.blue(`http://localhost:8233/namespaces/default/workflows/${workflowId}`));
       console.log(chalk.white('  Logs:    ') + chalk.gray(`./shannon logs ID=${workflowId}`));
-      console.log(chalk.white('  Query:   ') + chalk.gray(`./shannon query ID=${workflowId}`));
       console.log();
       console.log(chalk.bold('Output:'));
       console.log(chalk.white('  Reports: ') + chalk.cyan(outputDir));
