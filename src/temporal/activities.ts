@@ -544,8 +544,17 @@ export async function loadResumeState(
     .filter((hash): hash is string => hash != null);
 
   if (checkpoints.length === 0) {
+    const successAgents = Object.entries(agents)
+      .filter(([, data]) => data.status === 'success')
+      .map(([name]) => name);
+
     throw ApplicationFailure.nonRetryable(
-      `No successful agent checkpoints found in workspace ${workspaceName}`,
+      `Cannot resume workspace ${workspaceName}: ` +
+      (successAgents.length > 0
+        ? `${successAgents.length} agent(s) show success in session.json (${successAgents.join(', ')}) ` +
+          `but their deliverable files are missing from disk. ` +
+          `Start a fresh run instead.`
+        : `No agents completed successfully. Start a fresh run instead.`),
       'NoCheckpointsError'
     );
   }
