@@ -3,6 +3,11 @@
 
 set -e
 
+# Prevent MSYS from converting Unix paths (e.g. /repos/my-repo) to Windows paths
+case "$OSTYPE" in
+  msys*) export MSYS_NO_PATHCONV=1 ;;
+esac
+
 # Detect Podman vs Docker and set compose files accordingly
 # Podman doesn't support host-gateway, so we only include the Docker override for actual Docker
 COMPOSE_BASE="docker-compose.yml"
