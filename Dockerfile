@@ -120,6 +120,9 @@ RUN npm ci && \
 # Copy application source code
 COPY . .
 
+# Install Claude Code CLI (required by @anthropic-ai/claude-agent-sdk)
+RUN npm install -g @anthropic-ai/claude-code
+
 # Build TypeScript (mcp-server first, then main project)
 RUN cd mcp-server && npm run build && cd .. && npm run build
 
