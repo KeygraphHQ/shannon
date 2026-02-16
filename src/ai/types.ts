@@ -13,7 +13,7 @@ export interface ExecutionContext {
   agentKey: string;
 }
 
-export interface ProcessingState {
+interface ProcessingState {
   turnCount: number;
   result: string | null;
   apiErrorDetected: boolean;
@@ -22,7 +22,7 @@ export interface ProcessingState {
   lastHeartbeat: number;
 }
 
-export interface ProcessingResult {
+interface ProcessingResult {
   result: string | null;
   turnCount: number;
   apiErrorDetected: boolean;
@@ -111,7 +111,7 @@ export interface ApiErrorDetection {
 }
 
 // Message types from SDK stream
-export type SdkMessage =
+type SdkMessage =
   | AssistantMessage
   | ResultMessage
   | ToolUseMessage
@@ -132,12 +132,12 @@ export interface UserMessage {
 }
 
 // Dispatch result types for message processing
-export type MessageDispatchResult =
+type MessageDispatchResult =
   | { action: 'continue' }
   | { action: 'break'; result: string | null; cost: number }
   | { action: 'throw'; error: Error };
 
-export interface MessageDispatchContext {
+interface MessageDispatchContext {
   turnCount: number;
   execContext: ExecutionContext;
   description: string;

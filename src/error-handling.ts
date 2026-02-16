@@ -42,8 +42,7 @@ export class PentestError extends Error {
   }
 }
 
-// Centralized error logging function
-export async function logError(
+async function logError(
   error: Error & { type?: PentestErrorType; retryable?: boolean; context?: PentestErrorContext },
   contextMsg: string,
   sourceDir: string | null = null

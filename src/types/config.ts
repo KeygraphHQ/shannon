@@ -53,7 +53,7 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
-  login?: unknown; // Deprecated
+  login?: unknown;
 }
 
 export interface DistributedConfig {
