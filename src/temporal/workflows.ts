@@ -167,6 +167,15 @@ export async function pentestPipelineWorkflow(
       incompleteAgents
     );
 
+    // Check if all agents are already complete
+    if (resumeState.completedAgents.length === ALL_AGENTS.length) {
+      console.log(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+      state.status = 'completed';
+      state.completedAgents = [...resumeState.completedAgents];
+      state.summary = computeSummary(state);
+      return state;
+    }
+
     // Record resume attempt in session.json
     await a.recordResumeAttempt(
       activityInput,
