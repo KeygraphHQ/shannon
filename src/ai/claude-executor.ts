@@ -220,7 +220,10 @@ export async function runClaudePrompt(
   const mcpServers = buildMcpServers(sourceDir, agentName);
 
   // Build env vars to pass to SDK subprocesses
+  // Spread process.env first so PATH and other system vars are inherited,
+  // then override with Shannon-specific vars
   const sdkEnv: Record<string, string> = {
+    ...Object.fromEntries(Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] != null)),
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
   if (process.env.ANTHROPIC_API_KEY) {
