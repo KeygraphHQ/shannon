@@ -236,8 +236,18 @@ async function runAgentActivity(
 
       // Limit output validation retries (unlikely to self-heal)
       if (attemptNumber >= MAX_OUTPUT_VALIDATION_RETRIES) {
+        // Build helpful troubleshooting message
+        const troubleshootingTips = agentName === 'pre-recon'
+          ? `\n\nTroubleshooting tips:
+  1. Check if the repository path is accessible: ${repoPath}
+  2. If using ROUTER mode, ensure the model supports tool use and follows instructions well
+  3. Check agent logs at: audit-logs/*/agents/${agentName}*.jsonl
+  4. Try running with a different model (Claude models recommended)
+  5. Ensure the target URL is reachable from the Docker container`
+          : '';
+
         throw ApplicationFailure.nonRetryable(
-          `Agent ${agentName} failed output validation after ${attemptNumber} attempts`,
+          `Agent ${agentName} failed output validation after ${attemptNumber} attempts. Required deliverable files were not created.${troubleshootingTips}`,
           'OutputValidationError',
           [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
         );
