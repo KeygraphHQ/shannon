@@ -181,9 +181,7 @@ async function runAgentActivity(
       agentName, // description
       agentName,
       chalk.cyan,
-      sessionMetadata,
-      auditSession,
-      attemptNumber
+      auditSession
     );
 
     // 6.5. Sanity check: Detect spending cap that slipped through all detection layers

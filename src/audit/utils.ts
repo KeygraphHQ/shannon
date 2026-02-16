@@ -19,8 +19,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Get Shannon repository root
-export const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
-export const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
+const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
+const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
 
 export interface SessionMetadata {
   id: string;
@@ -130,39 +130,6 @@ export async function atomicWrite(filePath: string, data: object | string): Prom
     }
     throw error;
   }
-}
-
-/**
- * Format duration in milliseconds to human-readable string
- */
-export function formatDuration(ms: number): string {
-  if (ms < 1000) {
-    return `${ms}ms`;
-  }
-
-  const seconds = ms / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`;
-  }
-
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
-  return `${minutes}m ${remainingSeconds}s`;
-}
-
-/**
- * Format timestamp to ISO 8601 string
- */
-export function formatTimestamp(timestamp: number = Date.now()): string {
-  return new Date(timestamp).toISOString();
-}
-
-/**
- * Calculate percentage
- */
-export function calculatePercentage(part: number, total: number): number {
-  if (total === 0) return 0;
-  return (part / total) * 100;
 }
 
 /**
