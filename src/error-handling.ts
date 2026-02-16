@@ -20,6 +20,36 @@ export interface TemporalErrorClassification {
   retryable: boolean;
 }
 
+// Keys whose values should be redacted in log output
+const SENSITIVE_KEY_PATTERN = /^(password|pass|passwd|secret|token|apikey|api_key|authorization|cookie|session|sessionid|session_id|privatekey|private_key|credentials|totp_secret|access_token|refresh_token)$/i;
+
+/**
+ * Redact sensitive values from an object for safe logging.
+ * Recursively traverses the object and replaces values of sensitive keys with '[REDACTED]'.
+ */
+export function redactSensitive(obj: unknown): unknown {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (typeof obj !== 'object') {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => redactSensitive(item));
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (SENSITIVE_KEY_PATTERN.test(key)) {
+      result[key] = '[REDACTED]';
+    } else if (typeof value === 'object' && value !== null) {
+      result[key] = redactSensitive(value);
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 // Custom error class for pentest operations
 export class PentestError extends Error {
   name = 'PentestError' as const;
@@ -71,7 +101,7 @@ export async function logError(
   console.log(color(`   ${error.message}`));
 
   if (error.context && Object.keys(error.context).length > 0) {
-    console.log(chalk.gray(`   Context: ${JSON.stringify(error.context)}`));
+    console.log(chalk.gray(`   Context: ${JSON.stringify(redactSensitive(error.context))}`));
   }
 
   // File logging (if source directory available)

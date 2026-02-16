@@ -200,6 +200,34 @@ function formatBrowserAction(toolCall: ToolCall): string {
 }
 
 /**
+ * Type guard: validates parsed JSON matches expected ToolCall shape.
+ * Prevents use of untrusted AI-generated content without structural validation.
+ */
+function isValidToolCall(obj: unknown): obj is ToolCall {
+  if (obj === null || typeof obj !== 'object' || Array.isArray(obj)) {
+    return false;
+  }
+  const record = obj as Record<string, unknown>;
+  if (typeof record['name'] !== 'string' || record['name'].length === 0) {
+    return false;
+  }
+  if (record['input'] !== undefined && (typeof record['input'] !== 'object' || record['input'] === null || Array.isArray(record['input']))) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Sanitize a string value from untrusted parsed JSON for safe display.
+ * Strips control characters and truncates to prevent log injection.
+ */
+function sanitizeForDisplay(value: unknown, maxLength: number = 80): string {
+  const str = typeof value === 'string' ? value : String(value ?? '');
+  // Strip control characters (except newline/tab) to prevent log injection
+  return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '').slice(0, maxLength);
+}
+
+/**
  * Filter out JSON tool calls from content, with special handling for Task calls
  */
 export function filterJsonToolCalls(content: string | null | undefined): string {
@@ -221,11 +249,18 @@ export function filterJsonToolCalls(content: string | null | undefined): string 
     // Check if this is a JSON tool call
     if (trimmed.startsWith('{"type":"tool_use"')) {
       try {
-        const toolCall = JSON.parse(trimmed) as ToolCall;
+        const parsed: unknown = JSON.parse(trimmed);
+
+        // Validate structure before using as ToolCall
+        if (!isValidToolCall(parsed)) {
+          continue; // Drop malformed tool calls silently
+        }
+
+        const toolCall = parsed;
 
         // Special handling for Task tool calls
         if (toolCall.name === 'Task') {
-          const description = toolCall.input?.description || 'analysis agent';
+          const description = sanitizeForDisplay(toolCall.input?.description, 80) || 'analysis agent';
           processedLines.push(`🚀 Launching ${description}`);
           continue;
         }
