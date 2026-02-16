@@ -15,6 +15,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
+// Import and re-export file I/O utilities from canonical location
+import { ensureDirectory, atomicWrite, readJson, fileExists } from '../utils/file-io.js';
+export { ensureDirectory, atomicWrite, readJson, fileExists };
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -91,65 +95,6 @@ export function generateSessionJsonPath(sessionMetadata: SessionMetadata): strin
 export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): string {
   const auditPath = generateAuditPath(sessionMetadata);
   return path.join(auditPath, 'workflow.log');
-}
-
-/**
- * Ensure directory exists (idempotent, race-safe)
- */
-export async function ensureDirectory(dirPath: string): Promise<void> {
-  try {
-    await fs.mkdir(dirPath, { recursive: true });
-  } catch (error) {
-    // Ignore EEXIST errors (race condition safe)
-    if ((error as NodeJS.ErrnoException).code !== 'EEXIST') {
-      throw error;
-    }
-  }
-}
-
-/**
- * Atomic write using temp file + rename pattern
- * Guarantees no partial writes or corruption on crash
- */
-export async function atomicWrite(filePath: string, data: object | string): Promise<void> {
-  const tempPath = `${filePath}.tmp`;
-  const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
-
-  try {
-    // Write to temp file
-    await fs.writeFile(tempPath, content, 'utf8');
-
-    // Atomic rename (POSIX guarantee: atomic on same filesystem)
-    await fs.rename(tempPath, filePath);
-  } catch (error) {
-    // Clean up temp file on failure
-    try {
-      await fs.unlink(tempPath);
-    } catch {
-      // Ignore cleanup errors
-    }
-    throw error;
-  }
-}
-
-/**
- * Read and parse JSON file
- */
-export async function readJson<T = unknown>(filePath: string): Promise<T> {
-  const content = await fs.readFile(filePath, 'utf8');
-  return JSON.parse(content) as T;
-}
-
-/**
- * Check if file exists
- */
-export async function fileExists(filePath: string): Promise<boolean> {
-  try {
-    await fs.access(filePath);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

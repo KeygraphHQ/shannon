@@ -17,20 +17,10 @@ import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { SessionMutex } from '../utils/concurrency.js';
+import type { AgentEndResult } from '../types/index.js';
 
 // Global mutex instance
 const sessionMutex = new SessionMutex();
-
-interface AgentEndResult {
-  attemptNumber: number;
-  duration_ms: number;
-  cost_usd: number;
-  success: boolean;
-  model?: string | undefined;
-  error?: string | undefined;
-  checkpoint?: string | undefined;
-  isFinalAttempt?: boolean | undefined;
-}
 
 /**
  * AuditSession - Main audit system facade

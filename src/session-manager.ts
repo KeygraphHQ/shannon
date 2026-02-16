@@ -4,14 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import type { AgentName } from './types/index.js';
-
-// Agent definition interface
-interface AgentDefinition {
-  name: AgentName;
-  displayName: string;
-  prerequisites: AgentName[];
-}
+import type { AgentName, AgentDefinition } from './types/index.js';
 
 // Agent definitions according to PRD
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
