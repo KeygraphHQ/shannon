@@ -312,9 +312,13 @@ Shannon can experimentally route requests through alternative AI providers using
 OPENAI_API_KEY=sk-...
 # OR
 OPENROUTER_API_KEY=sk-or-...
+# OR
+ZAI_API_KEY=your-zai-api-key
 
 # Set default model:
 ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+# OR
+# ROUTER_DEFAULT=zai,glm-5
 ```
 
 2. Run with `ROUTER=true`:
@@ -329,6 +333,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
 | OpenRouter | google/gemini-3-flash-preview |
+| Z.AI | glm-5, glm-4.7, glm-4.7-flash |
 
 #### Disclaimer
 
