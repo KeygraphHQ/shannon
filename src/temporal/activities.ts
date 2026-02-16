@@ -72,9 +72,14 @@ import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
-import type { AgentMetrics } from './shared.js';
+import { getDeliverablePath, ALL_AGENTS } from '../types/agents.js';
+import type { AgentMetrics, ResumeState } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
-import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
+import { copyDeliverablesToAudit, type SessionMetadata, readJson, fileExists } from '../audit/utils.js';
+import type { ResumeAttempt } from '../audit/metrics-tracker.js';
+import { executeGitCommandWithRetry } from '../utils/git-manager.js';
+import path from 'path';
+import fs from 'fs/promises';
 
 const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min production, 5min testing)
 
@@ -89,6 +94,7 @@ export interface ActivityInput {
   outputPath?: string;
   pipelineTestingMode?: boolean;
   workflowId: string;
+  sessionId: string; // Workspace name (for resume) or workflowId (for new runs)
 }
 
 /**
@@ -142,8 +148,9 @@ async function runAgentActivity(
     }
 
     // 2. Build session metadata for audit
+    // Use sessionId (workspace name) for directory, workflowId for tracking
     const sessionMetadata: SessionMetadata = {
-      id: workflowId,
+      id: input.sessionId,
       webUrl,
       repoPath,
       ...(outputPath && { outputPath }),
@@ -151,7 +158,7 @@ async function runAgentActivity(
 
     // 3. Initialize audit session (idempotent, safe across retries)
     const auditSession = new AuditSession(sessionMetadata);
-    await auditSession.initialize();
+    await auditSession.initialize(workflowId);
 
     // 4. Load prompt
     const promptName = getPromptNameForAgent(agentName);
@@ -239,7 +246,8 @@ async function runAgentActivity(
       throw new Error(`Agent ${agentName} failed output validation`);
     }
 
-    // 9. Success - commit and log
+    // 9. Success - commit deliverables, then capture checkpoint hash
+    await commitGitSuccess(repoPath, agentName);
     const commitHash = await getGitCommitHash(repoPath);
     await auditSession.endAgent(agentName, {
       attemptNumber,
@@ -249,14 +257,6 @@ async function runAgentActivity(
       model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
     });
-    await commitGitSuccess(repoPath, agentName);
-
-    // 9.5. Copy deliverables to audit-logs (non-fatal)
-    try {
-      await copyDeliverablesToAudit(sessionMetadata, repoPath);
-    } catch (copyErr) {
-      console.error(`Failed to copy deliverables to audit-logs for ${agentName}:`, copyErr);
-    }
 
     // 10. Return metrics
     return {
@@ -386,13 +386,12 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * This must be called AFTER runReportAgent to add the model information to the Executive Summary.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, outputPath } = input;
-  if (!outputPath) {
-    console.log(chalk.yellow('⚠️ No output path provided, skipping model injection'));
-    return;
-  }
+  const { repoPath, sessionId, outputPath } = input;
+  const effectiveOutputPath = outputPath
+    ? path.join(outputPath, sessionId)
+    : path.join('./audit-logs', sessionId);
   try {
-    await injectModelIntoReport(repoPath, outputPath);
+    await injectModelIntoReport(repoPath, effectiveOutputPath);
   } catch (error) {
     const err = error as Error;
     console.log(chalk.yellow(`⚠️ Error injecting model into report: ${err.message}`));
@@ -449,6 +448,227 @@ export async function checkExploitationQueue(
   };
 }
 
+// === Resume Activities ===
+
+/**
+ * Session.json structure for resume state loading
+ */
+interface SessionJson {
+  session: {
+    id: string;
+    webUrl: string;
+    repoPath?: string;
+    originalWorkflowId?: string;
+    resumeAttempts?: ResumeAttempt[];
+  };
+  metrics: {
+    agents: Record<string, {
+      status: 'in-progress' | 'success' | 'failed';
+      checkpoint?: string;
+    }>;
+  };
+}
+
+/**
+ * Load resume state from an existing workspace.
+ * Validates workspace exists, URL matches, and determines which agents to skip.
+ *
+ * @throws ApplicationFailure.nonRetryable if workspace not found or URL mismatch
+ */
+export async function loadResumeState(
+  workspaceName: string,
+  expectedUrl: string,
+  expectedRepoPath: string
+): Promise<ResumeState> {
+  const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
+
+  // Validate workspace exists
+  const exists = await fileExists(sessionPath);
+  if (!exists) {
+    throw ApplicationFailure.nonRetryable(
+      `Workspace not found: ${workspaceName}\nExpected path: ${sessionPath}`,
+      'WorkspaceNotFoundError'
+    );
+  }
+
+  // Load session.json
+  let session: SessionJson;
+  try {
+    session = await readJson<SessionJson>(sessionPath);
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw ApplicationFailure.nonRetryable(
+      `Corrupted session.json in workspace ${workspaceName}: ${errorMsg}`,
+      'CorruptedSessionError'
+    );
+  }
+
+  // Validate URL matches
+  if (session.session.webUrl !== expectedUrl) {
+    throw ApplicationFailure.nonRetryable(
+      `URL mismatch with workspace\n  Workspace URL: ${session.session.webUrl}\n  Provided URL:  ${expectedUrl}`,
+      'URLMismatchError'
+    );
+  }
+
+  // Find completed agents (status === 'success' AND deliverable exists)
+  const completedAgents: string[] = [];
+  const agents = session.metrics.agents;
+
+  for (const agentName of ALL_AGENTS) {
+    const agentData = agents[agentName];
+
+    // Skip if agent never ran or didn't succeed
+    if (!agentData || agentData.status !== 'success') {
+      continue;
+    }
+
+    // Validate deliverable exists
+    const deliverablePath = getDeliverablePath(agentName, expectedRepoPath);
+    const deliverableExists = await fileExists(deliverablePath);
+
+    if (!deliverableExists) {
+      console.log(
+        chalk.yellow(`Agent ${agentName} shows success but deliverable missing, will re-run`)
+      );
+      continue;
+    }
+
+    // Agent completed successfully and deliverable exists
+    completedAgents.push(agentName);
+  }
+
+  // Find latest checkpoint from completed agents
+  const checkpoints = completedAgents
+    .map((name) => agents[name]?.checkpoint)
+    .filter((hash): hash is string => hash != null);
+
+  if (checkpoints.length === 0) {
+    const successAgents = Object.entries(agents)
+      .filter(([, data]) => data.status === 'success')
+      .map(([name]) => name);
+
+    throw ApplicationFailure.nonRetryable(
+      `Cannot resume workspace ${workspaceName}: ` +
+      (successAgents.length > 0
+        ? `${successAgents.length} agent(s) show success in session.json (${successAgents.join(', ')}) ` +
+          `but their deliverable files are missing from disk. ` +
+          `Start a fresh run instead.`
+        : `No agents completed successfully. Start a fresh run instead.`),
+      'NoCheckpointsError'
+    );
+  }
+
+  // Find most recent commit among checkpoints
+  const checkpointHash = await findLatestCommit(expectedRepoPath, checkpoints);
+
+  const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
+
+  console.log(chalk.cyan(`=== RESUME STATE ===`));
+  console.log(`Workspace: ${workspaceName}`);
+  console.log(`Completed agents: ${completedAgents.length}`);
+  console.log(`Checkpoint: ${checkpointHash}`);
+
+  return {
+    workspaceName,
+    originalUrl: session.session.webUrl,
+    completedAgents,
+    checkpointHash,
+    originalWorkflowId,
+  };
+}
+
+/**
+ * Find the most recent commit among a list of commit hashes.
+ * Uses git rev-list to determine which commit is newest.
+ */
+async function findLatestCommit(repoPath: string, commitHashes: string[]): Promise<string> {
+  if (commitHashes.length === 1) {
+    const hash = commitHashes[0];
+    if (!hash) {
+      throw new Error('Empty commit hash in array');
+    }
+    return hash;
+  }
+
+  // Use git rev-list to find the most recent commit among all hashes
+  const result = await executeGitCommandWithRetry(
+    ['git', 'rev-list', '--max-count=1', ...commitHashes],
+    repoPath,
+    'find latest commit'
+  );
+
+  return result.stdout.trim();
+}
+
+/**
+ * Restore git workspace to a checkpoint and clean up partial deliverables.
+ *
+ * @param repoPath - Repository path
+ * @param checkpointHash - Git commit hash to reset to
+ * @param incompleteAgents - Agents that didn't complete (will have deliverables cleaned up)
+ */
+export async function restoreGitCheckpoint(
+  repoPath: string,
+  checkpointHash: string,
+  incompleteAgents: AgentName[]
+): Promise<void> {
+  console.log(chalk.blue(`Restoring git workspace to ${checkpointHash}...`));
+
+  // Checkpoint hash points to the success commit (after commitGitSuccess),
+  // so git reset --hard naturally preserves all completed agent deliverables.
+  await executeGitCommandWithRetry(
+    ['git', 'reset', '--hard', checkpointHash],
+    repoPath,
+    'reset to checkpoint for resume'
+  );
+  await executeGitCommandWithRetry(
+    ['git', 'clean', '-fd'],
+    repoPath,
+    'clean untracked files for resume'
+  );
+
+  // Clean up any partial deliverables from incomplete agents
+  for (const agentName of incompleteAgents) {
+    const deliverablePath = getDeliverablePath(agentName, repoPath);
+    try {
+      const exists = await fileExists(deliverablePath);
+      if (exists) {
+        console.log(chalk.yellow(`Cleaning partial deliverable: ${agentName}`));
+        await fs.unlink(deliverablePath);
+      }
+    } catch (error) {
+      console.log(chalk.gray(`Note: Failed to delete ${deliverablePath}: ${error}`));
+    }
+  }
+
+  console.log(chalk.green('Workspace restored to clean state'));
+}
+
+/**
+ * Record a resume attempt in session.json.
+ * Tracks the new workflow ID, terminated workflows, and checkpoint hash.
+ */
+export async function recordResumeAttempt(
+  input: ActivityInput,
+  terminatedWorkflows: string[],
+  checkpointHash: string
+): Promise<void> {
+  const { webUrl, repoPath, outputPath, sessionId, workflowId } = input;
+
+  const sessionMetadata: SessionMetadata = {
+    id: sessionId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  };
+
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+
+  await auditSession.addResumeAttempt(workflowId, terminatedWorkflows, checkpointHash);
+}
+
 /**
  * Log phase transition to the unified workflow log.
  * Called at phase boundaries for per-workflow logging.
@@ -458,17 +678,17 @@ export async function logPhaseTransition(
   phase: string,
   event: 'start' | 'complete'
 ): Promise<void> {
-  const { webUrl, repoPath, outputPath, workflowId } = input;
+  const { webUrl, repoPath, outputPath, sessionId, workflowId } = input;
 
   const sessionMetadata: SessionMetadata = {
-    id: workflowId,
+    id: sessionId,
     webUrl,
     repoPath,
     ...(outputPath && { outputPath }),
   };
 
   const auditSession = new AuditSession(sessionMetadata);
-  await auditSession.initialize();
+  await auditSession.initialize(workflowId);
 
   if (event === 'start') {
     await auditSession.logPhaseStart(phase);
@@ -485,16 +705,54 @@ export async function logWorkflowComplete(
   input: ActivityInput,
   summary: WorkflowSummary
 ): Promise<void> {
-  const { webUrl, repoPath, outputPath, workflowId } = input;
+  const { webUrl, repoPath, outputPath, sessionId, workflowId } = input;
 
   const sessionMetadata: SessionMetadata = {
-    id: workflowId,
+    id: sessionId,
     webUrl,
     repoPath,
     ...(outputPath && { outputPath }),
   };
 
   const auditSession = new AuditSession(sessionMetadata);
-  await auditSession.initialize();
-  await auditSession.logWorkflowComplete(summary);
+  await auditSession.initialize(workflowId);
+  await auditSession.updateSessionStatus(summary.status);
+
+  // Use cumulative metrics from session.json (includes all resume attempts)
+  const sessionData = await auditSession.getMetrics() as {
+    metrics: {
+      total_duration_ms: number;
+      total_cost_usd: number;
+      agents: Record<string, { final_duration_ms: number; total_cost_usd: number }>;
+    };
+  };
+
+  // Fill in metrics for skipped agents (completed in previous runs)
+  const agentMetrics = { ...summary.agentMetrics };
+  for (const agentName of summary.completedAgents) {
+    if (!agentMetrics[agentName]) {
+      const agentData = sessionData.metrics.agents[agentName];
+      if (agentData) {
+        agentMetrics[agentName] = {
+          durationMs: agentData.final_duration_ms,
+          costUsd: agentData.total_cost_usd,
+        };
+      }
+    }
+  }
+
+  const cumulativeSummary: WorkflowSummary = {
+    ...summary,
+    totalDurationMs: sessionData.metrics.total_duration_ms,
+    totalCostUsd: sessionData.metrics.total_cost_usd,
+    agentMetrics,
+  };
+  await auditSession.logWorkflowComplete(cumulativeSummary);
+
+  // Copy all deliverables to audit-logs once at workflow end (non-fatal)
+  try {
+    await copyDeliverablesToAudit(sessionMetadata, repoPath);
+  } catch (copyErr) {
+    console.error('Failed to copy deliverables to audit-logs:', copyErr);
+  }
 }

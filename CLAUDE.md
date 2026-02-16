@@ -18,9 +18,14 @@ git clone https://github.com/org/repo.git ./repos/my-repo
 ./shannon start URL=<url> REPO=my-repo
 ./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
 
+# Workspaces & Resume
+./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
+./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # Resume (same command)
+./shannon start URL=<url> REPO=my-repo WORKSPACE=<auto-name> # Resume auto-named run
+./shannon workspaces                                          # List all workspaces
+
 # Monitor
 ./shannon logs                      # Real-time worker logs
-./shannon query ID=<workflow-id>    # Query workflow progress
 # Temporal Web UI: http://localhost:8233
 
 # Stop
@@ -31,7 +36,7 @@ git clone https://github.com/org/repo.git ./repos/my-repo
 npm run build
 ```
 
-**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
+**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `WORKSPACE=<name>` (named workspace; auto-resumes if exists), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
 
 ## Architecture
 
@@ -51,8 +56,6 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/worker.ts` — Worker entry point
 - `src/temporal/client.ts` — CLI client for starting workflows
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
-- `src/temporal/query.ts` — Query tool for progress inspection
-
 ### Five-Phase Pipeline
 
 1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
@@ -67,6 +70,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
 - **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables
 - **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
+- **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
 
 ## Development Notes
 
