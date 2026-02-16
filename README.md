@@ -195,6 +195,10 @@ git clone https://github.com/your-org/api.git
 
 ### Platform-Specific Instructions
 
+**For Windows:**
+
+Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed.
+
 **For Linux (Native Docker):**
 
 You may need to run commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
