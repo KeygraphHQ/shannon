@@ -4,25 +4,15 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import chalk from 'chalk';
-import { fs, path } from 'zx';
 import type {
   PentestErrorType,
   PentestErrorContext,
-  LogEntry,
-  ToolErrorResult,
   PromptErrorResult,
 } from './types/errors.js';
 
-// Temporal error classification for ApplicationFailure wrapping
-export interface TemporalErrorClassification {
-  type: string;
-  retryable: boolean;
-}
-
 // Custom error class for pentest operations
 export class PentestError extends Error {
-  name = 'PentestError' as const;
+  override name = 'PentestError' as const;
   type: PentestErrorType;
   retryable: boolean;
   context: PentestErrorContext;
@@ -42,76 +32,7 @@ export class PentestError extends Error {
   }
 }
 
-async function logError(
-  error: Error & { type?: PentestErrorType; retryable?: boolean; context?: PentestErrorContext },
-  contextMsg: string,
-  sourceDir: string | null = null
-): Promise<LogEntry> {
-  const timestamp = new Date().toISOString();
-  const logEntry: LogEntry = {
-    timestamp,
-    context: contextMsg,
-    error: {
-      name: error.name || error.constructor.name,
-      message: error.message,
-      type: error.type || 'unknown',
-      retryable: error.retryable || false,
-    },
-  };
-  // Only add stack if it exists
-  if (error.stack) {
-    logEntry.error.stack = error.stack;
-  }
-
-  // Console logging with color
-  const prefix = error.retryable ? '⚠️' : '❌';
-  const color = error.retryable ? chalk.yellow : chalk.red;
-  console.log(color(`${prefix} ${contextMsg}:`));
-  console.log(color(`   ${error.message}`));
-
-  if (error.context && Object.keys(error.context).length > 0) {
-    console.log(chalk.gray(`   Context: ${JSON.stringify(error.context)}`));
-  }
-
-  // File logging (if source directory available)
-  if (sourceDir) {
-    try {
-      const logPath = path.join(sourceDir, 'error.log');
-      await fs.appendFile(logPath, JSON.stringify(logEntry) + '\n');
-    } catch (logErr) {
-      const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
-      console.log(chalk.gray(`   (Failed to write error log: ${errMsg})`));
-    }
-  }
-
-  return logEntry;
-}
-
 // Handle tool execution errors
-export function handleToolError(
-  toolName: string,
-  error: Error & { code?: string }
-): ToolErrorResult {
-  const isRetryable =
-    error.code === 'ECONNRESET' ||
-    error.code === 'ETIMEDOUT' ||
-    error.code === 'ENOTFOUND';
-
-  return {
-    tool: toolName,
-    output: `Error: ${error.message}`,
-    status: 'error',
-    duration: 0,
-    success: false,
-    error: new PentestError(
-      `${toolName} execution failed: ${error.message}`,
-      'tool',
-      isRetryable,
-      { toolName, originalError: error.message, errorCode: error.code }
-    ),
-  };
-}
-
 // Handle prompt loading errors
 export function handlePromptError(
   promptName: string,
@@ -181,21 +102,6 @@ export function isRetryableError(error: Error): boolean {
   return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
 }
 
-// Rate limit errors get longer base delay (30s) vs standard exponential backoff (2s)
-export function getRetryDelay(error: Error, attempt: number): number {
-  const message = error.message.toLowerCase();
-
-  // Rate limiting gets longer delays
-  if (message.includes('rate limit') || message.includes('429')) {
-    return Math.min(30000 + attempt * 10000, 120000); // 30s, 40s, 50s, max 2min
-  }
-
-  // Exponential backoff with jitter for other retryable errors
-  const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-  const jitter = Math.random() * 1000; // 0-1s random
-  return Math.min(baseDelay + jitter, 30000); // Max 30s
-}
-
 /**
  * Classifies errors for Temporal workflow retry behavior.
  * Returns error type and whether Temporal should retry.
@@ -204,7 +110,7 @@ export function getRetryDelay(error: Error, attempt: number): number {
  * - Retryable errors: Temporal retries with configured backoff
  * - Non-retryable errors: Temporal fails immediately
  */
-export function classifyErrorForTemporal(error: unknown): TemporalErrorClassification {
+export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===

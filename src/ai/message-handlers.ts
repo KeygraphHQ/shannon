@@ -38,7 +38,7 @@ import type {
 import type { ChalkInstance } from 'chalk';
 
 // Handles both array and string content formats from SDK
-export function extractMessageContent(message: AssistantMessage): string {
+function extractMessageContent(message: AssistantMessage): string {
   const messageContent = message.message;
 
   if (Array.isArray(messageContent.content)) {
@@ -51,7 +51,7 @@ export function extractMessageContent(message: AssistantMessage): string {
 }
 
 // Extracts only text content (no tool_use JSON) to avoid false positives in error detection
-export function extractTextOnlyContent(message: AssistantMessage): string {
+function extractTextOnlyContent(message: AssistantMessage): string {
   const messageContent = message.message;
 
   if (Array.isArray(messageContent.content)) {
@@ -64,7 +64,7 @@ export function extractTextOnlyContent(message: AssistantMessage): string {
   return String(messageContent.content);
 }
 
-export function detectApiError(content: string): ApiErrorDetection {
+function detectApiError(content: string): ApiErrorDetection {
   if (!content || typeof content !== 'string') {
     return { detected: false };
   }
@@ -181,7 +181,7 @@ function handleStructuredError(
   }
 }
 
-export function handleAssistantMessage(
+function handleAssistantMessage(
   message: AssistantMessage,
   turnCount: number
 ): AssistantResult {
@@ -219,7 +219,7 @@ export function handleAssistantMessage(
 }
 
 // Final message of a query with cost/duration info
-export function handleResultMessage(message: ResultMessage): ResultData {
+function handleResultMessage(message: ResultMessage): ResultData {
   const result: ResultData = {
     result: message.result || null,
     cost: message.total_cost_usd || 0,
@@ -243,7 +243,7 @@ export function handleResultMessage(message: ResultMessage): ResultData {
   return result;
 }
 
-export function handleToolUseMessage(message: ToolUseMessage): ToolUseData {
+function handleToolUseMessage(message: ToolUseMessage): ToolUseData {
   return {
     toolName: message.name,
     parameters: message.input || {},
@@ -252,7 +252,7 @@ export function handleToolUseMessage(message: ToolUseMessage): ToolUseData {
 }
 
 // Truncates long results for display (500 char limit), preserves full content for logging
-export function handleToolResultMessage(message: ToolResultMessage): ToolResultData {
+function handleToolResultMessage(message: ToolResultMessage): ToolResultData {
   const content = message.content;
   const contentStr =
     typeof content === 'string' ? content : JSON.stringify(content, null, 2);

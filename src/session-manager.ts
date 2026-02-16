@@ -7,7 +7,7 @@
 import type { AgentName } from './types/index.js';
 
 // Agent definition interface
-export interface AgentDefinition {
+interface AgentDefinition {
   name: AgentName;
   displayName: string;
   prerequisites: AgentName[];

@@ -13,7 +13,6 @@ import { PentestError } from './error-handling.js';
 import type {
   Config,
   Rule,
-  Rules,
   Authentication,
   DistributedConfig,
 } from './types/config.js';

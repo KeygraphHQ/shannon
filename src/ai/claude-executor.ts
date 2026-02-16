@@ -16,7 +16,6 @@ import { formatTimestamp } from '../utils/formatting.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
-import type { SessionMetadata } from '../audit/utils.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import type { AgentName } from '../types/index.js';
 
@@ -200,9 +199,7 @@ export async function runClaudePrompt(
   description: string = 'Claude analysis',
   agentName: string | null = null,
   colorFn: ChalkInstance = chalk.cyan,
-  sessionMetadata: SessionMetadata | null = null,
-  auditSession: AuditSession | null = null,
-  attemptNumber: number = 1
+  auditSession: AuditSession | null = null
 ): Promise<ClaudePromptResult> {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
