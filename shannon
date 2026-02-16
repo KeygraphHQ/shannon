@@ -41,8 +41,8 @@ show_help() {
 
 Usage:
   ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
+  ./shannon workspaces                    List all workspaces
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
-  ./shannon query ID=<workflow-id>        Query workflow progress
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
 
@@ -50,6 +50,7 @@ Options for 'start':
   REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
+  WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
 
@@ -58,10 +59,11 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
-  ./shannon query ID=shannon-1234567890
   ./shannon stop CLEAN=true
 
 Monitor workflows at http://localhost:8233
@@ -81,6 +83,7 @@ parse_args() {
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
+      WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
     esac
   done
 }
@@ -229,6 +232,7 @@ cmd_start() {
   fi
 
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
+  [ -n "$WORKSPACE" ] && ARGS="$ARGS --workspace $WORKSPACE"
 
   # Run the client to submit workflow
   docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
@@ -253,10 +257,26 @@ cmd_logs() {
   if [ -f "./audit-logs/${ID}/workflow.log" ]; then
     WORKFLOW_LOG="./audit-logs/${ID}/workflow.log"
   else
-    # Search for the workflow directory (handles custom OUTPUT paths)
-    FOUND=$(find . -maxdepth 3 -path "*/${ID}/workflow.log" -type f 2>/dev/null | head -1)
-    if [ -n "$FOUND" ]; then
-      WORKFLOW_LOG="$FOUND"
+    # For resume workflow IDs (e.g. workspace_resume_123), check the original workspace
+    WORKSPACE_ID="${ID%%_resume_*}"
+    if [ "$WORKSPACE_ID" != "$ID" ] && [ -f "./audit-logs/${WORKSPACE_ID}/workflow.log" ]; then
+      WORKFLOW_LOG="./audit-logs/${WORKSPACE_ID}/workflow.log"
+    fi
+
+    # For named workspace IDs (e.g. workspace_shannon-123), check the workspace name
+    if [ -z "$WORKFLOW_LOG" ]; then
+      WORKSPACE_ID="${ID%%_shannon-*}"
+      if [ "$WORKSPACE_ID" != "$ID" ] && [ -f "./audit-logs/${WORKSPACE_ID}/workflow.log" ]; then
+        WORKFLOW_LOG="./audit-logs/${WORKSPACE_ID}/workflow.log"
+      fi
+    fi
+
+    if [ -z "$WORKFLOW_LOG" ]; then
+      # Search for the workflow directory (handles custom OUTPUT paths)
+      FOUND=$(find . -maxdepth 3 -path "*/${ID}/workflow.log" -type f 2>/dev/null | head -1)
+      if [ -n "$FOUND" ]; then
+        WORKFLOW_LOG="$FOUND"
+      fi
     fi
   fi
 
@@ -270,22 +290,17 @@ cmd_logs() {
     echo "  - Workflow hasn't started yet"
     echo "  - Workflow ID is incorrect"
     echo ""
-    echo "Check: ./shannon query ID=$ID for workflow details"
+    echo "Check the Temporal Web UI at http://localhost:8233 for workflow details"
     exit 1
   fi
 }
 
-cmd_query() {
-  parse_args "$@"
-
-  if [ -z "$ID" ]; then
-    echo "ERROR: ID is required"
-    echo "Usage: ./shannon query ID=<workflow-id>"
-    exit 1
-  fi
+cmd_workspaces() {
+  # Ensure containers are running (need worker to execute node)
+  ensure_containers
 
   docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
-    node dist/temporal/query.js "$ID"
+    node dist/temporal/workspaces.js
 }
 
 cmd_stop() {
@@ -308,9 +323,9 @@ case "${1:-help}" in
     shift
     cmd_logs "$@"
     ;;
-  query)
+  workspaces)
     shift
-    cmd_query "$@"
+    cmd_workspaces
     ;;
   stop)
     shift
