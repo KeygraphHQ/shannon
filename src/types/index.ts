@@ -11,3 +11,4 @@
 export * from './errors.js';
 export * from './config.js';
 export * from './agents.js';
+export * from './audit.js';

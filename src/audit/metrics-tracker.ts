@@ -18,7 +18,7 @@ import {
 import { atomicWrite, readJson, fileExists } from '../utils/file-io.js';
 import { formatTimestamp, calculatePercentage } from '../utils/formatting.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
-import type { AgentName } from '../types/index.js';
+import type { AgentName, AgentEndResult } from '../types/index.js';
 
 interface AttemptData {
   attempt_number: number;
@@ -30,7 +30,7 @@ interface AttemptData {
   error?: string | undefined;
 }
 
-interface AgentMetrics {
+interface AgentAuditMetrics {
   status: 'in-progress' | 'success' | 'failed';
   attempts: AttemptData[];
   final_duration_ms: number;
@@ -68,19 +68,8 @@ interface SessionData {
     total_duration_ms: number;
     total_cost_usd: number;
     phases: Record<string, PhaseMetrics>;
-    agents: Record<string, AgentMetrics>;
+    agents: Record<string, AgentAuditMetrics>;
   };
-}
-
-interface AgentEndResult {
-  attemptNumber: number;
-  duration_ms: number;
-  cost_usd: number;
-  success: boolean;
-  model?: string | undefined;
-  error?: string | undefined;
-  checkpoint?: string | undefined;
-  isFinalAttempt?: boolean | undefined;
 }
 
 interface ActiveTimer {
@@ -326,9 +315,9 @@ export class MetricsTracker {
    * Calculate phase-level metrics
    */
   private calculatePhaseMetrics(
-    successfulAgents: Array<[string, AgentMetrics]>
+    successfulAgents: Array<[string, AgentAuditMetrics]>
   ): Record<string, PhaseMetrics> {
-    const phases: Record<PhaseName, AgentMetrics[]> = {
+    const phases: Record<PhaseName, AgentAuditMetrics[]> = {
       'pre-recon': [],
       'recon': [],
       'vulnerability-analysis': [],
