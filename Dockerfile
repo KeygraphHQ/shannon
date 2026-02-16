@@ -127,6 +127,8 @@ RUN cd mcp-server && npm run build && cd .. && npm run build
 RUN npm prune --production && \
     cd mcp-server && npm prune --production
 
+RUN npm install -g @anthropic-ai/claude-code
+
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
