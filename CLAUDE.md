@@ -26,7 +26,6 @@ git clone https://github.com/org/repo.git ./repos/my-repo
 
 # Monitor
 ./shannon logs                      # Real-time worker logs
-./shannon query ID=<workflow-id>    # Query workflow progress
 # Temporal Web UI: http://localhost:8233
 
 # Stop
@@ -57,8 +56,6 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/worker.ts` — Worker entry point
 - `src/temporal/client.ts` — CLI client for starting workflows
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
-- `src/temporal/query.ts` — Query tool for progress inspection
-
 ### Five-Phase Pipeline
 
 1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
