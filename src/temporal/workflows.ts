@@ -178,11 +178,13 @@ export async function pentestPipelineWorkflow(
       return state;
     }
 
-    // Record resume attempt in session.json
+    // Record resume attempt in session.json and write resume header to workflow.log
     await a.recordResumeAttempt(
       activityInput,
       input.terminatedWorkflows || [],
-      resumeState.checkpointHash
+      resumeState.checkpointHash,
+      resumeState.originalWorkflowId,
+      resumeState.completedAgents
     );
 
     log.info('Resume state loaded and workspace restored');

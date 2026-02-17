@@ -88,6 +88,34 @@ export class WorkflowLogger {
   }
 
   /**
+   * Write resume header to log file when workflow is resumed
+   */
+  async logResumeHeader(resumeInfo: {
+    previousWorkflowId: string;
+    newWorkflowId: string;
+    checkpointHash: string;
+    completedAgents: string[];
+  }): Promise<void> {
+    await this.ensureInitialized();
+
+    const header = [
+      ``,
+      `================================================================================`,
+      `RESUMED`,
+      `================================================================================`,
+      `Previous Workflow ID: ${resumeInfo.previousWorkflowId}`,
+      `New Workflow ID:      ${resumeInfo.newWorkflowId}`,
+      `Resumed At:           ${formatTimestamp()}`,
+      `Checkpoint:           ${resumeInfo.checkpointHash}`,
+      `Completed:            ${resumeInfo.completedAgents.length} agents (${resumeInfo.completedAgents.join(', ')})`,
+      `================================================================================`,
+      ``,
+    ].join('\n');
+
+    return this.logStream.write(header);
+  }
+
+  /**
    * Format timestamp for log line (local time, human readable)
    */
   private formatLogTime(): string {

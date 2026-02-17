@@ -485,17 +485,29 @@ export async function restoreGitCheckpoint(
 }
 
 /**
- * Record a resume attempt in session.json.
+ * Record a resume attempt in session.json and write resume header to workflow.log.
  */
 export async function recordResumeAttempt(
   input: ActivityInput,
   terminatedWorkflows: string[],
-  checkpointHash: string
+  checkpointHash: string,
+  previousWorkflowId: string,
+  completedAgents: string[]
 ): Promise<void> {
   const sessionMetadata = buildSessionMetadata(input);
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();
+
+  // Update session.json with resume attempt
   await auditSession.addResumeAttempt(input.workflowId, terminatedWorkflows, checkpointHash);
+
+  // Write resume header to workflow.log
+  await auditSession.logResumeHeader({
+    previousWorkflowId,
+    newWorkflowId: input.workflowId,
+    checkpointHash,
+    completedAgents,
+  });
 }
 
 // === Phase Transition Activities ===
