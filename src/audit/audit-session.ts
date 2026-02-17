@@ -112,24 +112,19 @@ export class AuditSession {
       await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
     }
 
-    // Track current agent name for workflow logging
     this.currentAgentName = agentName;
 
-    // Create and initialize logger for this attempt
     this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
     await this.currentLogger.initialize();
 
-    // Start metrics tracking
     this.metricsTracker.startAgent(agentName, attemptNumber);
 
-    // Log start event
     await this.currentLogger.logEvent('agent_start', {
       agentName,
       attemptNumber,
       timestamp: formatTimestamp(),
     });
 
-    // Log to unified workflow log
     await this.workflowLogger.logAgent(agentName, 'start', { attemptNumber });
   }
 
@@ -177,7 +172,6 @@ export class AuditSession {
    * End agent execution (mutex-protected)
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
-    // Log end event
     if (this.currentLogger) {
       await this.currentLogger.logEvent('agent_end', {
         agentName,
@@ -187,15 +181,12 @@ export class AuditSession {
         timestamp: formatTimestamp(),
       });
 
-      // Close logger
       await this.currentLogger.close();
       this.currentLogger = null;
     }
 
-    // Reset current agent name
     this.currentAgentName = null;
 
-    // Log to unified workflow log
     const agentLogDetails: AgentLogDetails = {
       attemptNumber: result.attemptNumber,
       duration_ms: result.duration_ms,
@@ -211,7 +202,6 @@ export class AuditSession {
       // Reload inside mutex to prevent lost updates during parallel exploitation phase
       await this.metricsTracker.reload();
 
-      // Update metrics
       await this.metricsTracker.endAgent(agentName, result);
     } finally {
       unlock();

@@ -59,7 +59,6 @@ export class WorkflowLogger {
       return;
     }
 
-    // Open the stream (LogStream.open() handles directory creation)
     await this.logStream.open();
 
     // Write header only if file is new (empty)

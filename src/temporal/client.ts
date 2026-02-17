@@ -229,7 +229,6 @@ async function startPipeline(): Promise<void> {
       const workspaceExists = await fileExists(sessionPath);
 
       if (workspaceExists) {
-        // === Resume Mode: existing workspace ===
         isResume = true;
         console.log('=== RESUME MODE ===');
         console.log(`Workspace: ${resumeFromWorkspace}\n`);
@@ -255,7 +254,6 @@ async function startPipeline(): Promise<void> {
         workflowId = `${resumeFromWorkspace}_resume_${Date.now()}`;
         sessionId = resumeFromWorkspace;
       } else {
-        // === New Named Workspace ===
         if (!isValidWorkspaceName(resumeFromWorkspace)) {
           console.error(`ERROR: Invalid workspace name: "${resumeFromWorkspace}"`);
           console.error('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric');
@@ -269,7 +267,6 @@ async function startPipeline(): Promise<void> {
         sessionId = resumeFromWorkspace;
       }
     } else {
-      // === New Auto-Named Workflow ===
       const hostname = sanitizeHostname(webUrl);
       workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
       sessionId = workflowId;
@@ -278,8 +275,8 @@ async function startPipeline(): Promise<void> {
     const input: PipelineInput = {
       webUrl,
       repoPath,
-      workflowId, // Add for audit correlation
-      sessionId, // Workspace directory name
+      workflowId,
+      sessionId,
       ...(configPath && { configPath }),
       ...(outputPath && { outputPath }),
       ...(pipelineTestingMode && { pipelineTestingMode }),
@@ -287,7 +284,6 @@ async function startPipeline(): Promise<void> {
       ...(terminatedWorkflows.length > 0 && { terminatedWorkflows }),
     };
 
-    // Determine output directory for display (use sessionId for persistent directory)
     // Use displayOutputPath (host path) if provided, otherwise fall back to outputPath or default
     const effectiveDisplayPath = displayOutputPath || outputPath || './audit-logs';
     const outputDir = `${effectiveDisplayPath}/${sessionId}`;

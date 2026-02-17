@@ -105,11 +105,9 @@ export async function pentestPipelineWorkflow(
 ): Promise<PipelineState> {
   const { workflowId } = workflowInfo();
 
-  // Select activity proxy based on testing mode
   // Pipeline testing uses fast retry intervals (10s) for quick iteration
   const a = input.pipelineTestingMode ? testActs : acts;
 
-  // Workflow state (queryable)
   const state: PipelineState = {
     status: 'running',
     currentPhase: null,
@@ -122,7 +120,6 @@ export async function pentestPipelineWorkflow(
     summary: null,
   };
 
-  // Register query handler for real-time progress inspection
   setHandler(getProgress, (): PipelineProgress => ({
     ...state,
     workflowId,
@@ -147,18 +144,15 @@ export async function pentestPipelineWorkflow(
     }),
   };
 
-  // === RESUME LOGIC ===
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
-    // Load resume state from existing workspace
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
       input.repoPath
     );
 
-    // Restore git checkpoint and clean up partial deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
     ) as AgentName[];
@@ -169,7 +163,6 @@ export async function pentestPipelineWorkflow(
       incompleteAgents
     );
 
-    // Check if all agents are already complete
     if (resumeState.completedAgents.length === ALL_AGENTS.length) {
       log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
@@ -178,7 +171,6 @@ export async function pentestPipelineWorkflow(
       return state;
     }
 
-    // Record resume attempt in session.json and write resume header to workflow.log
     await a.recordResumeAttempt(
       activityInput,
       input.terminatedWorkflows || [],
@@ -190,7 +182,6 @@ export async function pentestPipelineWorkflow(
     log.info('Resume state loaded and workspace restored');
   }
 
-  // Helper to check if an agent should be skipped
   const shouldSkip = (agentName: string): boolean => {
     return resumeState?.completedAgents.includes(agentName) ?? false;
   };
@@ -413,7 +404,6 @@ export async function pentestPipelineWorkflow(
       state.completedAgents.push('report');
     }
 
-    // === Complete ===
     state.status = 'completed';
     state.currentPhase = null;
     state.currentAgent = null;

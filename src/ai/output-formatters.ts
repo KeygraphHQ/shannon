@@ -4,13 +4,9 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Pure functions for formatting console output
-
 import { extractAgentType, formatDuration } from '../utils/formatting.js';
 import { AGENTS } from '../session-manager.js';
 import type { ExecutionContext, ResultData } from './types.js';
-
-// --- Types for tool call filtering ---
 
 interface ToolCallInput {
   url?: string;
@@ -31,8 +27,6 @@ interface ToolCall {
   name: string;
   input?: ToolCallInput;
 }
-
-// --- Agent prefix logic ---
 
 /**
  * Get agent prefix for parallel execution
@@ -69,8 +63,6 @@ export function getAgentPrefix(description: string): string {
 
   return '[Agent]';
 }
-
-// --- Tool call filtering ---
 
 /**
  * Extract domain from URL for display
@@ -272,8 +264,6 @@ export function filterJsonToolCalls(content: string | null | undefined): string 
 
   return processedLines.join('\n');
 }
-
-// --- Console output formatting ---
 
 export function detectExecutionContext(description: string): ExecutionContext {
   const isParallelExecution =

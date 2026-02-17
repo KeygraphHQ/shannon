@@ -4,8 +4,6 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Pure functions for processing SDK message types
-
 import { PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { matchesBillingTextPattern } from '../utils/billing-detection.js';
@@ -263,14 +261,12 @@ function handleToolResultMessage(message: ToolResultMessage): ToolResultData {
   };
 }
 
-// Output helper for console logging
 function outputLines(lines: string[]): void {
   for (const line of lines) {
     console.log(line);
   }
 }
 
-// Message dispatch result types
 export type MessageDispatchAction =
   | { type: 'continue'; apiErrorDetected?: boolean | undefined; model?: string | undefined }
   | { type: 'complete'; result: string | null; cost: number }
