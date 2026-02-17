@@ -4,8 +4,6 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import chalk from 'chalk';
-
 export class ProgressIndicator {
   private message: string;
   private frames: string[] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
@@ -25,9 +23,7 @@ export class ProgressIndicator {
 
     this.interval = setInterval(() => {
       // Clear the line and write the spinner
-      process.stdout.write(
-        `\r${chalk.cyan(this.frames[this.frameIndex])} ${chalk.dim(this.message)}`
-      );
+      process.stdout.write(`\r${this.frames[this.frameIndex]} ${this.message}`);
       this.frameIndex = (this.frameIndex + 1) % this.frames.length;
     }, 100);
   }
@@ -47,6 +43,6 @@ export class ProgressIndicator {
 
   finish(successMessage: string = 'Complete'): void {
     this.stop();
-    console.log(chalk.green(`✓ ${successMessage}`));
+    console.log(`✓ ${successMessage}`);
   }
 }

@@ -24,7 +24,6 @@ import { NativeConnection, Worker, bundleWorkflowCode } from '@temporalio/worker
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import dotenv from 'dotenv';
-import chalk from 'chalk';
 import * as activities from './activities.js';
 
 dotenv.config();
@@ -33,12 +32,12 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 async function runWorker(): Promise<void> {
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
-  console.log(chalk.cyan(`Connecting to Temporal at ${address}...`));
+  console.log(`Connecting to Temporal at ${address}...`);
 
   const connection = await NativeConnection.connect({ address });
 
   // Bundle workflows for Temporal's V8 isolate
-  console.log(chalk.gray('Bundling workflows...'));
+  console.log('Bundling workflows...');
   const workflowBundle = await bundleWorkflowCode({
     workflowsPath: path.join(__dirname, 'workflows.js'),
   });
@@ -54,26 +53,26 @@ async function runWorker(): Promise<void> {
 
   // Graceful shutdown handling
   const shutdown = async (): Promise<void> => {
-    console.log(chalk.yellow('\nShutting down worker...'));
+    console.log('\nShutting down worker...');
     worker.shutdown();
   };
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
 
-  console.log(chalk.green('Shannon worker started'));
-  console.log(chalk.gray('Task queue: shannon-pipeline'));
-  console.log(chalk.gray('Press Ctrl+C to stop\n'));
+  console.log('Shannon worker started');
+  console.log('Task queue: shannon-pipeline');
+  console.log('Press Ctrl+C to stop\n');
 
   try {
     await worker.run();
   } finally {
     await connection.close();
-    console.log(chalk.gray('Worker stopped'));
+    console.log('Worker stopped');
   }
 }
 
 runWorker().catch((err) => {
-  console.error(chalk.red('Worker failed:'), err);
+  console.error('Worker failed:', err);
   process.exit(1);
 });

@@ -24,6 +24,7 @@
  */
 
 import {
+  log,
   proxyActivities,
   setHandler,
   workflowInfo,
@@ -40,9 +41,10 @@ import {
   type AgentMetrics,
   type ResumeState,
 } from './shared.js';
-import type { VulnType } from '../queue-validation.js';
+import type { VulnType } from '../services/queue-validation.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
+import { toWorkflowSummary } from './summary-mapper.js';
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -103,11 +105,9 @@ export async function pentestPipelineWorkflow(
 ): Promise<PipelineState> {
   const { workflowId } = workflowInfo();
 
-  // Select activity proxy based on testing mode
   // Pipeline testing uses fast retry intervals (10s) for quick iteration
   const a = input.pipelineTestingMode ? testActs : acts;
 
-  // Workflow state (queryable)
   const state: PipelineState = {
     status: 'running',
     currentPhase: null,
@@ -120,7 +120,6 @@ export async function pentestPipelineWorkflow(
     summary: null,
   };
 
-  // Register query handler for real-time progress inspection
   setHandler(getProgress, (): PipelineProgress => ({
     ...state,
     workflowId,
@@ -145,18 +144,17 @@ export async function pentestPipelineWorkflow(
     }),
   };
 
-  // === RESUME LOGIC ===
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
-    // Load resume state from existing workspace
+    // 1. Load resume state (validates workspace, cross-checks deliverables)
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
       input.repoPath
     );
 
-    // Restore git checkpoint and clean up partial deliverables
+    // 2. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
     ) as AgentName[];
@@ -167,120 +165,59 @@ export async function pentestPipelineWorkflow(
       incompleteAgents
     );
 
-    // Check if all agents are already complete
+    // 3. Short-circuit if all agents already completed
     if (resumeState.completedAgents.length === ALL_AGENTS.length) {
-      console.log(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
       state.completedAgents = [...resumeState.completedAgents];
       state.summary = computeSummary(state);
       return state;
     }
 
-    // Record resume attempt in session.json
+    // 4. Record this resume attempt in session.json and workflow.log
     await a.recordResumeAttempt(
       activityInput,
       input.terminatedWorkflows || [],
-      resumeState.checkpointHash
+      resumeState.checkpointHash,
+      resumeState.originalWorkflowId,
+      resumeState.completedAgents
     );
 
-    console.log('Resume state loaded and workspace restored');
+    log.info('Resume state loaded and workspace restored');
   }
 
-  // Helper to check if an agent should be skipped
   const shouldSkip = (agentName: string): boolean => {
     return resumeState?.completedAgents.includes(agentName) ?? false;
   };
 
-  try {
-    // === Phase 1: Pre-Reconnaissance ===
-    if (!shouldSkip('pre-recon')) {
-      state.currentPhase = 'pre-recon';
-      state.currentAgent = 'pre-recon';
-      await a.logPhaseTransition(activityInput, 'pre-recon', 'start');
-      state.agentMetrics['pre-recon'] =
-        await a.runPreReconAgent(activityInput);
-      state.completedAgents.push('pre-recon');
-      await a.logPhaseTransition(activityInput, 'pre-recon', 'complete');
+  // Run a sequential agent phase (pre-recon, recon)
+  async function runSequentialPhase(
+    phaseName: string,
+    agentName: AgentName,
+    runAgent: (input: ActivityInput) => Promise<AgentMetrics>
+  ): Promise<void> {
+    if (!shouldSkip(agentName)) {
+      state.currentPhase = phaseName;
+      state.currentAgent = agentName;
+      await a.logPhaseTransition(activityInput, phaseName, 'start');
+      state.agentMetrics[agentName] = await runAgent(activityInput);
+      state.completedAgents.push(agentName);
+      await a.logPhaseTransition(activityInput, phaseName, 'complete');
     } else {
-      console.log('Skipping pre-recon (already complete)');
-      state.completedAgents.push('pre-recon');
+      log.info(`Skipping ${agentName} (already complete)`);
+      state.completedAgents.push(agentName);
     }
+  }
 
-    // === Phase 2: Reconnaissance ===
-    if (!shouldSkip('recon')) {
-      state.currentPhase = 'recon';
-      state.currentAgent = 'recon';
-      await a.logPhaseTransition(activityInput, 'recon', 'start');
-      state.agentMetrics['recon'] = await a.runReconAgent(activityInput);
-      state.completedAgents.push('recon');
-      await a.logPhaseTransition(activityInput, 'recon', 'complete');
-    } else {
-      console.log('Skipping recon (already complete)');
-      state.completedAgents.push('recon');
-    }
-
-    // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
-    // Each vuln type runs as an independent pipeline:
-    // vuln agent → queue check → conditional exploit agent
-    // This eliminates the synchronization barrier between phases - each exploit
-    // starts immediately when its vuln agent finishes, not waiting for all.
-    state.currentPhase = 'vulnerability-exploitation';
-    state.currentAgent = 'pipelines';
-    await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
-
-    // Helper: Run a single vuln→exploit pipeline with skip logic
-    async function runVulnExploitPipeline(
-      vulnType: VulnType,
-      runVulnAgent: () => Promise<AgentMetrics>,
-      runExploitAgent: () => Promise<AgentMetrics>
-    ): Promise<VulnExploitPipelineResult> {
-      const vulnAgentName = `${vulnType}-vuln`;
-      const exploitAgentName = `${vulnType}-exploit`;
-
-      // Step 1: Run vulnerability agent (or skip if completed)
-      let vulnMetrics: AgentMetrics | null = null;
-      if (!shouldSkip(vulnAgentName)) {
-        vulnMetrics = await runVulnAgent();
-      } else {
-        console.log(`Skipping ${vulnAgentName} (already complete)`);
-      }
-
-      // Step 2: Check exploitation queue (only if vuln agent ran or completed previously)
-      const decision = await a.checkExploitationQueue(activityInput, vulnType);
-
-      // Step 3: Conditionally run exploit agent (skip if already completed)
-      let exploitMetrics: AgentMetrics | null = null;
-      if (decision.shouldExploit) {
-        if (!shouldSkip(exploitAgentName)) {
-          exploitMetrics = await runExploitAgent();
-        } else {
-          console.log(`Skipping ${exploitAgentName} (already complete)`);
-        }
-      }
-
-      return {
-        vulnType,
-        vulnMetrics,
-        exploitMetrics,
-        exploitDecision: {
-          shouldExploit: decision.shouldExploit,
-          vulnerabilityCount: decision.vulnerabilityCount,
-        },
-        error: null,
-      };
-    }
-
-    // Determine which pipelines to run (skip if both vuln and exploit completed)
-    const pipelinesToRun: Array<Promise<VulnExploitPipelineResult>> = [];
-
-    // Only run pipeline if at least one agent (vuln or exploit) is incomplete
-    const pipelineConfigs: Array<{
-      vulnType: VulnType;
-      vulnAgent: string;
-      exploitAgent: string;
-      runVuln: () => Promise<AgentMetrics>;
-      runExploit: () => Promise<AgentMetrics>;
-    }> = [
+  // Build pipeline configs for the 5 vuln→exploit pairs
+  function buildPipelineConfigs(): Array<{
+    vulnType: VulnType;
+    vulnAgent: string;
+    exploitAgent: string;
+    runVuln: () => Promise<AgentMetrics>;
+    runExploit: () => Promise<AgentMetrics>;
+  }> {
+    return [
       {
         vulnType: 'injection',
         vulnAgent: 'injection-vuln',
@@ -317,56 +254,34 @@ export async function pentestPipelineWorkflow(
         runExploit: () => a.runAuthzExploitAgent(activityInput),
       },
     ];
+  }
 
-    for (const config of pipelineConfigs) {
-      const vulnComplete = shouldSkip(config.vulnAgent);
-      const exploitComplete = shouldSkip(config.exploitAgent);
-
-      // Only run pipeline if at least one agent needs to run
-      if (!vulnComplete || !exploitComplete) {
-        pipelinesToRun.push(
-          runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
-        );
-      } else {
-        console.log(
-          `Skipping entire ${config.vulnType} pipeline (both agents complete)`
-        );
-        // Still need to mark them as completed in state
-        state.completedAgents.push(config.vulnAgent, config.exploitAgent);
-      }
-    }
-
-    // Run pipelines in parallel with graceful failure handling
-    // Promise.allSettled ensures other pipelines continue if one fails
-    const pipelineResults = await Promise.allSettled(pipelinesToRun);
-
-    // Aggregate results from all pipelines
+  // Aggregate results from settled pipeline promises into workflow state
+  function aggregatePipelineResults(
+    results: PromiseSettledResult<VulnExploitPipelineResult>[]
+  ): void {
     const failedPipelines: string[] = [];
-    for (const result of pipelineResults) {
+
+    for (const result of results) {
       if (result.status === 'fulfilled') {
         const { vulnType, vulnMetrics, exploitMetrics } = result.value;
 
-        // Record vuln agent
         const vulnAgentName = `${vulnType}-vuln`;
         if (vulnMetrics) {
           state.agentMetrics[vulnAgentName] = vulnMetrics;
           state.completedAgents.push(vulnAgentName);
         } else if (shouldSkip(vulnAgentName)) {
-          // Agent was skipped because already complete
           state.completedAgents.push(vulnAgentName);
         }
 
-        // Record exploit agent (if it ran)
         const exploitAgentName = `${vulnType}-exploit`;
         if (exploitMetrics) {
           state.agentMetrics[exploitAgentName] = exploitMetrics;
           state.completedAgents.push(exploitAgentName);
         } else if (shouldSkip(exploitAgentName)) {
-          // Agent was skipped because already complete
           state.completedAgents.push(exploitAgentName);
         }
       } else {
-        // Pipeline failed - log error but continue with others
         const errorMsg =
           result.reason instanceof Error
             ? result.reason.message
@@ -375,15 +290,87 @@ export async function pentestPipelineWorkflow(
       }
     }
 
-    // Log any pipeline failures (workflow continues despite failures)
     if (failedPipelines.length > 0) {
-      console.log(
-        `⚠️ ${failedPipelines.length} pipeline(s) failed:`,
-        failedPipelines
-      );
+      log.warn(`${failedPipelines.length} pipeline(s) failed`, {
+        failures: failedPipelines,
+      });
+    }
+  }
+
+  try {
+    // === Phase 1: Pre-Reconnaissance ===
+    await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
+
+    // === Phase 2: Reconnaissance ===
+    await runSequentialPhase('recon', 'recon', a.runReconAgent);
+
+    // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
+    // Each vuln type runs as an independent pipeline:
+    // vuln agent → queue check → conditional exploit agent
+    // Exploits start immediately when their vuln finishes, not waiting for all.
+    state.currentPhase = 'vulnerability-exploitation';
+    state.currentAgent = 'pipelines';
+    await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
+
+    // Closure over shouldSkip and activityInput by design (Temporal replay safety)
+    async function runVulnExploitPipeline(
+      vulnType: VulnType,
+      runVulnAgent: () => Promise<AgentMetrics>,
+      runExploitAgent: () => Promise<AgentMetrics>
+    ): Promise<VulnExploitPipelineResult> {
+      const vulnAgentName = `${vulnType}-vuln`;
+      const exploitAgentName = `${vulnType}-exploit`;
+
+      // 1. Run vulnerability analysis (or skip if resumed)
+      let vulnMetrics: AgentMetrics | null = null;
+      if (!shouldSkip(vulnAgentName)) {
+        vulnMetrics = await runVulnAgent();
+      } else {
+        log.info(`Skipping ${vulnAgentName} (already complete)`);
+      }
+
+      // 2. Check exploitation queue for actionable findings
+      const decision = await a.checkExploitationQueue(activityInput, vulnType);
+
+      // 3. Conditionally run exploitation agent
+      let exploitMetrics: AgentMetrics | null = null;
+      if (decision.shouldExploit) {
+        if (!shouldSkip(exploitAgentName)) {
+          exploitMetrics = await runExploitAgent();
+        } else {
+          log.info(`Skipping ${exploitAgentName} (already complete)`);
+        }
+      }
+
+      return {
+        vulnType,
+        vulnMetrics,
+        exploitMetrics,
+        exploitDecision: {
+          shouldExploit: decision.shouldExploit,
+          vulnerabilityCount: decision.vulnerabilityCount,
+        },
+        error: null,
+      };
     }
 
-    // Update phase markers
+    const pipelineConfigs = buildPipelineConfigs();
+    const pipelinesToRun: Array<Promise<VulnExploitPipelineResult>> = [];
+
+    for (const config of pipelineConfigs) {
+      if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
+        pipelinesToRun.push(
+          runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
+        );
+      } else {
+        log.info(`Skipping entire ${config.vulnType} pipeline (both agents complete)`);
+        state.completedAgents.push(config.vulnAgent, config.exploitAgent);
+      }
+    }
+
+    const pipelineResults = await Promise.allSettled(pipelinesToRun);
+    aggregatePipelineResults(pipelineResults);
+
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
@@ -406,29 +393,17 @@ export async function pentestPipelineWorkflow(
 
       await a.logPhaseTransition(activityInput, 'reporting', 'complete');
     } else {
-      console.log('Skipping report (already complete)');
+      log.info('Skipping report (already complete)');
       state.completedAgents.push('report');
     }
 
-    // === Complete ===
     state.status = 'completed';
     state.currentPhase = null;
     state.currentAgent = null;
     state.summary = computeSummary(state);
 
     // Log workflow completion summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'completed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
 
     return state;
   } catch (error) {
@@ -438,19 +413,7 @@ export async function pentestPipelineWorkflow(
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'failed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-      error: state.error ?? undefined,
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
 
     throw error;
   }

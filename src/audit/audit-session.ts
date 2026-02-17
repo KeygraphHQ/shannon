@@ -17,20 +17,12 @@ import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { SessionMutex } from '../utils/concurrency.js';
+import type { AgentEndResult } from '../types/index.js';
+import { PentestError } from '../services/error-handling.js';
+import { ErrorCode } from '../types/errors.js';
 
 // Global mutex instance
 const sessionMutex = new SessionMutex();
-
-interface AgentEndResult {
-  attemptNumber: number;
-  duration_ms: number;
-  cost_usd: number;
-  success: boolean;
-  model?: string | undefined;
-  error?: string | undefined;
-  checkpoint?: string | undefined;
-  isFinalAttempt?: boolean | undefined;
-}
 
 /**
  * AuditSession - Main audit system facade
@@ -50,10 +42,22 @@ export class AuditSession {
 
     // Validate required fields
     if (!this.sessionId) {
-      throw new Error('sessionMetadata.id is required');
+      throw new PentestError(
+        'sessionMetadata.id is required',
+        'config',
+        false,
+        { field: 'sessionMetadata.id' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
     }
     if (!this.sessionMetadata.webUrl) {
-      throw new Error('sessionMetadata.webUrl is required');
+      throw new PentestError(
+        'sessionMetadata.webUrl is required',
+        'config',
+        false,
+        { field: 'sessionMetadata.webUrl' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
     }
 
     // Components
@@ -103,29 +107,26 @@ export class AuditSession {
   ): Promise<void> {
     await this.ensureInitialized();
 
-    // Save prompt snapshot (only on first attempt)
+    // 1. Save prompt snapshot (only on first attempt)
     if (attemptNumber === 1) {
       await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
     }
 
-    // Track current agent name for workflow logging
+    // 2. Create and initialize the per-agent logger
     this.currentAgentName = agentName;
-
-    // Create and initialize logger for this attempt
     this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
     await this.currentLogger.initialize();
 
-    // Start metrics tracking
+    // 3. Start metrics timer
     this.metricsTracker.startAgent(agentName, attemptNumber);
 
-    // Log start event
+    // 4. Log start event to both agent log and workflow log
     await this.currentLogger.logEvent('agent_start', {
       agentName,
       attemptNumber,
       timestamp: formatTimestamp(),
     });
 
-    // Log to unified workflow log
     await this.workflowLogger.logAgent(agentName, 'start', { attemptNumber });
   }
 
@@ -134,7 +135,13 @@ export class AuditSession {
    */
   async logEvent(eventType: string, eventData: unknown): Promise<void> {
     if (!this.currentLogger) {
-      throw new Error('No active logger. Call startAgent() first.');
+      throw new PentestError(
+        'No active logger. Call startAgent() first.',
+        'validation',
+        false,
+        {},
+        ErrorCode.AGENT_EXECUTION_FAILED
+      );
     }
 
     // Log to agent-specific log file (JSON format)
@@ -167,7 +174,7 @@ export class AuditSession {
    * End agent execution (mutex-protected)
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
-    // Log end event
+    // 1. Finalize agent log and close the stream
     if (this.currentLogger) {
       await this.currentLogger.logEvent('agent_end', {
         agentName,
@@ -177,15 +184,13 @@ export class AuditSession {
         timestamp: formatTimestamp(),
       });
 
-      // Close logger
       await this.currentLogger.close();
       this.currentLogger = null;
     }
 
-    // Reset current agent name
+    // 2. Log completion to the unified workflow log
     this.currentAgentName = null;
 
-    // Log to unified workflow log
     const agentLogDetails: AgentLogDetails = {
       attemptNumber: result.attemptNumber,
       duration_ms: result.duration_ms,
@@ -195,13 +200,11 @@ export class AuditSession {
     };
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
 
-    // Mutex-protected update to session.json
+    // 3. Acquire mutex before touching session.json
     const unlock = await sessionMutex.lock(this.sessionId);
     try {
-      // Reload inside mutex to prevent lost updates during parallel exploitation phase
+      // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
       await this.metricsTracker.reload();
-
-      // Update metrics
       await this.metricsTracker.endAgent(agentName, result);
     } finally {
       unlock();
@@ -277,5 +280,19 @@ export class AuditSession {
     } finally {
       unlock();
     }
+  }
+
+  /**
+   * Log resume header to workflow.log
+   * Call this when a workflow is resuming to add a visual separator
+   */
+  async logResumeHeader(resumeInfo: {
+    previousWorkflowId: string;
+    newWorkflowId: string;
+    checkpointHash: string;
+    completedAgents: string[];
+  }): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logResumeHeader(resumeInfo);
   }
 }
