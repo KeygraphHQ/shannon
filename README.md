@@ -231,7 +231,46 @@ git clone https://github.com/your-org/api.git
 
 **For Windows:**
 
+*Native (Git Bash):*
+
 Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed.
+
+*WSL2 (Recommended):*
+
+**Step 1: Ensure WSL 2**
+
+```powershell
+wsl --install
+wsl --set-default-version 2
+
+# Check installed distros
+wsl --list --verbose
+
+# If you don't have a distro, install one (Ubuntu 24.04 recommended)
+wsl --list --online
+wsl --install Ubuntu-24.04
+
+# If your distro shows VERSION 1, convert it to WSL 2:
+wsl --set-version <distro-name> 2
+```
+
+See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) for reference.
+
+**Step 2: Install Docker Desktop on Windows** and enable **WSL2 backend** under *Settings > General > Use the WSL 2 based engine*.
+
+**Step 3: Clone and run Shannon inside WSL.** Type `wsl -d <distro-name>` in PowerShell or CMD and press Enter to open a WSL terminal.
+
+```bash
+# Inside WSL terminal
+git clone https://github.com/KeygraphHQ/shannon.git
+cd shannon
+cp .env.example .env  # Edit with your API key
+./shannon start URL=https://your-app.com REPO=your-repo
+```
+
+To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
+
+Windows Defender may flag exploit code in reports as false positives; see [Antivirus False Positives](#6-windows-antivirus-false-positives) below.
 
 **For Linux (Native Docker):**
 
