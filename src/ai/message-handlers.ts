@@ -7,6 +7,8 @@
 // Pure functions for processing SDK message types
 
 import { PentestError } from '../error-handling.js';
+import { ErrorCode } from '../types/errors.js';
+import { matchesBillingTextPattern } from '../utils/billing-detection.js';
 import { filterJsonToolCalls } from '../utils/output-formatter.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import chalk from 'chalk';
@@ -75,25 +77,15 @@ function detectApiError(content: string): ApiErrorDetection {
   // When Claude Code hits its spending cap, it returns a short message like
   // "Spending cap reached resets 8am" instead of throwing an error.
   // These should retry with 5-30 min backoff so workflows can recover when cap resets.
-  const BILLING_PATTERNS = [
-    'spending cap',
-    'spending limit',
-    'cap reached',
-    'budget exceeded',
-    'usage limit',
-  ];
-
-  const isBillingError = BILLING_PATTERNS.some((pattern) =>
-    lowerContent.includes(pattern)
-  );
-
-  if (isBillingError) {
+  if (matchesBillingTextPattern(content)) {
     return {
       detected: true,
       shouldThrow: new PentestError(
         `Billing limit reached: ${content.slice(0, 100)}`,
         'billing',
-        true // RETRYABLE - Temporal will use 5-30 min backoff
+        true, // RETRYABLE - Temporal will use 5-30 min backoff
+        {},
+        ErrorCode.SPENDING_CAP_REACHED
       ),
     };
   }
@@ -127,7 +119,9 @@ function handleStructuredError(
         shouldThrow: new PentestError(
           `Billing error (structured): ${content.slice(0, 100)}`,
           'billing',
-          true // Retryable with backoff
+          true, // Retryable with backoff
+          {},
+          ErrorCode.INSUFFICIENT_CREDITS
         ),
       };
     case 'rate_limit':
@@ -136,7 +130,9 @@ function handleStructuredError(
         shouldThrow: new PentestError(
           `Rate limit hit (structured): ${content.slice(0, 100)}`,
           'network',
-          true // Retryable with backoff
+          true, // Retryable with backoff
+          {},
+          ErrorCode.API_RATE_LIMITED
         ),
       };
     case 'authentication_failed':

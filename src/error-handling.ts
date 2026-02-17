@@ -4,11 +4,16 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import type {
-  PentestErrorType,
-  PentestErrorContext,
-  PromptErrorResult,
+import {
+  ErrorCode,
+  type PentestErrorType,
+  type PentestErrorContext,
+  type PromptErrorResult,
 } from './types/errors.js';
+import {
+  matchesBillingApiPattern,
+  matchesBillingTextPattern,
+} from './utils/billing-detection.js';
 
 // Custom error class for pentest operations
 export class PentestError extends Error {
@@ -17,18 +22,24 @@ export class PentestError extends Error {
   retryable: boolean;
   context: PentestErrorContext;
   timestamp: string;
+  /** Optional specific error code for reliable classification */
+  code?: ErrorCode;
 
   constructor(
     message: string,
     type: PentestErrorType,
     retryable: boolean = false,
-    context: PentestErrorContext = {}
+    context: PentestErrorContext = {},
+    code?: ErrorCode
   ) {
     super(message);
     this.type = type;
     this.retryable = retryable;
     this.context = context;
     this.timestamp = new Date().toISOString();
+    if (code !== undefined) {
+      this.code = code;
+    }
   }
 }
 
@@ -103,37 +114,78 @@ export function isRetryableError(error: Error): boolean {
 }
 
 /**
+ * Classifies errors by ErrorCode for reliable, code-based classification.
+ * Used when error is a PentestError with a specific ErrorCode.
+ */
+function classifyByErrorCode(
+  code: ErrorCode,
+  retryableFromError: boolean
+): { type: string; retryable: boolean } {
+  switch (code) {
+    // Billing errors - retryable (wait for cap reset or credits added)
+    case ErrorCode.SPENDING_CAP_REACHED:
+    case ErrorCode.INSUFFICIENT_CREDITS:
+      return { type: 'BillingError', retryable: true };
+
+    case ErrorCode.API_RATE_LIMITED:
+      return { type: 'RateLimitError', retryable: true };
+
+    // Config errors - non-retryable (need manual fix)
+    case ErrorCode.CONFIG_NOT_FOUND:
+    case ErrorCode.CONFIG_VALIDATION_FAILED:
+    case ErrorCode.CONFIG_PARSE_ERROR:
+      return { type: 'ConfigurationError', retryable: false };
+
+    // Prompt errors - non-retryable (need manual fix)
+    case ErrorCode.PROMPT_LOAD_FAILED:
+      return { type: 'ConfigurationError', retryable: false };
+
+    // Git errors - non-retryable (indicates workspace corruption)
+    case ErrorCode.GIT_CHECKPOINT_FAILED:
+    case ErrorCode.GIT_ROLLBACK_FAILED:
+      return { type: 'GitError', retryable: false };
+
+    // Validation errors - retryable (agent may succeed on retry)
+    case ErrorCode.OUTPUT_VALIDATION_FAILED:
+    case ErrorCode.DELIVERABLE_NOT_FOUND:
+      return { type: 'OutputValidationError', retryable: true };
+
+    // Agent execution - use the retryable flag from the error
+    case ErrorCode.AGENT_EXECUTION_FAILED:
+      return { type: 'AgentExecutionError', retryable: retryableFromError };
+
+    default:
+      // Unknown code - fall through to string matching
+      return { type: 'UnknownError', retryable: retryableFromError };
+  }
+}
+
+/**
  * Classifies errors for Temporal workflow retry behavior.
  * Returns error type and whether Temporal should retry.
  *
  * Used by activities to wrap errors in ApplicationFailure:
  * - Retryable errors: Temporal retries with configured backoff
  * - Non-retryable errors: Temporal fails immediately
+ *
+ * Classification priority:
+ * 1. If error is PentestError with ErrorCode, classify by code (reliable)
+ * 2. Fall through to string matching for external errors (SDK, network, etc.)
  */
 export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
+  // === CODE-BASED CLASSIFICATION (Preferred for internal errors) ===
+  if (error instanceof PentestError && error.code !== undefined) {
+    return classifyByErrorCode(error.code, error.retryable);
+  }
+
+  // === STRING-BASED CLASSIFICATION (Fallback for external errors) ===
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===
   // Anthropic returns billing as 400 invalid_request_error
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
-  if (
-    message.includes('billing_error') ||
-    message.includes('credit balance is too low') ||
-    message.includes('insufficient credits') ||
-    message.includes('usage is blocked due to insufficient credits') ||
-    message.includes('please visit plans & billing') ||
-    message.includes('please visit plans and billing') ||
-    message.includes('usage limit reached') ||
-    message.includes('quota exceeded') ||
-    message.includes('daily rate limit') ||
-    message.includes('limit will reset') ||
-    // Claude Code spending cap patterns (returns short message instead of error)
-    message.includes('spending cap') ||
-    message.includes('spending limit') ||
-    message.includes('cap reached') ||
-    message.includes('budget exceeded') ||
-    message.includes('billing limit reached')
-  ) {
+  // Check both API patterns and text patterns for comprehensive detection
+  if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {
     return { type: 'BillingError', retryable: true };
   }
 

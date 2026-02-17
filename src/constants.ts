@@ -7,7 +7,7 @@
 import { path, fs } from 'zx';
 import chalk from 'chalk';
 import { validateQueueAndDeliverable, type VulnType } from './queue-validation.js';
-import type { AgentName, PromptName, PlaywrightAgent, AgentValidator } from './types/agents.js';
+import type { AgentName, PlaywrightAgent, AgentValidator } from './types/agents.js';
 
 // Factory function for vulnerability queue validators
 function createVulnValidator(vulnType: VulnType): AgentValidator {
@@ -32,7 +32,8 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 }
 
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
-export const MCP_AGENT_MAPPING: Record<PromptName, PlaywrightAgent> = Object.freeze({
+// Keys are promptTemplate values from AGENTS registry (session-manager.ts)
+export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
   // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
   // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
   // but assigning MCP server anyway for consistency and future extensibility

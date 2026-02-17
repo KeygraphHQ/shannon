@@ -18,6 +18,8 @@ import {
 import { atomicWrite, readJson, fileExists } from '../utils/file-io.js';
 import { formatTimestamp, calculatePercentage } from '../utils/formatting.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
+import { PentestError } from '../error-handling.js';
+import { ErrorCode } from '../types/errors.js';
 import type { AgentName, AgentEndResult } from '../types/index.js';
 
 interface AttemptData {
@@ -159,7 +161,13 @@ export class MetricsTracker {
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
     if (!this.data) {
-      throw new Error('MetricsTracker not initialized');
+      throw new PentestError(
+        'MetricsTracker not initialized',
+        'validation',
+        false,
+        {},
+        ErrorCode.AGENT_EXECUTION_FAILED
+      );
     }
 
     // Initialize agent metrics if not exists
@@ -251,7 +259,13 @@ export class MetricsTracker {
     checkpointHash?: string
   ): Promise<void> {
     if (!this.data) {
-      throw new Error('MetricsTracker not initialized');
+      throw new PentestError(
+        'MetricsTracker not initialized',
+        'validation',
+        false,
+        {},
+        ErrorCode.AGENT_EXECUTION_FAILED
+      );
     }
 
     // Ensure originalWorkflowId is set (backfill if missing from old sessions)

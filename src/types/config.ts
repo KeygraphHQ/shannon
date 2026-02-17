@@ -51,7 +51,6 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
-  login?: unknown;
 }
 
 export interface DistributedConfig {

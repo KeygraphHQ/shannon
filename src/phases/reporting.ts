@@ -7,6 +7,7 @@
 import { fs, path } from 'zx';
 import chalk from 'chalk';
 import { PentestError } from '../error-handling.js';
+import { ErrorCode } from '../types/errors.js';
 
 interface DeliverableFile {
   name: string;
@@ -34,7 +35,13 @@ export async function assembleFinalReport(sourceDir: string): Promise<string> {
         sections.push(content);
         console.log(chalk.green(`✅ Added ${file.name} findings`));
       } else if (file.required) {
-        throw new Error(`Required file ${file.path} not found`);
+        throw new PentestError(
+          `Required deliverable file not found: ${file.path}`,
+          'filesystem',
+          false,
+          { deliverableFile: file.path, sourceDir },
+          ErrorCode.DELIVERABLE_NOT_FOUND
+        );
       } else {
         console.log(chalk.gray(`⏭️  No ${file.name} deliverable found`));
       }

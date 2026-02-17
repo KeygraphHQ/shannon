@@ -8,10 +8,9 @@
  * Append-Only Agent Logger
  *
  * Provides crash-safe, append-only logging for agent execution.
- * Uses file streams with immediate flush to prevent data loss.
+ * Uses LogStream for stream management with backpressure handling.
  */
 
-import fs from 'fs';
 import {
   generateLogPath,
   generatePromptPath,
@@ -19,6 +18,7 @@ import {
 } from './utils.js';
 import { atomicWrite } from '../utils/file-io.js';
 import { formatTimestamp } from '../utils/formatting.js';
+import { LogStream } from './log-stream.js';
 
 interface LogEvent {
   type: string;
@@ -30,13 +30,11 @@ interface LogEvent {
  * AgentLogger - Manages append-only logging for a single agent execution
  */
 export class AgentLogger {
-  private sessionMetadata: SessionMetadata;
-  private agentName: string;
-  private attemptNumber: number;
-  private timestamp: number;
-  private logPath: string;
-  private stream: fs.WriteStream | null = null;
-  private isOpen: boolean = false;
+  private readonly sessionMetadata: SessionMetadata;
+  private readonly agentName: string;
+  private readonly attemptNumber: number;
+  private readonly timestamp: number;
+  private readonly logStream: LogStream;
 
   constructor(sessionMetadata: SessionMetadata, agentName: string, attemptNumber: number) {
     this.sessionMetadata = sessionMetadata;
@@ -44,26 +42,20 @@ export class AgentLogger {
     this.attemptNumber = attemptNumber;
     this.timestamp = Date.now();
 
-    // Generate log file path
-    this.logPath = generateLogPath(sessionMetadata, agentName, this.timestamp, attemptNumber);
+    // Generate log file path and create stream
+    const logPath = generateLogPath(sessionMetadata, agentName, this.timestamp, attemptNumber);
+    this.logStream = new LogStream(logPath);
   }
 
   /**
    * Initialize the log stream (creates file and opens stream)
    */
   async initialize(): Promise<void> {
-    if (this.isOpen) {
+    if (this.logStream.isOpen) {
       return; // Already initialized
     }
 
-    // Create write stream with append mode and auto-flush
-    this.stream = fs.createWriteStream(this.logPath, {
-      flags: 'a', // Append mode
-      encoding: 'utf8',
-      autoClose: true,
-    });
-
-    this.isOpen = true;
+    await this.logStream.open();
 
     // Write header
     await this.writeHeader();
@@ -83,29 +75,7 @@ export class AgentLogger {
       `========================================\n`,
     ].join('\n');
 
-    return this.writeRaw(header);
-  }
-
-  /**
-   * Write raw text to log file with immediate flush
-   */
-  private writeRaw(text: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.isOpen || !this.stream) {
-        reject(new Error('Logger not initialized'));
-        return;
-      }
-
-      const needsDrain = !this.stream.write(text, 'utf8', (error) => {
-        if (error) reject(error);
-      });
-
-      if (needsDrain) {
-        this.stream.once('drain', resolve);
-      } else {
-        resolve();
-      }
-    });
+    return this.logStream.write(header);
   }
 
   /**
@@ -120,23 +90,14 @@ export class AgentLogger {
     };
 
     const eventLine = `${JSON.stringify(event)}\n`;
-    return this.writeRaw(eventLine);
+    return this.logStream.write(eventLine);
   }
 
   /**
    * Close the log stream
    */
   async close(): Promise<void> {
-    if (!this.isOpen || !this.stream) {
-      return;
-    }
-
-    return new Promise((resolve) => {
-      this.stream!.end(() => {
-        this.isOpen = false;
-        resolve();
-      });
-    });
+    return this.logStream.close();
   }
 
   /**

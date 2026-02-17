@@ -11,12 +11,13 @@ import chalk, { type ChalkInstance } from 'chalk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import { isRetryableError, PentestError } from '../error-handling.js';
+import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { timingResults, Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
-import { getPromptNameForAgent } from '../types/agents.js';
+import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/index.js';
 
 import { dispatchMessage } from './message-handlers.js';
@@ -65,8 +66,8 @@ function buildMcpServers(
   };
 
   if (agentName) {
-    const promptName = getPromptNameForAgent(agentName as AgentName);
-    const playwrightMcpName = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING] || null;
+    const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
+    const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
 
     if (playwrightMcpName) {
       console.log(chalk.gray(`    Assigned ${agentName} -> ${playwrightMcpName}`));
@@ -263,22 +264,13 @@ export async function runClaudePrompt(
 
     // === SPENDING CAP SAFEGUARD ===
     // Defense-in-depth: Detect spending cap that slipped through detectApiError().
-    // When spending cap is hit, Claude returns a short message with $0 cost.
-    // Legitimate agent work NEVER costs $0 with only 1-2 turns.
-    if (turnCount <= 2 && totalCost === 0) {
-      const resultLower = (result || '').toLowerCase();
-      const BILLING_KEYWORDS = ['spending', 'cap', 'limit', 'budget', 'resets'];
-      const looksLikeBillingError = BILLING_KEYWORDS.some((kw) =>
-        resultLower.includes(kw)
+    // Uses consolidated billing detection from utils/billing-detection.ts
+    if (isSpendingCapBehavior(turnCount, totalCost, result || '')) {
+      throw new PentestError(
+        `Spending cap likely reached (turns=${turnCount}, cost=$0): ${result?.slice(0, 100)}`,
+        'billing',
+        true // Retryable - Temporal will use 5-30 min backoff
       );
-
-      if (looksLikeBillingError) {
-        throw new PentestError(
-          `Spending cap likely reached (turns=${turnCount}, cost=$0): ${result?.slice(0, 100)}`,
-          'billing',
-          true // Retryable - Temporal will use 5-30 min backoff
-        );
-      }
     }
 
     const duration = timer.stop();
