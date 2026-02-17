@@ -19,6 +19,8 @@ git diff HEAD
 - [ ] **Retryable flag matches behavior** - If error will be retried, set `retryable: true`
 - [ ] **Context includes debugging info** - Add relevant paths, tool names, error codes to context object
 - [ ] **Never swallow errors silently** - Always log or propagate errors
+- [ ] **Use ErrorCode enum** - Prefer `ErrorCode.CONFIG_INVALID` over string matching for classification
+- [ ] **Result<T,E> for service returns** - Services return `Result`, not throw
 
 ### Audit System & Concurrency (CRITICAL)
 - [ ] **Mutex protection for parallel operations** - Use `sessionMutex.lock()` when updating `session.json` during parallel agent execution
@@ -40,6 +42,13 @@ git diff HEAD
 - [ ] **Rule conflict detection** - Rules cannot appear in both `avoid` AND `focus`
 - [ ] **Duplicate rule detection** - Same `type:url_path` cannot appear twice
 - [ ] **JSON Schema validation before use** - Config must pass AJV validation
+
+### Services Layer & DI Container (CRITICAL)
+- [ ] **Business logic in services, not activities** — Activities: heartbeat loop, error classification, container calls only. Domain logic → `src/services/`
+- [ ] **Services accept ActivityLogger** — Never import `@temporalio/*` in services. Use `ActivityLogger` interface from `src/types/`
+- [ ] **Result type for fallible operations** — Service methods return `Result<T, PentestError>`, unwrap with `isOk()`/`isErr()`. Activities call `executeOrThrow()` at the boundary
+- [ ] **Container lifecycle** — `getOrCreateContainer()` at activity start, `removeContainer()` only in workflow cleanup
+- [ ] **AuditSession not in container** — Must be passed per-agent call (parallel safety)
 
 ### Session & Agent Management (CRITICAL)
 - [ ] **Deliverable dependencies respected** - Exploitation agents only run if vulnerability queue exists AND has items
@@ -91,6 +100,8 @@ git diff HEAD
 - [ ] **Duplicate retry logic** - Don't implement retry at both caller and callee level
 - [ ] **Hardcoded error message matching** - Prefer error codes over regex on error.message
 - [ ] **Missing timeout on long operations** - Git operations and API calls should have timeouts
+- [ ] **Console.log in services** — Use `ActivityLogger`. Only CLI display code (`client.ts`, `worker.ts`, `output-formatters.ts`) uses console.log
+- [ ] **Temporal imports in services** — Services must stay Temporal-agnostic. If you need Temporal APIs, it belongs in activities
 
 ### Code Quality
 - [ ] **No dead code added** - Remove unused imports, functions, variables
