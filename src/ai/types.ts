@@ -13,22 +13,6 @@ export interface ExecutionContext {
   agentKey: string;
 }
 
-export interface ProcessingState {
-  turnCount: number;
-  result: string | null;
-  apiErrorDetected: boolean;
-  totalCost: number;
-  partialCost: number;
-  lastHeartbeat: number;
-}
-
-export interface ProcessingResult {
-  result: string | null;
-  turnCount: number;
-  apiErrorDetected: boolean;
-  totalCost: number;
-}
-
 export interface AssistantResult {
   content: string;
   cleanedContent: string;
@@ -110,15 +94,6 @@ export interface ApiErrorDetection {
   shouldThrow?: Error;
 }
 
-// Message types from SDK stream
-export type SdkMessage =
-  | AssistantMessage
-  | ResultMessage
-  | ToolUseMessage
-  | ToolResultMessage
-  | SystemInitMessage
-  | UserMessage;
-
 export interface SystemInitMessage {
   type: 'system';
   subtype: 'init';
@@ -131,16 +106,3 @@ export interface UserMessage {
   type: 'user';
 }
 
-// Dispatch result types for message processing
-export type MessageDispatchResult =
-  | { action: 'continue' }
-  | { action: 'break'; result: string | null; cost: number }
-  | { action: 'throw'; error: Error };
-
-export interface MessageDispatchContext {
-  turnCount: number;
-  execContext: ExecutionContext;
-  description: string;
-  colorFn: (text: string) => string;
-  useCleanOutput: boolean;
-}

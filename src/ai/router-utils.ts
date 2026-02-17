@@ -26,9 +26,3 @@ export function getActualModelName(sdkReportedModel?: string): string | undefine
   return sdkReportedModel;
 }
 
-/**
- * Check if router mode is active.
- */
-export function isRouterMode(): boolean {
-  return !!process.env.ANTHROPIC_BASE_URL && !!process.env.ROUTER_DEFAULT;
-}

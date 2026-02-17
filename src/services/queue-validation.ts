@@ -6,9 +6,12 @@
 
 import { fs, path } from 'zx';
 import { PentestError } from './error-handling.js';
-import { asyncPipe } from './utils/functional.js';
+import { ErrorCode } from '../types/errors.js';
+import { type Result, ok, err } from '../types/result.js';
+import { asyncPipe } from '../utils/functional.js';
+import type { VulnType, ExploitationDecision } from '../types/agents.js';
 
-export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type { VulnType, ExploitationDecision } from '../types/agents.js';
 
 interface VulnTypeConfigItem {
   deliverable: string;
@@ -60,18 +63,11 @@ interface QueueValidationResult {
   error: string | null;
 }
 
-export interface ExploitationDecision {
-  shouldExploit: boolean;
-  shouldRetry: boolean;
-  vulnerabilityCount: number;
-  vulnType: VulnType;
-}
 
-export interface SafeValidationResult {
-  success: boolean;
-  data?: ExploitationDecision;
-  error?: PentestError;
-}
+/**
+ * Result type for safe validation - explicit error handling.
+ */
+export type SafeValidationResult = Result<ExploitationDecision, PentestError>;
 
 // Vulnerability type configuration as immutable data
 const VULN_TYPE_CONFIG: VulnTypeConfig = Object.freeze({
@@ -196,7 +192,8 @@ const validateExistenceRules = (
           deliverablePath: pathsWithExistence.deliverable,
           queuePath: pathsWithExistence.queue,
           existence,
-        }
+        },
+        ErrorCode.DELIVERABLE_NOT_FOUND
       ),
     };
   }
@@ -311,15 +308,18 @@ export async function validateQueueAndDeliverable(
   );
 }
 
-// Pure function to safely validate (returns result instead of throwing)
-export const safeValidateQueueAndDeliverable = async (
+/**
+ * Safely validate queue and deliverable files.
+ * Returns Result<ExploitationDecision, PentestError> for explicit error handling.
+ */
+export async function validateQueueSafe(
   vulnType: VulnType,
   sourceDir: string
-): Promise<SafeValidationResult> => {
+): Promise<SafeValidationResult> {
   try {
     const result = await validateQueueAndDeliverable(vulnType, sourceDir);
-    return { success: true, data: result };
+    return ok(result);
   } catch (error) {
-    return { success: false, error: error as PentestError };
+    return err(error as PentestError);
   }
-};
+}

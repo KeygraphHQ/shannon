@@ -11,10 +11,10 @@
  * Optimized for `tail -f` viewing during concurrent workflow execution.
  */
 
-import fs from 'fs';
-import path from 'path';
-import { generateWorkflowLogPath, ensureDirectory, type SessionMetadata } from './utils.js';
+import fs from 'fs/promises';
+import { generateWorkflowLogPath, type SessionMetadata } from './utils.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
+import { LogStream } from './log-stream.js';
 
 export interface AgentLogDetails {
   attemptNumber?: number;
@@ -42,38 +42,27 @@ export interface WorkflowSummary {
  * WorkflowLogger - Manages the unified workflow log file
  */
 export class WorkflowLogger {
-  private sessionMetadata: SessionMetadata;
-  private logPath: string;
-  private stream: fs.WriteStream | null = null;
-  private initialized: boolean = false;
+  private readonly sessionMetadata: SessionMetadata;
+  private readonly logStream: LogStream;
 
   constructor(sessionMetadata: SessionMetadata) {
     this.sessionMetadata = sessionMetadata;
-    this.logPath = generateWorkflowLogPath(sessionMetadata);
+    const logPath = generateWorkflowLogPath(sessionMetadata);
+    this.logStream = new LogStream(logPath);
   }
 
   /**
    * Initialize the log stream (creates file and writes header)
    */
   async initialize(): Promise<void> {
-    if (this.initialized) {
+    if (this.logStream.isOpen) {
       return;
     }
 
-    // Ensure directory exists
-    await ensureDirectory(path.dirname(this.logPath));
-
-    // Create write stream with append mode
-    this.stream = fs.createWriteStream(this.logPath, {
-      flags: 'a',
-      encoding: 'utf8',
-      autoClose: true,
-    });
-
-    this.initialized = true;
+    await this.logStream.open();
 
     // Write header only if file is new (empty)
-    const stats = await fs.promises.stat(this.logPath).catch(() => null);
+    const stats = await fs.stat(this.logStream.path).catch(() => null);
     if (!stats || stats.size === 0) {
       await this.writeHeader();
     }
@@ -94,29 +83,35 @@ export class WorkflowLogger {
       ``,
     ].join('\n');
 
-    return this.writeRaw(header);
+    return this.logStream.write(header);
   }
 
   /**
-   * Write raw text to log file with immediate flush
+   * Write resume header to log file when workflow is resumed
    */
-  private writeRaw(text: string): Promise<void> {
-    return new Promise((resolve, reject) => {
-      if (!this.initialized || !this.stream) {
-        reject(new Error('WorkflowLogger not initialized'));
-        return;
-      }
+  async logResumeHeader(resumeInfo: {
+    previousWorkflowId: string;
+    newWorkflowId: string;
+    checkpointHash: string;
+    completedAgents: string[];
+  }): Promise<void> {
+    await this.ensureInitialized();
 
-      const needsDrain = !this.stream.write(text, 'utf8', (error) => {
-        if (error) reject(error);
-      });
+    const header = [
+      ``,
+      `================================================================================`,
+      `RESUMED`,
+      `================================================================================`,
+      `Previous Workflow ID: ${resumeInfo.previousWorkflowId}`,
+      `New Workflow ID:      ${resumeInfo.newWorkflowId}`,
+      `Resumed At:           ${formatTimestamp()}`,
+      `Checkpoint:           ${resumeInfo.checkpointHash}`,
+      `Completed:            ${resumeInfo.completedAgents.length} agents (${resumeInfo.completedAgents.join(', ')})`,
+      `================================================================================`,
+      ``,
+    ].join('\n');
 
-      if (needsDrain) {
-        this.stream.once('drain', resolve);
-      } else {
-        resolve();
-      }
-    });
+    return this.logStream.write(header);
   }
 
   /**
@@ -138,10 +133,10 @@ export class WorkflowLogger {
 
     // Add blank line before phase start for readability
     if (event === 'start') {
-      await this.writeRaw('\n');
+      await this.logStream.write('\n');
     }
 
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -184,7 +179,7 @@ export class WorkflowLogger {
     }
 
     const line = `[${this.formatLogTime()}] [AGENT] ${message}\n`;
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -194,7 +189,7 @@ export class WorkflowLogger {
     await this.ensureInitialized();
 
     const line = `[${this.formatLogTime()}] [${eventType.toUpperCase()}] ${message}\n`;
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -205,7 +200,7 @@ export class WorkflowLogger {
 
     const contextStr = context ? ` (${context})` : '';
     const line = `[${this.formatLogTime()}] [ERROR] ${error.message}${contextStr}\n`;
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -301,7 +296,7 @@ export class WorkflowLogger {
     const params = this.formatToolParams(toolName, parameters);
     const paramStr = params ? `: ${params}` : '';
     const line = `[${this.formatLogTime()}] [${agentName}] [TOOL] ${toolName}${paramStr}\n`;
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -313,7 +308,7 @@ export class WorkflowLogger {
     // Show full content, replacing newlines with escaped version for single-line output
     const escaped = content.replace(/\n/g, '\\n');
     const line = `[${this.formatLogTime()}] [${agentName}] [LLM] Turn ${turn}: ${escaped}\n`;
-    await this.writeRaw(line);
+    await this.logStream.write(line);
   }
 
   /**
@@ -324,42 +319,42 @@ export class WorkflowLogger {
 
     const status = summary.status === 'completed' ? 'COMPLETED' : 'FAILED';
 
-    await this.writeRaw('\n');
-    await this.writeRaw(`================================================================================\n`);
-    await this.writeRaw(`Workflow ${status}\n`);
-    await this.writeRaw(`────────────────────────────────────────\n`);
-    await this.writeRaw(`Workflow ID: ${this.sessionMetadata.id}\n`);
-    await this.writeRaw(`Status:      ${summary.status}\n`);
-    await this.writeRaw(`Duration:    ${formatDuration(summary.totalDurationMs)}\n`);
-    await this.writeRaw(`Total Cost:  $${summary.totalCostUsd.toFixed(4)}\n`);
-    await this.writeRaw(`Agents:      ${summary.completedAgents.length} completed\n`);
+    await this.logStream.write('\n');
+    await this.logStream.write(`================================================================================\n`);
+    await this.logStream.write(`Workflow ${status}\n`);
+    await this.logStream.write(`────────────────────────────────────────\n`);
+    await this.logStream.write(`Workflow ID: ${this.sessionMetadata.id}\n`);
+    await this.logStream.write(`Status:      ${summary.status}\n`);
+    await this.logStream.write(`Duration:    ${formatDuration(summary.totalDurationMs)}\n`);
+    await this.logStream.write(`Total Cost:  $${summary.totalCostUsd.toFixed(4)}\n`);
+    await this.logStream.write(`Agents:      ${summary.completedAgents.length} completed\n`);
 
     if (summary.error) {
-      await this.writeRaw(`Error:       ${summary.error}\n`);
+      await this.logStream.write(`Error:       ${summary.error}\n`);
     }
 
-    await this.writeRaw(`\n`);
-    await this.writeRaw(`Agent Breakdown:\n`);
+    await this.logStream.write(`\n`);
+    await this.logStream.write(`Agent Breakdown:\n`);
 
     for (const agentName of summary.completedAgents) {
       const metrics = summary.agentMetrics[agentName];
       if (metrics) {
         const duration = formatDuration(metrics.durationMs);
         const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
-        await this.writeRaw(`  - ${agentName} (${duration}, ${cost})\n`);
+        await this.logStream.write(`  - ${agentName} (${duration}, ${cost})\n`);
       } else {
-        await this.writeRaw(`  - ${agentName}\n`);
+        await this.logStream.write(`  - ${agentName}\n`);
       }
     }
 
-    await this.writeRaw(`================================================================================\n`);
+    await this.logStream.write(`================================================================================\n`);
   }
 
   /**
    * Ensure initialized (helper for lazy initialization)
    */
   private async ensureInitialized(): Promise<void> {
-    if (!this.initialized) {
+    if (!this.logStream.isOpen) {
       await this.initialize();
     }
   }
@@ -368,15 +363,6 @@ export class WorkflowLogger {
    * Close the log stream
    */
   async close(): Promise<void> {
-    if (!this.initialized || !this.stream) {
-      return;
-    }
-
-    return new Promise((resolve) => {
-      this.stream!.end(() => {
-        this.initialized = false;
-        resolve();
-      });
-    });
+    return this.logStream.close();
   }
 }

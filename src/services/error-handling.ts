@@ -4,116 +4,44 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import chalk from 'chalk';
-import { fs, path } from 'zx';
-import type {
-  PentestErrorType,
-  PentestErrorContext,
-  LogEntry,
-  ToolErrorResult,
-  PromptErrorResult,
-} from './types/errors.js';
+import {
+  ErrorCode,
+  type PentestErrorType,
+  type PentestErrorContext,
+  type PromptErrorResult,
+} from '../types/errors.js';
+import {
+  matchesBillingApiPattern,
+  matchesBillingTextPattern,
+} from '../utils/billing-detection.js';
 
-// Temporal error classification for ApplicationFailure wrapping
-export interface TemporalErrorClassification {
-  type: string;
-  retryable: boolean;
-}
-
-// Custom error class for pentest operations
 export class PentestError extends Error {
-  name = 'PentestError' as const;
+  override name = 'PentestError' as const;
   type: PentestErrorType;
   retryable: boolean;
   context: PentestErrorContext;
   timestamp: string;
+  /** Optional specific error code for reliable classification */
+  code?: ErrorCode;
 
   constructor(
     message: string,
     type: PentestErrorType,
     retryable: boolean = false,
-    context: PentestErrorContext = {}
+    context: PentestErrorContext = {},
+    code?: ErrorCode
   ) {
     super(message);
     this.type = type;
     this.retryable = retryable;
     this.context = context;
     this.timestamp = new Date().toISOString();
-  }
-}
-
-// Centralized error logging function
-export async function logError(
-  error: Error & { type?: PentestErrorType; retryable?: boolean; context?: PentestErrorContext },
-  contextMsg: string,
-  sourceDir: string | null = null
-): Promise<LogEntry> {
-  const timestamp = new Date().toISOString();
-  const logEntry: LogEntry = {
-    timestamp,
-    context: contextMsg,
-    error: {
-      name: error.name || error.constructor.name,
-      message: error.message,
-      type: error.type || 'unknown',
-      retryable: error.retryable || false,
-    },
-  };
-  // Only add stack if it exists
-  if (error.stack) {
-    logEntry.error.stack = error.stack;
-  }
-
-  // Console logging with color
-  const prefix = error.retryable ? '⚠️' : '❌';
-  const color = error.retryable ? chalk.yellow : chalk.red;
-  console.log(color(`${prefix} ${contextMsg}:`));
-  console.log(color(`   ${error.message}`));
-
-  if (error.context && Object.keys(error.context).length > 0) {
-    console.log(chalk.gray(`   Context: ${JSON.stringify(error.context)}`));
-  }
-
-  // File logging (if source directory available)
-  if (sourceDir) {
-    try {
-      const logPath = path.join(sourceDir, 'error.log');
-      await fs.appendFile(logPath, JSON.stringify(logEntry) + '\n');
-    } catch (logErr) {
-      const errMsg = logErr instanceof Error ? logErr.message : String(logErr);
-      console.log(chalk.gray(`   (Failed to write error log: ${errMsg})`));
+    if (code !== undefined) {
+      this.code = code;
     }
   }
-
-  return logEntry;
 }
 
-// Handle tool execution errors
-export function handleToolError(
-  toolName: string,
-  error: Error & { code?: string }
-): ToolErrorResult {
-  const isRetryable =
-    error.code === 'ECONNRESET' ||
-    error.code === 'ETIMEDOUT' ||
-    error.code === 'ENOTFOUND';
-
-  return {
-    tool: toolName,
-    output: `Error: ${error.message}`,
-    status: 'error',
-    duration: 0,
-    success: false,
-    error: new PentestError(
-      `${toolName} execution failed: ${error.message}`,
-      'tool',
-      isRetryable,
-      { toolName, originalError: error.message, errorCode: error.code }
-    ),
-  };
-}
-
-// Handle prompt loading errors
 export function handlePromptError(
   promptName: string,
   error: Error
@@ -129,7 +57,6 @@ export function handlePromptError(
   };
 }
 
-// Patterns that indicate retryable errors
 const RETRYABLE_PATTERNS = [
   // Network and connection errors
   'network',
@@ -173,28 +100,58 @@ const NON_RETRYABLE_PATTERNS = [
 export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
 
-  // Check for explicit non-retryable patterns first
   if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
     return false;
   }
 
-  // Check for retryable patterns
   return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
 }
 
-// Rate limit errors get longer base delay (30s) vs standard exponential backoff (2s)
-export function getRetryDelay(error: Error, attempt: number): number {
-  const message = error.message.toLowerCase();
+/**
+ * Classifies errors by ErrorCode for reliable, code-based classification.
+ * Used when error is a PentestError with a specific ErrorCode.
+ */
+function classifyByErrorCode(
+  code: ErrorCode,
+  retryableFromError: boolean
+): { type: string; retryable: boolean } {
+  switch (code) {
+    // Billing errors - retryable (wait for cap reset or credits added)
+    case ErrorCode.SPENDING_CAP_REACHED:
+    case ErrorCode.INSUFFICIENT_CREDITS:
+      return { type: 'BillingError', retryable: true };
 
-  // Rate limiting gets longer delays
-  if (message.includes('rate limit') || message.includes('429')) {
-    return Math.min(30000 + attempt * 10000, 120000); // 30s, 40s, 50s, max 2min
+    case ErrorCode.API_RATE_LIMITED:
+      return { type: 'RateLimitError', retryable: true };
+
+    // Config errors - non-retryable (need manual fix)
+    case ErrorCode.CONFIG_NOT_FOUND:
+    case ErrorCode.CONFIG_VALIDATION_FAILED:
+    case ErrorCode.CONFIG_PARSE_ERROR:
+      return { type: 'ConfigurationError', retryable: false };
+
+    // Prompt errors - non-retryable (need manual fix)
+    case ErrorCode.PROMPT_LOAD_FAILED:
+      return { type: 'ConfigurationError', retryable: false };
+
+    // Git errors - non-retryable (indicates workspace corruption)
+    case ErrorCode.GIT_CHECKPOINT_FAILED:
+    case ErrorCode.GIT_ROLLBACK_FAILED:
+      return { type: 'GitError', retryable: false };
+
+    // Validation errors - retryable (agent may succeed on retry)
+    case ErrorCode.OUTPUT_VALIDATION_FAILED:
+    case ErrorCode.DELIVERABLE_NOT_FOUND:
+      return { type: 'OutputValidationError', retryable: true };
+
+    // Agent execution - use the retryable flag from the error
+    case ErrorCode.AGENT_EXECUTION_FAILED:
+      return { type: 'AgentExecutionError', retryable: retryableFromError };
+
+    default:
+      // Unknown code - fall through to string matching
+      return { type: 'UnknownError', retryable: retryableFromError };
   }
-
-  // Exponential backoff with jitter for other retryable errors
-  const baseDelay = Math.pow(2, attempt) * 1000; // 2s, 4s, 8s
-  const jitter = Math.random() * 1000; // 0-1s random
-  return Math.min(baseDelay + jitter, 30000); // Max 30s
 }
 
 /**
@@ -204,31 +161,25 @@ export function getRetryDelay(error: Error, attempt: number): number {
  * Used by activities to wrap errors in ApplicationFailure:
  * - Retryable errors: Temporal retries with configured backoff
  * - Non-retryable errors: Temporal fails immediately
+ *
+ * Classification priority:
+ * 1. If error is PentestError with ErrorCode, classify by code (reliable)
+ * 2. Fall through to string matching for external errors (SDK, network, etc.)
  */
-export function classifyErrorForTemporal(error: unknown): TemporalErrorClassification {
+export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
+  // === CODE-BASED CLASSIFICATION (Preferred for internal errors) ===
+  if (error instanceof PentestError && error.code !== undefined) {
+    return classifyByErrorCode(error.code, error.retryable);
+  }
+
+  // === STRING-BASED CLASSIFICATION (Fallback for external errors) ===
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===
   // Anthropic returns billing as 400 invalid_request_error
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
-  if (
-    message.includes('billing_error') ||
-    message.includes('credit balance is too low') ||
-    message.includes('insufficient credits') ||
-    message.includes('usage is blocked due to insufficient credits') ||
-    message.includes('please visit plans & billing') ||
-    message.includes('please visit plans and billing') ||
-    message.includes('usage limit reached') ||
-    message.includes('quota exceeded') ||
-    message.includes('daily rate limit') ||
-    message.includes('limit will reset') ||
-    // Claude Code spending cap patterns (returns short message instead of error)
-    message.includes('spending cap') ||
-    message.includes('spending limit') ||
-    message.includes('cap reached') ||
-    message.includes('budget exceeded') ||
-    message.includes('billing limit reached')
-  ) {
+  // Check both API patterns and text patterns for comprehensive detection
+  if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {
     return { type: 'BillingError', retryable: true };
   }
 

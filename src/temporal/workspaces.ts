@@ -20,7 +20,6 @@
 
 import fs from 'fs/promises';
 import path from 'path';
-import chalk from 'chalk';
 
 interface SessionJson {
   session: {
@@ -59,16 +58,7 @@ function formatDuration(ms: number): string {
 }
 
 function getStatusDisplay(status: string): string {
-  switch (status) {
-    case 'completed':
-      return chalk.green(status);
-    case 'in-progress':
-      return chalk.yellow(status);
-    case 'failed':
-      return chalk.red(status);
-    default:
-      return status;
-  }
+  return status;
 }
 
 function truncate(str: string, maxLen: number): string {
@@ -83,8 +73,8 @@ async function listWorkspaces(): Promise<void> {
   try {
     entries = await fs.readdir(auditDir);
   } catch {
-    console.log(chalk.yellow('No audit-logs directory found.'));
-    console.log(chalk.gray(`Expected: ${auditDir}`));
+    console.log('No audit-logs directory found.');
+    console.log(`Expected: ${auditDir}`);
     return;
   }
 
@@ -110,15 +100,15 @@ async function listWorkspaces(): Promise<void> {
   }
 
   if (workspaces.length === 0) {
-    console.log(chalk.yellow('\nNo workspaces found.'));
-    console.log(chalk.gray('Run a pipeline first: ./shannon start URL=<url> REPO=<repo>'));
+    console.log('\nNo workspaces found.');
+    console.log('Run a pipeline first: ./shannon start URL=<url> REPO=<repo>');
     return;
   }
 
   // Sort by creation date (most recent first)
   workspaces.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-  console.log(chalk.cyan.bold('\n=== Shannon Workspaces ===\n'));
+  console.log('\n=== Shannon Workspaces ===\n');
 
   // Column widths
   const nameWidth = 30;
@@ -129,16 +119,14 @@ async function listWorkspaces(): Promise<void> {
 
   // Header
   console.log(
-    chalk.gray(
-      '  ' +
-      'WORKSPACE'.padEnd(nameWidth) +
-      'URL'.padEnd(urlWidth) +
-      'STATUS'.padEnd(statusWidth) +
-      'DURATION'.padEnd(durationWidth) +
-      'COST'.padEnd(costWidth)
-    )
+    '  ' +
+    'WORKSPACE'.padEnd(nameWidth) +
+    'URL'.padEnd(urlWidth) +
+    'STATUS'.padEnd(statusWidth) +
+    'DURATION'.padEnd(durationWidth) +
+    'COST'.padEnd(costWidth)
   );
-  console.log(chalk.gray('  ' + '\u2500'.repeat(nameWidth + urlWidth + statusWidth + durationWidth + costWidth)));
+  console.log('  ' + '\u2500'.repeat(nameWidth + urlWidth + statusWidth + durationWidth + costWidth));
 
   let resumableCount = 0;
 
@@ -154,15 +142,15 @@ async function listWorkspaces(): Promise<void> {
       resumableCount++;
     }
 
-    const resumeTag = isResumable ? chalk.cyan(' (resumable)') : '';
+    const resumeTag = isResumable ? ' (resumable)' : '';
 
     console.log(
       '  ' +
-      chalk.white(truncate(ws.name, nameWidth - 2).padEnd(nameWidth)) +
-      chalk.gray(truncate(ws.url, urlWidth - 2).padEnd(urlWidth)) +
-      getStatusDisplay(ws.status).padEnd(statusWidth + 10) + // +10 for chalk escape codes
-      chalk.gray(duration.padEnd(durationWidth)) +
-      chalk.gray(cost.padEnd(costWidth)) +
+      truncate(ws.name, nameWidth - 2).padEnd(nameWidth) +
+      truncate(ws.url, urlWidth - 2).padEnd(urlWidth) +
+      getStatusDisplay(ws.status).padEnd(statusWidth) +
+      duration.padEnd(durationWidth) +
+      cost.padEnd(costWidth) +
       resumeTag
     );
   }
@@ -170,16 +158,16 @@ async function listWorkspaces(): Promise<void> {
   console.log();
   const summary = `${workspaces.length} workspace${workspaces.length === 1 ? '' : 's'} found`;
   const resumeSummary = resumableCount > 0 ? ` (${resumableCount} resumable)` : '';
-  console.log(chalk.gray(`${summary}${resumeSummary}`));
+  console.log(`${summary}${resumeSummary}`);
 
   if (resumableCount > 0) {
-    console.log(chalk.gray('\nResume with: ./shannon start URL=<url> REPO=<repo> WORKSPACE=<name>'));
+    console.log('\nResume with: ./shannon start URL=<url> REPO=<repo> WORKSPACE=<name>');
   }
 
   console.log();
 }
 
 listWorkspaces().catch((err) => {
-  console.error(chalk.red('Error listing workspaces:'), err);
+  console.error('Error listing workspaces:', err);
   process.exit(1);
 });

@@ -5,10 +5,10 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import chalk from 'chalk';
-import { PentestError, handlePromptError } from '../error-handling.js';
-import { MCP_AGENT_MAPPING } from '../constants.js';
+import { PentestError, handlePromptError } from './error-handling.js';
+import { MCP_AGENT_MAPPING } from '../session-manager.js';
 import type { Authentication, DistributedConfig } from '../types/config.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface PromptVariables {
   webUrl: string;
@@ -22,9 +22,9 @@ interface IncludeReplacement {
 }
 
 // Pure function: Build complete login instructions from config
-async function buildLoginInstructions(authentication: Authentication): Promise<string> {
+async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
   try {
-    // Load the login instructions template
+    // 1. Load the login instructions template
     const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
 
     if (!await fs.pathExists(loginInstructionsPath)) {
@@ -38,37 +38,33 @@ async function buildLoginInstructions(authentication: Authentication): Promise<s
 
     const fullTemplate = await fs.readFile(loginInstructionsPath, 'utf8');
 
-    // Helper function to extract sections based on markers
     const getSection = (content: string, sectionName: string): string => {
       const regex = new RegExp(`<!-- BEGIN:${sectionName} -->([\\s\\S]*?)<!-- END:${sectionName} -->`, 'g');
       const match = regex.exec(content);
       return match ? match[1]!.trim() : '';
     };
 
-    // Extract sections based on login type
+    // 2. Extract sections based on login type
     const loginType = authentication.login_type?.toUpperCase();
     let loginInstructions = '';
 
-    // Build instructions with only relevant sections
     const commonSection = getSection(fullTemplate, 'COMMON');
     const authSection = loginType ? getSection(fullTemplate, loginType) : ''; // FORM or SSO
     const verificationSection = getSection(fullTemplate, 'VERIFICATION');
 
-    // Fallback to full template if markers are missing (backward compatibility)
+    // 3. Assemble instructions from sections (fallback to full template if markers missing)
     if (!commonSection && !authSection && !verificationSection) {
-      console.log(chalk.yellow('⚠️ Section markers not found, using full login instructions template'));
+      logger.warn('Section markers not found, using full login instructions template');
       loginInstructions = fullTemplate;
     } else {
-      // Combine relevant sections
       loginInstructions = [commonSection, authSection, verificationSection]
-        .filter(section => section) // Remove empty sections
+        .filter(section => section)
         .join('\n\n');
     }
 
-    // Replace the user instructions placeholder with the login flow from config
+    // 4. Interpolate login flow and credential placeholders
     let userInstructions = (authentication.login_flow ?? []).join('\n');
 
-    // Replace credential placeholders within the user instructions
     if (authentication.credentials) {
       if (authentication.credentials.username) {
         userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
@@ -83,7 +79,7 @@ async function buildLoginInstructions(authentication: Authentication): Promise<s
 
     loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
 
-    // Replace TOTP secret placeholder if present in template
+    // 5. Replace TOTP secret placeholder if present in template
     if (authentication.credentials?.totp_secret) {
       loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
@@ -128,7 +124,8 @@ async function processIncludes(content: string, baseDir: string): Promise<string
 async function interpolateVariables(
   template: string,
   variables: PromptVariables,
-  config: DistributedConfig | null = null
+  config: DistributedConfig | null = null,
+  logger: ActivityLogger
 ): Promise<string> {
   try {
     if (!template || typeof template !== 'string') {
@@ -174,7 +171,7 @@ async function interpolateVariables(
 
       // Extract and inject login instructions from config
       if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication);
+        const loginInstructions = await buildLoginInstructions(config.authentication, logger);
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
@@ -189,7 +186,7 @@ async function interpolateVariables(
     // Validate that all placeholders have been replaced (excluding instructional text)
     const remainingPlaceholders = result.match(/\{\{[^}]+\}\}/g);
     if (remainingPlaceholders) {
-      console.log(chalk.yellow(`⚠️ Warning: Found unresolved placeholders in prompt: ${remainingPlaceholders.join(', ')}`));
+      logger.warn(`Found unresolved placeholders in prompt: ${remainingPlaceholders.join(', ')}`);
     }
 
     return result;
@@ -212,20 +209,19 @@ export async function loadPrompt(
   promptName: string,
   variables: PromptVariables,
   config: DistributedConfig | null = null,
-  pipelineTestingMode: boolean = false
+  pipelineTestingMode: boolean = false,
+  logger: ActivityLogger
 ): Promise<string> {
   try {
-    // Use pipeline testing prompts if pipeline testing mode is enabled
+    // 1. Resolve prompt file path
     const baseDir = pipelineTestingMode ? 'prompts/pipeline-testing' : 'prompts';
     const promptsDir = path.join(import.meta.dirname, '..', '..', baseDir);
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 
-    // Debug message for pipeline testing mode
     if (pipelineTestingMode) {
-      console.log(chalk.yellow(`⚡ Using pipeline testing prompt: ${promptPath}`));
+      logger.info(`Using pipeline testing prompt: ${promptPath}`);
     }
 
-    // Check if file exists first
     if (!await fs.pathExists(promptPath)) {
       throw new PentestError(
         `Prompt file not found: ${promptPath}`,
@@ -235,26 +231,26 @@ export async function loadPrompt(
       );
     }
 
-    // Add MCP server assignment to variables
+    // 2. Assign MCP server based on agent name
     const enhancedVariables: PromptVariables = { ...variables };
 
-    // Assign MCP server based on prompt name (agent name)
     const mcpServer = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING];
     if (mcpServer) {
       enhancedVariables.MCP_SERVER = mcpServer;
-      console.log(chalk.gray(`    🎭 Assigned ${promptName} → ${enhancedVariables.MCP_SERVER}`));
+      logger.info(`Assigned ${promptName} -> ${enhancedVariables.MCP_SERVER}`);
     } else {
-      // Fallback for unknown agents
       enhancedVariables.MCP_SERVER = 'playwright-agent1';
-      console.log(chalk.yellow(`    🎭 Unknown agent ${promptName}, using fallback → ${enhancedVariables.MCP_SERVER}`));
+      logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.MCP_SERVER}`);
     }
 
+    // 3. Read template file
     let template = await fs.readFile(promptPath, 'utf8');
 
-    // Pre-process the template to handle @include directives
+    // 4. Process @include directives
     template = await processIncludes(template, promptsDir);
 
-    return await interpolateVariables(template, enhancedVariables, config);
+    // 5. Interpolate variables and return final prompt
+    return await interpolateVariables(template, enhancedVariables, config, logger);
   } catch (error) {
     if (error instanceof PentestError) {
       throw error;
