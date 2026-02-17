@@ -121,11 +121,22 @@ cd shannon
 # Option A: Export environment variables
 export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
+export CLAUDE_MODEL="claude-sonnet-4-5-20250929"     # optional override
+# export CLAUDE_HAIKU_MODEL="claude-haiku-4-5-20251001"  # optional Haiku-specific override
+# Optional: route Claude calls through your own proxy
+# export CLAUDE_API_BASE_URL="https://your-proxy.example.com"
+# export CLAUDE_API_AUTH_TOKEN="your-proxy-auth-token"
 
 # Option B: Create a .env file
 cat > .env << 'EOF'
 ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+CLAUDE_MODEL=claude-sonnet-4-5-20250929
+# Optional:
+# CLAUDE_HAIKU_MODEL=claude-haiku-4-5-20251001
+# Optional:
+# CLAUDE_API_BASE_URL=https://your-proxy.example.com
+# CLAUDE_API_AUTH_TOKEN=your-proxy-auth-token
 EOF
 
 # 3. Run a pentest
@@ -296,6 +307,21 @@ rules:
 #### TOTP Setup for 2FA
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+
+### Custom Claude Proxy Endpoint
+
+You can route Claude SDK traffic through a custom proxy without enabling Router Mode.
+
+```bash
+CLAUDE_API_BASE_URL=https://your-proxy.example.com
+# Optional if your proxy requires token auth
+CLAUDE_API_AUTH_TOKEN=your-proxy-auth-token
+```
+
+Environment variable precedence:
+
+- `CLAUDE_API_BASE_URL` overrides `ANTHROPIC_BASE_URL`
+- `CLAUDE_API_AUTH_TOKEN` overrides `ANTHROPIC_AUTH_TOKEN`
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 

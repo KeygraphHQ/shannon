@@ -229,9 +229,21 @@ export async function runClaudePrompt(
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
+  const anthropicBaseUrl = process.env.CLAUDE_API_BASE_URL || process.env.ANTHROPIC_BASE_URL;
+  if (anthropicBaseUrl) {
+    sdkEnv.ANTHROPIC_BASE_URL = anthropicBaseUrl;
+  }
+  const anthropicAuthToken = process.env.CLAUDE_API_AUTH_TOKEN || process.env.ANTHROPIC_AUTH_TOKEN;
+  if (anthropicAuthToken) {
+    sdkEnv.ANTHROPIC_AUTH_TOKEN = anthropicAuthToken;
+  }
+  const claudeModel =
+    process.env.CLAUDE_MODEL ||
+    process.env.CLAUDE_HAIKU_MODEL ||
+    'claude-sonnet-4-5-20250929';
 
   const options = {
-    model: 'claude-sonnet-4-5-20250929',
+    model: claudeModel,
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
