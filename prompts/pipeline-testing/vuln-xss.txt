@@ -1,37 +1,13 @@
-## 🧪 Pipeline Testing: MCP Isolation Test for XSS Agent
+Please complete these tasks using your MCP tools:
 
-**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+1. Navigate to https://example.org and take a screenshot:
+   - Use {{MCP_SERVER}}__browser_navigate to go to https://example.org
+   - Use {{MCP_SERVER}}__browser_take_screenshot
 
-### Step 1: Test Browser Isolation
-1. Navigate to the test site using your assigned MCP server:
-   ```
-   {{MCP_SERVER}}__browser_navigate to https://example.org
-   ```
+2. Save an analysis deliverable:
+   - Use save_deliverable with deliverable_type "XSS_ANALYSIS"
+   - Content: "# XSS Analysis Report\n\nAnalysis complete. No XSS vulnerabilities identified."
 
-2. Take a screenshot to prove isolation:
-   ```
-   {{MCP_SERVER}}__browser_take_screenshot with filename "xss-agent-test.png"
-   ```
-
-3. Log the test results:
-   ```
-   console.log("🟡 XSS AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to example.org")
-   ```
-
-### Step 2: Create Required Deliverables
-Use the save_deliverable MCP tool to create both deliverables:
-
-**1. Analysis Report:**
-Use `save_deliverable` MCP tool with:
-- `deliverable_type: "XSS_ANALYSIS"`
-- `content: "# XSS Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://example.org\n**Screenshot:** xss-agent-test.png\n**Status:** Browser isolation test successful"`
-
-**2. Exploitation Queue:**
-Use `save_deliverable` MCP tool with:
-- `deliverable_type: "XSS_QUEUE"`
-- `content: {"vulnerabilities": [{"ID": "XSS-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test XSS vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "Reflected", "source": "search parameter", "sink_function": "template.render at search.js:25", "render_context": "HTML_BODY", "mismatch_reason": "User input rendered without HTML encoding", "witness_payload": "<script>alert(1)</script>"}]}`
-
-These tools will automatically create the correct files in `deliverables/`.
-
-### Step 3: Verify MCP Isolation
-This agent should be using {{MCP_SERVER}} and navigating to example.org independently of other parallel agents.
+3. Save a queue deliverable:
+   - Use save_deliverable with deliverable_type "XSS_QUEUE"
+   - Content: {"vulnerabilities": []}

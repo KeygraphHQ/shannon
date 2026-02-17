@@ -1,37 +1,13 @@
-## 🧪 Pipeline Testing: MCP Isolation Test for Authorization Agent
+Please complete these tasks using your MCP tools:
 
-**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+1. Navigate to https://jsonplaceholder.typicode.com and take a screenshot:
+   - Use {{MCP_SERVER}}__browser_navigate to go to https://jsonplaceholder.typicode.com
+   - Use {{MCP_SERVER}}__browser_take_screenshot
 
-### Step 1: Test Browser Isolation
-1. Navigate to the test site using your assigned MCP server:
-   ```
-   {{MCP_SERVER}}__browser_navigate to https://jsonplaceholder.typicode.com
-   ```
+2. Save an analysis deliverable:
+   - Use save_deliverable with deliverable_type "AUTHZ_ANALYSIS"
+   - Content: "# Authorization Analysis Report\n\nAnalysis complete. No authorization vulnerabilities identified."
 
-2. Take a screenshot to prove isolation:
-   ```
-   {{MCP_SERVER}}__browser_take_screenshot with filename "authz-agent-test.png"
-   ```
-
-3. Log the test results:
-   ```
-   console.log("🟢 AUTHZ AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to jsonplaceholder.typicode.com")
-   ```
-
-### Step 2: Create Required Deliverables
-Use the save_deliverable MCP tool to create both deliverables:
-
-**1. Analysis Report:**
-Use `save_deliverable` MCP tool with:
-- `deliverable_type: "AUTHZ_ANALYSIS"`
-- `content: "# Authorization Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://jsonplaceholder.typicode.com\n**Screenshot:** authz-agent-test.png\n**Status:** Browser isolation test successful"`
-
-**2. Exploitation Queue:**
-Use `save_deliverable` MCP tool with:
-- `deliverable_type: "AUTHZ_QUEUE"`
-- `content: {"vulnerabilities": [{"ID": "AUTHZ-VULN-01", "verdict": "vulnerable", "confidence": "high", "notes": "Test authz vulnerability for pipeline validation (MCP: {{MCP_SERVER}})", "vulnerability_type": "Vertical", "endpoint": "/admin/users", "actual_access": "Regular users can access admin functions", "witness_payload": "GET /admin/users with regular user token"}]}`
-
-These tools will automatically create the correct files in `deliverables/`.
-
-### Step 3: Verify MCP Isolation
-This agent should be using {{MCP_SERVER}} and navigating to jsonplaceholder.typicode.com independently of other parallel agents.
+3. Save a queue deliverable:
+   - Use save_deliverable with deliverable_type "AUTHZ_QUEUE"
+   - Content: {"vulnerabilities": []}
