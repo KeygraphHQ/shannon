@@ -41,7 +41,9 @@ export type PlaywrightAgent =
   | 'playwright-agent4'
   | 'playwright-agent5';
 
-export type AgentValidator = (sourceDir: string) => Promise<boolean>;
+import type { ActivityLogger } from '../temporal/activity-logger.js';
+
+export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
 
 export type AgentStatus =
   | 'pending'

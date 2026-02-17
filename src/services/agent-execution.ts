@@ -21,8 +21,7 @@
  * No Temporal dependencies - pure domain logic.
  */
 
-import chalk from 'chalk';
-
+import type { ActivityLogger } from '../temporal/activity-logger.js';
 import { Result, ok, err, isErr } from '../types/result.js';
 import { ErrorCode } from '../types/errors.js';
 import { PentestError } from '../error-handling.js';
@@ -83,7 +82,8 @@ export class AgentExecutionService {
   async execute(
     agentName: AgentName,
     input: AgentExecutionInput,
-    auditSession: AuditSession
+    auditSession: AuditSession,
+    logger: ActivityLogger
   ): Promise<Result<AgentEndResult, PentestError>> {
     const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
 
@@ -102,7 +102,8 @@ export class AgentExecutionService {
         promptTemplate,
         { webUrl, repoPath },
         distributedConfig,
-        pipelineTestingMode
+        pipelineTestingMode,
+        logger
       );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -119,7 +120,7 @@ export class AgentExecutionService {
 
     // 3. Create git checkpoint before execution
     try {
-      await createGitCheckpoint(repoPath, agentName, attemptNumber);
+      await createGitCheckpoint(repoPath, agentName, attemptNumber, logger);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -143,15 +144,15 @@ export class AgentExecutionService {
       '', // context
       agentName, // description
       agentName,
-      chalk.cyan,
-      auditSession
+      auditSession,
+      logger
     );
 
     // 6. Spending cap check - defense-in-depth
     if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
       const resultText = result.result || '';
       if (isSpendingCapBehavior(result.turns ?? 0, result.cost || 0, resultText)) {
-        await rollbackGitWorkspace(repoPath, 'spending cap detected');
+        await rollbackGitWorkspace(repoPath, 'spending cap detected', logger);
         const endResult: AgentEndResult = {
           attemptNumber,
           duration_ms: result.duration,
@@ -175,7 +176,7 @@ export class AgentExecutionService {
 
     // 7. Handle execution failure
     if (!result.success) {
-      await rollbackGitWorkspace(repoPath, 'execution failure');
+      await rollbackGitWorkspace(repoPath, 'execution failure', logger);
       const endResult: AgentEndResult = {
         attemptNumber,
         duration_ms: result.duration,
@@ -197,9 +198,9 @@ export class AgentExecutionService {
     }
 
     // 8. Validate output
-    const validationPassed = await validateAgentOutput(result, agentName, repoPath);
+    const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
     if (!validationPassed) {
-      await rollbackGitWorkspace(repoPath, 'validation failure');
+      await rollbackGitWorkspace(repoPath, 'validation failure', logger);
       const endResult: AgentEndResult = {
         attemptNumber,
         duration_ms: result.duration,
@@ -221,7 +222,7 @@ export class AgentExecutionService {
     }
 
     // 9. Success - commit deliverables, then capture checkpoint hash
-    await commitGitSuccess(repoPath, agentName);
+    await commitGitSuccess(repoPath, agentName, logger);
     const commitHash = await getGitCommitHash(repoPath);
 
     const endResult: AgentEndResult = {
@@ -253,9 +254,10 @@ export class AgentExecutionService {
   async executeOrThrow(
     agentName: AgentName,
     input: AgentExecutionInput,
-    auditSession: AuditSession
+    auditSession: AuditSession,
+    logger: ActivityLogger
   ): Promise<AgentEndResult> {
-    const result = await this.execute(agentName, input, auditSession);
+    const result = await this.execute(agentName, input, auditSession, logger);
     if (isErr(result)) {
       throw result.error;
     }

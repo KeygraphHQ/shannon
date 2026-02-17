@@ -24,6 +24,7 @@
  */
 
 import {
+  log,
   proxyActivities,
   setHandler,
   workflowInfo,
@@ -170,7 +171,7 @@ export async function pentestPipelineWorkflow(
 
     // Check if all agents are already complete
     if (resumeState.completedAgents.length === ALL_AGENTS.length) {
-      console.log(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
       state.completedAgents = [...resumeState.completedAgents];
       state.summary = computeSummary(state);
@@ -184,7 +185,7 @@ export async function pentestPipelineWorkflow(
       resumeState.checkpointHash
     );
 
-    console.log('Resume state loaded and workspace restored');
+    log.info('Resume state loaded and workspace restored');
   }
 
   // Helper to check if an agent should be skipped
@@ -203,7 +204,7 @@ export async function pentestPipelineWorkflow(
       state.completedAgents.push('pre-recon');
       await a.logPhaseTransition(activityInput, 'pre-recon', 'complete');
     } else {
-      console.log('Skipping pre-recon (already complete)');
+      log.info('Skipping pre-recon (already complete)');
       state.completedAgents.push('pre-recon');
     }
 
@@ -216,7 +217,7 @@ export async function pentestPipelineWorkflow(
       state.completedAgents.push('recon');
       await a.logPhaseTransition(activityInput, 'recon', 'complete');
     } else {
-      console.log('Skipping recon (already complete)');
+      log.info('Skipping recon (already complete)');
       state.completedAgents.push('recon');
     }
 
@@ -243,7 +244,7 @@ export async function pentestPipelineWorkflow(
       if (!shouldSkip(vulnAgentName)) {
         vulnMetrics = await runVulnAgent();
       } else {
-        console.log(`Skipping ${vulnAgentName} (already complete)`);
+        log.info(`Skipping ${vulnAgentName} (already complete)`);
       }
 
       // Step 2: Check exploitation queue (only if vuln agent ran or completed previously)
@@ -255,7 +256,7 @@ export async function pentestPipelineWorkflow(
         if (!shouldSkip(exploitAgentName)) {
           exploitMetrics = await runExploitAgent();
         } else {
-          console.log(`Skipping ${exploitAgentName} (already complete)`);
+          log.info(`Skipping ${exploitAgentName} (already complete)`);
         }
       }
 
@@ -329,7 +330,7 @@ export async function pentestPipelineWorkflow(
           runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
         );
       } else {
-        console.log(
+        log.info(
           `Skipping entire ${config.vulnType} pipeline (both agents complete)`
         );
         // Still need to mark them as completed in state
@@ -378,10 +379,9 @@ export async function pentestPipelineWorkflow(
 
     // Log any pipeline failures (workflow continues despite failures)
     if (failedPipelines.length > 0) {
-      console.log(
-        `⚠️ ${failedPipelines.length} pipeline(s) failed:`,
-        failedPipelines
-      );
+      log.warn(`${failedPipelines.length} pipeline(s) failed`, {
+        failures: failedPipelines,
+      });
     }
 
     // Update phase markers
@@ -407,7 +407,7 @@ export async function pentestPipelineWorkflow(
 
       await a.logPhaseTransition(activityInput, 'reporting', 'complete');
     } else {
-      console.log('Skipping report (already complete)');
+      log.info('Skipping report (already complete)');
       state.completedAgents.push('report');
     }
 

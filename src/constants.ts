@@ -5,19 +5,19 @@
 // as published by the Free Software Foundation.
 
 import { path, fs } from 'zx';
-import chalk from 'chalk';
 import { validateQueueAndDeliverable, type VulnType } from './queue-validation.js';
 import type { AgentName, PlaywrightAgent, AgentValidator } from './types/agents.js';
+import type { ActivityLogger } from './temporal/activity-logger.js';
 
 // Factory function for vulnerability queue validators
 function createVulnValidator(vulnType: VulnType): AgentValidator {
-  return async (sourceDir: string): Promise<boolean> => {
+  return async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
     try {
       await validateQueueAndDeliverable(vulnType, sourceDir);
       return true;
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
-      console.log(chalk.yellow(`   Queue validation failed for ${vulnType}: ${errMsg}`));
+      logger.warn(`Queue validation failed for ${vulnType}: ${errMsg}`);
       return false;
     }
   };
@@ -91,7 +91,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'authz-exploit': createExploitValidator('authz'),
 
   // Executive report agent
-  report: async (sourceDir: string): Promise<boolean> => {
+  report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
     const reportFile = path.join(
       sourceDir,
       'deliverables',
@@ -101,9 +101,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
     const reportExists = await fs.pathExists(reportFile);
 
     if (!reportExists) {
-      console.log(
-        chalk.red(`    ❌ Missing required deliverable: comprehensive_security_assessment_report.md`)
-      );
+      logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
     }
 
     return reportExists;

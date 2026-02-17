@@ -7,7 +7,6 @@
 // Production Claude agent execution with retry, git checkpoints, and audit logging
 
 import { fs, path } from 'zx';
-import chalk, { type ChalkInstance } from 'chalk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import { isRetryableError, PentestError } from '../error-handling.js';
@@ -25,6 +24,7 @@ import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } fr
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
+import type { ActivityLogger } from '../temporal/activity-logger.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -57,7 +57,8 @@ type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
 // Configures MCP servers for agent execution, with Docker-specific Chromium handling
 function buildMcpServers(
   sourceDir: string,
-  agentName: string | null
+  agentName: string | null,
+  logger: ActivityLogger
 ): Record<string, McpServer> {
   const shannonHelperServer = createShannonHelperServer(sourceDir);
 
@@ -70,7 +71,7 @@ function buildMcpServers(
     const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
 
     if (playwrightMcpName) {
-      console.log(chalk.gray(`    Assigned ${agentName} -> ${playwrightMcpName}`));
+      logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
 
       const userDataDir = `/tmp/${playwrightMcpName}`;
 
@@ -141,23 +142,23 @@ async function writeErrorLog(
     };
     const logPath = path.join(sourceDir, 'error.log');
     await fs.appendFile(logPath, JSON.stringify(errorLog) + '\n');
-  } catch (logError) {
-    const logErrMsg = logError instanceof Error ? logError.message : String(logError);
-    console.log(chalk.gray(`    (Failed to write error log: ${logErrMsg})`));
+  } catch {
+    // Best-effort error log writing - don't propagate failures
   }
 }
 
 export async function validateAgentOutput(
   result: ClaudePromptResult,
   agentName: string | null,
-  sourceDir: string
+  sourceDir: string,
+  logger: ActivityLogger
 ): Promise<boolean> {
-  console.log(chalk.blue(`    Validating ${agentName} agent output`));
+  logger.info(`Validating ${agentName} agent output`);
 
   try {
     // Check if agent completed successfully
     if (!result.success || !result.result) {
-      console.log(chalk.red(`    Validation failed: Agent execution was unsuccessful`));
+      logger.error('Validation failed: Agent execution was unsuccessful');
       return false;
     }
 
@@ -165,28 +166,27 @@ export async function validateAgentOutput(
     const validator = agentName ? AGENT_VALIDATORS[agentName as keyof typeof AGENT_VALIDATORS] : undefined;
 
     if (!validator) {
-      console.log(chalk.yellow(`    No validator found for agent "${agentName}" - assuming success`));
-      console.log(chalk.green(`    Validation passed: Unknown agent with successful result`));
+      logger.warn(`No validator found for agent "${agentName}" - assuming success`);
+      logger.info('Validation passed: Unknown agent with successful result');
       return true;
     }
 
-    console.log(chalk.blue(`    Using validator for agent: ${agentName}`));
-    console.log(chalk.blue(`    Source directory: ${sourceDir}`));
+    logger.info(`Using validator for agent: ${agentName}`, { sourceDir });
 
     // Apply validation function
-    const validationResult = await validator(sourceDir);
+    const validationResult = await validator(sourceDir, logger);
 
     if (validationResult) {
-      console.log(chalk.green(`    Validation passed: Required files/structure present`));
+      logger.info('Validation passed: Required files/structure present');
     } else {
-      console.log(chalk.red(`    Validation failed: Missing required deliverable files`));
+      logger.error('Validation failed: Missing required deliverable files');
     }
 
     return validationResult;
 
   } catch (error) {
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.log(chalk.red(`    Validation failed with error: ${errMsg}`));
+    logger.error(`Validation failed with error: ${errMsg}`);
     return false;
   }
 }
@@ -199,8 +199,8 @@ export async function runClaudePrompt(
   context: string = '',
   description: string = 'Claude analysis',
   agentName: string | null = null,
-  colorFn: ChalkInstance = chalk.cyan,
-  auditSession: AuditSession | null = null
+  auditSession: AuditSession | null = null,
+  logger: ActivityLogger
 ): Promise<ClaudePromptResult> {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
@@ -212,9 +212,9 @@ export async function runClaudePrompt(
   );
   const auditLogger = createAuditLogger(auditSession);
 
-  console.log(chalk.blue(`  Running Claude Code: ${description}...`));
+  logger.info(`Running Claude Code: ${description}...`);
 
-  const mcpServers = buildMcpServers(sourceDir, agentName);
+  const mcpServers = buildMcpServers(sourceDir, agentName, logger);
 
   // Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
@@ -238,7 +238,7 @@ export async function runClaudePrompt(
   };
 
   if (!execContext.useCleanOutput) {
-    console.log(chalk.gray(`    SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`));
+    logger.info(`SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`);
   }
 
   let turnCount = 0;
@@ -252,7 +252,7 @@ export async function runClaudePrompt(
     const messageLoopResult = await processMessageStream(
       fullPrompt,
       options,
-      { execContext, description, colorFn, progress, auditLogger },
+      { execContext, description, progress, auditLogger, logger },
       timer
     );
 
@@ -277,7 +277,7 @@ export async function runClaudePrompt(
     timingResults.agents[execContext.agentKey] = duration;
 
     if (apiErrorDetected) {
-      console.log(chalk.yellow(`  API Error detected in ${description} - will validate deliverables before failing`));
+      logger.warn(`API Error detected in ${description} - will validate deliverables before failing`);
     }
 
     progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
@@ -328,9 +328,9 @@ interface MessageLoopResult {
 interface MessageLoopDeps {
   execContext: ReturnType<typeof detectExecutionContext>;
   description: string;
-  colorFn: ChalkInstance;
   progress: ReturnType<typeof createProgressManager>;
   auditLogger: ReturnType<typeof createAuditLogger>;
+  logger: ActivityLogger;
 }
 
 async function processMessageStream(
@@ -339,7 +339,7 @@ async function processMessageStream(
   deps: MessageLoopDeps,
   timer: Timer
 ): Promise<MessageLoopResult> {
-  const { execContext, description, colorFn, progress, auditLogger } = deps;
+  const { execContext, description, progress, auditLogger, logger } = deps;
   const HEARTBEAT_INTERVAL = 30000;
 
   let turnCount = 0;
@@ -353,7 +353,7 @@ async function processMessageStream(
     // Heartbeat logging when loader is disabled
     const now = Date.now();
     if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-      console.log(chalk.blue(`    [${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`));
+      logger.info(`[${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`);
       lastHeartbeat = now;
     }
 
@@ -365,7 +365,7 @@ async function processMessageStream(
     const dispatchResult = await dispatchMessage(
       message as { type: string; subtype?: string },
       turnCount,
-      { execContext, description, colorFn, progress, auditLogger }
+      { execContext, description, progress, auditLogger, logger }
     );
 
     if (dispatchResult.type === 'throw') {
