@@ -26,7 +26,7 @@
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
  */
 
-import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
+import { Connection, Client, WorkflowNotFoundError, type WorkflowHandle } from '@temporalio/client';
 import dotenv from 'dotenv';
 import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
@@ -139,47 +139,58 @@ function showUsage(): void {
   );
 }
 
-async function startPipeline(): Promise<void> {
-  const args = process.argv.slice(2);
+// === CLI Argument Parsing ===
 
-  if (args.includes('--help') || args.includes('-h') || args.length === 0) {
+interface CliArgs {
+  webUrl: string;
+  repoPath: string;
+  configPath?: string;
+  outputPath?: string;
+  displayOutputPath?: string;
+  pipelineTestingMode: boolean;
+  customWorkflowId?: string;
+  waitForCompletion: boolean;
+  resumeFromWorkspace?: string;
+}
+
+function parseCliArgs(argv: string[]): CliArgs {
+  if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
     showUsage();
     process.exit(0);
   }
 
-  // Parse arguments
   let webUrl: string | undefined;
   let repoPath: string | undefined;
   let configPath: string | undefined;
   let outputPath: string | undefined;
-  let displayOutputPath: string | undefined; // Host path for display purposes
+  let displayOutputPath: string | undefined;
   let pipelineTestingMode = false;
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
   let resumeFromWorkspace: string | undefined;
 
-  for (let i = 0; i < args.length; i++) {
-    const arg = args[i];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
     if (arg === '--config') {
-      const nextArg = args[i + 1];
+      const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         configPath = nextArg;
         i++;
       }
     } else if (arg === '--output') {
-      const nextArg = args[i + 1];
+      const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         outputPath = nextArg;
         i++;
       }
     } else if (arg === '--display-output') {
-      const nextArg = args[i + 1];
+      const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         displayOutputPath = nextArg;
         i++;
       }
     } else if (arg === '--workflow-id') {
-      const nextArg = args[i + 1];
+      const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         customWorkflowId = nextArg;
         i++;
@@ -187,7 +198,7 @@ async function startPipeline(): Promise<void> {
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
     } else if (arg === '--workspace') {
-      const nextArg = args[i + 1];
+      const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         resumeFromWorkspace = nextArg;
         i++;
@@ -209,7 +220,189 @@ async function startPipeline(): Promise<void> {
     process.exit(1);
   }
 
-  // Display splash screen
+  return {
+    webUrl, repoPath, pipelineTestingMode, waitForCompletion,
+    ...(configPath && { configPath }),
+    ...(outputPath && { outputPath }),
+    ...(displayOutputPath && { displayOutputPath }),
+    ...(customWorkflowId && { customWorkflowId }),
+    ...(resumeFromWorkspace && { resumeFromWorkspace }),
+  };
+}
+
+// === Workspace Resolution ===
+
+interface WorkspaceResolution {
+  workflowId: string;
+  sessionId: string;
+  isResume: boolean;
+  terminatedWorkflows: string[];
+}
+
+async function resolveWorkspace(
+  client: Client,
+  args: CliArgs
+): Promise<WorkspaceResolution> {
+  if (!args.resumeFromWorkspace) {
+    const hostname = sanitizeHostname(args.webUrl);
+    const workflowId = args.customWorkflowId || `${hostname}_shannon-${Date.now()}`;
+    return {
+      workflowId,
+      sessionId: workflowId,
+      isResume: false,
+      terminatedWorkflows: [],
+    };
+  }
+
+  const workspace = args.resumeFromWorkspace;
+  const sessionPath = path.join('./audit-logs', workspace, 'session.json');
+  const workspaceExists = await fileExists(sessionPath);
+
+  if (workspaceExists) {
+    console.log('=== RESUME MODE ===');
+    console.log(`Workspace: ${workspace}\n`);
+
+    const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
+    if (terminatedWorkflows.length > 0) {
+      console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
+    }
+
+    const session = await readJson<SessionJson>(sessionPath);
+    if (session.session.webUrl !== args.webUrl) {
+      console.error('ERROR: URL mismatch with workspace');
+      console.error(`  Workspace URL: ${session.session.webUrl}`);
+      console.error(`  Provided URL:  ${args.webUrl}`);
+      process.exit(1);
+    }
+
+    return {
+      workflowId: `${workspace}_resume_${Date.now()}`,
+      sessionId: workspace,
+      isResume: true,
+      terminatedWorkflows,
+    };
+  }
+
+  if (!isValidWorkspaceName(workspace)) {
+    console.error(`ERROR: Invalid workspace name: "${workspace}"`);
+    console.error('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric');
+    process.exit(1);
+  }
+
+  console.log('=== NEW NAMED WORKSPACE ===');
+  console.log(`Workspace: ${workspace}\n`);
+
+  return {
+    workflowId: `${workspace}_shannon-${Date.now()}`,
+    sessionId: workspace,
+    isResume: false,
+    terminatedWorkflows: [],
+  };
+}
+
+// === Pipeline Input Construction ===
+
+function buildPipelineInput(args: CliArgs, workspace: WorkspaceResolution): PipelineInput {
+  return {
+    webUrl: args.webUrl,
+    repoPath: args.repoPath,
+    workflowId: workspace.workflowId,
+    sessionId: workspace.sessionId,
+    ...(args.configPath && { configPath: args.configPath }),
+    ...(args.outputPath && { outputPath: args.outputPath }),
+    ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
+    ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
+    ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
+  };
+}
+
+// === Display Helpers ===
+
+function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): void {
+  console.log(`✓ Workflow started: ${workspace.workflowId}`);
+  if (workspace.isResume) {
+    console.log(`  (Resuming workspace: ${workspace.sessionId})`);
+  }
+  console.log();
+  console.log(`  Target:     ${args.webUrl}`);
+  console.log(`  Repository: ${args.repoPath}`);
+  console.log(`  Workspace:  ${workspace.sessionId}`);
+  if (args.configPath) {
+    console.log(`  Config:     ${args.configPath}`);
+  }
+  if (args.displayOutputPath) {
+    console.log(`  Output:     ${args.displayOutputPath}`);
+  }
+  if (args.pipelineTestingMode) {
+    console.log(`  Mode:       Pipeline Testing`);
+  }
+  console.log();
+}
+
+function displayMonitoringInfo(args: CliArgs, workspace: WorkspaceResolution): void {
+  const effectiveDisplayPath = args.displayOutputPath || args.outputPath || './audit-logs';
+  const outputDir = `${effectiveDisplayPath}/${workspace.sessionId}`;
+
+  console.log('Monitor progress:');
+  console.log(`  Web UI:  http://localhost:8233/namespaces/default/workflows/${workspace.workflowId}`);
+  console.log(`  Logs:    ./shannon logs ID=${workspace.workflowId}`);
+  console.log();
+  console.log('Output:');
+  console.log(`  Reports: ${outputDir}`);
+  console.log();
+}
+
+// === Workflow Result Handling ===
+
+async function waitForWorkflowResult(
+  handle: WorkflowHandle<(input: PipelineInput) => Promise<PipelineState>>,
+  workspace: WorkspaceResolution
+): Promise<void> {
+  const progressInterval = setInterval(async () => {
+    try {
+      const progress = await handle.query<PipelineProgress>(PROGRESS_QUERY);
+      const elapsed = Math.floor(progress.elapsedMs / 1000);
+      console.log(
+        `[${elapsed}s] Phase: ${progress.currentPhase || 'unknown'} | Agent: ${progress.currentAgent || 'none'} | Completed: ${progress.completedAgents.length}/13`
+      );
+    } catch {
+      // Workflow may have completed
+    }
+  }, 30000);
+
+  try {
+    const result = await handle.result();
+    clearInterval(progressInterval);
+
+    console.log('\nPipeline completed successfully!');
+    if (result.summary) {
+      console.log(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`);
+      console.log(`Agents completed: ${result.summary.agentCount}`);
+      console.log(`Total turns: ${result.summary.totalTurns}`);
+      console.log(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`);
+
+      if (workspace.isResume) {
+        try {
+          const session = await readJson<SessionJson>(
+            path.join('./audit-logs', workspace.sessionId, 'session.json')
+          );
+          console.log(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`);
+        } catch {
+          // Non-fatal, skip cumulative cost display
+        }
+      }
+    }
+  } catch (error) {
+    clearInterval(progressInterval);
+    console.error('\nPipeline failed:', error);
+    process.exit(1);
+  }
+}
+
+// === Main Entry Point ===
+
+async function startPipeline(): Promise<void> {
+  const args = parseCliArgs(process.argv.slice(2));
   await displaySplashScreen();
 
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
@@ -219,155 +412,24 @@ async function startPipeline(): Promise<void> {
   const client = new Client({ connection });
 
   try {
-    let terminatedWorkflows: string[] = [];
-    let workflowId: string;
-    let sessionId: string; // Workspace name (persistent directory)
-    let isResume = false;
+    const workspace = await resolveWorkspace(client, args);
+    const input = buildPipelineInput(args, workspace);
 
-    if (resumeFromWorkspace) {
-      const sessionPath = path.join('./audit-logs', resumeFromWorkspace, 'session.json');
-      const workspaceExists = await fileExists(sessionPath);
-
-      if (workspaceExists) {
-        isResume = true;
-        console.log('=== RESUME MODE ===');
-        console.log(`Workspace: ${resumeFromWorkspace}\n`);
-
-        // Terminate any running workflows for this workspace
-        terminatedWorkflows = await terminateExistingWorkflows(client, resumeFromWorkspace);
-
-        if (terminatedWorkflows.length > 0) {
-          console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
-        }
-
-        // Validate URL matches workspace
-        const session = await readJson<SessionJson>(sessionPath);
-
-        if (session.session.webUrl !== webUrl) {
-          console.error('ERROR: URL mismatch with workspace');
-          console.error(`  Workspace URL: ${session.session.webUrl}`);
-          console.error(`  Provided URL:  ${webUrl}`);
-          process.exit(1);
-        }
-
-        // Generate resume workflow ID
-        workflowId = `${resumeFromWorkspace}_resume_${Date.now()}`;
-        sessionId = resumeFromWorkspace;
-      } else {
-        if (!isValidWorkspaceName(resumeFromWorkspace)) {
-          console.error(`ERROR: Invalid workspace name: "${resumeFromWorkspace}"`);
-          console.error('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric');
-          process.exit(1);
-        }
-
-        console.log('=== NEW NAMED WORKSPACE ===');
-        console.log(`Workspace: ${resumeFromWorkspace}\n`);
-
-        workflowId = `${resumeFromWorkspace}_shannon-${Date.now()}`;
-        sessionId = resumeFromWorkspace;
-      }
-    } else {
-      const hostname = sanitizeHostname(webUrl);
-      workflowId = customWorkflowId || `${hostname}_shannon-${Date.now()}`;
-      sessionId = workflowId;
-    }
-
-    const input: PipelineInput = {
-      webUrl,
-      repoPath,
-      workflowId,
-      sessionId,
-      ...(configPath && { configPath }),
-      ...(outputPath && { outputPath }),
-      ...(pipelineTestingMode && { pipelineTestingMode }),
-      ...(isResume && resumeFromWorkspace && { resumeFromWorkspace }),
-      ...(terminatedWorkflows.length > 0 && { terminatedWorkflows }),
-    };
-
-    // Use displayOutputPath (host path) if provided, otherwise fall back to outputPath or default
-    const effectiveDisplayPath = displayOutputPath || outputPath || './audit-logs';
-    const outputDir = `${effectiveDisplayPath}/${sessionId}`;
-
-    console.log(`✓ Workflow started: ${workflowId}`);
-    if (isResume) {
-      console.log(`  (Resuming workspace: ${sessionId})`);
-    }
-    console.log();
-    console.log(`  Target:     ${webUrl}`);
-    console.log(`  Repository: ${repoPath}`);
-    console.log(`  Workspace:  ${sessionId}`);
-    if (configPath) {
-      console.log(`  Config:     ${configPath}`);
-    }
-    if (displayOutputPath) {
-      console.log(`  Output:     ${displayOutputPath}`);
-    }
-    if (pipelineTestingMode) {
-      console.log(`  Mode:       Pipeline Testing`);
-    }
-    console.log();
-
-    // Start workflow by name (not by importing the function)
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {
         taskQueue: 'shannon-pipeline',
-        workflowId,
+        workflowId: workspace.workflowId,
         args: [input],
       }
     );
 
-    if (!waitForCompletion) {
-      console.log('Monitor progress:');
-      console.log(`  Web UI:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
-      console.log(`  Logs:    ./shannon logs ID=${workflowId}`);
-      console.log();
-      console.log('Output:');
-      console.log(`  Reports: ${outputDir}`);
-      console.log();
-      return;
-    }
+    displayWorkflowInfo(args, workspace);
 
-    // Poll for progress every 30 seconds
-    const progressInterval = setInterval(async () => {
-      try {
-        const progress = await handle.query<PipelineProgress>(PROGRESS_QUERY);
-        const elapsed = Math.floor(progress.elapsedMs / 1000);
-        console.log(
-          `[${elapsed}s] Phase: ${progress.currentPhase || 'unknown'} | Agent: ${progress.currentAgent || 'none'} | Completed: ${progress.completedAgents.length}/13`
-        );
-      } catch {
-        // Workflow may have completed
-      }
-    }, 30000);
-
-    try {
-      const result = await handle.result();
-      clearInterval(progressInterval);
-
-      console.log('\nPipeline completed successfully!');
-      if (result.summary) {
-        console.log(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`);
-        console.log(`Agents completed: ${result.summary.agentCount}`);
-        console.log(`Total turns: ${result.summary.totalTurns}`);
-        console.log(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`);
-
-        // Show cumulative cost from session.json (includes all resume attempts)
-        if (isResume) {
-          try {
-            const session = await readJson<SessionJson>(
-              path.join('./audit-logs', sessionId, 'session.json')
-            );
-            console.log(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`);
-          } catch {
-            // Non-fatal, skip cumulative cost display
-          }
-        }
-      }
-    } catch (error) {
-      clearInterval(progressInterval);
-      console.error('\nPipeline failed:', error);
-      process.exit(1);
+    if (args.waitForCompletion) {
+      await waitForWorkflowResult(handle, workspace);
+    } else {
+      displayMonitoringInfo(args, workspace);
     }
   } finally {
     await connection.close();

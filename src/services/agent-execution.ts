@@ -23,7 +23,7 @@
 
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { Result, ok, err, isErr } from '../types/result.js';
-import { ErrorCode } from '../types/errors.js';
+import { ErrorCode, type PentestErrorType } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { AGENTS } from '../session-manager.js';
@@ -54,6 +54,17 @@ export interface AgentExecutionInput {
   configPath?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
+}
+
+interface FailAgentOpts {
+  attemptNumber: number;
+  result: ClaudePromptResult;
+  rollbackReason: string;
+  errorMessage: string;
+  errorCode: ErrorCode;
+  category: PentestErrorType;
+  retryable: boolean;
+  context: Record<string, unknown>;
 }
 
 /**
@@ -152,73 +163,43 @@ export class AgentExecutionService {
     if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
       const resultText = result.result || '';
       if (isSpendingCapBehavior(result.turns ?? 0, result.cost || 0, resultText)) {
-        await rollbackGitWorkspace(repoPath, 'spending cap detected', logger);
-        const endResult: AgentEndResult = {
-          attemptNumber,
-          duration_ms: result.duration,
-          cost_usd: 0,
-          success: false,
-          model: result.model,
-          error: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
-        };
-        await auditSession.endAgent(agentName, endResult);
-        return err(
-          new PentestError(
-            `Spending cap likely reached: ${resultText.slice(0, 100)}`,
-            'billing',
-            true, // Retryable with long backoff
-            { agentName, turns: result.turns, cost: result.cost },
-            ErrorCode.SPENDING_CAP_REACHED
-          )
-        );
+        return this.failAgent(agentName, repoPath, auditSession, logger, {
+          attemptNumber, result,
+          rollbackReason: 'spending cap detected',
+          errorMessage: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
+          errorCode: ErrorCode.SPENDING_CAP_REACHED,
+          category: 'billing',
+          retryable: true,
+          context: { agentName, turns: result.turns, cost: result.cost },
+        });
       }
     }
 
     // 7. Handle execution failure
     if (!result.success) {
-      await rollbackGitWorkspace(repoPath, 'execution failure', logger);
-      const endResult: AgentEndResult = {
-        attemptNumber,
-        duration_ms: result.duration,
-        cost_usd: result.cost || 0,
-        success: false,
-        model: result.model,
-        error: result.error || 'Execution failed',
-      };
-      await auditSession.endAgent(agentName, endResult);
-      return err(
-        new PentestError(
-          result.error || 'Agent execution failed',
-          'validation',
-          result.retryable ?? true,
-          { agentName, originalError: result.error },
-          ErrorCode.AGENT_EXECUTION_FAILED
-        )
-      );
+      return this.failAgent(agentName, repoPath, auditSession, logger, {
+        attemptNumber, result,
+        rollbackReason: 'execution failure',
+        errorMessage: result.error || 'Agent execution failed',
+        errorCode: ErrorCode.AGENT_EXECUTION_FAILED,
+        category: 'validation',
+        retryable: result.retryable ?? true,
+        context: { agentName, originalError: result.error },
+      });
     }
 
     // 8. Validate output
     const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
     if (!validationPassed) {
-      await rollbackGitWorkspace(repoPath, 'validation failure', logger);
-      const endResult: AgentEndResult = {
-        attemptNumber,
-        duration_ms: result.duration,
-        cost_usd: result.cost || 0,
-        success: false,
-        model: result.model,
-        error: 'Output validation failed',
-      };
-      await auditSession.endAgent(agentName, endResult);
-      return err(
-        new PentestError(
-          `Agent ${agentName} failed output validation`,
-          'validation',
-          true, // Retryable - agent may succeed on retry
-          { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
-          ErrorCode.OUTPUT_VALIDATION_FAILED
-        )
-      );
+      return this.failAgent(agentName, repoPath, auditSession, logger, {
+        attemptNumber, result,
+        rollbackReason: 'validation failure',
+        errorMessage: `Agent ${agentName} failed output validation`,
+        errorCode: ErrorCode.OUTPUT_VALIDATION_FAILED,
+        category: 'validation',
+        retryable: true,
+        context: { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+      });
     }
 
     // 9. Success - commit deliverables, then capture checkpoint hash
@@ -236,6 +217,36 @@ export class AgentExecutionService {
     await auditSession.endAgent(agentName, endResult);
 
     return ok(endResult);
+  }
+
+  private async failAgent(
+    agentName: AgentName,
+    repoPath: string,
+    auditSession: AuditSession,
+    logger: ActivityLogger,
+    opts: FailAgentOpts
+  ): Promise<Result<AgentEndResult, PentestError>> {
+    await rollbackGitWorkspace(repoPath, opts.rollbackReason, logger);
+
+    const endResult: AgentEndResult = {
+      attemptNumber: opts.attemptNumber,
+      duration_ms: opts.result.duration,
+      cost_usd: opts.result.cost || 0,
+      success: false,
+      model: opts.result.model,
+      error: opts.errorMessage,
+    };
+    await auditSession.endAgent(agentName, endResult);
+
+    return err(
+      new PentestError(
+        opts.errorMessage,
+        opts.category,
+        opts.retryable,
+        opts.context,
+        opts.errorCode
+      )
+    );
   }
 
   /**
