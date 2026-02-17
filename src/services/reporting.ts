@@ -5,9 +5,9 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface DeliverableFile {
   name: string;

@@ -18,3 +18,6 @@ export { ConfigLoaderService } from './config-loader.js';
 export { ExploitationCheckerService } from './exploitation-checker.js';
 export { AgentExecutionService } from './agent-execution.js';
 export type { AgentExecutionInput } from './agent-execution.js';
+
+export { assembleFinalReport, injectModelIntoReport } from './reporting.js';
+export { loadPrompt } from './prompt-manager.js';

@@ -21,13 +21,13 @@
  * No Temporal dependencies - pure domain logic.
  */
 
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 import { Result, ok, err, isErr } from '../types/result.js';
 import { ErrorCode } from '../types/errors.js';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from './error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { AGENTS } from '../session-manager.js';
-import { loadPrompt } from '../prompts/prompt-manager.js';
+import { loadPrompt } from './prompt-manager.js';
 import {
   runClaudePrompt,
   validateAgentOutput,
@@ -38,7 +38,7 @@ import {
   commitGitSuccess,
   rollbackGitWorkspace,
   getGitCommitHash,
-} from '../utils/git-manager.js';
+} from './git-manager.js';
 import { AuditSession } from '../audit/index.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { AgentName } from '../types/agents.js';

@@ -15,9 +15,10 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// Import and re-export file I/O utilities from canonical location
-import { ensureDirectory, atomicWrite, readJson, fileExists } from '../utils/file-io.js';
-export { ensureDirectory, atomicWrite, readJson, fileExists };
+import { ensureDirectory } from '../utils/file-io.js';
+
+export type { SessionMetadata } from '../types/audit.js';
+import type { SessionMetadata } from '../types/audit.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -25,14 +26,6 @@ const __dirname = path.dirname(__filename);
 // Get Shannon repository root
 const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
 const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
-
-export interface SessionMetadata {
-  id: string;
-  webUrl: string;
-  repoPath?: string;
-  outputPath?: string;
-  [key: string]: unknown;
-}
 
 /**
  * Extract and sanitize hostname from URL for use in identifiers

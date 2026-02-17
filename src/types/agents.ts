@@ -41,7 +41,7 @@ export type PlaywrightAgent =
   | 'playwright-agent4'
   | 'playwright-agent5';
 
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from './activity-logger.js';
 
 export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
 
@@ -58,4 +58,19 @@ export interface AgentDefinition {
   prerequisites: AgentName[];
   promptTemplate: string;
   deliverableFilename: string;
+}
+
+/**
+ * Vulnerability types supported by the pipeline.
+ */
+export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+
+/**
+ * Decision returned by queue validation for exploitation phase.
+ */
+export interface ExploitationDecision {
+  shouldExploit: boolean;
+  shouldRetry: boolean;
+  vulnerabilityCount: number;
+  vulnType: VulnType;
 }

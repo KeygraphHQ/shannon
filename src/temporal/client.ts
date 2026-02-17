@@ -30,7 +30,7 @@ import { Connection, Client, WorkflowNotFoundError } from '@temporalio/client';
 import dotenv from 'dotenv';
 import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
-import { readJson, fileExists } from '../audit/utils.js';
+import { readJson, fileExists } from '../utils/file-io.js';
 import path from 'path';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';

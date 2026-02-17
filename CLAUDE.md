@@ -119,6 +119,29 @@ Defensive security tool only. Use only on systems you own or have explicit permi
 - Abstractions for one-time operations
 - Backwards-compatibility shims, deprecated wrappers, or re-exports for removed code — delete the old code, don't preserve it
 
+### Comments
+- Explain **WHY**, not WHAT — code shows what it does
+- Comments must be **timeless** — useful to a reader with no knowledge of this conversation
+- Never reference: this chat, refactoring history ("moved from X"), the AI, or deleted files
+- No comment is better than a bad comment
+
+```typescript
+// Bad: references refactoring history
+// Moved from utils/helpers.ts
+
+// Bad: references conversation
+// Added per user request
+
+// Bad: states the obvious
+// Loop through the array
+
+// Good: explains WHY
+// Retry with backoff — Temporal server rejects rapid reconnects
+
+// Good: documents a gotcha
+// MUST use FAILSAFE_SCHEMA — default schema allows code execution
+```
+
 ## Key Files
 
 **Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`, `src/temporal/client.ts`

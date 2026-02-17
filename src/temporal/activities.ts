@@ -19,20 +19,21 @@ import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
 import path from 'path';
 import fs from 'fs/promises';
 
-import { classifyErrorForTemporal, PentestError } from '../error-handling.js';
+import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { getOrCreateContainer, getContainer, removeContainer } from '../services/container.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
-import type { VulnType, ExploitationDecision } from '../queue-validation.js';
+import type { VulnType, ExploitationDecision } from '../services/queue-validation.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import type { AgentMetrics, ResumeState } from './shared.js';
-import { copyDeliverablesToAudit, type SessionMetadata, readJson, fileExists } from '../audit/utils.js';
-import { assembleFinalReport, injectModelIntoReport } from '../phases/reporting.js';
+import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
+import { readJson, fileExists } from '../utils/file-io.js';
+import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
 import { AGENTS } from '../session-manager.js';
-import { executeGitCommandWithRetry } from '../utils/git-manager.js';
+import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { createActivityLogger } from './activity-logger.js';
 

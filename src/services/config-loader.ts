@@ -12,7 +12,7 @@
  */
 
 import { parseConfig, distributeConfig } from '../config-parser.js';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from './error-handling.js';
 import { Result, ok, err } from '../types/result.js';
 import { ErrorCode } from '../types/errors.js';
 import type { DistributedConfig } from '../types/config.js';

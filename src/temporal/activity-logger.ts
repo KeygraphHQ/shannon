@@ -5,16 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { Context } from '@temporalio/activity';
-
-/**
- * Logger interface for services called from Temporal activities.
- * Keeps services Temporal-agnostic while providing structured logging.
- */
-export interface ActivityLogger {
-  info(message: string, attrs?: Record<string, unknown>): void;
-  warn(message: string, attrs?: Record<string, unknown>): void;
-  error(message: string, attrs?: Record<string, unknown>): void;
-}
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 /**
  * ActivityLogger backed by Temporal's Context.current().log.

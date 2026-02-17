@@ -9,11 +9,11 @@
 import { fs, path } from 'zx';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
-import { isRetryableError, PentestError } from '../error-handling.js';
+import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
-import { timingResults, Timer } from '../utils/metrics.js';
+import { Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
-import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../constants.js';
+import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
 import { AGENTS } from '../session-manager.js';
@@ -24,7 +24,7 @@ import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } fr
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -274,7 +274,6 @@ export async function runClaudePrompt(
     }
 
     const duration = timer.stop();
-    timingResults.agents[execContext.agentKey] = duration;
 
     if (apiErrorDetected) {
       logger.warn(`API Error detected in ${description} - will validate deliverables before failing`);
@@ -295,7 +294,6 @@ export async function runClaudePrompt(
 
   } catch (error) {
     const duration = timer.stop();
-    timingResults.agents[execContext.agentKey] = duration;
 
     const err = error as Error & { code?: string; status?: number };
 
