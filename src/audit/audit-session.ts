@@ -18,6 +18,8 @@ import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import type { AgentEndResult } from '../types/index.js';
+import { PentestError } from '../error-handling.js';
+import { ErrorCode } from '../types/errors.js';
 
 // Global mutex instance
 const sessionMutex = new SessionMutex();
@@ -40,10 +42,22 @@ export class AuditSession {
 
     // Validate required fields
     if (!this.sessionId) {
-      throw new Error('sessionMetadata.id is required');
+      throw new PentestError(
+        'sessionMetadata.id is required',
+        'config',
+        false,
+        { field: 'sessionMetadata.id' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
     }
     if (!this.sessionMetadata.webUrl) {
-      throw new Error('sessionMetadata.webUrl is required');
+      throw new PentestError(
+        'sessionMetadata.webUrl is required',
+        'config',
+        false,
+        { field: 'sessionMetadata.webUrl' },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
     }
 
     // Components
@@ -124,7 +138,13 @@ export class AuditSession {
    */
   async logEvent(eventType: string, eventData: unknown): Promise<void> {
     if (!this.currentLogger) {
-      throw new Error('No active logger. Call startAgent() first.');
+      throw new PentestError(
+        'No active logger. Call startAgent() first.',
+        'validation',
+        false,
+        {},
+        ErrorCode.AGENT_EXECUTION_FAILED
+      );
     }
 
     // Log to agent-specific log file (JSON format)

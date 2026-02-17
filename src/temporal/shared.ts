@@ -1,5 +1,9 @@
 import { defineQuery } from '@temporalio/workflow';
 
+// Re-export AgentMetrics from central types location
+export type { AgentMetrics } from '../types/metrics.js';
+import type { AgentMetrics } from '../types/metrics.js';
+
 // === Types ===
 
 export interface PipelineInput {
@@ -20,15 +24,6 @@ export interface ResumeState {
   completedAgents: string[];
   checkpointHash: string;
   originalWorkflowId: string;
-}
-
-export interface AgentMetrics {
-  durationMs: number;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  costUsd: number | null;
-  numTurns: number | null;
-  model?: string | undefined;
 }
 
 export interface PipelineSummary {

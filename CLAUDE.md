@@ -117,6 +117,7 @@ Defensive security tool only. Use only on systems you own or have explicit permi
 - Dense callback chains when sequential logic is clearer
 - Sacrificing readability for DRY — some repetition is fine if clearer
 - Abstractions for one-time operations
+- Backwards-compatibility shims, deprecated wrappers, or re-exports for removed code — delete the old code, don't preserve it
 
 ## Key Files
 

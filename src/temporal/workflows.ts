@@ -43,6 +43,7 @@ import {
 import type { VulnType } from '../queue-validation.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
+import { toWorkflowSummary } from './summary-mapper.js';
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -417,18 +418,7 @@ export async function pentestPipelineWorkflow(
     state.summary = computeSummary(state);
 
     // Log workflow completion summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'completed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
 
     return state;
   } catch (error) {
@@ -438,19 +428,7 @@ export async function pentestPipelineWorkflow(
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'failed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-      error: state.error ?? undefined,
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
 
     throw error;
   }

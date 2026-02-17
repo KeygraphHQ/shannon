@@ -6,6 +6,8 @@
 
 import { $ } from 'zx';
 import chalk from 'chalk';
+import { PentestError } from '../error-handling.js';
+import { ErrorCode } from '../types/errors.js';
 
 /**
  * Check if a directory is a git repository.
@@ -148,7 +150,13 @@ export async function executeGitCommandWithRetry(
         throw error;
       }
     }
-    throw new Error(`Git command failed after ${maxRetries} retries`);
+    throw new PentestError(
+      `Git command failed after ${maxRetries} retries`,
+      'filesystem',
+      true, // Retryable - transient git lock issues
+      { maxRetries, description },
+      ErrorCode.GIT_CHECKPOINT_FAILED
+    );
   } finally {
     gitSemaphore.release();
   }
@@ -189,9 +197,18 @@ export async function rollbackGitWorkspace(
     );
     return { success: true };
   } catch (error) {
-    const result = toErrorResult(error);
-    console.log(chalk.red(`    ❌ Rollback failed after retries: ${result.error?.message}`));
-    return result;
+    const errMsg = error instanceof Error ? error.message : String(error);
+    console.log(chalk.red(`    ❌ Rollback failed after retries: ${errMsg}`));
+    return {
+      success: false,
+      error: new PentestError(
+        `Git rollback failed: ${errMsg}`,
+        'filesystem',
+        false, // Non-retryable - rollback is best-effort cleanup
+        { sourceDir, reason },
+        ErrorCode.GIT_ROLLBACK_FAILED
+      ),
+    };
   }
 }
 
