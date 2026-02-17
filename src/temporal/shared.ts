@@ -1,6 +1,5 @@
 import { defineQuery } from '@temporalio/workflow';
 
-// Re-export AgentMetrics from central types location
 export type { AgentMetrics } from '../types/metrics.js';
 import type { AgentMetrics } from '../types/metrics.js';
 

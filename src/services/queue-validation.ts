@@ -6,11 +6,12 @@
 
 import { fs, path } from 'zx';
 import { PentestError } from './error-handling.js';
-import { ErrorCode } from './types/errors.js';
-import { type Result, ok, err } from './types/result.js';
-import { asyncPipe } from './utils/functional.js';
+import { ErrorCode } from '../types/errors.js';
+import { type Result, ok, err } from '../types/result.js';
+import { asyncPipe } from '../utils/functional.js';
+import type { VulnType, ExploitationDecision } from '../types/agents.js';
 
-export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type { VulnType, ExploitationDecision } from '../types/agents.js';
 
 interface VulnTypeConfigItem {
   deliverable: string;
@@ -62,12 +63,6 @@ interface QueueValidationResult {
   error: string | null;
 }
 
-export interface ExploitationDecision {
-  shouldExploit: boolean;
-  shouldRetry: boolean;
-  vulnerabilityCount: number;
-  vulnType: VulnType;
-}
 
 /**
  * Result type for safe validation - explicit error handling.

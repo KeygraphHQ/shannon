@@ -26,33 +26,3 @@ export class Timer {
     return end - this.startTime;
   }
 }
-
-interface TimingResultsAgents {
-  [key: string]: number;
-}
-
-interface TimingResults {
-  total: Timer | null;
-  agents: TimingResultsAgents;
-}
-
-interface CostResultsAgents {
-  [key: string]: number;
-}
-
-interface CostResults {
-  agents: CostResultsAgents;
-  total: number;
-}
-
-// Global timing and cost tracker
-export const timingResults: TimingResults = {
-  total: null,
-  agents: {},
-};
-
-export const costResults: CostResults = {
-  agents: {},
-  total: 0,
-};
-

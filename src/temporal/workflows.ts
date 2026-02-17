@@ -41,7 +41,7 @@ import {
   type AgentMetrics,
   type ResumeState,
 } from './shared.js';
-import type { VulnType } from '../queue-validation.js';
+import type { VulnType } from '../services/queue-validation.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';

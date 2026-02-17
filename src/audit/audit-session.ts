@@ -18,7 +18,7 @@ import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import type { AgentEndResult } from '../types/index.js';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 
 // Global mutex instance

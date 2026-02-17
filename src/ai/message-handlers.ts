@@ -6,20 +6,19 @@
 
 // Pure functions for processing SDK message types
 
-import { PentestError } from '../error-handling.js';
+import { PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { matchesBillingTextPattern } from '../utils/billing-detection.js';
-import { filterJsonToolCalls } from '../utils/output-formatter.js';
+import { filterJsonToolCalls } from './output-formatters.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { getActualModelName } from './router-utils.js';
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 import {
   formatAssistantOutput,
   formatResultOutput,
   formatToolUseOutput,
   formatToolResultOutput,
 } from './output-formatters.js';
-import { costResults } from '../utils/metrics.js';
 import type { AuditLogger } from './audit-logger.js';
 import type { ProgressManager } from './progress-manager.js';
 import type {
@@ -362,8 +361,6 @@ export async function dispatchMessage(
     case 'result': {
       const resultData = handleResultMessage(message as ResultMessage);
       outputLines(formatResultOutput(resultData, !execContext.useCleanOutput));
-      costResults.agents[execContext.agentKey] = resultData.cost;
-      costResults.total += resultData.cost;
       return { type: 'complete', result: resultData.result, cost: resultData.cost };
     }
 

@@ -9,11 +9,11 @@ import {
   type PentestErrorType,
   type PentestErrorContext,
   type PromptErrorResult,
-} from './types/errors.js';
+} from '../types/errors.js';
 import {
   matchesBillingApiPattern,
   matchesBillingTextPattern,
-} from './utils/billing-detection.js';
+} from '../utils/billing-detection.js';
 
 // Custom error class for pentest operations
 export class PentestError extends Error {

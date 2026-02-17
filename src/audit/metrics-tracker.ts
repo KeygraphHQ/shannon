@@ -18,7 +18,7 @@ import {
 import { atomicWrite, readJson, fileExists } from '../utils/file-io.js';
 import { formatTimestamp, calculatePercentage } from '../utils/formatting.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import type { AgentName, AgentEndResult } from '../types/index.js';
 

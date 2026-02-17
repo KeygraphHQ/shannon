@@ -9,6 +9,17 @@
  */
 
 /**
+ * Cross-cutting session metadata used by services, temporal, and audit.
+ */
+export interface SessionMetadata {
+  id: string;
+  webUrl: string;
+  repoPath?: string;
+  outputPath?: string;
+  [key: string]: unknown;
+}
+
+/**
  * Result data passed to audit system when an agent execution ends.
  * Used by both AuditSession and MetricsTracker.
  */

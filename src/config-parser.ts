@@ -9,7 +9,7 @@ import { fs } from 'zx';
 import yaml from 'js-yaml';
 import { Ajv, type ValidateFunction, type ErrorObject } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
-import { PentestError } from './error-handling.js';
+import { PentestError } from './services/error-handling.js';
 import { ErrorCode } from './types/errors.js';
 import type {
   Config,

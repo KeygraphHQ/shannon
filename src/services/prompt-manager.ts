@@ -5,10 +5,10 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { PentestError, handlePromptError } from '../error-handling.js';
-import { MCP_AGENT_MAPPING } from '../constants.js';
+import { PentestError, handlePromptError } from './error-handling.js';
+import { MCP_AGENT_MAPPING } from '../session-manager.js';
 import type { Authentication, DistributedConfig } from '../types/config.js';
-import type { ActivityLogger } from '../temporal/activity-logger.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface PromptVariables {
   webUrl: string;
