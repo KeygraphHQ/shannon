@@ -15,7 +15,6 @@ import {
   matchesBillingTextPattern,
 } from '../utils/billing-detection.js';
 
-// Custom error class for pentest operations
 export class PentestError extends Error {
   override name = 'PentestError' as const;
   type: PentestErrorType;
@@ -43,8 +42,6 @@ export class PentestError extends Error {
   }
 }
 
-// Handle tool execution errors
-// Handle prompt loading errors
 export function handlePromptError(
   promptName: string,
   error: Error
@@ -60,7 +57,6 @@ export function handlePromptError(
   };
 }
 
-// Patterns that indicate retryable errors
 const RETRYABLE_PATTERNS = [
   // Network and connection errors
   'network',
@@ -104,12 +100,10 @@ const NON_RETRYABLE_PATTERNS = [
 export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
 
-  // Check for explicit non-retryable patterns first
   if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
     return false;
   }
 
-  // Check for retryable patterns
   return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
 }
 

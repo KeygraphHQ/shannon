@@ -227,7 +227,6 @@ export class MetricsTracker {
     // Recalculate aggregations
     this.recalculateAggregations();
 
-    // Save to disk
     await this.save();
   }
 

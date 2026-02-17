@@ -42,7 +42,6 @@ export class AgentLogger {
     this.attemptNumber = attemptNumber;
     this.timestamp = Date.now();
 
-    // Generate log file path and create stream
     const logPath = generateLogPath(sessionMetadata, agentName, this.timestamp, attemptNumber);
     this.logStream = new LogStream(logPath);
   }

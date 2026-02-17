@@ -194,8 +194,6 @@ async function runAgentActivity(
   }
 }
 
-// === Individual Agent Activity Exports ===
-
 export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('pre-recon', input);
 }
@@ -248,8 +246,6 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
   return runAgentActivity('report', input);
 }
 
-// === Report Assembly Activities ===
-
 /**
  * Assemble the final report by concatenating exploitation evidence files.
  */
@@ -282,8 +278,6 @@ export async function injectReportMetadataActivity(input: ActivityInput): Promis
   }
 }
 
-// === Exploitation Queue Check ===
-
 /**
  * Check if exploitation should run for a given vulnerability type.
  *
@@ -303,8 +297,6 @@ export async function checkExploitationQueue(
 
   return checker.checkQueue(vulnType, repoPath, logger);
 }
-
-// === Resume Activities ===
 
 interface SessionJson {
   session: {
@@ -510,8 +502,6 @@ export async function recordResumeAttempt(
     completedAgents,
   });
 }
-
-// === Phase Transition Activities ===
 
 /**
  * Log phase transition to the unified workflow log.

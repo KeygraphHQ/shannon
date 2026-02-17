@@ -4,8 +4,6 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Timing utilities
-
 export class Timer {
   name: string;
   startTime: number;

@@ -22,11 +22,9 @@ import type {
 const require = createRequire(import.meta.url);
 const addFormats: FormatsPlugin = require('ajv-formats');
 
-// Initialize AJV with formats
 const ajv = new Ajv({ allErrors: true, verbose: true });
 addFormats(ajv);
 
-// Load JSON Schema
 let configSchema: object;
 let validateSchema: ValidateFunction;
 
@@ -45,7 +43,6 @@ try {
   );
 }
 
-// Security patterns to block
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\.\.\//, // Path traversal
   /[<>]/, // HTML/XML injection
@@ -179,10 +176,8 @@ function formatAjvErrors(errors: ErrorObject[]): string[] {
   return errors.map(formatAjvError);
 }
 
-// Parse and load YAML configuration file with enhanced safety
 export const parseConfig = async (configPath: string): Promise<Config> => {
   try {
-    // File existence check
     if (!(await fs.pathExists(configPath))) {
       throw new PentestError(
         `Configuration file not found: ${configPath}`,
@@ -193,7 +188,6 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
-    // File size check (prevent extremely large files)
     const stats = await fs.stat(configPath);
     const maxFileSize = 1024 * 1024; // 1MB
     if (stats.size > maxFileSize) {
@@ -206,10 +200,8 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
-    // Read file content
     const configContent = await fs.readFile(configPath, 'utf8');
 
-    // Basic content validation
     if (!configContent.trim()) {
       throw new PentestError(
         'Configuration file is empty',
@@ -220,7 +212,6 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
-    // Parse YAML with safety options
     let config: unknown;
     try {
       config = yaml.load(configContent, {
@@ -239,7 +230,6 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
-    // Additional safety check
     if (config === null || config === undefined) {
       throw new PentestError(
         'Configuration file resulted in null/undefined after parsing',
@@ -250,7 +240,6 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
-    // Validate the configuration structure and content
     validateConfig(config as Config);
 
     return config as Config;
@@ -259,7 +248,6 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     if (error instanceof PentestError) {
       throw error;
     }
-    // Wrap other errors with context
     const errMsg = error instanceof Error ? error.message : String(error);
     throw new PentestError(
       `Failed to parse configuration file '${configPath}': ${errMsg}`,
@@ -271,9 +259,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
   }
 };
 
-// Validate overall configuration structure using JSON Schema
 const validateConfig = (config: Config): void => {
-  // Basic structure validation
   if (!config || typeof config !== 'object') {
     throw new PentestError(
       'Configuration must be a valid object',
@@ -294,7 +280,6 @@ const validateConfig = (config: Config): void => {
     );
   }
 
-  // JSON Schema validation
   const isValid = validateSchema(config);
   if (!isValid) {
     const errors = validateSchema.errors || [];
@@ -308,10 +293,8 @@ const validateConfig = (config: Config): void => {
     );
   }
 
-  // Additional security validation
   performSecurityValidation(config);
 
-  // Ensure at least some configuration is provided
   if (!config.rules && !config.authentication) {
     console.warn(
       '⚠️  Configuration file contains no rules or authentication. The pentest will run without any scoping restrictions or login capabilities.'
@@ -323,9 +306,7 @@ const validateConfig = (config: Config): void => {
   }
 };
 
-// Perform additional security validation beyond JSON Schema
 const performSecurityValidation = (config: Config): void => {
-  // Validate authentication section for security issues
   if (config.authentication) {
     const auth = config.authentication;
 
@@ -344,7 +325,6 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
 
-    // Check for dangerous patterns in credentials
     if (auth.credentials) {
       for (const pattern of DANGEROUS_PATTERNS) {
         if (pattern.test(auth.credentials.username)) {
@@ -368,7 +348,6 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
 
-    // Check login flow for dangerous patterns
     if (auth.login_flow) {
       auth.login_flow.forEach((step, index) => {
         for (const pattern of DANGEROUS_PATTERNS) {
@@ -386,24 +365,20 @@ const performSecurityValidation = (config: Config): void => {
     }
   }
 
-  // Validate rules section for security issues
   if (config.rules) {
     validateRulesSecurity(config.rules.avoid, 'avoid');
     validateRulesSecurity(config.rules.focus, 'focus');
 
-    // Check for duplicate and conflicting rules
     checkForDuplicates(config.rules.avoid || [], 'avoid');
     checkForDuplicates(config.rules.focus || [], 'focus');
     checkForConflicts(config.rules.avoid, config.rules.focus);
   }
 };
 
-// Validate rules for security issues
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
   if (!rules) return;
 
   rules.forEach((rule, index) => {
-    // Security validation
     for (const pattern of DANGEROUS_PATTERNS) {
       if (pattern.test(rule.url_path)) {
         throw new PentestError(
@@ -425,12 +400,10 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
       }
     }
 
-    // Type-specific validation
     validateRuleTypeSpecific(rule, ruleType, index);
   });
 };
 
-// Validate rule based on its specific type
 const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): void => {
   const field = `rules.${ruleType}[${index}].url_path`;
 
@@ -486,7 +459,6 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
     }
 
     case 'header':
-      // Header name validation (basic)
       if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
         throw new PentestError(
           `${field} for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`,
@@ -499,7 +471,6 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
       break;
 
     case 'parameter':
-      // Parameter name validation (basic)
       if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
         throw new PentestError(
           `${field} for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`,
@@ -513,7 +484,6 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
   }
 };
 
-// Check for duplicate rules
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
   rules.forEach((rule, index) => {
@@ -531,7 +501,6 @@ const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   });
 };
 
-// Check for conflicting rules between avoid and focus
 const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): void => {
   const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.url_path}`));
 
@@ -549,7 +518,6 @@ const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): vo
   });
 };
 
-// Sanitize and normalize rule values
 const sanitizeRule = (rule: Rule): Rule => {
   return {
     description: rule.description.trim(),
@@ -558,7 +526,6 @@ const sanitizeRule = (rule: Rule): Rule => {
   };
 };
 
-// Distribute configuration sections to different agents with sanitization
 export const distributeConfig = (config: Config | null): DistributedConfig => {
   const avoid = config?.rules?.avoid || [];
   const focus = config?.rules?.focus || [];
@@ -571,7 +538,6 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   };
 };
 
-// Sanitize and normalize authentication values
 const sanitizeAuthentication = (auth: Authentication): Authentication => {
   return {
     login_type: auth.login_type.toLowerCase().trim() as Authentication['login_type'],
