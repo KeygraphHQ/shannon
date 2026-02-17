@@ -11,8 +11,8 @@ import { ErrorCode } from '../types/errors.js';
 import { matchesBillingTextPattern } from '../utils/billing-detection.js';
 import { filterJsonToolCalls } from '../utils/output-formatter.js';
 import { formatTimestamp } from '../utils/formatting.js';
-import chalk from 'chalk';
 import { getActualModelName } from './router-utils.js';
+import type { ActivityLogger } from '../temporal/activity-logger.js';
 import {
   formatAssistantOutput,
   formatResultOutput,
@@ -37,7 +37,6 @@ import type {
   SystemInitMessage,
   ExecutionContext,
 } from './types.js';
-import type { ChalkInstance } from 'chalk';
 
 // Handles both array and string content formats from SDK
 function extractMessageContent(message: AssistantMessage): string {
@@ -232,7 +231,7 @@ function handleResultMessage(message: ResultMessage): ResultData {
   if (message.stop_reason !== undefined) {
     result.stop_reason = message.stop_reason;
     if (message.stop_reason && message.stop_reason !== 'end_turn') {
-      console.log(chalk.yellow(`    Stop reason: ${message.stop_reason}`));
+      console.log(`    Stop reason: ${message.stop_reason}`);
     }
   }
 
@@ -281,9 +280,9 @@ export type MessageDispatchAction =
 export interface MessageDispatchDeps {
   execContext: ExecutionContext;
   description: string;
-  colorFn: ChalkInstance;
   progress: ProgressManager;
   auditLogger: AuditLogger;
+  logger: ActivityLogger;
 }
 
 // Dispatches SDK messages to appropriate handlers and formatters
@@ -292,7 +291,7 @@ export async function dispatchMessage(
   turnCount: number,
   deps: MessageDispatchDeps
 ): Promise<MessageDispatchAction> {
-  const { execContext, description, colorFn, progress, auditLogger } = deps;
+  const { execContext, description, progress, auditLogger, logger } = deps;
 
   switch (message.type) {
     case 'assistant': {
@@ -308,8 +307,7 @@ export async function dispatchMessage(
           assistantResult.cleanedContent,
           execContext,
           turnCount,
-          description,
-          colorFn
+          description
         ));
         progress.start();
       }
@@ -317,7 +315,7 @@ export async function dispatchMessage(
       await auditLogger.logLlmResponse(turnCount, assistantResult.content);
 
       if (assistantResult.apiErrorDetected) {
-        console.log(chalk.red(`    API Error detected in assistant response`));
+        logger.warn('API Error detected in assistant response');
         return { type: 'continue', apiErrorDetected: true };
       }
 
@@ -329,10 +327,10 @@ export async function dispatchMessage(
         const initMsg = message as SystemInitMessage;
         const actualModel = getActualModelName(initMsg.model);
         if (!execContext.useCleanOutput) {
-          console.log(chalk.blue(`    Model: ${actualModel}, Permission: ${initMsg.permissionMode}`));
+          logger.info(`Model: ${actualModel}, Permission: ${initMsg.permissionMode}`);
           if (initMsg.mcp_servers && initMsg.mcp_servers.length > 0) {
             const mcpStatus = initMsg.mcp_servers.map(s => `${s.name}(${s.status})`).join(', ');
-            console.log(chalk.blue(`    MCP: ${mcpStatus}`));
+            logger.info(`MCP: ${mcpStatus}`);
           }
         }
         // Return actual model for tracking in audit logs
@@ -370,7 +368,7 @@ export async function dispatchMessage(
     }
 
     default:
-      console.log(chalk.gray(`    ${message.type}: ${JSON.stringify(message, null, 2)}`));
+      logger.info(`Unhandled message type: ${message.type}`);
       return { type: 'continue' };
   }
 }

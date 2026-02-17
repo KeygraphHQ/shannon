@@ -6,7 +6,6 @@
 
 // Pure functions for formatting console output
 
-import chalk from 'chalk';
 import { extractAgentType, formatDuration } from '../utils/formatting.js';
 import { getAgentPrefix } from '../utils/output-formatter.js';
 import type { ExecutionContext, ResultData } from './types.js';
@@ -33,8 +32,7 @@ export function formatAssistantOutput(
   cleanedContent: string,
   context: ExecutionContext,
   turnCount: number,
-  description: string,
-  colorFn: typeof chalk.cyan = chalk.cyan
+  description: string
 ): string[] {
   if (!cleanedContent.trim()) {
     return [];
@@ -45,11 +43,11 @@ export function formatAssistantOutput(
   if (context.isParallelExecution) {
     // Compact output for parallel agents with prefixes
     const prefix = getAgentPrefix(description);
-    lines.push(colorFn(`${prefix} ${cleanedContent}`));
+    lines.push(`${prefix} ${cleanedContent}`);
   } else {
     // Full turn output for sequential agents
-    lines.push(colorFn(`\n    Turn ${turnCount} (${description}):`));
-    lines.push(colorFn(`    ${cleanedContent}`));
+    lines.push(`\n    Turn ${turnCount} (${description}):`);
+    lines.push(`    ${cleanedContent}`);
   }
 
   return lines;
@@ -58,28 +56,24 @@ export function formatAssistantOutput(
 export function formatResultOutput(data: ResultData, showFullResult: boolean): string[] {
   const lines: string[] = [];
 
-  lines.push(chalk.magenta(`\n    COMPLETED:`));
-  lines.push(
-    chalk.gray(
-      `    Duration: ${(data.duration_ms / 1000).toFixed(1)}s, Cost: $${data.cost.toFixed(4)}`
-    )
-  );
+  lines.push(`\n    COMPLETED:`);
+  lines.push(`    Duration: ${(data.duration_ms / 1000).toFixed(1)}s, Cost: $${data.cost.toFixed(4)}`);
 
   if (data.subtype === 'error_max_turns') {
-    lines.push(chalk.red(`    Stopped: Hit maximum turns limit`));
+    lines.push(`    Stopped: Hit maximum turns limit`);
   } else if (data.subtype === 'error_during_execution') {
-    lines.push(chalk.red(`    Stopped: Execution error`));
+    lines.push(`    Stopped: Execution error`);
   }
 
   if (data.permissionDenials > 0) {
-    lines.push(chalk.yellow(`    ${data.permissionDenials} permission denials`));
+    lines.push(`    ${data.permissionDenials} permission denials`);
   }
 
   if (showFullResult && data.result && typeof data.result === 'string') {
     if (data.result.length > 1000) {
-      lines.push(chalk.magenta(`    ${data.result.slice(0, 1000)}... [${data.result.length} total chars]`));
+      lines.push(`    ${data.result.slice(0, 1000)}... [${data.result.length} total chars]`);
     } else {
-      lines.push(chalk.magenta(`    ${data.result}`));
+      lines.push(`    ${data.result}`);
     }
   }
 
@@ -98,24 +92,24 @@ export function formatErrorOutput(
 
   if (context.isParallelExecution) {
     const prefix = getAgentPrefix(description);
-    lines.push(chalk.red(`${prefix} Failed (${formatDuration(duration)})`));
+    lines.push(`${prefix} Failed (${formatDuration(duration)})`);
   } else if (context.useCleanOutput) {
-    lines.push(chalk.red(`${context.agentType} failed (${formatDuration(duration)})`));
+    lines.push(`${context.agentType} failed (${formatDuration(duration)})`);
   } else {
-    lines.push(chalk.red(`  Claude Code failed: ${description} (${formatDuration(duration)})`));
+    lines.push(`  Claude Code failed: ${description} (${formatDuration(duration)})`);
   }
 
-  lines.push(chalk.red(`    Error Type: ${error.constructor.name}`));
-  lines.push(chalk.red(`    Message: ${error.message}`));
-  lines.push(chalk.gray(`    Agent: ${description}`));
-  lines.push(chalk.gray(`    Working Directory: ${sourceDir}`));
-  lines.push(chalk.gray(`    Retryable: ${isRetryable ? 'Yes' : 'No'}`));
+  lines.push(`    Error Type: ${error.constructor.name}`);
+  lines.push(`    Message: ${error.message}`);
+  lines.push(`    Agent: ${description}`);
+  lines.push(`    Working Directory: ${sourceDir}`);
+  lines.push(`    Retryable: ${isRetryable ? 'Yes' : 'No'}`);
 
   if (error.code) {
-    lines.push(chalk.gray(`    Error Code: ${error.code}`));
+    lines.push(`    Error Code: ${error.code}`);
   }
   if (error.status) {
-    lines.push(chalk.gray(`    HTTP Status: ${error.status}`));
+    lines.push(`    HTTP Status: ${error.status}`);
   }
 
   return lines;
@@ -129,18 +123,14 @@ export function formatCompletionMessage(
 ): string {
   if (context.isParallelExecution) {
     const prefix = getAgentPrefix(description);
-    return chalk.green(`${prefix} Complete (${turnCount} turns, ${formatDuration(duration)})`);
+    return `${prefix} Complete (${turnCount} turns, ${formatDuration(duration)})`;
   }
 
   if (context.useCleanOutput) {
-    return chalk.green(
-      `${context.agentType.charAt(0).toUpperCase() + context.agentType.slice(1)} complete! (${turnCount} turns, ${formatDuration(duration)})`
-    );
+    return `${context.agentType.charAt(0).toUpperCase() + context.agentType.slice(1)} complete! (${turnCount} turns, ${formatDuration(duration)})`;
   }
 
-  return chalk.green(
-    `  Claude Code completed: ${description} (${turnCount} turns) in ${formatDuration(duration)}`
-  );
+  return `  Claude Code completed: ${description} (${turnCount} turns) in ${formatDuration(duration)}`;
 }
 
 export function formatToolUseOutput(
@@ -149,9 +139,9 @@ export function formatToolUseOutput(
 ): string[] {
   const lines: string[] = [];
 
-  lines.push(chalk.yellow(`\n    Using Tool: ${toolName}`));
+  lines.push(`\n    Using Tool: ${toolName}`);
   if (input && Object.keys(input).length > 0) {
-    lines.push(chalk.gray(`    Input: ${JSON.stringify(input, null, 2)}`));
+    lines.push(`    Input: ${JSON.stringify(input, null, 2)}`);
   }
 
   return lines;
@@ -160,9 +150,9 @@ export function formatToolUseOutput(
 export function formatToolResultOutput(displayContent: string): string[] {
   const lines: string[] = [];
 
-  lines.push(chalk.green(`    Tool Result:`));
+  lines.push(`    Tool Result:`);
   if (displayContent) {
-    lines.push(chalk.gray(`    ${displayContent}`));
+    lines.push(`    ${displayContent}`);
   }
 
   return lines;

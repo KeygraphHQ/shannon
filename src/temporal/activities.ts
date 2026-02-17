@@ -16,7 +16,6 @@
  */
 
 import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
-import chalk from 'chalk';
 import path from 'path';
 import fs from 'fs/promises';
 
@@ -35,6 +34,7 @@ import { assembleFinalReport, injectModelIntoReport } from '../phases/reporting.
 import { AGENTS } from '../session-manager.js';
 import { executeGitCommandWithRetry } from '../utils/git-manager.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
+import { createActivityLogger } from './activity-logger.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -114,6 +114,8 @@ async function runAgentActivity(
   }, HEARTBEAT_INTERVAL_MS);
 
   try {
+    const logger = createActivityLogger();
+
     // Build session metadata and get/create container
     const sessionMetadata = buildSessionMetadata(input);
     const container = getOrCreateContainer(workflowId, sessionMetadata);
@@ -134,7 +136,8 @@ async function runAgentActivity(
         pipelineTestingMode,
         attemptNumber,
       },
-      auditSession
+      auditSession,
+      logger
     );
 
     // Success - return metrics
@@ -251,12 +254,13 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
   const { repoPath } = input;
-  console.log(chalk.blue('  Assembling deliverables from specialist agents...'));
+  const logger = createActivityLogger();
+  logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath);
+    await assembleFinalReport(repoPath, logger);
   } catch (error) {
     const err = error as Error;
-    console.log(chalk.yellow(`  Warning: Error assembling final report: ${err.message}`));
+    logger.warn(`Error assembling final report: ${err.message}`);
   }
 }
 
@@ -265,14 +269,15 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
   const { repoPath, sessionId, outputPath } = input;
+  const logger = createActivityLogger();
   const effectiveOutputPath = outputPath
     ? path.join(outputPath, sessionId)
     : path.join('./audit-logs', sessionId);
   try {
-    await injectModelIntoReport(repoPath, effectiveOutputPath);
+    await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
   } catch (error) {
     const err = error as Error;
-    console.log(chalk.yellow(`  Warning: Error injecting model into report: ${err.message}`));
+    logger.warn(`Error injecting model into report: ${err.message}`);
   }
 }
 
@@ -289,12 +294,13 @@ export async function checkExploitationQueue(
   vulnType: VulnType
 ): Promise<ExploitationDecision> {
   const { repoPath, workflowId } = input;
+  const logger = createActivityLogger();
 
   // Reuse container's service if available (from prior vuln agent runs)
   const existingContainer = getContainer(workflowId);
   const checker = existingContainer?.exploitationChecker ?? new ExploitationCheckerService();
 
-  return checker.checkQueue(vulnType, repoPath);
+  return checker.checkQueue(vulnType, repoPath, logger);
 }
 
 // === Resume Activities ===
@@ -368,9 +374,8 @@ export async function loadResumeState(
     const deliverableExists = await fileExists(deliverablePath);
 
     if (!deliverableExists) {
-      console.log(
-        chalk.yellow(`Agent ${agentName} shows success but deliverable missing, will re-run`)
-      );
+      const logger = createActivityLogger();
+      logger.warn(`Agent ${agentName} shows success but deliverable missing, will re-run`);
       continue;
     }
 
@@ -400,10 +405,12 @@ export async function loadResumeState(
   const checkpointHash = await findLatestCommit(expectedRepoPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
-  console.log(chalk.cyan(`=== RESUME STATE ===`));
-  console.log(`Workspace: ${workspaceName}`);
-  console.log(`Completed agents: ${completedAgents.length}`);
-  console.log(`Checkpoint: ${checkpointHash}`);
+  const logger = createActivityLogger();
+  logger.info('Resume state loaded', {
+    workspace: workspaceName,
+    completedAgents: completedAgents.length,
+    checkpoint: checkpointHash,
+  });
 
   return {
     workspaceName,
@@ -446,7 +453,8 @@ export async function restoreGitCheckpoint(
   checkpointHash: string,
   incompleteAgents: AgentName[]
 ): Promise<void> {
-  console.log(chalk.blue(`Restoring git workspace to ${checkpointHash}...`));
+  const logger = createActivityLogger();
+  logger.info(`Restoring git workspace to ${checkpointHash}...`);
 
   await executeGitCommandWithRetry(
     ['git', 'reset', '--hard', checkpointHash],
@@ -465,15 +473,15 @@ export async function restoreGitCheckpoint(
     try {
       const exists = await fileExists(deliverablePath);
       if (exists) {
-        console.log(chalk.yellow(`Cleaning partial deliverable: ${agentName}`));
+        logger.warn(`Cleaning partial deliverable: ${agentName}`);
         await fs.unlink(deliverablePath);
       }
     } catch (error) {
-      console.log(chalk.gray(`Note: Failed to delete ${deliverablePath}: ${error}`));
+      logger.info(`Note: Failed to delete ${deliverablePath}: ${error}`);
     }
   }
 
-  console.log(chalk.green('Workspace restored to clean state'));
+  logger.info('Workspace restored to clean state');
 }
 
 /**
@@ -561,7 +569,10 @@ export async function logWorkflowComplete(
   try {
     await copyDeliverablesToAudit(sessionMetadata, repoPath);
   } catch (copyErr) {
-    console.error('Failed to copy deliverables to audit-logs:', copyErr);
+    const logger = createActivityLogger();
+    logger.error('Failed to copy deliverables to audit-logs', {
+      error: copyErr instanceof Error ? copyErr.message : String(copyErr),
+    });
   }
 
   // Clean up container

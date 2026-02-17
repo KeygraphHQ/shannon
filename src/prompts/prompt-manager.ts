@@ -5,10 +5,10 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import chalk from 'chalk';
 import { PentestError, handlePromptError } from '../error-handling.js';
 import { MCP_AGENT_MAPPING } from '../constants.js';
 import type { Authentication, DistributedConfig } from '../types/config.js';
+import type { ActivityLogger } from '../temporal/activity-logger.js';
 
 interface PromptVariables {
   webUrl: string;
@@ -22,7 +22,7 @@ interface IncludeReplacement {
 }
 
 // Pure function: Build complete login instructions from config
-async function buildLoginInstructions(authentication: Authentication): Promise<string> {
+async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
   try {
     // Load the login instructions template
     const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
@@ -56,7 +56,7 @@ async function buildLoginInstructions(authentication: Authentication): Promise<s
 
     // Fallback to full template if markers are missing (backward compatibility)
     if (!commonSection && !authSection && !verificationSection) {
-      console.log(chalk.yellow('⚠️ Section markers not found, using full login instructions template'));
+      logger.warn('Section markers not found, using full login instructions template');
       loginInstructions = fullTemplate;
     } else {
       // Combine relevant sections
@@ -128,7 +128,8 @@ async function processIncludes(content: string, baseDir: string): Promise<string
 async function interpolateVariables(
   template: string,
   variables: PromptVariables,
-  config: DistributedConfig | null = null
+  config: DistributedConfig | null = null,
+  logger: ActivityLogger
 ): Promise<string> {
   try {
     if (!template || typeof template !== 'string') {
@@ -174,7 +175,7 @@ async function interpolateVariables(
 
       // Extract and inject login instructions from config
       if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication);
+        const loginInstructions = await buildLoginInstructions(config.authentication, logger);
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
@@ -189,7 +190,7 @@ async function interpolateVariables(
     // Validate that all placeholders have been replaced (excluding instructional text)
     const remainingPlaceholders = result.match(/\{\{[^}]+\}\}/g);
     if (remainingPlaceholders) {
-      console.log(chalk.yellow(`⚠️ Warning: Found unresolved placeholders in prompt: ${remainingPlaceholders.join(', ')}`));
+      logger.warn(`Found unresolved placeholders in prompt: ${remainingPlaceholders.join(', ')}`);
     }
 
     return result;
@@ -212,7 +213,8 @@ export async function loadPrompt(
   promptName: string,
   variables: PromptVariables,
   config: DistributedConfig | null = null,
-  pipelineTestingMode: boolean = false
+  pipelineTestingMode: boolean = false,
+  logger: ActivityLogger
 ): Promise<string> {
   try {
     // Use pipeline testing prompts if pipeline testing mode is enabled
@@ -222,7 +224,7 @@ export async function loadPrompt(
 
     // Debug message for pipeline testing mode
     if (pipelineTestingMode) {
-      console.log(chalk.yellow(`⚡ Using pipeline testing prompt: ${promptPath}`));
+      logger.info(`Using pipeline testing prompt: ${promptPath}`);
     }
 
     // Check if file exists first
@@ -242,11 +244,11 @@ export async function loadPrompt(
     const mcpServer = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING];
     if (mcpServer) {
       enhancedVariables.MCP_SERVER = mcpServer;
-      console.log(chalk.gray(`    🎭 Assigned ${promptName} → ${enhancedVariables.MCP_SERVER}`));
+      logger.info(`Assigned ${promptName} -> ${enhancedVariables.MCP_SERVER}`);
     } else {
       // Fallback for unknown agents
       enhancedVariables.MCP_SERVER = 'playwright-agent1';
-      console.log(chalk.yellow(`    🎭 Unknown agent ${promptName}, using fallback → ${enhancedVariables.MCP_SERVER}`));
+      logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.MCP_SERVER}`);
     }
 
     let template = await fs.readFile(promptPath, 'utf8');
@@ -254,7 +256,7 @@ export async function loadPrompt(
     // Pre-process the template to handle @include directives
     template = await processIncludes(template, promptsDir);
 
-    return await interpolateVariables(template, enhancedVariables, config);
+    return await interpolateVariables(template, enhancedVariables, config, logger);
   } catch (error) {
     if (error instanceof PentestError) {
       throw error;
