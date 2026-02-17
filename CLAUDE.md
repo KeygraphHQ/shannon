@@ -41,18 +41,20 @@ npm run build
 ## Architecture
 
 ### Core Modules
-- `src/session-manager.ts` — Agent definitions, execution order, parallel groups
-- `src/ai/claude-executor.ts` — Claude Agent SDK integration with retry logic and git checkpoints
+- `src/session-manager.ts` — Agent definitions (`AGENTS` record). Agent types in `src/types/agents.ts`
 - `src/config-parser.ts` — YAML config parsing with JSON Schema validation
-- `src/error-handling.ts` — Categorized error types (PentestError, ConfigError, NetworkError) with retry logic
-- `src/tool-checker.ts` — Validates external security tool availability before execution
-- `src/queue-validation.ts` — Deliverable validation and agent prerequisites
+- `src/ai/claude-executor.ts` — Claude Agent SDK integration with retry logic
+- `src/services/` — Business logic layer (Temporal-agnostic). Activities delegate here. Key: `agent-execution.ts`, `error-handling.ts`, `container.ts`
+- `src/types/` — Consolidated types: `Result<T,E>`, `ErrorCode`, `AgentName`, `ActivityLogger`, etc.
+- `src/utils/` — Shared utilities (file I/O, formatting, concurrency)
 
 ### Temporal Orchestration
 Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (5 concurrent agents in vuln/exploit phases).
 
 - `src/temporal/workflows.ts` — Main workflow (`pentestPipelineWorkflow`)
-- `src/temporal/activities.ts` — Activity implementations with heartbeats
+- `src/temporal/activities.ts` — Thin wrappers — heartbeat loop, error classification, container lifecycle. Business logic delegated to `src/services/`
+- `src/temporal/activity-logger.ts` — `TemporalActivityLogger` implementation of `ActivityLogger` interface
+- `src/temporal/summary-mapper.ts` — Maps `PipelineSummary` to `WorkflowSummary`
 - `src/temporal/worker.ts` — Worker entry point
 - `src/temporal/client.ts` — CLI client for starting workflows
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
@@ -66,30 +68,32 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 
 ### Supporting Systems
 - **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters
-- **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `prompt-manager.ts`
+- **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `src/services/prompt-manager.ts`
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
-- **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables
+- **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
 - **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
 - **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
 
 ## Development Notes
 
 ### Adding a New Agent
-1. Define agent in `src/session-manager.ts` (add to `AGENT_QUEUE` and parallel group)
+1. Define agent in `src/session-manager.ts` (add to `AGENTS` record). `ALL_AGENTS`/`AgentName` types live in `src/types/agents.ts`
 2. Create prompt template in `prompts/` (e.g., `vuln-newtype.txt`)
-3. Add activity function in `src/temporal/activities.ts`
+3. Two-layer pattern: add a thin activity wrapper in `src/temporal/activities.ts` (heartbeat + error classification). `AgentExecutionService` in `src/services/agent-execution.ts` handles the agent lifecycle automatically via the `AGENTS` registry
 4. Register activity in `src/temporal/workflows.ts` within the appropriate phase
 
 ### Modifying Prompts
 - Variable substitution: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
-- Shared partials in `prompts/shared/` included via `prompt-manager.ts`
+- Shared partials in `prompts/shared/` included via `src/services/prompt-manager.ts`
 - Test with `PIPELINE_TESTING=true` for fast iteration
 
 ### Key Design Patterns
 - **Configuration-Driven** — YAML configs with JSON Schema validation
 - **Progressive Analysis** — Each phase builds on previous results
 - **SDK-First** — Claude Agent SDK handles autonomous analysis
-- **Modular Error Handling** — Categorized errors with automatic retry (3 attempts per agent)
+- **Modular Error Handling** — `ErrorCode` enum, `Result<T,E>` for explicit error propagation, automatic retry (3 attempts per agent)
+- **Services Boundary** — Activities are thin Temporal wrappers; `src/services/` owns business logic, accepts `ActivityLogger`, returns `Result<T,E>`. No Temporal imports in services
+- **DI Container** — Per-workflow in `src/services/container.ts`. `AuditSession` excluded (parallel safety)
 
 ### Security
 Defensive security tool only. Use only on systems you own or have explicit permission to test.
@@ -111,6 +115,7 @@ Defensive security tool only. Use only on systems you own or have explicit permi
 - Use `function` keyword for top-level functions (not arrow functions)
 - Explicit return type annotations on exported/top-level functions
 - Prefer `readonly` for data that shouldn't be mutated
+- `exactOptionalPropertyTypes` is enabled — use spread for optional props, not direct `undefined` assignment
 
 ### Avoid
 - Combining multiple concerns into a single function to "save lines"
@@ -120,33 +125,21 @@ Defensive security tool only. Use only on systems you own or have explicit permi
 - Backwards-compatibility shims, deprecated wrappers, or re-exports for removed code — delete the old code, don't preserve it
 
 ### Comments
-- Explain **WHY**, not WHAT — code shows what it does
-- Comments must be **timeless** — useful to a reader with no knowledge of this conversation
-- Never reference: this chat, refactoring history ("moved from X"), the AI, or deleted files
-- No comment is better than a bad comment
+Comments must be **timeless** — no references to this conversation, refactoring history, or the AI.
 
-```typescript
-// Bad: references refactoring history
-// Moved from utils/helpers.ts
+**Patterns used in this codebase:**
+- `/** JSDoc */` — file headers (after license) and exported functions/interfaces
+- `// 1. Step` — numbered steps for sequential operations
+- `// === Section ===` — dividers in long files/functions
+- `// NOTE:` / `// WARNING:` / `// IMPORTANT:` — gotchas and constraints
 
-// Bad: references conversation
-// Added per user request
-
-// Bad: states the obvious
-// Loop through the array
-
-// Good: explains WHY
-// Retry with backoff — Temporal server rejects rapid reconnects
-
-// Good: documents a gotcha
-// MUST use FAILSAFE_SCHEMA — default schema allows code execution
-```
+**Never:** obvious comments, conversation references ("as discussed"), history ("moved from X")
 
 ## Key Files
 
 **Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`, `src/temporal/client.ts`
 
-**Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/audit/`
+**Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/services/`, `src/audit/`
 
 **Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
 

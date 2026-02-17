@@ -8,13 +8,14 @@ You are debugging an issue. Follow this structured approach to avoid spinning in
 - Read the full error message and stack trace
 - Identify the layer where the error originated:
   - **CLI/Args** - Input validation, path resolution
-  - **Config Parsing** - YAML parsing, JSON Schema validation
-  - **Session Management** - Mutex, session.json, lock files
-  - **Audit System** - Logging, metrics tracking, atomic writes
-  - **Claude SDK** - Agent execution, MCP servers, turn handling
-  - **Git Operations** - Checkpoints, rollback, commit
-  - **Tool Execution** - nmap, subfinder, whatweb
-  - **Validation** - Deliverable checks, queue validation
+  - **Config Parsing** - YAML parsing, JSON Schema validation (`src/config-parser.ts`)
+  - **Session Management** - Agent definitions (`src/session-manager.ts`), mutex (`src/utils/concurrency.ts`)
+  - **DI Container** - Container initialization/lookup (`src/services/container.ts`)
+  - **Services** - AgentExecutionService, ConfigLoaderService, ExploitationCheckerService, error-handling (`src/services/`)
+  - **Audit System** - Logging, metrics tracking, atomic writes (`src/audit/`)
+  - **Claude SDK** - Agent execution, MCP servers, turn handling (`src/ai/claude-executor.ts`)
+  - **Git Operations** - Checkpoints, rollback, commit (`src/services/git-manager.ts`)
+  - **Validation** - Deliverable checks, queue validation (`src/services/queue-validation.ts`)
 
 ## Step 2: Check Relevant Logs
 
@@ -37,12 +38,14 @@ For Shannon, trace through these layers:
 
 1. **Temporal Client** → `src/temporal/client.ts` - Workflow initiation
 2. **Workflow** → `src/temporal/workflows.ts` - Pipeline orchestration
-3. **Activities** → `src/temporal/activities.ts` - Agent execution with heartbeats
-4. **Config** → `src/config-parser.ts` - YAML loading, schema validation
-5. **Session** → `src/session-manager.ts` - Agent definitions, execution order
-6. **Audit** → `src/audit/audit-session.ts` - Logging facade, metrics tracking
-7. **Executor** → `src/ai/claude-executor.ts` - SDK calls, MCP setup, retry logic
-8. **Validation** → `src/queue-validation.ts` - Deliverable checks
+3. **Activities** → `src/temporal/activities.ts` - Thin wrappers: heartbeat, error classification
+4. **Container** → `src/services/container.ts` - Per-workflow DI
+5. **Services** → `src/services/agent-execution.ts` - Agent lifecycle
+6. **Config** → `src/config-parser.ts` via `src/services/config-loader.ts`
+7. **Prompts** → `src/services/prompt-manager.ts`
+8. **Audit** → `src/audit/audit-session.ts` - Logging facade, metrics tracking
+9. **Executor** → `src/ai/claude-executor.ts` - SDK calls, MCP setup, retry logic
+10. **Validation** → `src/services/queue-validation.ts` - Deliverable checks
 
 ## Step 4: Identify Root Cause
 
@@ -58,7 +61,10 @@ For Shannon, trace through these layers:
 | Cost/timing not tracked | Metrics not reloaded before update | Add `metricsTracker.reload()` before updates |
 | session.json corrupted | Partial write during crash | Delete and restart, or restore from backup |
 | YAML config rejected | Invalid schema or unsafe content | Run through AJV validator manually |
-| Prompt variable not replaced | Missing `{{VARIABLE}}` in context | Check `prompt-manager.ts` interpolation |
+| Prompt variable not replaced | Missing `{{VARIABLE}}` in context | Check `src/services/prompt-manager.ts` interpolation |
+| Service returns Err result | Check `ErrorCode` in Result | Trace through `classifyErrorForTemporal()` in `src/services/error-handling.ts` |
+| Container not found | `getOrCreateContainer()` not called | Check activity setup code in `src/temporal/activities.ts` |
+| ActivityLogger undefined | `createActivityLogger()` not called | Must be called at top of each activity function |
 
 **MCP Server Issues:**
 ```bash
@@ -122,6 +128,8 @@ shannon <URL> <REPO> --pipeline-testing
 - Don't bypass mutex protection for "quick fixes"
 
 ## Quick Reference: Error Types
+
+`ErrorCode` enum in `src/types/errors.ts` provides finer-grained classification used by `classifyErrorForTemporal()` in `src/services/error-handling.ts`.
 
 | PentestError Type | Meaning | Retryable? |
 |-------------------|---------|------------|
