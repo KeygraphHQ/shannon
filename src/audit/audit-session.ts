@@ -288,4 +288,18 @@ export class AuditSession {
       unlock();
     }
   }
+
+  /**
+   * Log resume header to workflow.log
+   * Call this when a workflow is resuming to add a visual separator
+   */
+  async logResumeHeader(resumeInfo: {
+    previousWorkflowId: string;
+    newWorkflowId: string;
+    checkpointHash: string;
+    completedAgents: string[];
+  }): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logResumeHeader(resumeInfo);
+  }
 }
