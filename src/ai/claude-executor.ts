@@ -60,12 +60,14 @@ function buildMcpServers(
   agentName: string | null,
   logger: ActivityLogger
 ): Record<string, McpServer> {
+  // 1. Create the shannon-helper server (always present)
   const shannonHelperServer = createShannonHelperServer(sourceDir);
 
   const mcpServers: Record<string, McpServer> = {
     'shannon-helper': shannonHelperServer,
   };
 
+  // 2. Look up the agent's Playwright MCP mapping
   if (agentName) {
     const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
     const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
@@ -75,7 +77,7 @@ function buildMcpServers(
 
       const userDataDir = `/tmp/${playwrightMcpName}`;
 
-      // Docker uses system Chromium; local dev uses Playwright's bundled browsers
+      // 3. Configure Playwright MCP args with Docker/local browser handling
       const isDocker = process.env.SHANNON_DOCKER === 'true';
 
       const mcpArgs: string[] = [
@@ -84,7 +86,6 @@ function buildMcpServers(
         '--user-data-dir', userDataDir,
       ];
 
-      // Docker: Use system Chromium; Local: Use Playwright's bundled browsers
       if (isDocker) {
         mcpArgs.push('--executable-path', '/usr/bin/chromium-browser');
         mcpArgs.push('--browser', 'chromium');
@@ -107,6 +108,7 @@ function buildMcpServers(
     }
   }
 
+  // 4. Return configured servers
   return mcpServers;
 }
 
@@ -202,9 +204,11 @@ export async function runClaudePrompt(
   auditSession: AuditSession | null = null,
   logger: ActivityLogger
 ): Promise<ClaudePromptResult> {
+  // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
 
+  // 2. Set up progress and audit infrastructure
   const execContext = detectExecutionContext(description);
   const progress = createProgressManager(
     { description, useCleanOutput: execContext.useCleanOutput },
@@ -214,9 +218,10 @@ export async function runClaudePrompt(
 
   logger.info(`Running Claude Code: ${description}...`);
 
+  // 3. Configure MCP servers
   const mcpServers = buildMcpServers(sourceDir, agentName, logger);
 
-  // Build env vars to pass to SDK subprocesses
+  // 4. Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
@@ -227,6 +232,7 @@ export async function runClaudePrompt(
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
 
+  // 5. Configure SDK options
   const options = {
     model: 'claude-sonnet-4-5-20250929',
     maxTurns: 10_000,
@@ -249,6 +255,7 @@ export async function runClaudePrompt(
   progress.start();
 
   try {
+    // 6. Process the message stream
     const messageLoopResult = await processMessageStream(
       fullPrompt,
       options,
@@ -263,7 +270,7 @@ export async function runClaudePrompt(
     const model = messageLoopResult.model;
 
     // === SPENDING CAP SAFEGUARD ===
-    // Defense-in-depth: Detect spending cap that slipped through detectApiError().
+    // 7. Defense-in-depth: Detect spending cap that slipped through detectApiError().
     // Uses consolidated billing detection from utils/billing-detection.ts
     if (isSpendingCapBehavior(turnCount, totalCost, result || '')) {
       throw new PentestError(
@@ -273,6 +280,7 @@ export async function runClaudePrompt(
       );
     }
 
+    // 8. Finalize successful result
     const duration = timer.stop();
 
     if (apiErrorDetected) {
@@ -293,6 +301,7 @@ export async function runClaudePrompt(
     };
 
   } catch (error) {
+    // 9. Handle errors — log, write error file, return failure
     const duration = timer.stop();
 
     const err = error as Error & { code?: string; status?: number };

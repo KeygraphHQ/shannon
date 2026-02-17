@@ -231,7 +231,7 @@ export async function createGitCheckpoint(
 
   logger.info(`Creating checkpoint for ${description} (attempt ${attempt})`);
   try {
-    // First attempt: preserve existing deliverables. Retries: clean workspace to prevent pollution
+    // 1. On retries, clean workspace to prevent pollution from previous attempt
     if (attempt > 1) {
       const cleanResult = await rollbackGitWorkspace(sourceDir, `${description} (retry cleanup)`, logger);
       if (!cleanResult.success) {
@@ -239,9 +239,11 @@ export async function createGitCheckpoint(
       }
     }
 
+    // 2. Detect existing changes
     const changes = await getChangedFiles(sourceDir, 'status check');
     const hasChanges = changes.length > 0;
 
+    // 3. Stage and commit checkpoint
     await executeGitCommandWithRetry(['git', 'add', '-A'], sourceDir, 'staging changes');
     await executeGitCommandWithRetry(
       ['git', 'commit', '-m', `📍 Checkpoint: ${description} (attempt ${attempt})`, '--allow-empty'],
@@ -249,6 +251,7 @@ export async function createGitCheckpoint(
       'creating commit'
     );
 
+    // 4. Log result
     if (hasChanges) {
       logger.info('Checkpoint created with uncommitted changes staged');
     } else {

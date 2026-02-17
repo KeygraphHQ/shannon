@@ -262,11 +262,13 @@ async function resolveWorkspace(
     console.log('=== RESUME MODE ===');
     console.log(`Workspace: ${workspace}\n`);
 
+    // 1. Terminate any running workflows from previous attempts
     const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
     if (terminatedWorkflows.length > 0) {
       console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
     }
 
+    // 2. Validate URL matches the workspace
     const session = await readJson<SessionJson>(sessionPath);
     if (session.session.webUrl !== args.webUrl) {
       console.error('ERROR: URL mismatch with workspace');
@@ -275,6 +277,8 @@ async function resolveWorkspace(
       process.exit(1);
     }
 
+    // 3. Generate a new workflow ID scoped to this resume attempt
+    // 4. Return resolution with isResume=true so downstream uses resume logic
     return {
       workflowId: `${workspace}_resume_${Date.now()}`,
       sessionId: workspace,
@@ -371,9 +375,11 @@ async function waitForWorkflowResult(
   }, 30000);
 
   try {
+    // 1. Block until workflow completes
     const result = await handle.result();
     clearInterval(progressInterval);
 
+    // 2. Display run metrics
     console.log('\nPipeline completed successfully!');
     if (result.summary) {
       console.log(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`);
@@ -381,6 +387,7 @@ async function waitForWorkflowResult(
       console.log(`Total turns: ${result.summary.totalTurns}`);
       console.log(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`);
 
+      // 3. Show cumulative cost across all resume attempts
       if (workspace.isResume) {
         try {
           const session = await readJson<SessionJson>(
@@ -402,9 +409,11 @@ async function waitForWorkflowResult(
 // === Main Entry Point ===
 
 async function startPipeline(): Promise<void> {
+  // 1. Parse CLI args and display splash
   const args = parseCliArgs(process.argv.slice(2));
   await displaySplashScreen();
 
+  // 2. Connect to Temporal server
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
   console.log(`Connecting to Temporal at ${address}...`);
 
@@ -412,9 +421,11 @@ async function startPipeline(): Promise<void> {
   const client = new Client({ connection });
 
   try {
+    // 3. Resolve workspace (new or resume) and build pipeline input
     const workspace = await resolveWorkspace(client, args);
     const input = buildPipelineInput(args, workspace);
 
+    // 4. Start the Temporal workflow
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {
@@ -424,6 +435,7 @@ async function startPipeline(): Promise<void> {
       }
     );
 
+    // 5. Display info and optionally wait for completion
     displayWorkflowInfo(args, workspace);
 
     if (args.waitForCompletion) {

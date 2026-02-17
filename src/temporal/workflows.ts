@@ -147,12 +147,14 @@ export async function pentestPipelineWorkflow(
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
+    // 1. Load resume state (validates workspace, cross-checks deliverables)
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
       input.repoPath
     );
 
+    // 2. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
     ) as AgentName[];
@@ -163,6 +165,7 @@ export async function pentestPipelineWorkflow(
       incompleteAgents
     );
 
+    // 3. Short-circuit if all agents already completed
     if (resumeState.completedAgents.length === ALL_AGENTS.length) {
       log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
@@ -171,6 +174,7 @@ export async function pentestPipelineWorkflow(
       return state;
     }
 
+    // 4. Record this resume attempt in session.json and workflow.log
     await a.recordResumeAttempt(
       activityInput,
       input.terminatedWorkflows || [],
@@ -317,6 +321,7 @@ export async function pentestPipelineWorkflow(
       const vulnAgentName = `${vulnType}-vuln`;
       const exploitAgentName = `${vulnType}-exploit`;
 
+      // 1. Run vulnerability analysis (or skip if resumed)
       let vulnMetrics: AgentMetrics | null = null;
       if (!shouldSkip(vulnAgentName)) {
         vulnMetrics = await runVulnAgent();
@@ -324,8 +329,10 @@ export async function pentestPipelineWorkflow(
         log.info(`Skipping ${vulnAgentName} (already complete)`);
       }
 
+      // 2. Check exploitation queue for actionable findings
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
 
+      // 3. Conditionally run exploitation agent
       let exploitMetrics: AgentMetrics | null = null;
       if (decision.shouldExploit) {
         if (!shouldSkip(exploitAgentName)) {

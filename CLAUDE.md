@@ -129,8 +129,13 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 **Patterns used in this codebase:**
 - `/** JSDoc */` — file headers (after license) and exported functions/interfaces
-- `// 1. Step` — numbered steps for sequential operations
-- `// === Section ===` — dividers in long files/functions
+- `// N. Description` — numbered sequential steps inside function bodies. Use when a
+  function has 3+ distinct phases where at least one isn't immediately obvious from the
+  code. Each step marks the start of a logical phase. Reference: `AgentExecutionService.execute`
+  (steps 1-9) and `injectModelIntoReport` (steps 1-5)
+- `// === Section ===` — high-level dividers between groups of functions in long files,
+  or to label major branching/classification blocks (e.g., `// === SPENDING CAP SAFEGUARD ===`).
+  Not for sequential steps inside function bodies — use numbered steps for that
 - `// NOTE:` / `// WARNING:` / `// IMPORTANT:` — gotchas and constraints
 
 **Never:** obvious comments, conversation references ("as discussed"), history ("moved from X")

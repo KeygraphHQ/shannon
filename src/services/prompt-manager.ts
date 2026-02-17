@@ -24,7 +24,7 @@ interface IncludeReplacement {
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
   try {
-    // Load the login instructions template
+    // 1. Load the login instructions template
     const loginInstructionsPath = path.join(import.meta.dirname, '..', '..', 'prompts', 'shared', 'login-instructions.txt');
 
     if (!await fs.pathExists(loginInstructionsPath)) {
@@ -38,37 +38,33 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
 
     const fullTemplate = await fs.readFile(loginInstructionsPath, 'utf8');
 
-    // Helper function to extract sections based on markers
     const getSection = (content: string, sectionName: string): string => {
       const regex = new RegExp(`<!-- BEGIN:${sectionName} -->([\\s\\S]*?)<!-- END:${sectionName} -->`, 'g');
       const match = regex.exec(content);
       return match ? match[1]!.trim() : '';
     };
 
-    // Extract sections based on login type
+    // 2. Extract sections based on login type
     const loginType = authentication.login_type?.toUpperCase();
     let loginInstructions = '';
 
-    // Build instructions with only relevant sections
     const commonSection = getSection(fullTemplate, 'COMMON');
     const authSection = loginType ? getSection(fullTemplate, loginType) : ''; // FORM or SSO
     const verificationSection = getSection(fullTemplate, 'VERIFICATION');
 
-    // Fallback to full template if markers are missing (backward compatibility)
+    // 3. Assemble instructions from sections (fallback to full template if markers missing)
     if (!commonSection && !authSection && !verificationSection) {
       logger.warn('Section markers not found, using full login instructions template');
       loginInstructions = fullTemplate;
     } else {
-      // Combine relevant sections
       loginInstructions = [commonSection, authSection, verificationSection]
-        .filter(section => section) // Remove empty sections
+        .filter(section => section)
         .join('\n\n');
     }
 
-    // Replace the user instructions placeholder with the login flow from config
+    // 4. Interpolate login flow and credential placeholders
     let userInstructions = (authentication.login_flow ?? []).join('\n');
 
-    // Replace credential placeholders within the user instructions
     if (authentication.credentials) {
       if (authentication.credentials.username) {
         userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
@@ -83,7 +79,7 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
 
     loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
 
-    // Replace TOTP secret placeholder if present in template
+    // 5. Replace TOTP secret placeholder if present in template
     if (authentication.credentials?.totp_secret) {
       loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
@@ -217,17 +213,15 @@ export async function loadPrompt(
   logger: ActivityLogger
 ): Promise<string> {
   try {
-    // Use pipeline testing prompts if pipeline testing mode is enabled
+    // 1. Resolve prompt file path
     const baseDir = pipelineTestingMode ? 'prompts/pipeline-testing' : 'prompts';
     const promptsDir = path.join(import.meta.dirname, '..', '..', baseDir);
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 
-    // Debug message for pipeline testing mode
     if (pipelineTestingMode) {
       logger.info(`Using pipeline testing prompt: ${promptPath}`);
     }
 
-    // Check if file exists first
     if (!await fs.pathExists(promptPath)) {
       throw new PentestError(
         `Prompt file not found: ${promptPath}`,
@@ -237,25 +231,25 @@ export async function loadPrompt(
       );
     }
 
-    // Add MCP server assignment to variables
+    // 2. Assign MCP server based on agent name
     const enhancedVariables: PromptVariables = { ...variables };
 
-    // Assign MCP server based on prompt name (agent name)
     const mcpServer = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING];
     if (mcpServer) {
       enhancedVariables.MCP_SERVER = mcpServer;
       logger.info(`Assigned ${promptName} -> ${enhancedVariables.MCP_SERVER}`);
     } else {
-      // Fallback for unknown agents
       enhancedVariables.MCP_SERVER = 'playwright-agent1';
       logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.MCP_SERVER}`);
     }
 
+    // 3. Read template file
     let template = await fs.readFile(promptPath, 'utf8');
 
-    // Pre-process the template to handle @include directives
+    // 4. Process @include directives
     template = await processIncludes(template, promptsDir);
 
+    // 5. Interpolate variables and return final prompt
     return await interpolateVariables(template, enhancedVariables, config, logger);
   } catch (error) {
     if (error instanceof PentestError) {

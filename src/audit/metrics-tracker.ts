@@ -170,7 +170,7 @@ export class MetricsTracker {
       );
     }
 
-    // Initialize agent metrics if not exists
+    // 1. Initialize agent metrics if first time seeing this agent
     const existingAgent = this.data.metrics.agents[agentName];
     const agent = existingAgent ?? {
       status: 'in-progress' as const,
@@ -180,7 +180,7 @@ export class MetricsTracker {
     };
     this.data.metrics.agents[agentName] = agent;
 
-    // Add attempt to array
+    // 2. Build attempt record with optional model/error fields
     const attempt: AttemptData = {
       attempt_number: result.attemptNumber,
       duration_ms: result.duration_ms,
@@ -197,16 +197,18 @@ export class MetricsTracker {
       attempt.error = result.error;
     }
 
+    // 3. Append attempt to history
     agent.attempts.push(attempt);
 
-    // Update total cost (includes failed attempts)
+    // 4. Recalculate total cost across all attempts (includes failures)
     agent.total_cost_usd = agent.attempts.reduce((sum, a) => sum + a.cost_usd, 0);
 
-    // If successful, update final metrics and status
+    // 5. Update agent status based on outcome
     if (result.success) {
       agent.status = 'success';
       agent.final_duration_ms = result.duration_ms;
 
+      // 6. Attach model and checkpoint metadata on success
       if (result.model) {
         agent.model = result.model;
       }
@@ -215,18 +217,18 @@ export class MetricsTracker {
         agent.checkpoint = result.checkpoint;
       }
     } else {
-      // If this was the last attempt, mark as failed
       if (result.isFinalAttempt) {
         agent.status = 'failed';
       }
     }
 
-    // Clear active timer
+    // 7. Clear active timer
     this.activeTimers.delete(agentName);
 
-    // Recalculate aggregations
+    // 8. Recalculate phase and session-level aggregations
     this.recalculateAggregations();
 
+    // 9. Persist to session.json
     await this.save();
   }
 

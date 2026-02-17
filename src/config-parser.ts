@@ -178,6 +178,7 @@ function formatAjvErrors(errors: ErrorObject[]): string[] {
 
 export const parseConfig = async (configPath: string): Promise<Config> => {
   try {
+    // 1. Verify file exists
     if (!(await fs.pathExists(configPath))) {
       throw new PentestError(
         `Configuration file not found: ${configPath}`,
@@ -188,6 +189,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 2. Check file size
     const stats = await fs.stat(configPath);
     const maxFileSize = 1024 * 1024; // 1MB
     if (stats.size > maxFileSize) {
@@ -200,6 +202,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 3. Read and check for empty content
     const configContent = await fs.readFile(configPath, 'utf8');
 
     if (!configContent.trim()) {
@@ -212,6 +215,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 4. Parse YAML with safe schema
     let config: unknown;
     try {
       config = yaml.load(configContent, {
@@ -230,6 +234,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 5. Guard against null/undefined parse result
     if (config === null || config === undefined) {
       throw new PentestError(
         'Configuration file resulted in null/undefined after parsing',
@@ -240,6 +245,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       );
     }
 
+    // 6. Validate schema, security rules, and return
     validateConfig(config as Config);
 
     return config as Config;

@@ -107,18 +107,20 @@ export class AuditSession {
   ): Promise<void> {
     await this.ensureInitialized();
 
-    // Save prompt snapshot (only on first attempt)
+    // 1. Save prompt snapshot (only on first attempt)
     if (attemptNumber === 1) {
       await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
     }
 
+    // 2. Create and initialize the per-agent logger
     this.currentAgentName = agentName;
-
     this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
     await this.currentLogger.initialize();
 
+    // 3. Start metrics timer
     this.metricsTracker.startAgent(agentName, attemptNumber);
 
+    // 4. Log start event to both agent log and workflow log
     await this.currentLogger.logEvent('agent_start', {
       agentName,
       attemptNumber,
@@ -172,6 +174,7 @@ export class AuditSession {
    * End agent execution (mutex-protected)
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
+    // 1. Finalize agent log and close the stream
     if (this.currentLogger) {
       await this.currentLogger.logEvent('agent_end', {
         agentName,
@@ -185,6 +188,7 @@ export class AuditSession {
       this.currentLogger = null;
     }
 
+    // 2. Log completion to the unified workflow log
     this.currentAgentName = null;
 
     const agentLogDetails: AgentLogDetails = {
@@ -196,12 +200,11 @@ export class AuditSession {
     };
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
 
-    // Mutex-protected update to session.json
+    // 3. Acquire mutex before touching session.json
     const unlock = await sessionMutex.lock(this.sessionId);
     try {
-      // Reload inside mutex to prevent lost updates during parallel exploitation phase
+      // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
       await this.metricsTracker.reload();
-
       await this.metricsTracker.endAgent(agentName, result);
     } finally {
       unlock();

@@ -117,17 +117,17 @@ async function runAgentActivity(
   try {
     const logger = createActivityLogger();
 
-    // Build session metadata and get/create container
+    // 1. Build session metadata and get/create container
     const sessionMetadata = buildSessionMetadata(input);
     const container = getOrCreateContainer(workflowId, sessionMetadata);
 
-    // Create audit session for THIS agent execution
+    // 2. Create audit session for THIS agent execution
     // NOTE: Each agent needs its own AuditSession because AuditSession uses
     // instance state (currentAgentName) that cannot be shared across parallel agents
     const auditSession = new AuditSession(sessionMetadata);
     await auditSession.initialize(workflowId);
 
-    // Execute agent via service (throws PentestError on failure)
+    // 3. Execute agent via service (throws PentestError on failure)
     const endResult = await container.agentExecution.executeOrThrow(
       agentName,
       {
@@ -141,7 +141,7 @@ async function runAgentActivity(
       logger
     );
 
-    // Success - return metrics
+    // 4. Return metrics
     return {
       durationMs: Date.now() - startTime,
       inputTokens: null,
@@ -325,6 +325,7 @@ export async function loadResumeState(
   expectedUrl: string,
   expectedRepoPath: string
 ): Promise<ResumeState> {
+  // 1. Validate workspace exists
   const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
 
   const exists = await fileExists(sessionPath);
@@ -335,6 +336,7 @@ export async function loadResumeState(
     );
   }
 
+  // 2. Parse session.json and validate URL match
   let session: SessionJson;
   try {
     session = await readJson<SessionJson>(sessionPath);
@@ -353,6 +355,7 @@ export async function loadResumeState(
     );
   }
 
+  // 3. Cross-check agent status with deliverables on disk
   const completedAgents: string[] = [];
   const agents = session.metrics.agents;
 
@@ -375,6 +378,7 @@ export async function loadResumeState(
     completedAgents.push(agentName);
   }
 
+  // 4. Collect git checkpoints and validate at least one exists
   const checkpoints = completedAgents
     .map((name) => agents[name]?.checkpoint)
     .filter((hash): hash is string => hash != null);
@@ -395,9 +399,11 @@ export async function loadResumeState(
     );
   }
 
+  // 5. Find the most recent checkpoint commit
   const checkpointHash = await findLatestCommit(expectedRepoPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
+  // 6. Log summary and return resume state
   const logger = createActivityLogger();
   logger.info('Resume state loaded', {
     workspace: workspaceName,
@@ -533,11 +539,12 @@ export async function logWorkflowComplete(
   const { repoPath, workflowId } = input;
   const sessionMetadata = buildSessionMetadata(input);
 
+  // 1. Initialize audit session and mark final status
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize(workflowId);
   await auditSession.updateSessionStatus(summary.status);
 
-  // Use cumulative metrics from session.json
+  // 2. Load cumulative metrics from session.json
   const sessionData = (await auditSession.getMetrics()) as {
     metrics: {
       total_duration_ms: number;
@@ -546,7 +553,7 @@ export async function logWorkflowComplete(
     };
   };
 
-  // Fill in metrics for skipped agents
+  // 3. Fill in metrics for skipped agents (resumed from previous run)
   const agentMetrics = { ...summary.agentMetrics };
   for (const agentName of summary.completedAgents) {
     if (!agentMetrics[agentName]) {
@@ -560,15 +567,18 @@ export async function logWorkflowComplete(
     }
   }
 
+  // 4. Build cumulative summary with cross-run totals
   const cumulativeSummary: WorkflowSummary = {
     ...summary,
     totalDurationMs: sessionData.metrics.total_duration_ms,
     totalCostUsd: sessionData.metrics.total_cost_usd,
     agentMetrics,
   };
+
+  // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // Copy deliverables to audit-logs
+  // 6. Copy deliverables to audit-logs
   try {
     await copyDeliverablesToAudit(sessionMetadata, repoPath);
   } catch (copyErr) {
@@ -578,6 +588,6 @@ export async function logWorkflowComplete(
     });
   }
 
-  // Clean up container
+  // 7. Clean up container
   removeContainer(workflowId);
 }
