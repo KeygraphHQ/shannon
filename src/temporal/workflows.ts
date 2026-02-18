@@ -24,6 +24,7 @@
  */
 
 import {
+  log,
   proxyActivities,
   setHandler,
   workflowInfo,
@@ -38,8 +39,12 @@ import {
   type PipelineSummary,
   type VulnExploitPipelineResult,
   type AgentMetrics,
+  type ResumeState,
 } from './shared.js';
-import type { VulnType } from '../queue-validation.js';
+import type { VulnType } from '../services/queue-validation.js';
+import type { AgentName } from '../types/agents.js';
+import { ALL_AGENTS } from '../types/agents.js';
+import { toWorkflowSummary } from './summary-mapper.js';
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -70,14 +75,14 @@ const TESTING_RETRY = {
 // Activity proxy with production retry configuration (default)
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '10 minutes', // Long timeout for resource-constrained workers with many concurrent activities
+  heartbeatTimeout: '60 minutes', // Extended for sub-agent execution (SDK blocks event loop during Task tool calls)
   retry: PRODUCTION_RETRY,
 });
 
 // Activity proxy with testing retry configuration (fast)
 const testActs = proxyActivities<typeof activities>({
-  startToCloseTimeout: '10 minutes',
-  heartbeatTimeout: '5 minutes', // Shorter for testing but still tolerant of resource contention
+  startToCloseTimeout: '30 minutes',
+  heartbeatTimeout: '30 minutes', // Extended for sub-agent execution in testing
   retry: TESTING_RETRY,
 });
 
@@ -100,11 +105,9 @@ export async function pentestPipelineWorkflow(
 ): Promise<PipelineState> {
   const { workflowId } = workflowInfo();
 
-  // Select activity proxy based on testing mode
   // Pipeline testing uses fast retry intervals (10s) for quick iteration
   const a = input.pipelineTestingMode ? testActs : acts;
 
-  // Workflow state (queryable)
   const state: PipelineState = {
     status: 'running',
     currentPhase: null,
@@ -117,7 +120,6 @@ export async function pentestPipelineWorkflow(
     summary: null,
   };
 
-  // Register query handler for real-time progress inspection
   setHandler(getProgress, (): PipelineProgress => ({
     ...state,
     workflowId,
@@ -127,10 +129,14 @@ export async function pentestPipelineWorkflow(
   // Build ActivityInput with required workflowId for audit correlation
   // Activities require workflowId (non-optional), PipelineInput has it optional
   // Use spread to conditionally include optional properties (exactOptionalPropertyTypes)
+  // sessionId is workspace name for resume, or workflowId for new runs
+  const sessionId = input.sessionId || input.resumeFromWorkspace || workflowId;
+
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
     repoPath: input.repoPath,
     workflowId,
+    sessionId,
     ...(input.configPath !== undefined && { configPath: input.configPath }),
     ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
     ...(input.pipelineTestingMode !== undefined && {
@@ -138,49 +144,202 @@ export async function pentestPipelineWorkflow(
     }),
   };
 
+  let resumeState: ResumeState | null = null;
+
+  if (input.resumeFromWorkspace) {
+    // 1. Load resume state (validates workspace, cross-checks deliverables)
+    resumeState = await a.loadResumeState(
+      input.resumeFromWorkspace,
+      input.webUrl,
+      input.repoPath
+    );
+
+    // 2. Restore git workspace and clean up incomplete deliverables
+    const incompleteAgents = ALL_AGENTS.filter(
+      (agentName) => !resumeState!.completedAgents.includes(agentName)
+    ) as AgentName[];
+
+    await a.restoreGitCheckpoint(
+      input.repoPath,
+      resumeState.checkpointHash,
+      incompleteAgents
+    );
+
+    // 3. Short-circuit if all agents already completed
+    if (resumeState.completedAgents.length === ALL_AGENTS.length) {
+      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+      state.status = 'completed';
+      state.completedAgents = [...resumeState.completedAgents];
+      state.summary = computeSummary(state);
+      return state;
+    }
+
+    // 4. Record this resume attempt in session.json and workflow.log
+    await a.recordResumeAttempt(
+      activityInput,
+      input.terminatedWorkflows || [],
+      resumeState.checkpointHash,
+      resumeState.originalWorkflowId,
+      resumeState.completedAgents
+    );
+
+    log.info('Resume state loaded and workspace restored');
+  }
+
+  const shouldSkip = (agentName: string): boolean => {
+    return resumeState?.completedAgents.includes(agentName) ?? false;
+  };
+
+  // Run a sequential agent phase (pre-recon, recon)
+  async function runSequentialPhase(
+    phaseName: string,
+    agentName: AgentName,
+    runAgent: (input: ActivityInput) => Promise<AgentMetrics>
+  ): Promise<void> {
+    if (!shouldSkip(agentName)) {
+      state.currentPhase = phaseName;
+      state.currentAgent = agentName;
+      await a.logPhaseTransition(activityInput, phaseName, 'start');
+      state.agentMetrics[agentName] = await runAgent(activityInput);
+      state.completedAgents.push(agentName);
+      await a.logPhaseTransition(activityInput, phaseName, 'complete');
+    } else {
+      log.info(`Skipping ${agentName} (already complete)`);
+      state.completedAgents.push(agentName);
+    }
+  }
+
+  // Build pipeline configs for the 5 vuln→exploit pairs
+  function buildPipelineConfigs(): Array<{
+    vulnType: VulnType;
+    vulnAgent: string;
+    exploitAgent: string;
+    runVuln: () => Promise<AgentMetrics>;
+    runExploit: () => Promise<AgentMetrics>;
+  }> {
+    return [
+      {
+        vulnType: 'injection',
+        vulnAgent: 'injection-vuln',
+        exploitAgent: 'injection-exploit',
+        runVuln: () => a.runInjectionVulnAgent(activityInput),
+        runExploit: () => a.runInjectionExploitAgent(activityInput),
+      },
+      {
+        vulnType: 'xss',
+        vulnAgent: 'xss-vuln',
+        exploitAgent: 'xss-exploit',
+        runVuln: () => a.runXssVulnAgent(activityInput),
+        runExploit: () => a.runXssExploitAgent(activityInput),
+      },
+      {
+        vulnType: 'auth',
+        vulnAgent: 'auth-vuln',
+        exploitAgent: 'auth-exploit',
+        runVuln: () => a.runAuthVulnAgent(activityInput),
+        runExploit: () => a.runAuthExploitAgent(activityInput),
+      },
+      {
+        vulnType: 'ssrf',
+        vulnAgent: 'ssrf-vuln',
+        exploitAgent: 'ssrf-exploit',
+        runVuln: () => a.runSsrfVulnAgent(activityInput),
+        runExploit: () => a.runSsrfExploitAgent(activityInput),
+      },
+      {
+        vulnType: 'authz',
+        vulnAgent: 'authz-vuln',
+        exploitAgent: 'authz-exploit',
+        runVuln: () => a.runAuthzVulnAgent(activityInput),
+        runExploit: () => a.runAuthzExploitAgent(activityInput),
+      },
+    ];
+  }
+
+  // Aggregate results from settled pipeline promises into workflow state
+  function aggregatePipelineResults(
+    results: PromiseSettledResult<VulnExploitPipelineResult>[]
+  ): void {
+    const failedPipelines: string[] = [];
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        const { vulnType, vulnMetrics, exploitMetrics } = result.value;
+
+        const vulnAgentName = `${vulnType}-vuln`;
+        if (vulnMetrics) {
+          state.agentMetrics[vulnAgentName] = vulnMetrics;
+          state.completedAgents.push(vulnAgentName);
+        } else if (shouldSkip(vulnAgentName)) {
+          state.completedAgents.push(vulnAgentName);
+        }
+
+        const exploitAgentName = `${vulnType}-exploit`;
+        if (exploitMetrics) {
+          state.agentMetrics[exploitAgentName] = exploitMetrics;
+          state.completedAgents.push(exploitAgentName);
+        } else if (shouldSkip(exploitAgentName)) {
+          state.completedAgents.push(exploitAgentName);
+        }
+      } else {
+        const errorMsg =
+          result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason);
+        failedPipelines.push(errorMsg);
+      }
+    }
+
+    if (failedPipelines.length > 0) {
+      log.warn(`${failedPipelines.length} pipeline(s) failed`, {
+        failures: failedPipelines,
+      });
+    }
+  }
+
   try {
     // === Phase 1: Pre-Reconnaissance ===
-    state.currentPhase = 'pre-recon';
-    state.currentAgent = 'pre-recon';
-    await a.logPhaseTransition(activityInput, 'pre-recon', 'start');
-    state.agentMetrics['pre-recon'] =
-      await a.runPreReconAgent(activityInput);
-    state.completedAgents.push('pre-recon');
-    await a.logPhaseTransition(activityInput, 'pre-recon', 'complete');
+    await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 
     // === Phase 2: Reconnaissance ===
-    state.currentPhase = 'recon';
-    state.currentAgent = 'recon';
-    await a.logPhaseTransition(activityInput, 'recon', 'start');
-    state.agentMetrics['recon'] = await a.runReconAgent(activityInput);
-    state.completedAgents.push('recon');
-    await a.logPhaseTransition(activityInput, 'recon', 'complete');
+    await runSequentialPhase('recon', 'recon', a.runReconAgent);
 
     // === Phases 3-4: Vulnerability Analysis + Exploitation (Pipelined) ===
     // Each vuln type runs as an independent pipeline:
     // vuln agent → queue check → conditional exploit agent
-    // This eliminates the synchronization barrier between phases - each exploit
-    // starts immediately when its vuln agent finishes, not waiting for all.
+    // Exploits start immediately when their vuln finishes, not waiting for all.
     state.currentPhase = 'vulnerability-exploitation';
     state.currentAgent = 'pipelines';
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
 
-    // Helper: Run a single vuln→exploit pipeline
+    // Closure over shouldSkip and activityInput by design (Temporal replay safety)
     async function runVulnExploitPipeline(
       vulnType: VulnType,
       runVulnAgent: () => Promise<AgentMetrics>,
       runExploitAgent: () => Promise<AgentMetrics>
     ): Promise<VulnExploitPipelineResult> {
-      // Step 1: Run vulnerability agent
-      const vulnMetrics = await runVulnAgent();
+      const vulnAgentName = `${vulnType}-vuln`;
+      const exploitAgentName = `${vulnType}-exploit`;
 
-      // Step 2: Check exploitation queue (starts immediately after vuln)
+      // 1. Run vulnerability analysis (or skip if resumed)
+      let vulnMetrics: AgentMetrics | null = null;
+      if (!shouldSkip(vulnAgentName)) {
+        vulnMetrics = await runVulnAgent();
+      } else {
+        log.info(`Skipping ${vulnAgentName} (already complete)`);
+      }
+
+      // 2. Check exploitation queue for actionable findings
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
 
-      // Step 3: Conditionally run exploit agent
+      // 3. Conditionally run exploitation agent
       let exploitMetrics: AgentMetrics | null = null;
       if (decision.shouldExploit) {
-        exploitMetrics = await runExploitAgent();
+        if (!shouldSkip(exploitAgentName)) {
+          exploitMetrics = await runExploitAgent();
+        } else {
+          log.info(`Skipping ${exploitAgentName} (already complete)`);
+        }
       }
 
       return {
@@ -195,112 +354,56 @@ export async function pentestPipelineWorkflow(
       };
     }
 
-    // Run all 5 pipelines in parallel with graceful failure handling
-    // Promise.allSettled ensures other pipelines continue if one fails
-    const pipelineResults = await Promise.allSettled([
-      runVulnExploitPipeline(
-        'injection',
-        () => a.runInjectionVulnAgent(activityInput),
-        () => a.runInjectionExploitAgent(activityInput)
-      ),
-      runVulnExploitPipeline(
-        'xss',
-        () => a.runXssVulnAgent(activityInput),
-        () => a.runXssExploitAgent(activityInput)
-      ),
-      runVulnExploitPipeline(
-        'auth',
-        () => a.runAuthVulnAgent(activityInput),
-        () => a.runAuthExploitAgent(activityInput)
-      ),
-      runVulnExploitPipeline(
-        'ssrf',
-        () => a.runSsrfVulnAgent(activityInput),
-        () => a.runSsrfExploitAgent(activityInput)
-      ),
-      runVulnExploitPipeline(
-        'authz',
-        () => a.runAuthzVulnAgent(activityInput),
-        () => a.runAuthzExploitAgent(activityInput)
-      ),
-    ]);
+    const pipelineConfigs = buildPipelineConfigs();
+    const pipelinesToRun: Array<Promise<VulnExploitPipelineResult>> = [];
 
-    // Aggregate results from all pipelines
-    const failedPipelines: string[] = [];
-    for (const result of pipelineResults) {
-      if (result.status === 'fulfilled') {
-        const { vulnType, vulnMetrics, exploitMetrics } = result.value;
-
-        // Record vuln agent metrics
-        if (vulnMetrics) {
-          state.agentMetrics[`${vulnType}-vuln`] = vulnMetrics;
-          state.completedAgents.push(`${vulnType}-vuln`);
-        }
-
-        // Record exploit agent metrics (if it ran)
-        if (exploitMetrics) {
-          state.agentMetrics[`${vulnType}-exploit`] = exploitMetrics;
-          state.completedAgents.push(`${vulnType}-exploit`);
-        }
+    for (const config of pipelineConfigs) {
+      if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
+        pipelinesToRun.push(
+          runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
+        );
       } else {
-        // Pipeline failed - log error but continue with others
-        const errorMsg =
-          result.reason instanceof Error
-            ? result.reason.message
-            : String(result.reason);
-        failedPipelines.push(errorMsg);
+        log.info(`Skipping entire ${config.vulnType} pipeline (both agents complete)`);
+        state.completedAgents.push(config.vulnAgent, config.exploitAgent);
       }
     }
 
-    // Log any pipeline failures (workflow continues despite failures)
-    if (failedPipelines.length > 0) {
-      console.log(
-        `⚠️ ${failedPipelines.length} pipeline(s) failed:`,
-        failedPipelines
-      );
-    }
+    const pipelineResults = await Promise.allSettled(pipelinesToRun);
+    aggregatePipelineResults(pipelineResults);
 
-    // Update phase markers
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
 
     // === Phase 5: Reporting ===
-    state.currentPhase = 'reporting';
-    state.currentAgent = 'report';
-    await a.logPhaseTransition(activityInput, 'reporting', 'start');
+    if (!shouldSkip('report')) {
+      state.currentPhase = 'reporting';
+      state.currentAgent = 'report';
+      await a.logPhaseTransition(activityInput, 'reporting', 'start');
 
-    // First, assemble the concatenated report from exploitation evidence files
-    await a.assembleReportActivity(activityInput);
+      // First, assemble the concatenated report from exploitation evidence files
+      await a.assembleReportActivity(activityInput);
 
-    // Then run the report agent to add executive summary and clean up
-    state.agentMetrics['report'] = await a.runReportAgent(activityInput);
-    state.completedAgents.push('report');
+      // Then run the report agent to add executive summary and clean up
+      state.agentMetrics['report'] = await a.runReportAgent(activityInput);
+      state.completedAgents.push('report');
 
-    // Inject model metadata into the final report
-    await a.injectReportMetadataActivity(activityInput);
+      // Inject model metadata into the final report
+      await a.injectReportMetadataActivity(activityInput);
 
-    await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+      await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+    } else {
+      log.info('Skipping report (already complete)');
+      state.completedAgents.push('report');
+    }
 
-    // === Complete ===
     state.status = 'completed';
     state.currentPhase = null;
     state.currentAgent = null;
     state.summary = computeSummary(state);
 
     // Log workflow completion summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'completed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
 
     return state;
   } catch (error) {
@@ -310,19 +413,7 @@ export async function pentestPipelineWorkflow(
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
-    await a.logWorkflowComplete(activityInput, {
-      status: 'failed',
-      totalDurationMs: state.summary.totalDurationMs,
-      totalCostUsd: state.summary.totalCostUsd,
-      completedAgents: state.completedAgents,
-      agentMetrics: Object.fromEntries(
-        Object.entries(state.agentMetrics).map(([name, m]) => [
-          name,
-          { durationMs: m.durationMs, costUsd: m.costUsd },
-        ])
-      ),
-      error: state.error ?? undefined,
-    });
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
 
     throw error;
   }

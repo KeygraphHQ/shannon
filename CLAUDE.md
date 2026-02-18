@@ -1,322 +1,159 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## Overview
-
-This is an AI-powered penetration testing agent designed for defensive security analysis. The tool automates vulnerability assessment by combining external reconnaissance tools with AI-powered code analysis to identify security weaknesses in web applications and their source code.
+AI-powered penetration testing agent for defensive security analysis. Automates vulnerability assessment by combining reconnaissance tools with AI-powered code analysis.
 
 ## Commands
 
-### Prerequisites
-- **Docker** - Container runtime
-- **Anthropic API key** - Set in `.env` file
+**Prerequisites:** Docker, Anthropic API key in `.env`
 
-### Running the Penetration Testing Agent (Docker + Temporal)
 ```bash
-# Configure credentials
-cp .env.example .env
-# Edit .env:
-#   ANTHROPIC_API_KEY=your-key
-#   CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000  # Prevents token limits during long reports
+# Setup
+cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 
-# Start a pentest workflow
-./shannon start URL=<url> REPO=<path>
-```
+# Prepare repo (REPO is a folder name inside ./repos/, not an absolute path)
+git clone https://github.com/org/repo.git ./repos/my-repo
+# or symlink: ln -s /path/to/existing/repo ./repos/my-repo
 
-Examples:
-```bash
-./shannon start URL=https://example.com REPO=/path/to/repo
-./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
-./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
-```
+# Run
+./shannon start URL=<url> REPO=my-repo
+./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
 
-### Monitoring Progress
-```bash
-./shannon logs                      # View real-time worker logs
-./shannon query ID=<workflow-id>    # Query specific workflow progress
-# Temporal Web UI available at http://localhost:8233
-```
+# Workspaces & Resume
+./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
+./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # Resume (same command)
+./shannon start URL=<url> REPO=my-repo WORKSPACE=<auto-name> # Resume auto-named run
+./shannon workspaces                                          # List all workspaces
 
-### Stopping Shannon
-```bash
-./shannon stop                      # Stop containers (preserves workflow data)
+# Monitor
+./shannon logs                      # Real-time worker logs
+# Temporal Web UI: http://localhost:8233
+
+# Stop
+./shannon stop                      # Preserves workflow data
 ./shannon stop CLEAN=true           # Full cleanup including volumes
-```
 
-### Options
-```bash
-CONFIG=<file>          YAML configuration file for authentication and testing parameters
-OUTPUT=<path>          Custom output directory for session folder (default: ./audit-logs/)
-PIPELINE_TESTING=true  Use minimal prompts and fast retry intervals (10s instead of 5min)
-REBUILD=true           Force Docker rebuild with --no-cache (use when code changes aren't picked up)
-ROUTER=true            Route requests through claude-code-router for multi-model support
-```
-
-### Generate TOTP for Authentication
-TOTP generation is handled automatically via the `generate_totp` MCP tool during authentication flows.
-
-### Development Commands
-```bash
-# Build TypeScript
+# Build
 npm run build
-
-# Run with pipeline testing mode (fast, minimal deliverables)
-./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
 ```
 
-## Architecture & Components
+**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `WORKSPACE=<name>` (named workspace; auto-resumes if exists), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
+
+## Architecture
 
 ### Core Modules
-- `src/config-parser.ts` - Handles YAML configuration parsing, validation, and distribution to agents
-- `src/error-handling.ts` - Comprehensive error handling with retry logic and categorized error types
-- `src/tool-checker.ts` - Validates availability of external security tools before execution
-- `src/session-manager.ts` - Agent definitions, execution order, and parallel groups
-- `src/queue-validation.ts` - Validates deliverables and agent prerequisites
+- `src/session-manager.ts` — Agent definitions (`AGENTS` record). Agent types in `src/types/agents.ts`
+- `src/config-parser.ts` — YAML config parsing with JSON Schema validation
+- `src/ai/claude-executor.ts` — Claude Agent SDK integration with retry logic
+- `src/services/` — Business logic layer (Temporal-agnostic). Activities delegate here. Key: `agent-execution.ts`, `error-handling.ts`, `container.ts`
+- `src/types/` — Consolidated types: `Result<T,E>`, `ErrorCode`, `AgentName`, `ActivityLogger`, etc.
+- `src/utils/` — Shared utilities (file I/O, formatting, concurrency)
 
-### Temporal Orchestration Layer
-Shannon uses Temporal for durable workflow orchestration:
-- `src/temporal/shared.ts` - Types, interfaces, query definitions
-- `src/temporal/workflows.ts` - Main workflow (pentestPipelineWorkflow)
-- `src/temporal/activities.ts` - Activity implementations with heartbeats
-- `src/temporal/worker.ts` - Worker process entry point
-- `src/temporal/client.ts` - CLI client for starting workflows
-- `src/temporal/query.ts` - Query tool for progress inspection
+### Temporal Orchestration
+Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (5 concurrent agents in vuln/exploit phases).
 
-Key features:
-- **Crash recovery** - Workflows resume automatically after worker restart
-- **Queryable progress** - Real-time status via `./shannon query` or Temporal Web UI
-- **Intelligent retry** - Distinguishes transient vs permanent errors
-- **Parallel execution** - 5 concurrent agents in vulnerability/exploitation phases
+- `src/temporal/workflows.ts` — Main workflow (`pentestPipelineWorkflow`)
+- `src/temporal/activities.ts` — Thin wrappers — heartbeat loop, error classification, container lifecycle. Business logic delegated to `src/services/`
+- `src/temporal/activity-logger.ts` — `TemporalActivityLogger` implementation of `ActivityLogger` interface
+- `src/temporal/summary-mapper.ts` — Maps `PipelineSummary` to `WorkflowSummary`
+- `src/temporal/worker.ts` — Worker entry point
+- `src/temporal/client.ts` — CLI client for starting workflows
+- `src/temporal/shared.ts` — Types, interfaces, query definitions
+### Five-Phase Pipeline
 
-### Five-Phase Testing Workflow
+1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
+2. **Recon** (`recon`) — Attack surface mapping from initial findings
+3. **Vulnerability Analysis** (5 parallel agents) — injection, xss, auth, authz, ssrf
+4. **Exploitation** (5 parallel agents, conditional) — Exploits confirmed vulnerabilities
+5. **Reporting** (`report`) — Executive-level security report
 
-1. **Pre-Reconnaissance** (`pre-recon`) - External tool scans (nmap, subfinder, whatweb) + source code analysis
-2. **Reconnaissance** (`recon`) - Analysis of initial findings and attack surface mapping  
-3. **Vulnerability Analysis** (5 agents run in parallel)
-   - `injection-vuln` - SQL injection, command injection
-   - `xss-vuln` - Cross-site scripting 
-   - `auth-vuln` - Authentication bypasses
-   - `authz-vuln` - Authorization flaws
-   - `ssrf-vuln` - Server-side request forgery
-4. **Exploitation** (5 agents run in parallel, only if vulnerabilities found)
-   - `injection-exploit` - Exploit injection vulnerabilities
-   - `xss-exploit` - Exploit XSS vulnerabilities  
-   - `auth-exploit` - Exploit authentication issues
-   - `authz-exploit` - Exploit authorization flaws
-   - `ssrf-exploit` - Exploit SSRF vulnerabilities
-5. **Reporting** (`report`) - Executive-level security report generation
-
-### Configuration System
-The agent supports YAML configuration files with JSON Schema validation:
-- `configs/config-schema.json` - JSON Schema for configuration validation
-- `configs/example-config.yaml` - Template configuration file
-- `configs/juice-shop-config.yaml` - Example configuration for OWASP Juice Shop
-- `configs/keygraph-config.yaml` - Configuration for Keygraph applications
-- `configs/chatwoot-config.yaml` - Configuration for Chatwoot applications
-- `configs/metabase-config.yaml` - Configuration for Metabase applications
-- `configs/cal-com-config.yaml` - Configuration for Cal.com applications
-
-Configuration includes:
-- Authentication settings (form, SSO, API, basic auth)
-- Multi-factor authentication with TOTP support
-- Custom login flow instructions
-- Application-specific testing parameters
-
-### Prompt Templates
-The `prompts/` directory contains specialized prompt templates for each testing phase:
-- `pre-recon-code.txt` - Initial code analysis prompts
-- `recon.txt` - Reconnaissance analysis prompts  
-- `vuln-*.txt` - Vulnerability assessment prompts (injection, XSS, auth, authz, SSRF)
-- `exploit-*.txt` - Exploitation attempt prompts
-- `report-executive.txt` - Executive report generation prompts
-
-### Claude Agent SDK Integration
-The agent uses the `@anthropic-ai/claude-agent-sdk` with maximum autonomy configuration:
-- `maxTurns: 10_000` - Allows extensive autonomous analysis
-- `permissionMode: 'bypassPermissions'` - Full system access for thorough testing
-- Playwright MCP integration for web browser automation
-- Working directory set to target local repository
-- Configuration context injection for authenticated testing
-
-### Authentication & Login Resources
-- `prompts/shared/login-instructions.txt` - Login flow template for all agents
-- TOTP token generation via MCP `generate_totp` tool
-- Support for multi-factor authentication workflows
-- Configurable authentication mechanisms (form, SSO, API, basic)
-
-### Output & Deliverables
-All analysis results are saved to the `deliverables/` directory within the target local repository, including:
-- Pre-reconnaissance reports with external scan results
-- Vulnerability assessment findings
-- Exploitation attempt results
-- Executive-level security reports with business impact analysis
-
-### External Tool Dependencies
-The agent integrates with external security tools:
-- `nmap` - Network port scanning
-- `subfinder` - Subdomain discovery  
-- `whatweb` - Web technology fingerprinting
-
-Tools are validated for availability before execution using the tool-checker module.
-
-### Audit & Metrics System
-The agent implements a crash-safe audit system with the following features:
-
-**Architecture:**
-- **audit-logs/** (or custom `--output` path): Centralized metrics and forensic logs
-  - `{hostname}_{sessionId}/session.json` - Comprehensive metrics with attempt-level detail
-  - `{hostname}_{sessionId}/prompts/` - Exact prompts used for reproducibility
-  - `{hostname}_{sessionId}/agents/` - Turn-by-turn execution logs
-  - `{hostname}_{sessionId}/deliverables/` - Security reports and findings
-
-**Crash Safety:**
-- Append-only logging with immediate flush (survives kill -9)
-- Atomic writes for session.json (no partial writes)
-- Event-based logging (tool_start, tool_end, llm_response)
-
-**Concurrency Safety:**
-- SessionMutex prevents race conditions during parallel agent execution
-- 5x faster execution with parallel vulnerability and exploitation phases
-
-**Metrics & Reporting:**
-- Phase-level and agent-level timing/cost aggregations
-- Validation results integrated with metrics
-
+### Supporting Systems
+- **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters
+- **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `src/services/prompt-manager.ts`
+- **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
+- **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
+- **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
+- **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
 
 ## Development Notes
 
-### Learning from Reference Implementations
-
-A working POC exists at `/Users/arjunmalleswaran/Code/shannon-pocs` that demonstrates the ideal Temporal + Claude Agent SDK integration. When implementing Temporal features, agents can ask questions in the chat, and the user will relay them to another Claude Code session working in that POC directory.
-
-**How to use this approach:**
-1. When stuck or unsure about Temporal patterns, write a specific question in the chat
-2. The user will ask an agent working on the POC to answer
-3. The user relays the answer (code snippets, patterns, explanations) back
-4. Apply the learned patterns to Shannon's codebase
-
-**Example questions to ask:**
-- "How does the POC structure its workflow to handle parallel activities?"
-- "Show me how heartbeats are implemented in the POC's activities"
-- "What retry configuration does the POC use for long-running agent activities?"
-- "How does the POC integrate Claude Agent SDK calls within Temporal activities?"
-
-**Reference implementation:**
-- **Temporal + Claude Agent SDK**: `/Users/arjunmalleswaran/Code/shannon-pocs` - working implementation demonstrating workflows, activities, worker setup, and SDK integration
-
 ### Adding a New Agent
-1. Define the agent in `src/session-manager.ts` (add to `AGENT_QUEUE` and appropriate parallel group)
-2. Create prompt template in `prompts/` (e.g., `vuln-newtype.txt` or `exploit-newtype.txt`)
-3. Add activity function in `src/temporal/activities.ts`
+1. Define agent in `src/session-manager.ts` (add to `AGENTS` record). `ALL_AGENTS`/`AgentName` types live in `src/types/agents.ts`
+2. Create prompt template in `prompts/` (e.g., `vuln-newtype.txt`)
+3. Two-layer pattern: add a thin activity wrapper in `src/temporal/activities.ts` (heartbeat + error classification). `AgentExecutionService` in `src/services/agent-execution.ts` handles the agent lifecycle automatically via the `AGENTS` registry
 4. Register activity in `src/temporal/workflows.ts` within the appropriate phase
 
 ### Modifying Prompts
-- Prompt templates use variable substitution: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
-- Shared partials in `prompts/shared/` are included via `prompt-manager.ts`
-- Test changes with `PIPELINE_TESTING=true` for faster iteration
+- Variable substitution: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
+- Shared partials in `prompts/shared/` included via `src/services/prompt-manager.ts`
+- Test with `PIPELINE_TESTING=true` for fast iteration
 
 ### Key Design Patterns
-- **Configuration-Driven Architecture**: YAML configs with JSON Schema validation
-- **Modular Error Handling**: Categorized error types with retry logic
-- **SDK-First Approach**: Heavy reliance on Claude Agent SDK for autonomous AI operations
-- **Progressive Analysis**: Each phase builds on previous phase results
+- **Configuration-Driven** — YAML configs with JSON Schema validation
+- **Progressive Analysis** — Each phase builds on previous results
+- **SDK-First** — Claude Agent SDK handles autonomous analysis
+- **Modular Error Handling** — `ErrorCode` enum, `Result<T,E>` for explicit error propagation, automatic retry (3 attempts per agent)
+- **Services Boundary** — Activities are thin Temporal wrappers; `src/services/` owns business logic, accepts `ActivityLogger`, returns `Result<T,E>`. No Temporal imports in services
+- **DI Container** — Per-workflow in `src/services/container.ts`. `AuditSession` excluded (parallel safety)
 
-### Error Handling Strategy
-The application uses a comprehensive error handling system with:
-- Categorized error types (PentestError, ConfigError, NetworkError, etc.)
-- Automatic retry logic for transient failures (3 attempts per agent)
-- Graceful degradation when external tools are unavailable
-- Detailed error logging and user-friendly error messages
+### Security
+Defensive security tool only. Use only on systems you own or have explicit permission to test.
 
-### Testing Mode
-The agent includes a testing mode that skips external tool execution for faster development cycles:
-```bash
-./shannon start URL=<url> REPO=<path> PIPELINE_TESTING=true
-```
+## Code Style Guidelines
 
-### Security Focus
-This is explicitly designed as a **defensive security tool** for:
-- Vulnerability assessment
-- Security analysis  
-- Penetration testing
-- Security report generation
+### Clarity Over Brevity
+- Optimize for readability, not line count — three clear lines beat one dense expression
+- Use descriptive names that convey intent
+- Prefer explicit logic over clever one-liners
 
-The tool should only be used on systems you own or have explicit permission to test.
+### Structure
+- Keep functions focused on a single responsibility
+- Use early returns and guard clauses instead of deep nesting
+- Never use nested ternary operators — use if/else or switch
+- Extract complex conditions into well-named boolean variables
 
-## Key Files & Directories
+### TypeScript Conventions
+- Use `function` keyword for top-level functions (not arrow functions)
+- Explicit return type annotations on exported/top-level functions
+- Prefer `readonly` for data that shouldn't be mutated
+- `exactOptionalPropertyTypes` is enabled — use spread for optional props, not direct `undefined` assignment
 
-**Entry Points:**
-- `src/temporal/workflows.ts` - Temporal workflow definition
-- `src/temporal/activities.ts` - Activity implementations with heartbeats
-- `src/temporal/worker.ts` - Worker process entry point
-- `src/temporal/client.ts` - CLI client for starting workflows
+### Avoid
+- Combining multiple concerns into a single function to "save lines"
+- Dense callback chains when sequential logic is clearer
+- Sacrificing readability for DRY — some repetition is fine if clearer
+- Abstractions for one-time operations
+- Backwards-compatibility shims, deprecated wrappers, or re-exports for removed code — delete the old code, don't preserve it
 
-**Core Logic:**
-- `src/session-manager.ts` - Agent definitions, execution order, parallel groups
-- `src/ai/claude-executor.ts` - Claude Agent SDK integration
-- `src/config-parser.ts` - YAML config parsing with JSON Schema validation
-- `src/audit/` - Crash-safe logging and metrics system
+### Comments
+Comments must be **timeless** — no references to this conversation, refactoring history, or the AI.
 
-**Configuration:**
-- `shannon` - CLI script for running pentests
-- `docker-compose.yml` - Temporal server + worker containers
-- `configs/` - YAML configs with `config-schema.json` for validation
-- `configs/router-config.json` - Router service configuration for multi-model support
-- `prompts/` - AI prompt templates (`vuln-*.txt`, `exploit-*.txt`, etc.)
+**Patterns used in this codebase:**
+- `/** JSDoc */` — file headers (after license) and exported functions/interfaces
+- `// N. Description` — numbered sequential steps inside function bodies. Use when a
+  function has 3+ distinct phases where at least one isn't immediately obvious from the
+  code. Each step marks the start of a logical phase. Reference: `AgentExecutionService.execute`
+  (steps 1-9) and `injectModelIntoReport` (steps 1-5)
+- `// === Section ===` — high-level dividers between groups of functions in long files,
+  or to label major branching/classification blocks (e.g., `// === SPENDING CAP SAFEGUARD ===`).
+  Not for sequential steps inside function bodies — use numbered steps for that
+- `// NOTE:` / `// WARNING:` / `// IMPORTANT:` — gotchas and constraints
 
-**Output:**
-- `audit-logs/{hostname}_{sessionId}/` - Session metrics, agent logs, deliverables
+**Never:** obvious comments, conversation references ("as discussed"), history ("moved from X")
 
-### Router Mode (Multi-Model Support)
+## Key Files
 
-Shannon supports routing Claude Agent SDK requests through alternative LLM providers via [claude-code-router](https://github.com/musistudio/claude-code-router).
+**Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`, `src/temporal/client.ts`
 
-**Enable router mode:**
-```bash
-./shannon start URL=<url> REPO=<path> ROUTER=true
-```
+**Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/services/`, `src/audit/`
 
-**Supported Providers:**
-
-| Provider | Models | Use Case |
-|----------|--------|----------|
-| OpenAI | `gpt-5.2`, `gpt-5-mini` | Good tool use, balanced cost/performance |
-| OpenRouter | `google/gemini-3-flash-preview` | Access to Gemini 3 models via single API |
-
-**Configuration (in .env):**
-```bash
-# OpenAI
-OPENAI_API_KEY=sk-your-key
-ROUTER_DEFAULT=openai,gpt-5.2
-
-# OpenRouter
-OPENROUTER_API_KEY=sk-or-your-key
-ROUTER_DEFAULT=openrouter,google/gemini-3-flash-preview
-```
-
-**Note:** Shannon is optimized for Anthropic's Claude models. Alternative providers are useful for cost savings during development but may produce varying results.
+**Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
 
 ## Troubleshooting
 
-### Common Issues
-- **"Repository not found"**: Ensure target local directory exists and is accessible
-
-### Temporal & Docker Issues
-- **"Temporal not ready"**: Wait for health check or run `docker compose logs temporal`
-- **Worker not processing**: Ensure worker container is running with `docker compose ps`
-- **Reset workflow state**: `./shannon stop CLEAN=true` removes all Temporal data and volumes
-- **Local apps unreachable**: Use `host.docker.internal` instead of `localhost` for URLs
-- **Container permissions**: On Linux, may need `sudo` for docker commands
-
-### External Tool Dependencies
-Missing tools can be skipped using `PIPELINE_TESTING=true` mode during development:
-- `nmap` - Network scanning
-- `subfinder` - Subdomain discovery
-- `whatweb` - Web technology detection
-
-### Diagnostic & Utility Scripts
-```bash
-# View Temporal workflow history
-open http://localhost:8233
-```
+- **"Repository not found"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. Clone or symlink your repo there first: `ln -s /path/to/repo ./repos/my-repo`
+- **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
+- **Worker not processing** — Check `docker compose ps`
+- **Reset state** — `./shannon stop CLEAN=true`
+- **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
+- **Missing tools** — Use `PIPELINE_TESTING=true` to skip nmap/subfinder/whatweb (graceful degradation)
+- **Container permissions** — On Linux, may need `sudo` for docker commands

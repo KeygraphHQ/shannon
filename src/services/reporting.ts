@@ -5,8 +5,9 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import chalk from 'chalk';
-import { PentestError } from '../error-handling.js';
+import { PentestError } from './error-handling.js';
+import { ErrorCode } from '../types/errors.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface DeliverableFile {
   name: string;
@@ -15,7 +16,7 @@ interface DeliverableFile {
 }
 
 // Pure function: Assemble final report from specialist deliverables
-export async function assembleFinalReport(sourceDir: string): Promise<string> {
+export async function assembleFinalReport(sourceDir: string, logger: ActivityLogger): Promise<string> {
   const deliverableFiles: DeliverableFile[] = [
     { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
     { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
@@ -32,18 +33,24 @@ export async function assembleFinalReport(sourceDir: string): Promise<string> {
       if (await fs.pathExists(filePath)) {
         const content = await fs.readFile(filePath, 'utf8');
         sections.push(content);
-        console.log(chalk.green(`✅ Added ${file.name} findings`));
+        logger.info(`Added ${file.name} findings`);
       } else if (file.required) {
-        throw new Error(`Required file ${file.path} not found`);
+        throw new PentestError(
+          `Required deliverable file not found: ${file.path}`,
+          'filesystem',
+          false,
+          { deliverableFile: file.path, sourceDir },
+          ErrorCode.DELIVERABLE_NOT_FOUND
+        );
       } else {
-        console.log(chalk.gray(`⏭️  No ${file.name} deliverable found`));
+        logger.info(`No ${file.name} deliverable found`);
       }
     } catch (error) {
       if (file.required) {
         throw error;
       }
       const err = error as Error;
-      console.log(chalk.yellow(`⚠️ Could not read ${file.path}: ${err.message}`));
+      logger.warn(`Could not read ${file.path}: ${err.message}`);
     }
   }
 
@@ -55,7 +62,7 @@ export async function assembleFinalReport(sourceDir: string): Promise<string> {
     // Ensure deliverables directory exists
     await fs.ensureDir(deliverablesDir);
     await fs.writeFile(finalReportPath, finalContent);
-    console.log(chalk.green(`✅ Final report assembled at ${finalReportPath}`));
+    logger.info(`Final report assembled at ${finalReportPath}`);
   } catch (error) {
     const err = error as Error;
     throw new PentestError(
@@ -76,13 +83,14 @@ export async function assembleFinalReport(sourceDir: string): Promise<string> {
  */
 export async function injectModelIntoReport(
   repoPath: string,
-  outputPath: string
+  outputPath: string,
+  logger: ActivityLogger
 ): Promise<void> {
   // 1. Read session.json to get model information
   const sessionJsonPath = path.join(outputPath, 'session.json');
 
   if (!(await fs.pathExists(sessionJsonPath))) {
-    console.log(chalk.yellow('⚠️ session.json not found, skipping model injection'));
+    logger.warn('session.json not found, skipping model injection');
     return;
   }
 
@@ -103,18 +111,18 @@ export async function injectModelIntoReport(
   }
 
   if (models.size === 0) {
-    console.log(chalk.yellow('⚠️ No model information found in session.json'));
+    logger.warn('No model information found in session.json');
     return;
   }
 
   const modelStr = Array.from(models).join(', ');
-  console.log(chalk.blue(`📝 Injecting model info into report: ${modelStr}`));
+  logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
   const reportPath = path.join(repoPath, 'deliverables', 'comprehensive_security_assessment_report.md');
 
   if (!(await fs.pathExists(reportPath))) {
-    console.log(chalk.yellow('⚠️ Final report not found, skipping model injection'));
+    logger.warn('Final report not found, skipping model injection');
     return;
   }
 
@@ -132,7 +140,7 @@ export async function injectModelIntoReport(
       assessmentDatePattern,
       `$1\n${modelLine}`
     );
-    console.log(chalk.green('✅ Model info injected into Executive Summary'));
+    logger.info('Model info injected into Executive Summary');
   } else {
     // If no Assessment Date line found, try to add after Executive Summary header
     const execSummaryPattern = /^## Executive Summary$/m;
@@ -142,9 +150,9 @@ export async function injectModelIntoReport(
         execSummaryPattern,
         `## Executive Summary\n- Model: ${modelStr}`
       );
-      console.log(chalk.green('✅ Model info added to Executive Summary header'));
+      logger.info('Model info added to Executive Summary header');
     } else {
-      console.log(chalk.yellow('⚠️ Could not find Executive Summary section'));
+      logger.warn('Could not find Executive Summary section');
       return;
     }
   }

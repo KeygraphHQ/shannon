@@ -8,35 +8,31 @@
  * Agent type definitions
  */
 
-export type AgentName =
-  | 'pre-recon'
-  | 'recon'
-  | 'injection-vuln'
-  | 'xss-vuln'
-  | 'auth-vuln'
-  | 'ssrf-vuln'
-  | 'authz-vuln'
-  | 'injection-exploit'
-  | 'xss-exploit'
-  | 'auth-exploit'
-  | 'ssrf-exploit'
-  | 'authz-exploit'
-  | 'report';
+/**
+ * List of all agents in execution order.
+ * Used for iteration during resume state checking.
+ */
+export const ALL_AGENTS = [
+  'pre-recon',
+  'recon',
+  'injection-vuln',
+  'xss-vuln',
+  'auth-vuln',
+  'ssrf-vuln',
+  'authz-vuln',
+  'injection-exploit',
+  'xss-exploit',
+  'auth-exploit',
+  'ssrf-exploit',
+  'authz-exploit',
+  'report',
+] as const;
 
-export type PromptName =
-  | 'pre-recon-code'
-  | 'recon'
-  | 'vuln-injection'
-  | 'vuln-xss'
-  | 'vuln-auth'
-  | 'vuln-ssrf'
-  | 'vuln-authz'
-  | 'exploit-injection'
-  | 'exploit-xss'
-  | 'exploit-auth'
-  | 'exploit-ssrf'
-  | 'exploit-authz'
-  | 'report-executive';
+/**
+ * Agent name type derived from ALL_AGENTS.
+ * This ensures type safety and prevents drift between type and array.
+ */
+export type AgentName = typeof ALL_AGENTS[number];
 
 export type PlaywrightAgent =
   | 'playwright-agent1'
@@ -45,7 +41,9 @@ export type PlaywrightAgent =
   | 'playwright-agent4'
   | 'playwright-agent5';
 
-export type AgentValidator = (sourceDir: string) => Promise<boolean>;
+import type { ActivityLogger } from './activity-logger.js';
+
+export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
 
 export type AgentStatus =
   | 'pending'
@@ -58,27 +56,21 @@ export interface AgentDefinition {
   name: AgentName;
   displayName: string;
   prerequisites: AgentName[];
+  promptTemplate: string;
+  deliverableFilename: string;
 }
 
 /**
- * Maps an agent name to its corresponding prompt file name.
+ * Vulnerability types supported by the pipeline.
  */
-export function getPromptNameForAgent(agentName: AgentName): PromptName {
-  const mappings: Record<AgentName, PromptName> = {
-    'pre-recon': 'pre-recon-code',
-    'recon': 'recon',
-    'injection-vuln': 'vuln-injection',
-    'xss-vuln': 'vuln-xss',
-    'auth-vuln': 'vuln-auth',
-    'ssrf-vuln': 'vuln-ssrf',
-    'authz-vuln': 'vuln-authz',
-    'injection-exploit': 'exploit-injection',
-    'xss-exploit': 'exploit-xss',
-    'auth-exploit': 'exploit-auth',
-    'ssrf-exploit': 'exploit-ssrf',
-    'authz-exploit': 'exploit-authz',
-    'report': 'report-executive',
-  };
+export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
 
-  return mappings[agentName];
+/**
+ * Decision returned by queue validation for exploitation phase.
+ */
+export interface ExploitationDecision {
+  shouldExploit: boolean;
+  shouldRetry: boolean;
+  vulnerabilityCount: number;
+  vulnType: VulnType;
 }

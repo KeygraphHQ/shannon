@@ -7,13 +7,13 @@
 import { createRequire } from 'module';
 import { fs } from 'zx';
 import yaml from 'js-yaml';
-import { Ajv, type ValidateFunction } from 'ajv';
+import { Ajv, type ValidateFunction, type ErrorObject } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
-import { PentestError } from './error-handling.js';
+import { PentestError } from './services/error-handling.js';
+import { ErrorCode } from './types/errors.js';
 import type {
   Config,
   Rule,
-  Rules,
   Authentication,
   DistributedConfig,
 } from './types/config.js';
@@ -22,11 +22,9 @@ import type {
 const require = createRequire(import.meta.url);
 const addFormats: FormatsPlugin = require('ajv-formats');
 
-// Initialize AJV with formats
 const ajv = new Ajv({ allErrors: true, verbose: true });
 addFormats(ajv);
 
-// Load JSON Schema
 let configSchema: object;
 let validateSchema: ValidateFunction;
 
@@ -45,7 +43,6 @@ try {
   );
 }
 
-// Security patterns to block
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\.\.\//, // Path traversal
   /[<>]/, // HTML/XML injection
@@ -54,32 +51,171 @@ const DANGEROUS_PATTERNS: RegExp[] = [
   /file:/i, // File URLs
 ];
 
-// Parse and load YAML configuration file with enhanced safety
-export const parseConfig = async (configPath: string): Promise<Config> => {
-  try {
-    // File existence check
-    if (!(await fs.pathExists(configPath))) {
-      throw new Error(`Configuration file not found: ${configPath}`);
+/**
+ * Format a single AJV error into a human-readable message.
+ * Translates AJV error keywords into plain English descriptions.
+ */
+function formatAjvError(error: ErrorObject): string {
+  const path = error.instancePath || 'root';
+  const params = error.params as Record<string, unknown>;
+
+  switch (error.keyword) {
+    case 'required': {
+      const missingProperty = params.missingProperty as string;
+      return `Missing required field: "${missingProperty}" at ${path || 'root'}`;
     }
 
-    // File size check (prevent extremely large files)
-    const stats = await fs.stat(configPath);
-    const maxFileSize = 1024 * 1024; // 1MB
-    if (stats.size > maxFileSize) {
-      throw new Error(
-        `Configuration file too large: ${stats.size} bytes (maximum: ${maxFileSize} bytes)`
+    case 'type': {
+      const expectedType = params.type as string;
+      return `Invalid type at ${path}: expected ${expectedType}`;
+    }
+
+    case 'enum': {
+      const allowedValues = params.allowedValues as unknown[];
+      const formattedValues = allowedValues.map((v) => `"${v}"`).join(', ');
+      return `Invalid value at ${path}: must be one of [${formattedValues}]`;
+    }
+
+    case 'additionalProperties': {
+      const additionalProperty = params.additionalProperty as string;
+      return `Unknown field at ${path}: "${additionalProperty}" is not allowed`;
+    }
+
+    case 'minLength': {
+      const limit = params.limit as number;
+      return `Value at ${path} is too short: must have at least ${limit} character(s)`;
+    }
+
+    case 'maxLength': {
+      const limit = params.limit as number;
+      return `Value at ${path} is too long: must have at most ${limit} character(s)`;
+    }
+
+    case 'minimum': {
+      const limit = params.limit as number;
+      return `Value at ${path} is too small: must be >= ${limit}`;
+    }
+
+    case 'maximum': {
+      const limit = params.limit as number;
+      return `Value at ${path} is too large: must be <= ${limit}`;
+    }
+
+    case 'minItems': {
+      const limit = params.limit as number;
+      return `Array at ${path} has too few items: must have at least ${limit} item(s)`;
+    }
+
+    case 'maxItems': {
+      const limit = params.limit as number;
+      return `Array at ${path} has too many items: must have at most ${limit} item(s)`;
+    }
+
+    case 'pattern': {
+      const pattern = params.pattern as string;
+      return `Value at ${path} does not match required pattern: ${pattern}`;
+    }
+
+    case 'format': {
+      const format = params.format as string;
+      return `Value at ${path} must be a valid ${format}`;
+    }
+
+    case 'const': {
+      const allowedValue = params.allowedValue as unknown;
+      return `Value at ${path} must be exactly "${allowedValue}"`;
+    }
+
+    case 'oneOf': {
+      return `Value at ${path} must match exactly one schema (matched ${params.passingSchemas ?? 0})`;
+    }
+
+    case 'anyOf': {
+      return `Value at ${path} must match at least one of the allowed schemas`;
+    }
+
+    case 'not': {
+      return `Value at ${path} matches a schema it should not match`;
+    }
+
+    case 'if': {
+      return `Value at ${path} does not satisfy conditional schema requirements`;
+    }
+
+    case 'uniqueItems': {
+      const i = params.i as number;
+      const j = params.j as number;
+      return `Array at ${path} contains duplicate items at positions ${j} and ${i}`;
+    }
+
+    case 'propertyNames': {
+      const propertyName = params.propertyName as string;
+      return `Invalid property name at ${path}: "${propertyName}" does not match naming requirements`;
+    }
+
+    case 'dependencies':
+    case 'dependentRequired': {
+      const property = params.property as string;
+      const missingProperty = params.missingProperty as string;
+      return `Missing dependent field at ${path}: "${missingProperty}" is required when "${property}" is present`;
+    }
+
+    default: {
+      // Fallback for any unhandled keywords - use AJV's message if available
+      const message = error.message || `validation failed for keyword "${error.keyword}"`;
+      return `${path}: ${message}`;
+    }
+  }
+}
+
+/**
+ * Format all AJV errors into a list of human-readable messages.
+ * Returns an array of formatted error strings.
+ */
+function formatAjvErrors(errors: ErrorObject[]): string[] {
+  return errors.map(formatAjvError);
+}
+
+export const parseConfig = async (configPath: string): Promise<Config> => {
+  try {
+    // 1. Verify file exists
+    if (!(await fs.pathExists(configPath))) {
+      throw new PentestError(
+        `Configuration file not found: ${configPath}`,
+        'config',
+        false,
+        { configPath },
+        ErrorCode.CONFIG_NOT_FOUND
       );
     }
 
-    // Read file content
-    const configContent = await fs.readFile(configPath, 'utf8');
-
-    // Basic content validation
-    if (!configContent.trim()) {
-      throw new Error('Configuration file is empty');
+    // 2. Check file size
+    const stats = await fs.stat(configPath);
+    const maxFileSize = 1024 * 1024; // 1MB
+    if (stats.size > maxFileSize) {
+      throw new PentestError(
+        `Configuration file too large: ${stats.size} bytes (maximum: ${maxFileSize} bytes)`,
+        'config',
+        false,
+        { configPath, fileSize: stats.size, maxFileSize },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
     }
 
-    // Parse YAML with safety options
+    // 3. Read and check for empty content
+    const configContent = await fs.readFile(configPath, 'utf8');
+
+    if (!configContent.trim()) {
+      throw new PentestError(
+        'Configuration file is empty',
+        'config',
+        false,
+        { configPath },
+        ErrorCode.CONFIG_VALIDATION_FAILED
+      );
+    }
+
+    // 4. Parse YAML with safe schema
     let config: unknown;
     try {
       config = yaml.load(configContent, {
@@ -89,67 +225,82 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
       });
     } catch (yamlError) {
       const errMsg = yamlError instanceof Error ? yamlError.message : String(yamlError);
-      throw new Error(`YAML parsing failed: ${errMsg}`);
+      throw new PentestError(
+        `YAML parsing failed: ${errMsg}`,
+        'config',
+        false,
+        { configPath, originalError: errMsg },
+        ErrorCode.CONFIG_PARSE_ERROR
+      );
     }
 
-    // Additional safety check
+    // 5. Guard against null/undefined parse result
     if (config === null || config === undefined) {
-      throw new Error('Configuration file resulted in null/undefined after parsing');
+      throw new PentestError(
+        'Configuration file resulted in null/undefined after parsing',
+        'config',
+        false,
+        { configPath },
+        ErrorCode.CONFIG_PARSE_ERROR
+      );
     }
 
-    // Validate the configuration structure and content
+    // 6. Validate schema, security rules, and return
     validateConfig(config as Config);
 
     return config as Config;
   } catch (error) {
-    const errMsg = error instanceof Error ? error.message : String(error);
-    // Enhance error message with context
-    if (
-      errMsg.startsWith('Configuration file not found') ||
-      errMsg.startsWith('YAML parsing failed') ||
-      errMsg.includes('must be') ||
-      errMsg.includes('exceeds maximum')
-    ) {
-      // These are already well-formatted errors, re-throw as-is
+    // PentestError instances are already well-formatted, re-throw as-is
+    if (error instanceof PentestError) {
       throw error;
-    } else {
-      // Wrap other errors with context
-      throw new Error(`Failed to parse configuration file '${configPath}': ${errMsg}`);
     }
+    const errMsg = error instanceof Error ? error.message : String(error);
+    throw new PentestError(
+      `Failed to parse configuration file '${configPath}': ${errMsg}`,
+      'config',
+      false,
+      { configPath, originalError: errMsg },
+      ErrorCode.CONFIG_PARSE_ERROR
+    );
   }
 };
 
-// Validate overall configuration structure using JSON Schema
 const validateConfig = (config: Config): void => {
-  // Basic structure validation
   if (!config || typeof config !== 'object') {
-    throw new Error('Configuration must be a valid object');
+    throw new PentestError(
+      'Configuration must be a valid object',
+      'config',
+      false,
+      {},
+      ErrorCode.CONFIG_VALIDATION_FAILED
+    );
   }
 
   if (Array.isArray(config)) {
-    throw new Error('Configuration must be an object, not an array');
+    throw new PentestError(
+      'Configuration must be an object, not an array',
+      'config',
+      false,
+      {},
+      ErrorCode.CONFIG_VALIDATION_FAILED
+    );
   }
 
-  // JSON Schema validation
   const isValid = validateSchema(config);
   if (!isValid) {
     const errors = validateSchema.errors || [];
-    const errorMessages = errors.map((err) => {
-      const path = err.instancePath || 'root';
-      return `${path}: ${err.message}`;
-    });
-    throw new Error(`Configuration validation failed:\n  - ${errorMessages.join('\n  - ')}`);
+    const errorMessages = formatAjvErrors(errors);
+    throw new PentestError(
+      `Configuration validation failed:\n  - ${errorMessages.join('\n  - ')}`,
+      'config',
+      false,
+      { validationErrors: errorMessages },
+      ErrorCode.CONFIG_VALIDATION_FAILED
+    );
   }
 
-  // Additional security validation
   performSecurityValidation(config);
 
-  // Warn if deprecated fields are used
-  if (config.login) {
-    console.warn('⚠️  The "login" section is deprecated. Please use "authentication" instead.');
-  }
-
-  // Ensure at least some configuration is provided
   if (!config.rules && !config.authentication) {
     console.warn(
       '⚠️  Configuration file contains no rules or authentication. The pentest will run without any scoping restrictions or login capabilities.'
@@ -161,35 +312,58 @@ const validateConfig = (config: Config): void => {
   }
 };
 
-// Perform additional security validation beyond JSON Schema
 const performSecurityValidation = (config: Config): void => {
-  // Validate authentication section for security issues
   if (config.authentication) {
     const auth = config.authentication;
 
-    // Check for dangerous patterns in credentials
-    if (auth.credentials) {
+    // Check login_url for dangerous patterns (AJV's "uri" format allows javascript: per RFC 3986)
+    if (auth.login_url) {
       for (const pattern of DANGEROUS_PATTERNS) {
-        if (pattern.test(auth.credentials.username)) {
-          throw new Error(
-            'authentication.credentials.username contains potentially dangerous pattern'
-          );
-        }
-        if (pattern.test(auth.credentials.password)) {
-          throw new Error(
-            'authentication.credentials.password contains potentially dangerous pattern'
+        if (pattern.test(auth.login_url)) {
+          throw new PentestError(
+            `authentication.login_url contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: 'login_url', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED
           );
         }
       }
     }
 
-    // Check login flow for dangerous patterns
+    if (auth.credentials) {
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(auth.credentials.username)) {
+          throw new PentestError(
+            `authentication.credentials.username contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: 'credentials.username', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED
+          );
+        }
+        if (pattern.test(auth.credentials.password)) {
+          throw new PentestError(
+            `authentication.credentials.password contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: 'credentials.password', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED
+          );
+        }
+      }
+    }
+
     if (auth.login_flow) {
       auth.login_flow.forEach((step, index) => {
         for (const pattern of DANGEROUS_PATTERNS) {
           if (pattern.test(step)) {
-            throw new Error(
-              `authentication.login_flow[${index}] contains potentially dangerous pattern: ${pattern.source}`
+            throw new PentestError(
+              `authentication.login_flow[${index}] contains potentially dangerous pattern: ${pattern.source}`,
+              'config',
+              false,
+              { field: `login_flow[${index}]`, pattern: pattern.source },
+              ErrorCode.CONFIG_VALIDATION_FAILED
             );
           }
         }
@@ -197,48 +371,58 @@ const performSecurityValidation = (config: Config): void => {
     }
   }
 
-  // Validate rules section for security issues
   if (config.rules) {
     validateRulesSecurity(config.rules.avoid, 'avoid');
     validateRulesSecurity(config.rules.focus, 'focus');
 
-    // Check for duplicate and conflicting rules
     checkForDuplicates(config.rules.avoid || [], 'avoid');
     checkForDuplicates(config.rules.focus || [], 'focus');
     checkForConflicts(config.rules.avoid, config.rules.focus);
   }
 };
 
-// Validate rules for security issues
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
   if (!rules) return;
 
   rules.forEach((rule, index) => {
-    // Security validation
     for (const pattern of DANGEROUS_PATTERNS) {
       if (pattern.test(rule.url_path)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path contains potentially dangerous pattern: ${pattern.source}`
+        throw new PentestError(
+          `rules.${ruleType}[${index}].url_path contains potentially dangerous pattern: ${pattern.source}`,
+          'config',
+          false,
+          { field: `rules.${ruleType}[${index}].url_path`, pattern: pattern.source },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       if (pattern.test(rule.description)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].description contains potentially dangerous pattern: ${pattern.source}`
+        throw new PentestError(
+          `rules.${ruleType}[${index}].description contains potentially dangerous pattern: ${pattern.source}`,
+          'config',
+          false,
+          { field: `rules.${ruleType}[${index}].description`, pattern: pattern.source },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
     }
 
-    // Type-specific validation
     validateRuleTypeSpecific(rule, ruleType, index);
   });
 };
 
-// Validate rule based on its specific type
 const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): void => {
+  const field = `rules.${ruleType}[${index}].url_path`;
+
   switch (rule.type) {
     case 'path':
       if (!rule.url_path.startsWith('/')) {
-        throw new Error(`rules.${ruleType}[${index}].url_path for type 'path' must start with '/'`);
+        throw new PentestError(
+          `${field} for type 'path' must start with '/'`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED
+        );
       }
       break;
 
@@ -246,14 +430,22 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
     case 'domain':
       // Basic domain validation - no slashes allowed
       if (rule.url_path.includes('/')) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type '${rule.type}' cannot contain '/' characters`
+        throw new PentestError(
+          `${field} for type '${rule.type}' cannot contain '/' characters`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       // Must contain at least one dot for domains
       if (rule.type === 'domain' && !rule.url_path.includes('.')) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'domain' must be a valid domain name`
+        throw new PentestError(
+          `${field} for type 'domain' must be a valid domain name`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       break;
@@ -261,62 +453,77 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
     case 'method': {
       const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
       if (!allowedMethods.includes(rule.url_path.toUpperCase())) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'method' must be one of: ${allowedMethods.join(', ')}`
+        throw new PentestError(
+          `${field} for type 'method' must be one of: ${allowedMethods.join(', ')}`,
+          'config',
+          false,
+          { field, ruleType: rule.type, allowedMethods },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       break;
     }
 
     case 'header':
-      // Header name validation (basic)
       if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`
+        throw new PentestError(
+          `${field} for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       break;
 
     case 'parameter':
-      // Parameter name validation (basic)
       if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`
+        throw new PentestError(
+          `${field} for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED
         );
       }
       break;
   }
 };
 
-// Check for duplicate rules
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
   rules.forEach((rule, index) => {
     const key = `${rule.type}:${rule.url_path}`;
     if (seen.has(key)) {
-      throw new Error(
-        `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.url_path}'`
+      throw new PentestError(
+        `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.url_path}'`,
+        'config',
+        false,
+        { field: `rules.${ruleType}[${index}]`, ruleType: rule.type, urlPath: rule.url_path },
+        ErrorCode.CONFIG_VALIDATION_FAILED
       );
     }
     seen.add(key);
   });
 };
 
-// Check for conflicting rules between avoid and focus
 const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): void => {
   const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.url_path}`));
 
   focusRules.forEach((rule, index) => {
     const key = `${rule.type}:${rule.url_path}`;
     if (avoidSet.has(key)) {
-      throw new Error(
-        `Conflicting rule found: rules.focus[${index}] '${rule.url_path}' also exists in rules.avoid`
+      throw new PentestError(
+        `Conflicting rule found: rules.focus[${index}] '${rule.url_path}' also exists in rules.avoid`,
+        'config',
+        false,
+        { field: `rules.focus[${index}]`, urlPath: rule.url_path },
+        ErrorCode.CONFIG_VALIDATION_FAILED
       );
     }
   });
 };
 
-// Sanitize and normalize rule values
 const sanitizeRule = (rule: Rule): Rule => {
   return {
     description: rule.description.trim(),
@@ -325,7 +532,6 @@ const sanitizeRule = (rule: Rule): Rule => {
   };
 };
 
-// Distribute configuration sections to different agents with sanitization
 export const distributeConfig = (config: Config | null): DistributedConfig => {
   const avoid = config?.rules?.avoid || [];
   const focus = config?.rules?.focus || [];
@@ -338,7 +544,6 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   };
 };
 
-// Sanitize and normalize authentication values
 const sanitizeAuthentication = (auth: Authentication): Authentication => {
   return {
     login_type: auth.login_type.toLowerCase().trim() as Authentication['login_type'],
@@ -348,7 +553,7 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
       password: auth.credentials.password,
       ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
     },
-    login_flow: auth.login_flow.map((step) => step.trim()),
+    ...(auth.login_flow && { login_flow: auth.login_flow.map((step) => step.trim()) }),
     success_condition: {
       type: auth.success_condition.type.toLowerCase().trim() as Authentication['success_condition']['type'],
       value: auth.success_condition.value.trim(),

@@ -7,11 +7,10 @@
     "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
     "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
     "temporal:worker": "node dist/temporal/worker.js",
-    "temporal:start": "node dist/temporal/client.js",
-    "temporal:query": "node dist/temporal/query.js"
+    "temporal:start": "node dist/temporal/client.js"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.1.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.2.38",
     "@temporalio/activity": "^1.11.0",
     "@temporalio/client": "^1.11.0",
     "@temporalio/worker": "^1.11.0",
@@ -24,7 +23,6 @@
     "figlet": "^1.9.3",
     "gradient-string": "^3.0.0",
     "js-yaml": "^4.1.0",
-    "zod": "^3.22.4",
     "zx": "^8.0.0"
   },
   "devDependencies": {

@@ -29,10 +29,8 @@ export interface Rules {
 
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
 
-export type SuccessConditionType = 'url' | 'cookie' | 'element' | 'redirect';
-
 export interface SuccessCondition {
-  type: SuccessConditionType;
+  type: 'url' | 'cookie' | 'element' | 'redirect';
   value: string;
 }
 
@@ -53,7 +51,6 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
-  login?: unknown; // Deprecated
 }
 
 export interface DistributedConfig {

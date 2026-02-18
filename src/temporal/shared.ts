@@ -1,6 +1,7 @@
 import { defineQuery } from '@temporalio/workflow';
 
-// === Types ===
+export type { AgentMetrics } from '../types/metrics.js';
+import type { AgentMetrics } from '../types/metrics.js';
 
 export interface PipelineInput {
   webUrl: string;
@@ -8,16 +9,18 @@ export interface PipelineInput {
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
-  workflowId?: string; // Added by client, used for audit correlation
+  workflowId?: string; // Used for audit correlation
+  sessionId?: string; // Workspace directory name (distinct from workflowId for named workspaces)
+  resumeFromWorkspace?: string; // Workspace name to resume from
+  terminatedWorkflows?: string[]; // Workflows terminated during resume
 }
 
-export interface AgentMetrics {
-  durationMs: number;
-  inputTokens: number | null;
-  outputTokens: number | null;
-  costUsd: number | null;
-  numTurns: number | null;
-  model?: string | undefined;
+export interface ResumeState {
+  workspaceName: string;
+  originalUrl: string;
+  completedAgents: string[];
+  checkpointHash: string;
+  originalWorkflowId: string;
 }
 
 export interface PipelineSummary {
@@ -56,7 +59,5 @@ export interface VulnExploitPipelineResult {
   } | null;
   error: string | null;
 }
-
-// === Queries ===
 
 export const getProgress = defineQuery<PipelineProgress>('getProgress');

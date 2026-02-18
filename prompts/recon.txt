@@ -63,8 +63,10 @@ Please use these tools for the following use cases:
 - **save_deliverable (MCP Tool):** Saves your reconnaissance deliverable file.
   - **Parameters:**
     - `deliverable_type`: "RECON" (required)
-    - `content`: Your complete markdown report (required)
+    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
+    - `content`: Inline content string (optional, use only for small content like JSON queues)
   - **Returns:** `{ status: "success", filepath: "..." }` on success or `{ status: "error", message: "..." }` on failure
+  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.
@@ -365,5 +367,16 @@ CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, 
 </deliverable_instructions>
 
 <conclusion_trigger>
-Once you have saved the complete deliverable using the save_deliverable MCP tool with `deliverable_type: "RECON"` and your complete report as the `content`, your phase is complete. Announce "RECONNAISSANCE COMPLETE" and await further instructions.
+**DELIVERABLE SAVING:**
+1. **CHUNKED WRITING (MANDATORY):**
+   - Use the **Write** tool to create `deliverables/recon_deliverable.md` with the title and first major section
+   - Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+   - Repeat for all remaining sections
+2. Call `save_deliverable` with `deliverable_type: "RECON"` and `file_path: "deliverables/recon_deliverable.md"`
+
+**WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `content` to save_deliverable — always use `file_path`.
+
+Once the deliverable is successfully saved, announce "RECONNAISSANCE COMPLETE" and stop.
+
+**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
 </conclusion_trigger>

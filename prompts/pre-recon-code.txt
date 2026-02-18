@@ -81,9 +81,11 @@ You are the **Code Intelligence Gatherer** and **Architectural Foundation Builde
 - **save_deliverable (MCP Tool):** Saves your final deliverable file with automatic validation.
   - **Parameters:**
     - `deliverable_type`: "CODE_ANALYSIS" (required)
-    - `content`: Your complete markdown report (required)
+    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
+    - `content`: Inline content string (optional, use only for small content like JSON queues)
   - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
-  - **Usage:** Call the tool with your complete markdown report. The tool handles correct naming and file validation automatically.
+  - **Usage:** Write your report to disk first, then call with `file_path`. The tool handles correct naming and file validation automatically.
+  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </available_tools>
 
@@ -127,7 +129,12 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
   - Create the `outputs/schemas/` directory using mkdir -p
   - Copy all discovered schema files to `outputs/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
-- Save complete analysis using the `save_deliverable` MCP tool with `deliverable_type: "CODE_ANALYSIS"` and your complete markdown report as the `content`
+- **CHUNKED WRITING (MANDATORY):**
+  1. Use the **Write** tool to create `deliverables/code_analysis_deliverable.md` with the title and first major section
+  2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
+  3. Repeat step 2 for all remaining sections
+  4. Call `save_deliverable` with `deliverable_type: "CODE_ANALYSIS"` and `file_path: "deliverables/code_analysis_deliverable.md"`
+- **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **EXECUTION PATTERN:**
 1. **Use TodoWrite to create task list** tracking: Phase 1 agents, Phase 2 agents, and report synthesis
@@ -385,10 +392,12 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
    - Phase 3: Synthesis and report generation completed
 
 2. **Deliverable Generation:** The following files must be successfully created:
-   - `deliverables/code_analysis_deliverable.md` (Created using save_deliverable MCP tool with CODE_ANALYSIS type)
+   - `deliverables/code_analysis_deliverable.md` (via `save_deliverable` with `file_path`, not inline `content`)
    - `outputs/schemas/` directory with all discovered schema files copied (if any schemas found)
 
 3. **TodoWrite Completion:** All tasks in your todo list must be marked as completed
 
 **ONLY AFTER** all three requirements are satisfied, announce "**PRE-RECON CODE ANALYSIS COMPLETE**" and stop.
+
+**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
 </conclusion_trigger>

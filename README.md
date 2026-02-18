@@ -4,7 +4,9 @@
 
 <div align="center">
 
-<img src="./assets/shannon-screen.png" alt="Shannon Screen" width="100%">
+<a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
+
+<img src="./assets/shannon-screen.png?v=2" alt="Shannon Screen" width="100%">
 
 # Shannon is your fully autonomous AI pentester.
 
@@ -83,6 +85,7 @@ Shannon is available in two editions:
   - [Monitoring Progress](#monitoring-progress)
   - [Stopping Shannon](#stopping-shannon)
   - [Usage Examples](#usage-examples)
+  - [Workspaces and Resuming](#workspaces-and-resuming)
   - [Configuration (Optional)](#configuration-optional)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
@@ -126,7 +129,7 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
 # 3. Run a pentest
-./shannon start URL=https://your-app.com REPO=/path/to/your/repo
+./shannon start URL=https://your-app.com REPO=your-repo
 ```
 
 Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
@@ -158,39 +161,116 @@ open http://localhost:8233
 
 ```bash
 # Basic pentest
-./shannon start URL=https://example.com REPO=/path/to/repo
+./shannon start URL=https://example.com REPO=repo-name
 
 # With a configuration file
-./shannon start URL=https://example.com REPO=/path/to/repo CONFIG=./configs/my-config.yaml
+./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
 
 # Custom output directory
-./shannon start URL=https://example.com REPO=/path/to/repo OUTPUT=./my-reports
+./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+
+# Named workspace
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+
+# List all workspaces
+./shannon workspaces
 ```
+
+### Workspaces and Resuming
+
+Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
+
+**How it works:**
+- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+- Use `WORKSPACE=<name>` to give your run a custom name for easier reference
+- To resume any run, pass its workspace name via `WORKSPACE=` — Shannon detects which agents completed successfully and picks up where it left off
+- Each agent's progress is checkpointed via git commits, so resumed runs start from a clean, validated state
+
+```bash
+# Start with a named workspace
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+
+# Resume the same workspace (skips completed agents)
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+
+# Resume an auto-named workspace from a previous run
+./shannon start URL=https://example.com REPO=repo-name WORKSPACE=example-com_shannon-1771007534808
+
+# List all workspaces and their status
+./shannon workspaces
+```
+
+> [!NOTE]
+> The `URL` must match the original workspace URL when resuming. Shannon will reject mismatched URLs to prevent cross-target contamination.
 
 ### Prepare Your Repository
 
-Shannon is designed for **web application security testing** and expects all application code to be available in a single directory structure. This works well for:
+Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
 
-- **Monorepos** - Single repository containing all components
-- **Consolidated setups** - Multiple repositories organized in a shared folder
+```bash
+git clone https://github.com/your-org/your-repo.git ./repos/your-repo
+```
 
 **For monorepos:**
 
 ```bash
-git clone https://github.com/your-org/your-monorepo.git /path/to/your-app
+git clone https://github.com/your-org/your-monorepo.git ./repos/your-monorepo
 ```
 
 **For multi-repository applications** (e.g., separate frontend/backend):
 
 ```bash
-mkdir /path/to/your-app
-cd /path/to/your-app
+mkdir ./repos/your-app
+cd ./repos/your-app
 git clone https://github.com/your-org/frontend.git
 git clone https://github.com/your-org/backend.git
 git clone https://github.com/your-org/api.git
 ```
 
 ### Platform-Specific Instructions
+
+**For Windows:**
+
+*Native (Git Bash):*
+
+Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed.
+
+*WSL2 (Recommended):*
+
+**Step 1: Ensure WSL 2**
+
+```powershell
+wsl --install
+wsl --set-default-version 2
+
+# Check installed distros
+wsl --list --verbose
+
+# If you don't have a distro, install one (Ubuntu 24.04 recommended)
+wsl --list --online
+wsl --install Ubuntu-24.04
+
+# If your distro shows VERSION 1, convert it to WSL 2:
+wsl --set-version <distro-name> 2
+```
+
+See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) for reference.
+
+**Step 2: Install Docker Desktop on Windows** and enable **WSL2 backend** under *Settings > General > Use the WSL 2 based engine*.
+
+**Step 3: Clone and run Shannon inside WSL.** Type `wsl -d <distro-name>` in PowerShell or CMD and press Enter to open a WSL terminal.
+
+```bash
+# Inside WSL terminal
+git clone https://github.com/KeygraphHQ/shannon.git
+cd shannon
+cp .env.example .env  # Edit with your API key
+./shannon start URL=https://your-app.com REPO=your-repo
+```
+
+To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
+
+Windows Defender may flag exploit code in reports as false positives; see [Antivirus False Positives](#6-windows-antivirus-false-positives) below.
 
 **For Linux (Native Docker):**
 
@@ -205,12 +285,12 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-./shannon start URL=http://host.docker.internal:3000 REPO=/path/to/repo
+./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
 ```
 
 ### Configuration (Optional)
 
-While you can run without a config file, creating one enables authenticated testing and customized analysis.
+While you can run without a config file, creating one enables authenticated testing and customized analysis. Place your configuration files inside the `./configs/` directory — this folder is mounted into the Docker container automatically.
 
 #### Create Configuration File
 
@@ -279,7 +359,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 2. Run with `ROUTER=true`:
 
 ```bash
-./shannon start URL=https://example.com REPO=/path/to/repo ROUTER=true
+./shannon start URL=https://example.com REPO=repo-name ROUTER=true
 ```
 
 #### Experimental Models
