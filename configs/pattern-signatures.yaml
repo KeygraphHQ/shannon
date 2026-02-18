@@ -1,0 +1,153 @@
+# PIVOT Pattern Signatures Configuration
+# Phase 4: Pattern Signature Library
+# Hand-authored signatures for obstacle classification and routing
+
+signatures:
+  # WAF and Security Filter Signatures
+  - id: WAF_GENERIC_BLOCK
+    match:
+      - "403 Forbidden"
+      - "Access Denied"
+      - "Request blocked"
+      - "Security violation"
+      - "ModSecurity"
+      - "Web Application Firewall"
+    class: WAF_BLOCK
+    lane_recommendation: deterministic
+    confidence_weight: 0.9
+    default_weight: 1.0
+    description: "Generic WAF/security filter blocking"
+    
+  - id: SQL_ERROR_MYSQL
+    match:
+      - "You have an error in your SQL syntax"
+      - "mysql_fetch"
+      - "MySQL server version"
+      - "for the right syntax to use"
+      - "SQLSTATE\\["
+    class: SQL_INJECTION_SURFACE
+    lane_recommendation: deterministic
+    confidence_weight: 0.95
+    default_weight: 1.0
+    description: "MySQL SQL error messages"
+    
+  - id: SQL_ERROR_POSTGRES
+    match:
+      - "PostgreSQL.*ERROR"
+      - "syntax error at or near"
+      - "relation .* does not exist"
+    class: SQL_INJECTION_SURFACE
+    lane_recommendation: deterministic
+    confidence_weight: 0.9
+    default_weight: 1.0
+    description: "PostgreSQL SQL error messages"
+    
+  - id: CHAR_BLACKLIST
+    match:
+      - "invalid character"
+      - "character not allowed"
+      - "illegal character"
+      - "disallowed character"
+      - "unsafe character"
+    class: CHARACTER_FILTER
+    lane_recommendation: deterministic
+    confidence_weight: 0.85
+    default_weight: 1.0
+    description: "Character filtering/blacklisting"
+    
+  # Template Injection Signatures
+  - id: SSTI_ERROR
+    match:
+      - "TemplateSyntaxError"
+      - "jinja2.exceptions"
+      - "Smarty Error"
+      - "Twig_Error"
+      - "Template processing error"
+    class: TEMPLATE_INJECTION_SURFACE
+    lane_recommendation: deterministic
+    confidence_weight: 0.9
+    default_weight: 1.0
+    description: "Server-side template injection errors"
+    
+  # Rate Limiting Signatures
+  - id: RATE_LIMIT
+    match:
+      - "429 Too Many Requests"
+      - "rate limit exceeded"
+      - "slow down"
+      - "too many requests"
+      - "request throttled"
+    class: RATE_LIMIT
+    lane_recommendation: deterministic
+    confidence_weight: 0.95
+    default_weight: 1.0
+    description: "Rate limiting responses"
+    
+  # Timeout and Connection Issues
+  - id: TIMEOUT
+    match:
+      - "504 Gateway Timeout"
+      - "request timed out"
+      - "connection timeout"
+      - "operation timed out"
+    class: TIMEOUT_OR_DROP
+    lane_recommendation: hybrid
+    confidence_weight: 0.7
+    default_weight: 0.8
+    description: "Timeout responses"
+    
+  # Ambiguous Error Signatures
+  - id: AMBIGUOUS_500
+    match:
+      - "500 Internal Server Error"
+    class: UNKNOWN
+    lane_recommendation: hybrid
+    confidence_weight: 0.4
+    default_weight: 0.6
+    description: "Generic server error - requires investigation"
+    
+  - id: EMPTY_RESPONSE
+    match: []  # Empty array matches empty/null responses
+    class: TIMEOUT_OR_DROP
+    lane_recommendation: hybrid
+    confidence_weight: 0.3
+    default_weight: 0.5
+    description: "Empty or null responses"
+    
+  # Content-Type and Encoding Issues
+  - id: CONTENT_TYPE_MISMATCH
+    match:
+      - "Content-Type.*not allowed"
+      - "unsupported media type"
+      - "415 Unsupported Media Type"
+    class: CHARACTER_FILTER
+    lane_recommendation: deterministic
+    confidence_weight: 0.8
+    default_weight: 1.0
+    description: "Content-Type validation failures"
+    
+  # Authentication/Authorization
+  - id: AUTH_REQUIRED
+    match:
+      - "401 Unauthorized"
+      - "authentication required"
+      - "login required"
+    class: UNKNOWN
+    lane_recommendation: freestyle
+    confidence_weight: 0.6
+    default_weight: 0.7
+    description: "Authentication required responses"
+
+# Pattern matching configuration
+matching:
+  case_sensitive: false
+  partial_match_threshold: 0.7  # 70% of pattern must match
+  max_pattern_length: 1000  # characters
+  enable_regex: true  # enable regex patterns in match arrays
+  
+# Routing weight configuration
+weighting:
+  min_weight: 0.1
+  max_weight: 2.0
+  default_weight: 1.0
+  adjustment_step: 0.1  # incremental adjustment per review cycle

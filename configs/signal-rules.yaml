@@ -1,0 +1,59 @@
+# PIVOT Signal Rules Configuration
+# Phase 2: Deterministic Scoring Engine
+# Each rule defines how to detect and weight signals from response deltas
+
+rules:
+  # Binary signals (0 or 1)
+  - signal: status_changed
+    weight: 2.0
+    type: binary
+    description: "HTTP status code changed from baseline"
+    
+  - signal: error_class_changed
+    weight: 1.5
+    type: binary
+    description: "Error class changed (e.g., SyntaxError → ConnectionRefused)"
+    
+  - signal: body_contains_target
+    weight: 5.0
+    type: binary
+    description: "Mutation payload appears in response body"
+    
+  - signal: payload_reflected
+    weight: 1.2
+    type: binary
+    description: "Payload reflected in response (subset of body_contains_target)"
+    
+  - signal: new_headers_present
+    weight: 0.9
+    type: binary
+    description: "New headers present in response"
+    
+  # Threshold signals (continuous values)
+  - signal: timing_delta
+    weight: 0.8
+    type: threshold
+    threshold: 2.5  # standard deviations from baseline mean
+    description: "Response time deviation from baseline distribution"
+    
+  - signal: body_length_delta
+    weight: 0.6
+    type: threshold
+    threshold: 0.15  # 15% change in body length
+    description: "Percentage change in response body length"
+
+# Scoring thresholds for decision making
+thresholds:
+  progress: 1.5      # weighted_total >= 1.5 → making progress
+  exploit_confirm: 5.0  # weighted_total >= 5.0 → confirmed exploit
+  abandon: 8         # attempts without progress >= 8 → abandon lane
+  
+# Confidence decay configuration
+confidence_decay:
+  window_size: 3     # look at last 3 attempts
+  decay_threshold: 0.3  # 30% score reduction triggers decay flag
+  
+# Circuit breaker configuration
+circuit_breaker:
+  max_attempts: 12   # maximum attempts per obstacle in deterministic lane
+  cooldown_ms: 5000  # 5 second cooldown after circuit breaker trips
