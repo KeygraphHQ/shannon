@@ -148,6 +148,16 @@ function classifyByErrorCode(
     case ErrorCode.AGENT_EXECUTION_FAILED:
       return { type: 'AgentExecutionError', retryable: retryableFromError };
 
+    // Preflight validation errors
+    case ErrorCode.REPO_NOT_FOUND:
+      return { type: 'ConfigurationError', retryable: false };
+
+    case ErrorCode.AUTH_FAILED:
+      return { type: 'AuthenticationError', retryable: false };
+
+    case ErrorCode.BILLING_ERROR:
+      return { type: 'BillingError', retryable: true };
+
     default:
       // Unknown code - fall through to string matching
       return { type: 'UnknownError', retryable: retryableFromError };

@@ -36,6 +36,8 @@ import { AGENTS } from '../session-manager.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { createActivityLogger } from './activity-logger.js';
+import { runPreflightChecks } from '../services/preflight.js';
+import { isErr } from '../types/result.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -244,6 +246,72 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('report', input);
+}
+
+/**
+ * Preflight validation activity.
+ *
+ * Runs cheap checks before any agent execution:
+ * 1. Repository path exists with .git
+ * 2. Config file validates (if provided)
+ * 3. Credential validation (API key, OAuth, or router mode)
+ *
+ * NOT using runAgentActivity — preflight doesn't run an agent via the SDK.
+ */
+export async function runPreflightValidation(input: ActivityInput): Promise<void> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({ phase: 'preflight', elapsedSeconds: elapsed, attempt: attemptNumber });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  try {
+    const logger = createActivityLogger();
+    logger.info('Running preflight validation...', { attempt: attemptNumber });
+
+    const result = await runPreflightChecks(input.repoPath, input.configPath, logger);
+
+    if (isErr(result)) {
+      const classified = classifyErrorForTemporal(result.error);
+      const message = truncateErrorMessage(result.error.message);
+
+      if (classified.retryable) {
+        const failure = ApplicationFailure.create({
+          message,
+          type: classified.type,
+          details: [{ phase: 'preflight', attemptNumber, elapsed: Date.now() - startTime }],
+        });
+        truncateStackTrace(failure);
+        throw failure;
+      } else {
+        const failure = ApplicationFailure.nonRetryable(message, classified.type, [
+          { phase: 'preflight', attemptNumber, elapsed: Date.now() - startTime },
+        ]);
+        truncateStackTrace(failure);
+        throw failure;
+      }
+    }
+
+    logger.info('Preflight validation passed');
+  } catch (error) {
+    if (error instanceof ApplicationFailure) {
+      throw error;
+    }
+
+    const classified = classifyErrorForTemporal(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = truncateErrorMessage(rawMessage);
+
+    const failure = ApplicationFailure.nonRetryable(message, classified.type, [
+      { phase: 'preflight', attemptNumber, elapsed: Date.now() - startTime },
+    ]);
+    truncateStackTrace(failure);
+    throw failure;
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
 }
 
 /**

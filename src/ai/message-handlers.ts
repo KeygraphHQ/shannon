@@ -19,9 +19,9 @@ import {
 } from './output-formatters.js';
 import type { AuditLogger } from './audit-logger.js';
 import type { ProgressManager } from './progress-manager.js';
+import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import type {
   AssistantMessage,
-  SDKAssistantMessageError,
   ResultMessage,
   ToolUseMessage,
   ToolResultMessage,
