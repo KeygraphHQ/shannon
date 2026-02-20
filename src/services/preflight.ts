@@ -18,7 +18,8 @@
  */
 
 import fs from 'fs/promises';
-import { query, type SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
+import { query } from '@anthropic-ai/claude-agent-sdk';
+import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { PentestError, isRetryableError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
