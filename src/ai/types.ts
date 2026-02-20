@@ -6,6 +6,8 @@
 
 // Type definitions for Claude executor message processing pipeline
 
+import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
+
 export interface ExecutionContext {
   isParallelExecution: boolean;
   useCleanOutput: boolean;
@@ -51,14 +53,6 @@ export interface ContentBlock {
   text?: string;
 }
 
-export type SDKAssistantMessageError =
-  | 'authentication_failed'
-  | 'billing_error'
-  | 'rate_limit'
-  | 'invalid_request'
-  | 'server_error'
-  | 'max_output_tokens'
-  | 'unknown';
 
 export interface AssistantMessage {
   type: 'assistant';
