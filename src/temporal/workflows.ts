@@ -41,10 +41,10 @@ import {
   type AgentMetrics,
   type ResumeState,
 } from './shared.js';
-import type { VulnType } from '../services/queue-validation.js';
-import type { AgentName } from '../types/agents.js';
+import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';
+import { formatWorkflowError } from './workflow-errors.js';
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -84,6 +84,22 @@ const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
   heartbeatTimeout: '30 minutes', // Extended for sub-agent execution in testing
   retry: TESTING_RETRY,
+});
+
+// Retry configuration for preflight validation (short timeout, few retries)
+const PREFLIGHT_RETRY = {
+  initialInterval: '10 seconds',
+  maximumInterval: '1 minute',
+  backoffCoefficient: 2,
+  maximumAttempts: 3,
+  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
+};
+
+// Activity proxy for preflight validation (short timeout)
+const preflightActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '2 minutes',
+  heartbeatTimeout: '2 minutes',
+  retry: PREFLIGHT_RETRY,
 });
 
 /**
@@ -298,6 +314,14 @@ export async function pentestPipelineWorkflow(
   }
 
   try {
+    // === Preflight Validation ===
+    // Quick sanity checks before committing to expensive agent runs.
+    // NOT using runSequentialPhase — preflight doesn't produce AgentMetrics.
+    state.currentPhase = 'preflight';
+    state.currentAgent = null;
+    await preflightActs.runPreflightValidation(activityInput);
+    log.info('Preflight validation passed');
+
     // === Phase 1: Pre-Reconnaissance ===
     await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 
@@ -409,7 +433,7 @@ export async function pentestPipelineWorkflow(
   } catch (error) {
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
-    state.error = error instanceof Error ? error.message : String(error);
+    state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent);
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
