@@ -86,6 +86,106 @@ const testActs = proxyActivities<typeof activities>({
   retry: TESTING_RETRY,
 });
 
+// Retry configuration for preflight validation (short timeout, few retries)
+const PREFLIGHT_RETRY = {
+  initialInterval: '10 seconds',
+  maximumInterval: '1 minute',
+  backoffCoefficient: 2,
+  maximumAttempts: 3,
+  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
+};
+
+// Activity proxy for preflight validation (short timeout)
+const preflightActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '2 minutes',
+  heartbeatTimeout: '2 minutes',
+  retry: PREFLIGHT_RETRY,
+});
+
+/** Maps Temporal error type strings to actionable remediation hints. */
+const REMEDIATION_HINTS: Record<string, string> = {
+  AuthenticationError:
+    'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',
+  ConfigurationError: 'Check your CONFIG file path and contents.',
+  BillingError:
+    'Check your Anthropic billing dashboard. Add credits or wait for spending cap reset.',
+  GitError: 'Check repository path and git state.',
+  InvalidTargetError: 'Verify the target URL is correct and accessible.',
+  PermissionError: 'Check file and network permissions.',
+  ExecutionLimitError: 'Agent exceeded maximum turns or budget. Review prompt complexity.',
+};
+
+/**
+ * Walk the .cause chain to find the innermost error with a .type property.
+ * Temporal wraps ApplicationFailure in ActivityFailure — the useful info is inside.
+ *
+ * Uses duck-typing because workflow code cannot import @temporalio/activity types.
+ */
+function unwrapActivityError(error: unknown): {
+  message: string;
+  type: string | null;
+} {
+  let current: unknown = error;
+  let typed: { message: string; type: string } | null = null;
+
+  while (current instanceof Error) {
+    if ('type' in current && typeof (current as { type: unknown }).type === 'string') {
+      typed = {
+        message: current.message,
+        type: (current as { type: string }).type,
+      };
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+
+  if (typed) {
+    return typed;
+  }
+
+  return {
+    message: error instanceof Error ? error.message : String(error),
+    type: null,
+  };
+}
+
+/**
+ * Format a structured error string from workflow catch context.
+ * Segments are delimited by | for multi-line rendering by WorkflowLogger.
+ */
+function formatWorkflowError(
+  error: unknown,
+  currentPhase: string | null,
+  currentAgent: string | null
+): string {
+  const unwrapped = unwrapActivityError(error);
+
+  // Phase context (first segment)
+  let phaseContext = 'Pipeline failed';
+  if (currentPhase && currentAgent && currentPhase !== currentAgent) {
+    phaseContext = `${currentPhase} failed (agent: ${currentAgent})`;
+  } else if (currentPhase) {
+    phaseContext = `${currentPhase} failed`;
+  }
+
+  const segments: string[] = [phaseContext];
+
+  if (unwrapped.type) {
+    segments.push(unwrapped.type);
+  }
+
+  // Sanitize pipe characters from message to preserve delimiter format
+  segments.push(unwrapped.message.replaceAll('|', '/'));
+
+  if (unwrapped.type) {
+    const hint = REMEDIATION_HINTS[unwrapped.type];
+    if (hint) {
+      segments.push(`Hint: ${hint}`);
+    }
+  }
+
+  return segments.join('|');
+}
+
 /**
  * Compute aggregated metrics from the current pipeline state.
  * Called on both success and failure to provide partial metrics.
@@ -298,6 +398,14 @@ export async function pentestPipelineWorkflow(
   }
 
   try {
+    // === Preflight Validation ===
+    // Quick sanity checks before committing to expensive agent runs.
+    // NOT using runSequentialPhase — preflight doesn't produce AgentMetrics.
+    state.currentPhase = 'preflight';
+    state.currentAgent = null;
+    await preflightActs.runPreflightValidation(activityInput);
+    log.info('Preflight validation passed');
+
     // === Phase 1: Pre-Reconnaissance ===
     await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 
@@ -409,7 +517,7 @@ export async function pentestPipelineWorkflow(
   } catch (error) {
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
-    state.error = error instanceof Error ? error.message : String(error);
+    state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent);
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
