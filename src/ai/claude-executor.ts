@@ -231,6 +231,12 @@ export async function runClaudePrompt(
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
   }
+  if (process.env.ANTHROPIC_BASE_URL) {
+    sdkEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
+  }
+  if (process.env.ANTHROPIC_AUTH_TOKEN) {
+    sdkEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+  }
 
   // 5. Configure SDK options
   const options = {
