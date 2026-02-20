@@ -39,6 +39,11 @@ export enum ErrorCode {
 
   // Validation errors (PentestErrorType: 'validation')
   DELIVERABLE_NOT_FOUND = 'DELIVERABLE_NOT_FOUND',
+
+  // Preflight validation errors
+  REPO_NOT_FOUND = 'REPO_NOT_FOUND',
+  AUTH_FAILED = 'AUTH_FAILED',
+  BILLING_ERROR = 'BILLING_ERROR',
 }
 
 export type PentestErrorType =

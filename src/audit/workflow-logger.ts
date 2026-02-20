@@ -312,6 +312,24 @@ export class WorkflowLogger {
   }
 
   /**
+   * Format a pipe-delimited error string into indented multi-line display.
+   *
+   * Input:  "phase context|ErrorType|message|Hint: ..."
+   * Output: "Error:       phase context\n             ErrorType\n             ..."
+   */
+  private formatErrorBlock(errorString: string): string {
+    const segments = errorString.split('|');
+    const label = 'Error:       ';
+    const indent = ' '.repeat(label.length);
+
+    const lines = segments.map((segment, i) =>
+      i === 0 ? `${label}${segment.trim()}` : `${indent}${segment.trim()}`
+    );
+
+    return lines.join('\n') + '\n';
+  }
+
+  /**
    * Log workflow completion with full summary
    */
   async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
@@ -330,7 +348,7 @@ export class WorkflowLogger {
     await this.logStream.write(`Agents:      ${summary.completedAgents.length} completed\n`);
 
     if (summary.error) {
-      await this.logStream.write(`Error:       ${summary.error}\n`);
+      await this.logStream.write(this.formatErrorBlock(summary.error));
     }
 
     await this.logStream.write(`\n`);
