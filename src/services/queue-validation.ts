@@ -91,6 +91,10 @@ const VULN_TYPE_CONFIG: VulnTypeConfig = Object.freeze({
     deliverable: 'authz_analysis_deliverable.md',
     queue: 'authz_exploitation_queue.json',
   }),
+  idor: Object.freeze({
+    deliverable: 'idor_analysis_deliverable.md',
+    queue: 'idor_exploitation_queue.json',
+  }),
 }) as VulnTypeConfig;
 
 // Pure function to create validation rule

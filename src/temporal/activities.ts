@@ -224,6 +224,10 @@ export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetr
   return runAgentActivity('authz-vuln', input);
 }
 
+export async function runIdorVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('idor-vuln', input);
+}
+
 export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('injection-exploit', input);
 }
@@ -242,6 +246,10 @@ export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMe
 
 export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('authz-exploit', input);
+}
+
+export async function runIdorExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('idor-exploit', input);
 }
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {

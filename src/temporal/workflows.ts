@@ -10,7 +10,7 @@
  * Orchestrates the penetration testing workflow:
  * 1. Pre-Reconnaissance (sequential)
  * 2. Reconnaissance (sequential)
- * 3-4. Vulnerability + Exploitation (5 pipelined pairs in parallel)
+ * 3-4. Vulnerability + Exploitation (6 pipelined pairs in parallel)
  *      Each pair: vuln agent → queue check → conditional exploit
  *      No synchronization barrier - exploits start when their vuln finishes
  * 5. Reporting (sequential)
@@ -268,6 +268,13 @@ export async function pentestPipelineWorkflow(
         exploitAgent: 'authz-exploit',
         runVuln: () => a.runAuthzVulnAgent(activityInput),
         runExploit: () => a.runAuthzExploitAgent(activityInput),
+      },
+      {
+        vulnType: 'idor',
+        vulnAgent: 'idor-vuln',
+        exploitAgent: 'idor-exploit',
+        runVuln: () => a.runIdorVulnAgent(activityInput),
+        runExploit: () => a.runIdorExploitAgent(activityInput),
       },
     ];
   }

@@ -20,11 +20,13 @@ export const ALL_AGENTS = [
   'auth-vuln',
   'ssrf-vuln',
   'authz-vuln',
+  'idor-vuln',
   'injection-exploit',
   'xss-exploit',
   'auth-exploit',
   'ssrf-exploit',
   'authz-exploit',
+  'idor-exploit',
   'report',
 ] as const;
 
@@ -39,7 +41,8 @@ export type PlaywrightAgent =
   | 'playwright-agent2'
   | 'playwright-agent3'
   | 'playwright-agent4'
-  | 'playwright-agent5';
+  | 'playwright-agent5'
+  | 'playwright-agent6';
 
 import type { ActivityLogger } from './activity-logger.js';
 
@@ -63,7 +66,7 @@ export interface AgentDefinition {
 /**
  * Vulnerability types supported by the pipeline.
  */
-export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz' | 'idor';
 
 /**
  * Decision returned by queue validation for exploitation phase.

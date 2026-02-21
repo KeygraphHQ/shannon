@@ -1,0 +1,37 @@
+## 🧪 Pipeline Testing: MCP Isolation Test for IDOR Vuln Agent
+
+**MCP Server Assignment:** Using `{{MCP_SERVER}}` for browser automation testing.
+
+### Step 1: Test Browser Isolation
+1. Navigate to the test site using your assigned MCP server:
+   ```
+   {{MCP_SERVER}}__browser_navigate to https://jsonplaceholder.typicode.com
+   ```
+
+2. Take a screenshot to prove isolation:
+   ```
+   {{MCP_SERVER}}__browser_take_screenshot with filename "idor-vuln-agent-test.png"
+   ```
+
+3. Log the test results:
+   ```
+   console.log("🔵 IDOR VULN AGENT - MCP Server: {{MCP_SERVER}} - Successfully navigated to jsonplaceholder.typicode.com")
+   ```
+
+### Step 2: Create Required Deliverables
+Use the save_deliverable MCP tool to create both deliverables:
+
+**1. Analysis Report:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "IDOR_ANALYSIS"`
+- `content: "# IDOR Analysis Complete (Pipeline Test)\n\n**MCP Server Used:** {{MCP_SERVER}}\n**Test Site:** https://jsonplaceholder.typicode.com\n**Screenshot:** idor-vuln-agent-test.png\n**Status:** Browser isolation test successful"`
+
+**2. Exploitation Queue:**
+Use `save_deliverable` MCP tool with:
+- `deliverable_type: "IDOR_QUEUE"`
+- `content: {"vulnerabilities": [{"ID": "IDOR-VULN-01", "vulnerability_type": "Direct", "externally_exploitable": true, "endpoint": "GET /api/users/{id}", "parameter": "id", "parameter_location": "path", "parameter_type": "sequential_int", "object_type": "user record", "vulnerable_code_location": "controllers/users.js:42", "missing_guard": "no AND user_id = $currentUser in query", "accessible_resource": "another user's profile data", "reason": "Query uses id directly without ownership binding", "minimal_witness": "Replace id with another user's integer ID", "confidence": "high", "notes": "Test IDOR vulnerability for pipeline validation (MCP: {{MCP_SERVER}})"}]}`
+
+These tools will automatically create the correct files in `deliverables/`.
+
+### Step 3: Verify MCP Isolation
+This agent should be using {{MCP_SERVER}} and navigating to jsonplaceholder.typicode.com independently of other parallel agents.
