@@ -34,12 +34,16 @@ export enum DeliverableType {
   SSRF_ANALYSIS = 'SSRF_ANALYSIS',
   SSRF_QUEUE = 'SSRF_QUEUE',
 
+  IDOR_ANALYSIS = 'IDOR_ANALYSIS',
+  IDOR_QUEUE = 'IDOR_QUEUE',
+
   // Exploitation agents
   INJECTION_EVIDENCE = 'INJECTION_EVIDENCE',
   XSS_EVIDENCE = 'XSS_EVIDENCE',
   AUTH_EVIDENCE = 'AUTH_EVIDENCE',
   AUTHZ_EVIDENCE = 'AUTHZ_EVIDENCE',
   SSRF_EVIDENCE = 'SSRF_EVIDENCE',
+  IDOR_EVIDENCE = 'IDOR_EVIDENCE',
 }
 
 /**
@@ -59,11 +63,14 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.AUTHZ_QUEUE]: 'authz_exploitation_queue.json',
   [DeliverableType.SSRF_ANALYSIS]: 'ssrf_analysis_deliverable.md',
   [DeliverableType.SSRF_QUEUE]: 'ssrf_exploitation_queue.json',
+  [DeliverableType.IDOR_ANALYSIS]: 'idor_analysis_deliverable.md',
+  [DeliverableType.IDOR_QUEUE]: 'idor_exploitation_queue.json',
   [DeliverableType.INJECTION_EVIDENCE]: 'injection_exploitation_evidence.md',
   [DeliverableType.XSS_EVIDENCE]: 'xss_exploitation_evidence.md',
   [DeliverableType.AUTH_EVIDENCE]: 'auth_exploitation_evidence.md',
   [DeliverableType.AUTHZ_EVIDENCE]: 'authz_exploitation_evidence.md',
   [DeliverableType.SSRF_EVIDENCE]: 'ssrf_exploitation_evidence.md',
+  [DeliverableType.IDOR_EVIDENCE]: 'idor_exploitation_evidence.md',
 };
 
 /**
@@ -75,6 +82,7 @@ export const QUEUE_TYPES: DeliverableType[] = [
   DeliverableType.AUTH_QUEUE,
   DeliverableType.AUTHZ_QUEUE,
   DeliverableType.SSRF_QUEUE,
+  DeliverableType.IDOR_QUEUE,
 ];
 
 /**

@@ -61,6 +61,13 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'vuln-authz',
     deliverableFilename: 'authz_analysis_deliverable.md',
   },
+  'idor-vuln': {
+    name: 'idor-vuln',
+    displayName: 'IDOR vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-idor',
+    deliverableFilename: 'idor_analysis_deliverable.md',
+  },
   'injection-exploit': {
     name: 'injection-exploit',
     displayName: 'Injection exploit agent',
@@ -96,10 +103,17 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'exploit-authz',
     deliverableFilename: 'authz_exploitation_evidence.md',
   },
+  'idor-exploit': {
+    name: 'idor-exploit',
+    displayName: 'IDOR exploit agent',
+    prerequisites: ['idor-vuln'],
+    promptTemplate: 'exploit-idor',
+    deliverableFilename: 'idor_exploitation_evidence.md',
+  },
   'report': {
     name: 'report',
     displayName: 'Report agent',
-    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
+    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit', 'idor-exploit'],
     promptTemplate: 'report-executive',
     deliverableFilename: 'comprehensive_security_assessment_report.md',
   },
@@ -117,11 +131,13 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'auth-vuln': 'vulnerability-analysis',
   'authz-vuln': 'vulnerability-analysis',
   'ssrf-vuln': 'vulnerability-analysis',
+  'idor-vuln': 'vulnerability-analysis',
   'injection-exploit': 'exploitation',
   'xss-exploit': 'exploitation',
   'auth-exploit': 'exploitation',
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
+  'idor-exploit': 'exploitation',
   'report': 'reporting',
 });
 
@@ -158,19 +174,21 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
   // Phase 2: Reconnaissance (actual prompt name is 'recon')
   recon: 'playwright-agent2',
 
-  // Phase 3: Vulnerability Analysis (5 parallel agents)
+  // Phase 3: Vulnerability Analysis (6 parallel agents)
   'vuln-injection': 'playwright-agent1',
   'vuln-xss': 'playwright-agent2',
   'vuln-auth': 'playwright-agent3',
   'vuln-ssrf': 'playwright-agent4',
   'vuln-authz': 'playwright-agent5',
+  'vuln-idor': 'playwright-agent6',
 
-  // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
+  // Phase 4: Exploitation (6 parallel agents - same as vuln counterparts)
   'exploit-injection': 'playwright-agent1',
   'exploit-xss': 'playwright-agent2',
   'exploit-auth': 'playwright-agent3',
   'exploit-ssrf': 'playwright-agent4',
   'exploit-authz': 'playwright-agent5',
+  'exploit-idor': 'playwright-agent6',
 
   // Phase 5: Reporting (actual prompt name is 'report-executive')
   // NOTE: Report generation is typically text-based and doesn't use browser automation,
@@ -198,6 +216,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'auth-vuln': createVulnValidator('auth'),
   'ssrf-vuln': createVulnValidator('ssrf'),
   'authz-vuln': createVulnValidator('authz'),
+  'idor-vuln': createVulnValidator('idor'),
 
   // Exploitation agents
   'injection-exploit': createExploitValidator('injection'),
@@ -205,6 +224,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'auth-exploit': createExploitValidator('auth'),
   'ssrf-exploit': createExploitValidator('ssrf'),
   'authz-exploit': createExploitValidator('authz'),
+  'idor-exploit': createExploitValidator('idor'),
 
   // Executive report agent
   report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {

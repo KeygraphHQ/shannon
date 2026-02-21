@@ -22,7 +22,8 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
     { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
     { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
     { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
-    { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false }
+    { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+    { name: 'IDOR', path: 'idor_exploitation_evidence.md', required: false }
   ];
 
   const sections: string[] = [];
