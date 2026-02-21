@@ -26,7 +26,7 @@ import { Result, ok, err, isErr } from '../types/result.js';
 import { ErrorCode, type PentestErrorType } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
-import { AGENTS } from '../session-manager.js';
+import { AGENTS, getPromptTemplate } from '../session-manager.js';
 import { loadPrompt } from './prompt-manager.js';
 import {
   runClaudePrompt,
@@ -53,6 +53,7 @@ export interface AgentExecutionInput {
   repoPath: string;
   configPath?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
+  isBlackbox?: boolean | undefined;
   attemptNumber: number;
 }
 
@@ -96,7 +97,7 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const { webUrl, repoPath, configPath, pipelineTestingMode = false, isBlackbox = false, attemptNumber } = input;
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -105,8 +106,8 @@ export class AgentExecutionService {
     }
     const distributedConfig = configResult.value;
 
-    // 2. Load prompt
-    const promptTemplate = AGENTS[agentName].promptTemplate;
+    // 2. Load prompt (selects blackbox variant when in blackbox mode)
+    const promptTemplate = getPromptTemplate(agentName, isBlackbox);
     let prompt: string;
     try {
       prompt = await loadPrompt(

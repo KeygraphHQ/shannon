@@ -121,7 +121,7 @@ function showUsage(): void {
   console.log('Start a pentest pipeline workflow\n');
   console.log('Usage:');
   console.log(
-    '  node dist/temporal/client.js <webUrl> <repoPath> [options]\n'
+    '  node dist/temporal/client.js <webUrl> [repoPath] [options]\n'
   );
   console.log('Options:');
   console.log('  --config <path>       Configuration file path');
@@ -134,6 +134,7 @@ function showUsage(): void {
   console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log('Examples:');
   console.log('  node dist/temporal/client.js https://example.com /path/to/repo');
+  console.log('  node dist/temporal/client.js https://example.com              # Black-box mode');
   console.log(
     '  node dist/temporal/client.js https://example.com /path/to/repo --config config.yaml\n'
   );
@@ -143,7 +144,7 @@ function showUsage(): void {
 
 interface CliArgs {
   webUrl: string;
-  repoPath: string;
+  repoPath?: string;
   configPath?: string;
   outputPath?: string;
   displayOutputPath?: string;
@@ -214,14 +215,15 @@ function parseCliArgs(argv: string[]): CliArgs {
     }
   }
 
-  if (!webUrl || !repoPath) {
-    console.log('Error: webUrl and repoPath are required');
+  if (!webUrl) {
+    console.log('Error: webUrl is required');
     showUsage();
     process.exit(1);
   }
 
   return {
-    webUrl, repoPath, pipelineTestingMode, waitForCompletion,
+    webUrl, pipelineTestingMode, waitForCompletion,
+    ...(repoPath && { repoPath }),
     ...(configPath && { configPath }),
     ...(outputPath && { outputPath }),
     ...(displayOutputPath && { displayOutputPath }),
@@ -309,9 +311,9 @@ async function resolveWorkspace(
 function buildPipelineInput(args: CliArgs, workspace: WorkspaceResolution): PipelineInput {
   return {
     webUrl: args.webUrl,
-    repoPath: args.repoPath,
     workflowId: workspace.workflowId,
     sessionId: workspace.sessionId,
+    ...(args.repoPath && { repoPath: args.repoPath }),
     ...(args.configPath && { configPath: args.configPath }),
     ...(args.outputPath && { outputPath: args.outputPath }),
     ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
@@ -329,7 +331,10 @@ function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): voi
   }
   console.log();
   console.log(`  Target:     ${args.webUrl}`);
-  console.log(`  Repository: ${args.repoPath}`);
+  console.log(`  Mode:       ${args.repoPath ? 'White-box' : 'Black-box'}`);
+  if (args.repoPath) {
+    console.log(`  Repository: ${args.repoPath}`);
+  }
   console.log(`  Workspace:  ${workspace.sessionId}`);
   if (args.configPath) {
     console.log(`  Config:     ${args.configPath}`);
@@ -338,7 +343,7 @@ function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): voi
     console.log(`  Output:     ${args.displayOutputPath}`);
   }
   if (args.pipelineTestingMode) {
-    console.log(`  Mode:       Pipeline Testing`);
+    console.log(`  Testing:    Pipeline Testing`);
   }
   console.log();
 }

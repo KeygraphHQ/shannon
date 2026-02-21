@@ -126,17 +126,24 @@ export async function pentestPipelineWorkflow(
     elapsedMs: Date.now() - state.startTime,
   }));
 
+  // Determine mode: blackbox when no source code repo is provided
+  const isBlackbox = !input.repoPath;
+
   // Build ActivityInput with required workflowId for audit correlation
   // Activities require workflowId (non-optional), PipelineInput has it optional
   // Use spread to conditionally include optional properties (exactOptionalPropertyTypes)
   // sessionId is workspace name for resume, or workflowId for new runs
   const sessionId = input.sessionId || input.resumeFromWorkspace || workflowId;
 
+  // Resolve workspace directory: use provided repo or create blackbox workspace
+  const resolvedRepoPath = await a.ensureWorkspaceDirectory(sessionId, input.repoPath);
+
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
-    repoPath: input.repoPath,
+    repoPath: resolvedRepoPath,
     workflowId,
     sessionId,
+    ...(isBlackbox && { isBlackbox }),
     ...(input.configPath !== undefined && { configPath: input.configPath }),
     ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
     ...(input.pipelineTestingMode !== undefined && {
@@ -151,7 +158,7 @@ export async function pentestPipelineWorkflow(
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
       input.webUrl,
-      input.repoPath
+      resolvedRepoPath
     );
 
     // 2. Restore git workspace and clean up incomplete deliverables
@@ -160,7 +167,7 @@ export async function pentestPipelineWorkflow(
     ) as AgentName[];
 
     await a.restoreGitCheckpoint(
-      input.repoPath,
+      resolvedRepoPath,
       resumeState.checkpointHash,
       incompleteAgents
     );

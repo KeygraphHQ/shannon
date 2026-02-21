@@ -17,6 +17,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Pre-recon agent',
     prerequisites: [],
     promptTemplate: 'pre-recon-code',
+    blackboxPromptTemplate: 'pre-recon-blackbox',
     deliverableFilename: 'code_analysis_deliverable.md',
   },
   'recon': {
@@ -24,6 +25,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Recon agent',
     prerequisites: ['pre-recon'],
     promptTemplate: 'recon',
+    blackboxPromptTemplate: 'recon-blackbox',
     deliverableFilename: 'recon_deliverable.md',
   },
   'injection-vuln': {
@@ -31,6 +33,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Injection vuln agent',
     prerequisites: ['recon'],
     promptTemplate: 'vuln-injection',
+    blackboxPromptTemplate: 'vuln-injection-blackbox',
     deliverableFilename: 'injection_analysis_deliverable.md',
   },
   'xss-vuln': {
@@ -38,6 +41,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'XSS vuln agent',
     prerequisites: ['recon'],
     promptTemplate: 'vuln-xss',
+    blackboxPromptTemplate: 'vuln-xss-blackbox',
     deliverableFilename: 'xss_analysis_deliverable.md',
   },
   'auth-vuln': {
@@ -45,6 +49,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Auth vuln agent',
     prerequisites: ['recon'],
     promptTemplate: 'vuln-auth',
+    blackboxPromptTemplate: 'vuln-auth-blackbox',
     deliverableFilename: 'auth_analysis_deliverable.md',
   },
   'ssrf-vuln': {
@@ -52,6 +57,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'SSRF vuln agent',
     prerequisites: ['recon'],
     promptTemplate: 'vuln-ssrf',
+    blackboxPromptTemplate: 'vuln-ssrf-blackbox',
     deliverableFilename: 'ssrf_analysis_deliverable.md',
   },
   'authz-vuln': {
@@ -59,6 +65,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Authz vuln agent',
     prerequisites: ['recon'],
     promptTemplate: 'vuln-authz',
+    blackboxPromptTemplate: 'vuln-authz-blackbox',
     deliverableFilename: 'authz_analysis_deliverable.md',
   },
   'injection-exploit': {
@@ -105,6 +112,15 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
   },
 });
 
+/** Returns the prompt template name for an agent, selecting the blackbox variant when available. */
+export function getPromptTemplate(agentName: AgentName, isBlackbox: boolean): string {
+  const agent = AGENTS[agentName];
+  if (isBlackbox && agent.blackboxPromptTemplate) {
+    return agent.blackboxPromptTemplate;
+  }
+  return agent.promptTemplate;
+}
+
 // Phase names for metrics aggregation
 export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
 
@@ -150,20 +166,25 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 // MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
 // Keys are promptTemplate values from AGENTS registry
 export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
-  // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
-  // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
-  // but assigning MCP server anyway for consistency and future extensibility
+  // Phase 1: Pre-reconnaissance
   'pre-recon-code': 'playwright-agent1',
+  'pre-recon-blackbox': 'playwright-agent1',
 
-  // Phase 2: Reconnaissance (actual prompt name is 'recon')
+  // Phase 2: Reconnaissance
   recon: 'playwright-agent2',
+  'recon-blackbox': 'playwright-agent2',
 
   // Phase 3: Vulnerability Analysis (5 parallel agents)
   'vuln-injection': 'playwright-agent1',
+  'vuln-injection-blackbox': 'playwright-agent1',
   'vuln-xss': 'playwright-agent2',
+  'vuln-xss-blackbox': 'playwright-agent2',
   'vuln-auth': 'playwright-agent3',
+  'vuln-auth-blackbox': 'playwright-agent3',
   'vuln-ssrf': 'playwright-agent4',
+  'vuln-ssrf-blackbox': 'playwright-agent4',
   'vuln-authz': 'playwright-agent5',
+  'vuln-authz-blackbox': 'playwright-agent5',
 
   // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
   'exploit-injection': 'playwright-agent1',

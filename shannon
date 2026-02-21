@@ -40,14 +40,14 @@ show_help() {
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
+  ./shannon start URL=<url> [REPO=<name>] Start a pentest workflow
   ./shannon workspaces                    List all workspaces
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
 
 Options for 'start':
-  REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
+  REPO=<name>            Folder name under ./repos/ (optional; omit for black-box mode)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
@@ -59,6 +59,7 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com                       # Black-box mode (no source code)
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
@@ -136,9 +137,9 @@ cmd_start() {
   parse_args "$@"
 
   # Validate required vars
-  if [ -z "$URL" ] || [ -z "$REPO" ]; then
-    echo "ERROR: URL and REPO are required"
-    echo "Usage: ./shannon start URL=<url> REPO=<name>"
+  if [ -z "$URL" ]; then
+    echo "ERROR: URL is required"
+    echo "Usage: ./shannon start URL=<url> [REPO=<name>]"
     exit 1
   fi
 
@@ -155,22 +156,27 @@ cmd_start() {
   fi
 
   # Determine container path for REPO
+  # - If REPO is empty, run in black-box mode (no source code)
   # - If REPO is already a container path (/benchmarks/*, /repos/*), use as-is
   # - Otherwise, treat as a folder name under ./repos/ (mounted at /repos in container)
-  case "$REPO" in
-    /benchmarks/*|/repos/*)
-      CONTAINER_REPO="$REPO"
-      ;;
-    *)
-      if [ ! -d "./repos/$REPO" ]; then
-        echo "ERROR: Repository not found at ./repos/$REPO"
-        echo ""
-        echo "Place your target repository under the ./repos/ directory"
-        exit 1
-      fi
-      CONTAINER_REPO="/repos/$REPO"
-      ;;
-  esac
+  if [ -z "$REPO" ]; then
+    CONTAINER_REPO=""
+  else
+    case "$REPO" in
+      /benchmarks/*|/repos/*)
+        CONTAINER_REPO="$REPO"
+        ;;
+      *)
+        if [ ! -d "./repos/$REPO" ]; then
+          echo "ERROR: Repository not found at ./repos/$REPO"
+          echo ""
+          echo "Place your target repository under the ./repos/ directory"
+          exit 1
+        fi
+        CONTAINER_REPO="/repos/$REPO"
+        ;;
+    esac
+  fi
 
   # Handle custom OUTPUT directory
   # Export OUTPUT_DIR for docker-compose volume mount BEFORE starting containers
@@ -213,7 +219,7 @@ cmd_start() {
   chmod 777 ./audit-logs
 
   # Ensure repo deliverables directory is writable by container user (UID 1001)
-  if [ -d "./repos/$REPO" ]; then
+  if [ -n "$REPO" ] && [ -d "./repos/$REPO" ]; then
     mkdir -p "./repos/$REPO/deliverables"
     chmod 777 "./repos/$REPO/deliverables"
   fi
@@ -235,8 +241,13 @@ cmd_start() {
   [ -n "$WORKSPACE" ] && ARGS="$ARGS --workspace $WORKSPACE"
 
   # Run the client to submit workflow
-  docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
-    node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
+  if [ -n "$CONTAINER_REPO" ]; then
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
+      node dist/temporal/client.js "$URL" "$CONTAINER_REPO" $ARGS
+  else
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \
+      node dist/temporal/client.js "$URL" $ARGS
+  fi
 }
 
 cmd_logs() {

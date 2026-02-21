@@ -51,10 +51,11 @@ const HEARTBEAT_INTERVAL_MS = 2000;
  */
 export interface ActivityInput {
   webUrl: string;
-  repoPath: string;
+  repoPath?: string;
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
+  isBlackbox?: boolean;
   workflowId: string;
   sessionId: string;
 }
@@ -86,9 +87,52 @@ function buildSessionMetadata(input: ActivityInput): SessionMetadata {
   return {
     id: sessionId,
     webUrl,
-    repoPath,
+    ...(repoPath && { repoPath }),
     ...(outputPath && { outputPath }),
   };
+}
+
+/**
+ * Ensure a workspace directory exists for agent execution.
+ *
+ * In whitebox mode (repoPath provided), returns the repo path as-is.
+ * In blackbox mode (no repoPath), creates a workspace directory with
+ * deliverables/ subdirectory, initialized as a git repo for checkpointing.
+ */
+export async function ensureWorkspaceDirectory(
+  sessionId: string,
+  repoPath?: string
+): Promise<string> {
+  if (repoPath) {
+    return repoPath;
+  }
+
+  const workspaceDir = `/repos/.shannon-blackbox-${sessionId}`;
+  const deliverablesDir = path.join(workspaceDir, 'deliverables');
+
+  // Create workspace and deliverables directories
+  await fs.mkdir(deliverablesDir, { recursive: true });
+
+  // Initialize as git repo for checkpoint support
+  try {
+    await executeGitCommandWithRetry(
+      ['git', 'init'],
+      workspaceDir,
+      'initialize blackbox workspace'
+    );
+    // Create initial commit so checkpoints have a base
+    await executeGitCommandWithRetry(
+      ['git', 'commit', '--allow-empty', '-m', 'Initialize blackbox workspace'],
+      workspaceDir,
+      'initial blackbox commit'
+    );
+  } catch {
+    // Git init is best-effort — workspace still functions without it
+    const logger = createActivityLogger();
+    logger.warn('Failed to initialize git in blackbox workspace, continuing without checkpoints');
+  }
+
+  return workspaceDir;
 }
 
 /**
@@ -104,7 +148,7 @@ async function runAgentActivity(
   agentName: AgentName,
   input: ActivityInput
 ): Promise<AgentMetrics> {
-  const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+  const { repoPath, configPath, pipelineTestingMode = false, isBlackbox = false, workflowId, webUrl } = input;
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -132,9 +176,10 @@ async function runAgentActivity(
       agentName,
       {
         webUrl,
-        repoPath,
+        repoPath: repoPath || '',
         configPath,
         pipelineTestingMode,
+        isBlackbox,
         attemptNumber,
       },
       auditSession,
@@ -250,7 +295,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath } = input;
+  const repoPath = input.repoPath || '';
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
@@ -265,7 +310,8 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * Inject model metadata into the final report.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, sessionId, outputPath } = input;
+  const repoPath = input.repoPath || '';
+  const { sessionId, outputPath } = input;
   const logger = createActivityLogger();
   const effectiveOutputPath = outputPath
     ? path.join(outputPath, sessionId)
@@ -288,7 +334,8 @@ export async function checkExploitationQueue(
   input: ActivityInput,
   vulnType: VulnType
 ): Promise<ExploitationDecision> {
-  const { repoPath, workflowId } = input;
+  const repoPath = input.repoPath || '';
+  const { workflowId } = input;
   const logger = createActivityLogger();
 
   // Reuse container's service if available (from prior vuln agent runs)
@@ -536,7 +583,8 @@ export async function logWorkflowComplete(
   input: ActivityInput,
   summary: WorkflowSummary
 ): Promise<void> {
-  const { repoPath, workflowId } = input;
+  const repoPath = input.repoPath || '';
+  const { workflowId } = input;
   const sessionMetadata = buildSessionMetadata(input);
 
   // 1. Initialize audit session and mark final status

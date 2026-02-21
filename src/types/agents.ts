@@ -57,6 +57,7 @@ export interface AgentDefinition {
   displayName: string;
   prerequisites: AgentName[];
   promptTemplate: string;
+  blackboxPromptTemplate?: string;
   deliverableFilename: string;
 }
 

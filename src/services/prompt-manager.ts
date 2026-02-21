@@ -12,7 +12,7 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 
 interface PromptVariables {
   webUrl: string;
-  repoPath: string;
+  repoPath?: string;
   MCP_SERVER?: string;
 }
 
@@ -137,9 +137,9 @@ async function interpolateVariables(
       );
     }
 
-    if (!variables || !variables.webUrl || !variables.repoPath) {
+    if (!variables || !variables.webUrl) {
       throw new PentestError(
-        'Variables must include webUrl and repoPath',
+        'Variables must include webUrl',
         'validation',
         false,
         { variables: Object.keys(variables || {}) }
@@ -148,7 +148,7 @@ async function interpolateVariables(
 
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl)
-      .replace(/{{REPO_PATH}}/g, variables.repoPath)
+      .replace(/{{REPO_PATH}}/g, variables.repoPath || '')
       .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1');
 
     if (config) {
