@@ -186,7 +186,8 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===
-  // Anthropic returns billing as 400 invalid_request_error
+  // Anthropic returns billing as 400 invalid_request_error.
+  // Copilot/Router providers may return different status codes.
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
   // Check both API patterns and text patterns for comprehensive detection
   if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {

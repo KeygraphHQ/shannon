@@ -25,6 +25,15 @@
       "transformer": {
         "use": ["openrouter"]
       }
+    },
+    {
+      "name": "copilot",
+      "api_base_url": "http://copilot-proxy:8787/v1/chat/completions",
+      "api_key": "copilot-proxy-passthrough",
+      "models": ["claude-sonnet-4", "gpt-4o", "gemini-2.5-pro"],
+      "transformer": {
+        "use": [["maxcompletiontokens", { "max_completion_tokens": 16384 }]]
+      }
     }
   ],
   "Router": {

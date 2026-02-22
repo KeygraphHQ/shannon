@@ -4,11 +4,11 @@ AI-powered penetration testing agent for defensive security analysis. Automates 
 
 ## Commands
 
-**Prerequisites:** Docker, Anthropic API key in `.env`
+**Prerequisites:** Docker, Anthropic API key in `.env` (or GitHub Copilot subscription for Copilot mode)
 
 ```bash
 # Setup
-cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
+cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY or GITHUB_TOKEN
 
 # Prepare repo (REPO is a folder name inside ./repos/, not an absolute path)
 git clone https://github.com/org/repo.git ./repos/my-repo
@@ -17,6 +17,7 @@ git clone https://github.com/org/repo.git ./repos/my-repo
 # Run
 ./shannon start URL=<url> REPO=my-repo
 ./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
+./shannon start URL=<url> REPO=my-repo COPILOT=true              # GitHub Copilot mode
 
 # Workspaces & Resume
 ./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
@@ -36,7 +37,7 @@ git clone https://github.com/org/repo.git ./repos/my-repo
 npm run build
 ```
 
-**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `WORKSPACE=<name>` (named workspace; auto-resumes if exists), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
+**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `WORKSPACE=<name>` (named workspace; auto-resumes if exists), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router)), `COPILOT=true` (GitHub Copilot models via `GITHUB_TOKEN`), `COPILOT_MODEL=<model>` (default: `gpt-4o`; options: `claude-sonnet-4`, `gpt-4o`, `gemini-2.5-pro`)
 
 ## Architecture
 
@@ -70,6 +71,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters
 - **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `src/services/prompt-manager.ts`
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
+- **Copilot Integration** — `copilot-proxy/` handles GitHub token exchange (`api.github.com/copilot_internal/v2/token`) and proxies requests to `api.githubcopilot.com`. Runs as Docker service (profile: `copilot`). Flow: Claude Agent SDK → `ANTHROPIC_BASE_URL` → claude-code-router → copilot-proxy → GitHub Copilot API
 - **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
 - **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
 - **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
@@ -146,7 +148,7 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 **Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/services/`, `src/audit/`
 
-**Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
+**Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`, `copilot-proxy/`
 
 ## Troubleshooting
 
@@ -157,3 +159,5 @@ Comments must be **timeless** — no references to this conversation, refactorin
 - **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
 - **Missing tools** — Use `PIPELINE_TESTING=true` to skip nmap/subfinder/whatweb (graceful degradation)
 - **Container permissions** — On Linux, may need `sudo` for docker commands
+- **Copilot auth failure** — Verify `GITHUB_TOKEN` has Copilot access. Check `docker compose --profile copilot logs copilot-proxy` for token exchange errors
+- **Copilot model errors** — Not all models may be available in your Copilot subscription. Try `COPILOT_MODEL=gpt-4o` as default

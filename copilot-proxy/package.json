@@ -1,0 +1,9 @@
+{
+  "name": "shannon-copilot-proxy",
+  "version": "1.0.0",
+  "description": "Lightweight proxy that handles GitHub Copilot token exchange for Shannon",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  }
+}

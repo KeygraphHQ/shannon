@@ -362,6 +362,29 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 ./shannon start URL=https://example.com REPO=repo-name ROUTER=true
 ```
 
+#### GitHub Copilot (Experimental)
+
+Shannon can also use GitHub Copilot models via an internal proxy and the router. This is experimental and requires a GitHub token with Copilot access. To enable:
+
+1. Add `GITHUB_TOKEN` (and optionally `COPILOT_MODEL`) to your `.env` (see `.env.example`).
+
+```bash
+# Example .env entries
+GITHUB_TOKEN=ghp_your-github-token
+COPILOT_MODEL=gpt-4o   # Options: claude-sonnet-4, gpt-4o, gemini-2.5-pro
+```
+
+2. Start Shannon with Copilot enabled (the CLI will start the `copilot-proxy` and router automatically):
+
+```bash
+./shannon start URL=https://your-app.com REPO=your-repo COPILOT=true
+```
+
+Notes:
+- Copilot mode auto-enables the internal router and `copilot-proxy` service.
+- The `copilot-proxy` exchanges your long-lived `GITHUB_TOKEN` for short-lived Copilot session tokens and auto-refreshes them.
+- This mode is experimental; do not run against production systems.
+
 #### Experimental Models
 
 | Provider | Models |

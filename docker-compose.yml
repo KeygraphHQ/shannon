@@ -25,6 +25,7 @@ services:
       - ROUTER_DEFAULT=${ROUTER_DEFAULT:-}  # Model name when using router (e.g., "gemini,gemini-2.5-pro")
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CLAUDE_CODE_MAX_OUTPUT_TOKENS=${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-64000}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}  # For Copilot mode display/logging
     depends_on:
       temporal:
         condition: service_healthy
@@ -67,6 +68,20 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+
+  # Optional: copilot-proxy for GitHub Copilot model access
+  # Start with: COPILOT=true ./shannon start ...
+  copilot-proxy:
+    build: ./copilot-proxy
+    profiles: ["copilot"]  # Only starts when explicitly requested
+    environment:
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8787/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
 volumes:
   temporal-data:

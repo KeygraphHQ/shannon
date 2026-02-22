@@ -53,6 +53,7 @@ Options for 'start':
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
+  COPILOT=true           Use GitHub Copilot models (requires GITHUB_TOKEN)
 
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
@@ -62,6 +63,7 @@ Examples:
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon start URL=https://example.com REPO=repo-name COPILOT=true
   ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon stop CLEAN=true
@@ -83,6 +85,8 @@ parse_args() {
       PIPELINE_TESTING=*) PIPELINE_TESTING="${arg#PIPELINE_TESTING=}" ;;
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
+      COPILOT=*) COPILOT="${arg#COPILOT=}" ;;
+      COPILOT_MODEL=*) COPILOT_MODEL="${arg#COPILOT_MODEL=}" ;;
       WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
     esac
   done
@@ -144,12 +148,16 @@ cmd_start() {
 
   # Check for API key (router mode can use alternative provider API keys)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+    if [ "$COPILOT" = "true" ] && [ -n "$GITHUB_TOKEN" ]; then
+      # Copilot mode - set a placeholder for SDK init
+      export ANTHROPIC_API_KEY="copilot-mode"
+    elif [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
       echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       (or use COPILOT=true with GITHUB_TOKEN)"
       exit 1
     fi
   fi
@@ -179,6 +187,30 @@ cmd_start() {
     mkdir -p "$OUTPUT"
     chmod 777 "$OUTPUT"
     export OUTPUT_DIR="$OUTPUT"
+  fi
+
+  # Handle COPILOT flag - start copilot-proxy and router for GitHub Copilot model access
+  if [ "$COPILOT" = "true" ]; then
+    if [ -z "$GITHUB_TOKEN" ]; then
+      echo "ERROR: COPILOT=true requires GITHUB_TOKEN to be set in .env"
+      echo "       Set a GitHub token with Copilot access (PAT or OAuth token)"
+      exit 1
+    fi
+
+    # Start copilot-proxy service
+    if docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile copilot ps copilot-proxy 2>/dev/null | grep -q "running"; then
+      echo "Copilot proxy already running, skipping startup..."
+    else
+      echo "Starting copilot-proxy (GitHub Copilot token exchange)..."
+      docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile copilot up -d copilot-proxy
+      echo "Waiting for copilot-proxy to authenticate..."
+      sleep 5
+    fi
+
+    # Copilot mode auto-enables the router
+    ROUTER="true"
+    export ROUTER_DEFAULT="copilot,${COPILOT_MODEL:-gpt-4o}"
+    echo "Copilot mode active — using model: ${COPILOT_MODEL:-gpt-4o}"
   fi
 
   # Handle ROUTER flag - start claude-code-router for multi-model support
@@ -307,9 +339,9 @@ cmd_stop() {
   parse_args "$@"
 
   if [ "$CLEAN" = "true" ]; then
-    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down -v
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router --profile copilot down -v
   else
-    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router down
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile router --profile copilot down
   fi
 }
 

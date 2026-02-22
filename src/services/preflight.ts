@@ -134,17 +134,17 @@ function classifySdkError(
       ));
     case 'billing_error':
       return err(new PentestError(
-        `Anthropic account has a billing issue. Add credits or check your billing dashboard.`,
+        `Account has a billing issue. Add credits or check your billing/quota dashboard.`,
         'billing', true, { authType, sdkError }, ErrorCode.BILLING_ERROR
       ));
     case 'rate_limit':
       return err(new PentestError(
-        `Anthropic rate limit or spending cap reached. Wait a few minutes and try again.`,
+        `API rate limit or spending cap reached. Wait a few minutes and try again.`,
         'billing', true, { authType, sdkError }, ErrorCode.BILLING_ERROR
       ));
     case 'server_error':
       return err(new PentestError(
-        `Anthropic API is temporarily unavailable. Try again shortly.`,
+        `API is temporarily unavailable. Try again shortly.`,
         'network', true, { authType, sdkError }
       ));
     default:
@@ -169,7 +169,7 @@ async function validateCredentials(
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env',
+        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use COPILOT=true with GITHUB_TOKEN)',
         'config',
         false,
         {},

@@ -105,6 +105,7 @@ body:
       options:
         - CLAUDE_CODE_OAUTH_TOKEN
         - ANTHROPIC_API_KEY
+        - GITHUB_TOKEN (Copilot mode)
     validations:
       required: true
 
@@ -119,7 +120,8 @@ body:
       label: Are you using any experimental models or providers other than default Anthropic models?
       options:
         - "No"
-        - "Yes"
+        - "Yes (Router mode)"
+        - "Yes (Copilot mode)"
     validations:
       required: true
 

@@ -12,10 +12,10 @@
 /** Maps Temporal error type strings to actionable remediation hints. */
 const REMEDIATION_HINTS: Record<string, string> = {
   AuthenticationError:
-    'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',
+    'Verify your credentials in .env (ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or GITHUB_TOKEN for Copilot mode).',
   ConfigurationError: 'Check your CONFIG file path and contents.',
   BillingError:
-    'Check your Anthropic billing dashboard. Add credits or wait for spending cap reset.',
+    'Check your billing dashboard (Anthropic, or provider quota if using Copilot/Router mode). Add credits or wait for cap reset.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
   PermissionError: 'Check file and network permissions.',
