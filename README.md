@@ -87,6 +87,7 @@ Shannon is available in two editions:
   - [Usage Examples](#usage-examples)
   - [Workspaces and Resuming](#workspaces-and-resuming)
   - [Configuration (Optional)](#configuration-optional)
+  - [AWS Bedrock](#aws-bedrock)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
@@ -107,6 +108,7 @@ Shannon is available in two editions:
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
+  - **AWS Bedrock** - Use Shannon via Amazon Bedrock (see [Bedrock Mode](#aws-bedrock))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
@@ -335,6 +337,26 @@ rules:
 #### TOTP Setup for 2FA
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+
+### AWS Bedrock
+
+Shannon can run through Amazon Bedrock as well. You'll need a [Bedrock API key](https://aws.amazon.com/blogs/machine-learning/accelerate-ai-development-with-amazon-bedrock-api-keys/).
+
+Add the following to your `.env`:
+
+```bash
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=your-region
+AWS_BEARER_TOKEN_BEDROCK=your-bedrock-api-key
+```
+
+The default model is `us.anthropic.claude-sonnet-4-5-20250929-v1:0`. To override, add `ANTHROPIC_MODEL` to your `.env`.
+
+Then run as normal:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name
+```
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 

@@ -142,14 +142,18 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key (router mode can use alternative provider API keys)
+  # Check for API key (router mode and Bedrock have their own credentials)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+    if [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
+      # Bedrock mode — SDK handles auth via AWS credentials
+      :
+    elif [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
       echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       (or use CLAUDE_CODE_USE_BEDROCK=1 with AWS credentials)"
       exit 1
     fi
   fi

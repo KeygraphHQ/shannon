@@ -222,25 +222,33 @@ export async function runClaudePrompt(
   const mcpServers = buildMcpServers(sourceDir, agentName, logger);
 
   // 4. Build env vars to pass to SDK subprocesses
+  const sdkEnvVars = [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_AUTH_TOKEN',
+    // AWS Bedrock — SDK handles routing internally
+    'CLAUDE_CODE_USE_BEDROCK',
+    'AWS_REGION',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'ANTHROPIC_MODEL',
+  ];
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
-  if (process.env.ANTHROPIC_API_KEY) {
-    sdkEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    sdkEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
-  }
-  if (process.env.ANTHROPIC_AUTH_TOKEN) {
-    sdkEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+  for (const key of sdkEnvVars) {
+    if (process.env[key]) {
+      sdkEnv[key] = process.env[key];
+    }
   }
 
   // 5. Configure SDK options
+  const isBedrock = process.env.CLAUDE_CODE_USE_BEDROCK === '1';
+  const defaultModel = isBedrock
+    ? 'us.anthropic.claude-sonnet-4-5-20250929-v1:0'
+    : 'claude-sonnet-4-5-20250929';
   const options = {
-    model: 'claude-sonnet-4-5-20250929',
+    model: process.env.ANTHROPIC_MODEL || defaultModel,
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,

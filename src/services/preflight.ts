@@ -165,11 +165,17 @@ async function validateCredentials(
     return ok(undefined);
   }
 
-  // 2. Check that at least one credential is present
+  // 2. Bedrock mode — SDK handles auth via AWS credentials
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
+    logger.warn('Bedrock mode detected — skipping API credential validation');
+    return ok(undefined);
+  }
+
+  // 3. Check that at least one credential is present
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env',
+        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1)',
         'config',
         false,
         {},
@@ -178,7 +184,7 @@ async function validateCredentials(
     );
   }
 
-  // 3. Validate via SDK query
+  // 4. Validate via SDK query
   const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
   logger.info(`Validating ${authType} via SDK...`);
 
