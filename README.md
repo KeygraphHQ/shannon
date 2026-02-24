@@ -6,7 +6,7 @@
 
 <a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-<img src="./assets/shannon-screen.png?v=2" alt="Shannon Screen" width="100%">
+<img src="./assets/github-banner.png" alt="Shannon — AI Penetration Testing Framework" width="100%">
 
 # Shannon is your fully autonomous AI pentester.
 
