@@ -32,6 +32,8 @@ import { displaySplashScreen } from '../splash-screen.js';
 import { sanitizeHostname } from '../audit/utils.js';
 import { readJson, fileExists } from '../utils/file-io.js';
 import path from 'path';
+import { parseConfig } from '../config-parser.js';
+import type { PipelineConfig } from '../types/config.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -306,7 +308,31 @@ async function resolveWorkspace(
 
 // === Pipeline Input Construction ===
 
-function buildPipelineInput(args: CliArgs, workspace: WorkspaceResolution): PipelineInput {
+async function loadPipelineConfig(configPath: string | undefined): Promise<PipelineConfig> {
+  if (!configPath) return {};
+  try {
+    const config = await parseConfig(configPath);
+    const raw = config.pipeline;
+    if (!raw) return {};
+
+    // FAILSAFE_SCHEMA parses all YAML values as strings — coerce to number
+    const result: PipelineConfig = {};
+    if (raw.retry_preset !== undefined) {
+      result.retry_preset = raw.retry_preset;
+    }
+    if (raw.max_concurrent_pipelines !== undefined) {
+      result.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
+    }
+    return result;
+  } catch {
+    // Config errors surface later in preflight. Don't block workflow start.
+    return {};
+  }
+}
+
+function buildPipelineInput(
+  args: CliArgs, workspace: WorkspaceResolution, pipelineConfig: PipelineConfig
+): PipelineInput {
   return {
     webUrl: args.webUrl,
     repoPath: args.repoPath,
@@ -317,6 +343,7 @@ function buildPipelineInput(args: CliArgs, workspace: WorkspaceResolution): Pipe
     ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
+    ...(Object.keys(pipelineConfig).length > 0 && { pipelineConfig }),
   };
 }
 
@@ -423,7 +450,8 @@ async function startPipeline(): Promise<void> {
   try {
     // 3. Resolve workspace (new or resume) and build pipeline input
     const workspace = await resolveWorkspace(client, args);
-    const input = buildPipelineInput(args, workspace);
+    const pipelineConfig = await loadPipelineConfig(args.configPath);
+    const input = buildPipelineInput(args, workspace, pipelineConfig);
 
     // 4. Start the Temporal workflow
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
