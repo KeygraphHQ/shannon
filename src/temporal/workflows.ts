@@ -86,6 +86,22 @@ const testActs = proxyActivities<typeof activities>({
   retry: TESTING_RETRY,
 });
 
+// Retry configuration for subscription plans (5h+ rolling rate limit windows)
+const SUBSCRIPTION_RETRY = {
+  initialInterval: '5 minutes',
+  maximumInterval: '6 hours',
+  backoffCoefficient: 2,
+  maximumAttempts: 100,
+  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
+};
+
+// Activity proxy for subscription plan recovery (extended timeouts)
+const subscriptionActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '8 hours',
+  heartbeatTimeout: '2 hours',
+  retry: SUBSCRIPTION_RETRY,
+});
+
 // Retry configuration for preflight validation (short timeout, few retries)
 const PREFLIGHT_RETRY = {
   initialInterval: '10 seconds',
@@ -121,8 +137,14 @@ export async function pentestPipelineWorkflow(
 ): Promise<PipelineState> {
   const { workflowId } = workflowInfo();
 
-  // Pipeline testing uses fast retry intervals (10s) for quick iteration
-  const a = input.pipelineTestingMode ? testActs : acts;
+  // Select activity proxy based on mode: testing (fast), subscription (extended), or default
+  function selectActivityProxy(pipelineInput: PipelineInput) {
+    if (pipelineInput.pipelineTestingMode) return testActs;
+    if (pipelineInput.pipelineConfig?.retry_preset === 'subscription') return subscriptionActs;
+    return acts;
+  }
+
+  const a = selectActivityProxy(input);
 
   const state: PipelineState = {
     status: 'running',
@@ -313,6 +335,33 @@ export async function pentestPipelineWorkflow(
     }
   }
 
+  // Run thunks with a concurrency limit, returning PromiseSettledResult for each.
+  // When limit >= thunks.length (default), all launch concurrently — identical to Promise.allSettled.
+  // NOTE: Results are in completion order, not input order. Callers must key on value fields, not index.
+  async function runWithConcurrencyLimit(
+    thunks: Array<() => Promise<VulnExploitPipelineResult>>,
+    limit: number
+  ): Promise<PromiseSettledResult<VulnExploitPipelineResult>[]> {
+    const results: PromiseSettledResult<VulnExploitPipelineResult>[] = [];
+    const inFlight = new Set<Promise<void>>();
+
+    for (const thunk of thunks) {
+      const slot = thunk().then(
+        (value) => { results.push({ status: 'fulfilled', value }); },
+        (reason: unknown) => { results.push({ status: 'rejected', reason }); }
+      ).finally(() => { inFlight.delete(slot); });
+
+      inFlight.add(slot);
+
+      if (inFlight.size >= limit) {
+        await Promise.race(inFlight);
+      }
+    }
+
+    await Promise.allSettled(inFlight);
+    return results;
+  }
+
   try {
     // === Preflight Validation ===
     // Quick sanity checks before committing to expensive agent runs.
@@ -378,13 +427,15 @@ export async function pentestPipelineWorkflow(
       };
     }
 
+    const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
+
     const pipelineConfigs = buildPipelineConfigs();
-    const pipelinesToRun: Array<Promise<VulnExploitPipelineResult>> = [];
+    const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
 
     for (const config of pipelineConfigs) {
       if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
-        pipelinesToRun.push(
-          runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
+        pipelineThunks.push(
+          () => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit)
         );
       } else {
         log.info(`Skipping entire ${config.vulnType} pipeline (both agents complete)`);
@@ -392,7 +443,7 @@ export async function pentestPipelineWorkflow(
       }
     }
 
-    const pipelineResults = await Promise.allSettled(pipelinesToRun);
+    const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, maxConcurrent);
     aggregatePipelineResults(pipelineResults);
 
     state.currentPhase = 'exploitation';

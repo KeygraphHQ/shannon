@@ -39,7 +39,12 @@ rules:
     - description: "Prioritize beta admin panel subdomain"
       type: subdomain
       url_path: "beta-admin"
-    
+
     - description: "Focus on user profile updates"
       type: path
       url_path: "/api/v2/user-profile"
+
+# Pipeline execution settings (optional)
+# pipeline:
+#   retry_preset: subscription          # 'default' or 'subscription' (6h max retry for rate limit recovery)
+#   max_concurrent_pipelines: 2         # 1-5, default: 5 (reduce to lower API usage spikes)

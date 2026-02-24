@@ -336,6 +336,18 @@ rules:
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
+#### Subscription Plan Rate Limits
+
+Anthropic subscription plans reset usage on a **rolling 5-hour window**. The default retry strategy (30-min max backoff) will exhaust retries before the window resets. Add this to your config:
+
+```yaml
+pipeline:
+  retry_preset: subscription          # Extends max backoff to 6h, 100 retries
+  max_concurrent_pipelines: 2         # Run 2 of 5 pipelines at a time (reduces burst API usage)
+```
+
+`max_concurrent_pipelines` controls how many vulnerability pipelines run simultaneously (1-5, default: 5). Lower values reduce the chance of hitting rate limits but increase wall-clock time.
+
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:

@@ -78,6 +78,23 @@
       "required": ["login_type", "login_url", "credentials", "success_condition"],
       "additionalProperties": false
     },
+    "pipeline": {
+      "type": "object",
+      "description": "Pipeline execution settings for retry behavior and concurrency",
+      "properties": {
+        "retry_preset": {
+          "type": "string",
+          "enum": ["default", "subscription"],
+          "description": "Retry preset. 'subscription' extends timeouts for Anthropic subscription rate limit windows (5h+)."
+        },
+        "max_concurrent_pipelines": {
+          "type": "string",
+          "pattern": "^[1-5]$",
+          "description": "Max concurrent vulnerability pipelines (1-5, default: 5)"
+        }
+      },
+      "additionalProperties": false
+    },
     "rules": {
       "type": "object",
       "description": "Testing rules that define what to focus on or avoid during penetration testing",

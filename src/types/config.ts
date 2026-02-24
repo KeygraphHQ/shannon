@@ -51,6 +51,14 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
+  pipeline?: PipelineConfig;
+}
+
+export type RetryPreset = 'default' | 'subscription';
+
+export interface PipelineConfig {
+  retry_preset?: RetryPreset;
+  max_concurrent_pipelines?: number;
 }
 
 export interface DistributedConfig {
