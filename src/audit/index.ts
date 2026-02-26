@@ -8,7 +8,7 @@
  * Unified Audit & Metrics System
  *
  * Public API for the audit system. Provides crash-safe, append-only logging
- * and comprehensive metrics tracking for Shannon penetration testing sessions.
+ * and comprehensive metrics tracking for autonomous penetration testing sessions.
  *
  * IMPORTANT: Session objects must have an 'id' field (NOT 'sessionId')
  * Example: { id: "uuid", webUrl: "...", repoPath: "..." }

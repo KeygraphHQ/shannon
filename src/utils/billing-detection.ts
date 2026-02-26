@@ -7,9 +7,9 @@
 /**
  * Consolidated billing/spending cap detection utilities.
  *
- * Anthropic's spending cap behavior is inconsistent:
+ * Provider spending-cap behavior can vary:
  * - Sometimes a proper SDK error (billing_error)
- * - Sometimes Claude responds with text about the cap
+ * - Sometimes the provider responds with text about the cap
  * - Sometimes partial billing before cutoff
  *
  * This module provides defense-in-depth detection with shared pattern lists
@@ -17,7 +17,7 @@
  */
 
 /**
- * Text patterns for SDK output sniffing (what Claude says).
+ * Text patterns for output sniffing.
  * Used by message-handlers.ts and the behavioral heuristic.
  */
 export const BILLING_TEXT_PATTERNS = [
@@ -68,7 +68,7 @@ export function matchesBillingApiPattern(message: string): boolean {
 /**
  * Behavioral heuristic for detecting spending cap.
  *
- * When Claude hits a spending cap, it often returns a short message
+ * When a provider hits a spending cap, it often returns a short message
  * with $0 cost. Legitimate agent work NEVER costs $0 with only 1-2 turns.
  *
  * This combines three signals:

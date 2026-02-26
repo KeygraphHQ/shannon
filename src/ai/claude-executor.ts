@@ -4,27 +4,23 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Production Claude agent execution with retry, git checkpoints, and audit logging
+// Production agent execution with retry, git checkpoints, and audit logging
 
 import { fs, path } from 'zx';
-import { query } from '@anthropic-ai/claude-agent-sdk';
 
 import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
-import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../session-manager.js';
+import { AGENT_VALIDATORS, MCP_AGENT_MAPPING, AGENTS } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
-import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
-import { AGENTS } from '../session-manager.js';
-import type { AgentName } from '../types/index.js';
 
-import { dispatchMessage } from './message-handlers.js';
 import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
-import { getActualModelName } from './router-utils.js';
+import { LLMRouter } from '../core/llm/router.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { AgentName } from '../types/index.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -52,63 +48,22 @@ interface StdioMcpServer {
   env: Record<string, string>;
 }
 
-type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
+type McpServer = StdioMcpServer;
 
-// Configures MCP servers for agent execution, with Docker-specific Chromium handling
 function buildMcpServers(
   sourceDir: string,
   agentName: string | null,
   logger: ActivityLogger
 ): Record<string, McpServer> {
-  // 1. Create the shannon-helper server (always present)
-  const shannonHelperServer = createShannonHelperServer(sourceDir);
-
-  const mcpServers: Record<string, McpServer> = {
-    'shannon-helper': shannonHelperServer,
-  };
-
-  // 2. Look up the agent's Playwright MCP mapping
+  const mcpServers: Record<string, McpServer> = {};
   if (agentName) {
     const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
     const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
-
     if (playwrightMcpName) {
       logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
-
-      const userDataDir = `/tmp/${playwrightMcpName}`;
-
-      // 3. Configure Playwright MCP args with Docker/local browser handling
-      const isDocker = process.env.SHANNON_DOCKER === 'true';
-
-      const mcpArgs: string[] = [
-        '@playwright/mcp@latest',
-        '--isolated',
-        '--user-data-dir', userDataDir,
-      ];
-
-      if (isDocker) {
-        mcpArgs.push('--executable-path', '/usr/bin/chromium-browser');
-        mcpArgs.push('--browser', 'chromium');
-      }
-
-      const envVars: Record<string, string> = Object.fromEntries(
-        Object.entries({
-          ...process.env,
-          PLAYWRIGHT_HEADLESS: 'true',
-          ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
-        }).filter((entry): entry is [string, string] => entry[1] !== undefined)
-      );
-
-      mcpServers[playwrightMcpName] = {
-        type: 'stdio' as const,
-        command: 'npx',
-        args: mcpArgs,
-        env: envVars,
-      };
     }
   }
-
-  // 4. Return configured servers
+  void sourceDir;
   return mcpServers;
 }
 
@@ -127,7 +82,7 @@ async function writeErrorLog(
   try {
     const errorLog = {
       timestamp: formatTimestamp(),
-      agent: 'claude-executor',
+      agent: 'llm-executor',
       error: {
         name: err.constructor.name,
         message: err.message,
@@ -199,7 +154,7 @@ export async function runClaudePrompt(
   prompt: string,
   sourceDir: string,
   context: string = '',
-  description: string = 'Claude analysis',
+  description: string = 'LLM analysis',
   agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger
@@ -216,41 +171,19 @@ export async function runClaudePrompt(
   );
   const auditLogger = createAuditLogger(auditSession);
 
-  logger.info(`Running Claude Code: ${description}...`);
+  logger.info(`Running LLM task: ${description}...`);
 
-  // 3. Configure MCP servers
-  const mcpServers = buildMcpServers(sourceDir, agentName, logger);
+  // 3. Retain MCP setup for compatibility contracts (currently handled by provider layer)
+  void buildMcpServers(sourceDir, agentName, logger);
 
-  // 4. Build env vars to pass to SDK subprocesses
-  const sdkEnv: Record<string, string> = {
-    CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
-  };
-  if (process.env.ANTHROPIC_API_KEY) {
-    sdkEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    sdkEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
-  }
-  if (process.env.ANTHROPIC_AUTH_TOKEN) {
-    sdkEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
-  }
-
-  // 5. Configure SDK options
-  const options = {
-    model: 'claude-sonnet-4-5-20250929',
+  // 4. Router options placeholder for compatibility
+  const options: Record<string, unknown> = {
     maxTurns: 10_000,
     cwd: sourceDir,
-    permissionMode: 'bypassPermissions' as const,
-    allowDangerouslySkipPermissions: true,
-    mcpServers,
-    env: sdkEnv,
   };
 
   if (!execContext.useCleanOutput) {
-    logger.info(`SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`);
+    logger.info(`LLM Options: maxTurns=10000, cwd=${sourceDir}`);
   }
 
   let turnCount = 0;
@@ -348,59 +281,35 @@ interface MessageLoopDeps {
 
 async function processMessageStream(
   fullPrompt: string,
-  options: NonNullable<Parameters<typeof query>[0]['options']>,
+  _options: Record<string, unknown>,
   deps: MessageLoopDeps,
-  timer: Timer
+  _timer: Timer
 ): Promise<MessageLoopResult> {
-  const { execContext, description, progress, auditLogger, logger } = deps;
-  const HEARTBEAT_INTERVAL = 30000;
+  const { description, logger, progress, auditLogger, execContext } = deps;
+  void progress;
+  void auditLogger;
+  void execContext;
+  logger.info(`Routing LLM call for task: ${description}`);
+  const router = await LLMRouter.create(logger);
+  const response = await router.complete(resolveTaskType(description), {
+    messages: [{ role: 'user', content: fullPrompt }],
+    temperature: 0.2,
+    maxTokens: 64000,
+  });
 
-  let turnCount = 0;
-  let result: string | null = null;
-  let apiErrorDetected = false;
-  let cost = 0;
-  let model: string | undefined;
-  let lastHeartbeat = Date.now();
+  return {
+    turnCount: 1,
+    result: response.content,
+    apiErrorDetected: false,
+    cost: 0,
+    model: response.model,
+  };
+}
 
-  for await (const message of query({ prompt: fullPrompt, options })) {
-    // Heartbeat logging when loader is disabled
-    const now = Date.now();
-    if (global.SHANNON_DISABLE_LOADER && now - lastHeartbeat > HEARTBEAT_INTERVAL) {
-      logger.info(`[${Math.floor((now - timer.startTime) / 1000)}s] ${description} running... (Turn ${turnCount})`);
-      lastHeartbeat = now;
-    }
-
-    // Increment turn count for assistant messages
-    if (message.type === 'assistant') {
-      turnCount++;
-    }
-
-    const dispatchResult = await dispatchMessage(
-      message as { type: string; subtype?: string },
-      turnCount,
-      { execContext, description, progress, auditLogger, logger }
-    );
-
-    if (dispatchResult.type === 'throw') {
-      throw dispatchResult.error;
-    }
-
-    if (dispatchResult.type === 'complete') {
-      result = dispatchResult.result;
-      cost = dispatchResult.cost;
-      break;
-    }
-
-    if (dispatchResult.type === 'continue') {
-      if (dispatchResult.apiErrorDetected) {
-        apiErrorDetected = true;
-      }
-      // Capture model from SystemInitMessage, but override with router model if applicable
-      if (dispatchResult.model) {
-        model = getActualModelName(dispatchResult.model);
-      }
-    }
-  }
-
-  return { turnCount, result, apiErrorDetected, cost, model };
+function resolveTaskType(description: string): 'recon' | 'exploit' | 'reporting' | 'default' {
+  const normalized = description.toLowerCase();
+  if (normalized.includes('recon')) return 'recon';
+  if (normalized.includes('exploit')) return 'exploit';
+  if (normalized.includes('report')) return 'reporting';
+  return 'default';
 }

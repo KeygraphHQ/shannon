@@ -8,6 +8,7 @@ import { fs, path } from 'zx';
 import { PentestError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import { loadBrandingConfig } from '../core/branding/config.js';
 
 interface DeliverableFile {
   name: string;
@@ -54,7 +55,8 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
     }
   }
 
-  const finalContent = sections.join('\n\n');
+  const branding = await loadBrandingConfig();
+  const finalContent = `${sections.join('\n\n')}\n\n---\n${branding.report_footer}`;
   const deliverablesDir = path.join(sourceDir, 'deliverables');
   const finalReportPath = path.join(deliverablesDir, 'comprehensive_security_assessment_report.md');
 

@@ -4,7 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Type definitions for Claude executor message processing pipeline
+// Type definitions for executor message processing pipeline
 
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 
