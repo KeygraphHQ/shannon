@@ -1,4 +1,4 @@
-# PentestAI (Shannon Framework) - Run Guide
+# PentestAI  - Run Guide
 
 This repository runs an AI-driven pentest pipeline with Temporal workers and a provider-agnostic LLM router.
 

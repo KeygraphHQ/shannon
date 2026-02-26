@@ -15,7 +15,7 @@ const REMEDIATION_HINTS: Record<string, string> = {
     'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',
   ConfigurationError: 'Check your CONFIG file path and contents.',
   BillingError:
-    'Check your Anthropic billing dashboard. Add credits or wait for spending cap reset.',
+    'Check your provider billing dashboard. Add credits or wait for spending cap reset.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
   PermissionError: 'Check file and network permissions.',

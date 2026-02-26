@@ -351,7 +351,7 @@ export function formatErrorOutput(
   } else if (context.useCleanOutput) {
     lines.push(`${context.agentType} failed (${formatDuration(duration)})`);
   } else {
-    lines.push(`  Claude Code failed: ${description} (${formatDuration(duration)})`);
+    lines.push(`  LLM execution failed: ${description} (${formatDuration(duration)})`);
   }
 
   lines.push(`    Error Type: ${error.constructor.name}`);
@@ -385,7 +385,7 @@ export function formatCompletionMessage(
     return `${context.agentType.charAt(0).toUpperCase() + context.agentType.slice(1)} complete! (${turnCount} turns, ${formatDuration(duration)})`;
   }
 
-  return `  Claude Code completed: ${description} (${turnCount} turns) in ${formatDuration(duration)}`;
+  return `  LLM execution completed: ${description} (${turnCount} turns) in ${formatDuration(duration)}`;
 }
 
 export function formatToolUseOutput(

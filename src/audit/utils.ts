@@ -23,7 +23,7 @@ import type { SessionMetadata } from '../types/audit.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Get Shannon repository root
+// Get repository root
 const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
 const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
 

@@ -75,7 +75,7 @@ const RETRYABLE_PATTERNS = [
   'internal server error',
   'service unavailable',
   'bad gateway',
-  // Claude API errors
+  // LLM provider API errors
   'mcp server',
   'model unavailable',
   'service temporarily unavailable',
@@ -186,7 +186,7 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===
-  // Anthropic returns billing as 400 invalid_request_error
+  // Some providers return billing as 400 invalid_request_error
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
   // Check both API patterns and text patterns for comprehensive detection
   if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {

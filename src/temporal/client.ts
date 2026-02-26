@@ -6,7 +6,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal client for starting Shannon pentest pipeline workflows.
+ * Temporal client for starting pentest pipeline workflows.
  *
  * Starts a workflow and optionally waits for completion with progress polling.
  *
@@ -19,7 +19,7 @@
  *   --config <path>       Configuration file path
  *   --output <path>       Output directory for audit logs
  *   --pipeline-testing    Use minimal prompts for fast testing
- *   --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)
+ *   --workflow-id <id>    Custom workflow ID (default: pentest-<timestamp>)
  *   --wait                Wait for workflow completion with progress polling
  *
  * Environment:
@@ -119,7 +119,7 @@ function isValidWorkspaceName(name: string): boolean {
 }
 
 function showUsage(): void {
-  console.log('\nShannon Temporal Client');
+  console.log('\nPentestAI Temporal Client');
   console.log('Start a pentest pipeline workflow\n');
   console.log('Usage:');
   console.log(
@@ -131,7 +131,7 @@ function showUsage(): void {
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
   console.log('  --workspace <name>    Resume from existing workspace');
   console.log(
-    '  --workflow-id <id>    Custom workflow ID (default: shannon-<timestamp>)'
+    '  --workflow-id <id>    Custom workflow ID (default: pentest-<timestamp>)'
   );
   console.log('  --wait                Wait for workflow completion with progress polling\n');
   console.log('Examples:');
@@ -247,7 +247,7 @@ async function resolveWorkspace(
 ): Promise<WorkspaceResolution> {
   if (!args.resumeFromWorkspace) {
     const hostname = sanitizeHostname(args.webUrl);
-    const workflowId = args.customWorkflowId || `${hostname}_shannon-${Date.now()}`;
+    const workflowId = args.customWorkflowId || `${hostname}_pentest-${Date.now()}`;
     return {
       workflowId,
       sessionId: workflowId,
@@ -299,7 +299,7 @@ async function resolveWorkspace(
   console.log(`Workspace: ${workspace}\n`);
 
   return {
-    workflowId: `${workspace}_shannon-${Date.now()}`,
+    workflowId: `${workspace}_pentest-${Date.now()}`,
     sessionId: workspace,
     isResume: false,
     terminatedWorkflows: [],
@@ -376,7 +376,7 @@ function displayMonitoringInfo(args: CliArgs, workspace: WorkspaceResolution): v
 
   console.log('Monitor progress:');
   console.log(`  Web UI:  http://localhost:8233/namespaces/default/workflows/${workspace.workflowId}`);
-  console.log(`  Logs:    ./shannon logs ID=${workspace.workflowId}`);
+  console.log(`  Logs:    ./pentestai logs ID=${workspace.workflowId}`);
   console.log();
   console.log('Output:');
   console.log(`  Reports: ${outputDir}`);
@@ -457,7 +457,7 @@ async function startPipeline(): Promise<void> {
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {
-        taskQueue: 'shannon-pipeline',
+        taskQueue: process.env.TEMPORAL_TASK_QUEUE ?? 'pentest-pipeline',
         workflowId: workspace.workflowId,
         args: [input],
       }

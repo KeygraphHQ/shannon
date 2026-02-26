@@ -14,7 +14,7 @@
  * Checks run sequentially, cheapest first:
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
- * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, or router mode)
+ * 3. Credentials validate via configured LLM router/provider
  */
 
 import fs from 'fs/promises';
@@ -183,7 +183,7 @@ export async function runPreflightChecks(
     }
   }
 
-  // 3. Credential check (cheap — 1 SDK round-trip)
+  // 3. Credential check (cheap — 1 provider round-trip)
   const credResult = await validateCredentials(logger);
   if (!credResult.ok) {
     return credResult;

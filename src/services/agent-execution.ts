@@ -12,7 +12,7 @@
  * - Load prompt template using AGENTS[agentName].promptTemplate
  * - Create git checkpoint
  * - Start audit logging
- * - Invoke Claude SDK via runClaudePrompt
+ * - Invoke provider-agnostic LLM executor via runClaudePrompt
  * - Spending cap check using isSpendingCapBehavior
  * - Handle failure (rollback, audit)
  * - Validate output using AGENTS[agentName].deliverableFilename

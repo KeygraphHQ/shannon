@@ -19,6 +19,7 @@ services:
     entrypoint: ["node", "dist/temporal/worker.js"]
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
+      - TEMPORAL_TASK_QUEUE=${TEMPORAL_TASK_QUEUE:-pentest-pipeline}
       - LLM_ENABLE_GROQ=${LLM_ENABLE_GROQ:-true}
       - LLM_ENABLE_GEMINI=${LLM_ENABLE_GEMINI:-true}
       - LLM_ENABLE_OLLAMA=${LLM_ENABLE_OLLAMA:-false}

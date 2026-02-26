@@ -4,7 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Production Claude agent execution with retry, git checkpoints, and audit logging
+// Production agent execution with retry, git checkpoints, and audit logging
 
 import { fs, path } from 'zx';
 
@@ -82,7 +82,7 @@ async function writeErrorLog(
   try {
     const errorLog = {
       timestamp: formatTimestamp(),
-      agent: 'claude-executor',
+      agent: 'llm-executor',
       error: {
         name: err.constructor.name,
         message: err.message,
@@ -154,7 +154,7 @@ export async function runClaudePrompt(
   prompt: string,
   sourceDir: string,
   context: string = '',
-  description: string = 'Claude analysis',
+  description: string = 'LLM analysis',
   agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger

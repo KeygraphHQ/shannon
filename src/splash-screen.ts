@@ -21,14 +21,14 @@ export const displaySplashScreen = async (): Promise<void> => {
     const branding = await loadBrandingConfig();
 
     // Create product ASCII art from branding config
-    const shannonText = figlet.textSync(branding.product_name.toUpperCase(), {
+    const productAsciiText = figlet.textSync(branding.product_name.toUpperCase(), {
       font: 'ANSI Shadow',
       horizontalLayout: 'default',
       verticalLayout: 'default',
     });
 
-    // Apply golden gradient to SHANNON
-    const gradientShannon = gradient(['#F4C542', '#FFD700'])(shannonText);
+    // Apply golden gradient to product name
+    const gradientProduct = gradient(['#F4C542', '#FFD700'])(productAsciiText);
 
     // Create minimal tagline with styling
     const tagline = chalk.bold.white(`${branding.company_name} - AI Penetration Testing Framework`);
@@ -36,7 +36,7 @@ export const displaySplashScreen = async (): Promise<void> => {
 
     // Build the complete splash content
     const content = [
-      gradientShannon,
+      gradientProduct,
       '',
       chalk.bold.cyan('                 ╔════════════════════════════════════╗'),
       chalk.bold.cyan('                 ║') + '  ' + tagline + '  ' + chalk.bold.cyan('║'),
