@@ -7,7 +7,7 @@
 /**
  * Services Module
  *
- * Exports DI container and service classes for Shannon agent execution.
+ * Exports DI container and service classes for agent execution.
  * Services are pure domain logic with no Temporal dependencies.
  */
 

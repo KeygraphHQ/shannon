@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal workflow for Shannon pentest pipeline.
+ * Temporal workflow for pentest pipeline.
  *
  * Orchestrates the penetration testing workflow:
  * 1. Pre-Reconnaissance (sequential)

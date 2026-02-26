@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Temporal activities for Shannon agent execution.
+ * Temporal activities for agent execution.
  *
  * Each activity wraps service calls with Temporal-specific concerns:
  * - Heartbeat loop (2s interval) to signal worker liveness

@@ -3,8 +3,8 @@ services:
     image: temporalio/temporal:latest
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
-      - "7233:7233"   # gRPC
-      - "8233:8233"   # Web UI (built-in)
+      - "7233:7233"
+      - "8233:8233"
     volumes:
       - temporal-data:/home/temporal
     healthcheck:
@@ -19,16 +19,23 @@ services:
     entrypoint: ["node", "dist/temporal/worker.js"]
     environment:
       - TEMPORAL_ADDRESS=temporal:7233
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}  # Optional: route through claude-code-router
-      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}  # Auth token for router
-      - ROUTER_DEFAULT=${ROUTER_DEFAULT:-}  # Model name when using router (e.g., "gemini,gemini-2.5-pro")
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
-      - CLAUDE_CODE_MAX_OUTPUT_TOKENS=${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-64000}
+      - TEMPORAL_TASK_QUEUE=${TEMPORAL_TASK_QUEUE:-pentest-pipeline}
+      - LLM_ENABLE_GROQ=${LLM_ENABLE_GROQ:-true}
+      - LLM_ENABLE_GEMINI=${LLM_ENABLE_GEMINI:-true}
+      - LLM_ENABLE_OLLAMA=${LLM_ENABLE_OLLAMA:-false}
+      - LLM_ENABLE_OPENAI=${LLM_ENABLE_OPENAI:-true}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_BASE_URL=${AZURE_OPENAI_BASE_URL:-}
+      - OLLAMA_HOST=${OLLAMA_HOST:-http://ollama:11434}
     depends_on:
       temporal:
         condition: service_healthy
     volumes:
+      - ./config:/app/config
       - ./configs:/app/configs
       - ./prompts:/app/prompts
       - ./audit-logs:/app/audit-logs
@@ -40,33 +47,14 @@ services:
     security_opt:
       - seccomp:unconfined
 
-  # Optional: claude-code-router for multi-model support
-  # Start with: ROUTER=true ./shannon start ...
-  router:
-    image: node:20-slim
-    profiles: ["router"]  # Only starts when explicitly requested
-    command: >
-      sh -c "apt-get update && apt-get install -y gettext-base &&
-             npm install -g @musistudio/claude-code-router &&
-             mkdir -p /root/.claude-code-router &&
-             envsubst < /config/router-config.json > /root/.claude-code-router/config.json &&
-             ccr start"
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
     ports:
-      - "3456:3456"
+      - "11434:11434"
     volumes:
-      - ./configs/router-config.json:/config/router-config.json:ro
-    environment:
-      - HOST=0.0.0.0
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
-      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
-      - ROUTER_DEFAULT=${ROUTER_DEFAULT:-openai,gpt-4o}
-    healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3456/health', r => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      - ollama-data:/root/.ollama
 
 volumes:
   temporal-data:
+  ollama-data:

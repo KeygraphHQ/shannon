@@ -6,7 +6,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Workspace listing tool for Shannon.
+ * Workspace listing tool for PentestAI.
  *
  * Reads audit-logs/ directories, parses session.json files, and displays
  * a formatted table of all workspaces with status, duration, and cost.
@@ -101,14 +101,14 @@ async function listWorkspaces(): Promise<void> {
 
   if (workspaces.length === 0) {
     console.log('\nNo workspaces found.');
-    console.log('Run a pipeline first: ./shannon start URL=<url> REPO=<repo>');
+    console.log('Run a pipeline first: ./pentestai start URL=<url> REPO=<repo>');
     return;
   }
 
   // Sort by creation date (most recent first)
   workspaces.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-  console.log('\n=== Shannon Workspaces ===\n');
+  console.log('\n=== PentestAI Workspaces ===\n');
 
   // Column widths
   const nameWidth = 30;
@@ -161,7 +161,7 @@ async function listWorkspaces(): Promise<void> {
   console.log(`${summary}${resumeSummary}`);
 
   if (resumableCount > 0) {
-    console.log('\nResume with: ./shannon start URL=<url> REPO=<repo> WORKSPACE=<name>');
+    console.log('\nResume with: ./pentestai start URL=<url> REPO=<repo> WORKSPACE=<name>');
   }
 
   console.log();
