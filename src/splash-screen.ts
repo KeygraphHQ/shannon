@@ -9,6 +9,7 @@ import gradient from 'gradient-string';
 import boxen from 'boxen';
 import chalk from 'chalk';
 import { fs, path } from 'zx';
+import { loadBrandingConfig } from './core/branding/config.js';
 
 export const displaySplashScreen = async (): Promise<void> => {
   try {
@@ -17,8 +18,10 @@ export const displaySplashScreen = async (): Promise<void> => {
     const packageJson = (await fs.readJSON(packagePath)) as { version?: string };
     const version = packageJson.version || '1.0.0';
 
-    // Create the main SHANNON ASCII art
-    const shannonText = figlet.textSync('SHANNON', {
+    const branding = await loadBrandingConfig();
+
+    // Create product ASCII art from branding config
+    const shannonText = figlet.textSync(branding.product_name.toUpperCase(), {
       font: 'ANSI Shadow',
       horizontalLayout: 'default',
       verticalLayout: 'default',
@@ -28,7 +31,7 @@ export const displaySplashScreen = async (): Promise<void> => {
     const gradientShannon = gradient(['#F4C542', '#FFD700'])(shannonText);
 
     // Create minimal tagline with styling
-    const tagline = chalk.bold.white('AI Penetration Testing Framework');
+    const tagline = chalk.bold.white(`${branding.company_name} - AI Penetration Testing Framework`);
     const versionInfo = chalk.gray(`v${version}`);
 
     // Build the complete splash content
@@ -79,7 +82,7 @@ export const displaySplashScreen = async (): Promise<void> => {
   } catch (error) {
     // Fallback to simple splash if anything fails
     const errMsg = error instanceof Error ? error.message : String(error);
-    console.log(chalk.cyan.bold('\n🚀 SHANNON - AI Penetration Testing Framework\n'));
+    console.log(chalk.cyan.bold('\n🚀 PentestAI - AI Penetration Testing Framework\n'));
     console.log(chalk.yellow('⚠️  Could not load full splash screen:', errMsg));
     console.log('');
   }

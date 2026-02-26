@@ -18,12 +18,11 @@
  */
 
 import fs from 'fs/promises';
-import { query } from '@anthropic-ai/claude-agent-sdk';
-import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { PentestError, isRetryableError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
 import { parseConfig } from '../config-parser.js';
+import { LLMRouter } from '../core/llm/router.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 // === Repository Validation ===
@@ -121,78 +120,20 @@ async function validateConfig(
 
 // === Credential Validation ===
 
-/** Map SDK error type to a human-readable preflight PentestError. */
-function classifySdkError(
-  sdkError: SDKAssistantMessageError,
-  authType: string
-): Result<void, PentestError> {
-  switch (sdkError) {
-    case 'authentication_failed':
-      return err(new PentestError(
-        `Invalid ${authType}. Check your credentials in .env and try again.`,
-        'config', false, { authType, sdkError }, ErrorCode.AUTH_FAILED
-      ));
-    case 'billing_error':
-      return err(new PentestError(
-        `Anthropic account has a billing issue. Add credits or check your billing dashboard.`,
-        'billing', true, { authType, sdkError }, ErrorCode.BILLING_ERROR
-      ));
-    case 'rate_limit':
-      return err(new PentestError(
-        `Anthropic rate limit or spending cap reached. Wait a few minutes and try again.`,
-        'billing', true, { authType, sdkError }, ErrorCode.BILLING_ERROR
-      ));
-    case 'server_error':
-      return err(new PentestError(
-        `Anthropic API is temporarily unavailable. Try again shortly.`,
-        'network', true, { authType, sdkError }
-      ));
-    default:
-      return err(new PentestError(
-        `${authType} validation failed unexpectedly. Check your credentials in .env.`,
-        'config', false, { authType, sdkError }, ErrorCode.AUTH_FAILED
-      ));
-  }
-}
-
-/** Validate credentials via a minimal Claude Agent SDK query. */
+/** Validate credentials via a minimal routed provider query. */
 async function validateCredentials(
   logger: ActivityLogger
 ): Promise<Result<void, PentestError>> {
-  // 1. Router mode — can't validate provider keys, just warn
-  if (process.env.ANTHROPIC_BASE_URL) {
-    logger.warn('Router mode detected — skipping API credential validation');
-    return ok(undefined);
-  }
-
-  // 2. Check that at least one credential is present
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    return err(
-      new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env',
-        'config',
-        false,
-        {},
-        ErrorCode.AUTH_FAILED
-      )
-    );
-  }
-
-  // 3. Validate via SDK query
-  const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
-  logger.info(`Validating ${authType} via SDK...`);
+  logger.info('Validating configured LLM provider via router...');
 
   try {
-    for await (const message of query({ prompt: 'hi', options: { model: 'claude-haiku-4-5-20251001', maxTurns: 1 } })) {
-      if (message.type === 'assistant' && message.error) {
-        return classifySdkError(message.error, authType);
-      }
-      if (message.type === 'result') {
-        break;
-      }
-    }
-
-    logger.info(`${authType} OK`);
+    const router = await LLMRouter.create(logger);
+    await router.complete('default', {
+      messages: [{ role: 'user', content: 'health-check' }],
+      temperature: 0,
+      maxTokens: 16,
+    });
+    logger.info('LLM provider credentials OK');
     return ok(undefined);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -201,11 +142,11 @@ async function validateCredentials(
     return err(
       new PentestError(
         retryable
-          ? `Failed to reach Anthropic API. Check your network connection.`
-          : `${authType} validation failed: ${message}`,
+          ? 'Failed to reach configured LLM provider. Check network, provider status, and credentials.'
+          : `LLM provider validation failed: ${message}`,
         retryable ? 'network' : 'config',
         retryable,
-        { authType },
+        {},
         retryable ? undefined : ErrorCode.AUTH_FAILED
       )
     );

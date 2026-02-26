@@ -1,0 +1,37 @@
+providers:
+  default: groq
+  recon: ollama
+  exploit: gemini
+  reporting: groq
+  fallback:
+    - openai
+    - openrouter
+
+groq:
+  api_key: ${GROQ_API_KEY}
+  model: mixtral-8x7b-32768
+  base_url: https://api.groq.com/openai/v1
+
+gemini:
+  api_key: ${GOOGLE_API_KEY}
+  model: gemini-1.5-pro
+
+ollama:
+  host: http://localhost:11434
+  model: llama3
+  context_window: 8192
+
+openai:
+  api_key: ${OPENAI_API_KEY}
+  model: gpt-4o
+  base_url: https://api.openai.com/v1
+
+azure:
+  api_key: ${AZURE_OPENAI_API_KEY}
+  model: gpt-4o
+  base_url: ${AZURE_OPENAI_BASE_URL}
+
+openrouter:
+  api_key: ${OPENROUTER_API_KEY}
+  model: openai/gpt-4o-mini
+  base_url: https://openrouter.ai/api/v1
