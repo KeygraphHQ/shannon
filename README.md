@@ -462,6 +462,44 @@ See Shannon's capabilities in action with penetration test results from industry
 
 ---
 
+## 🔌 Integrations
+
+### OpenClaw Integration
+
+Shannon now includes an OpenClaw skill for chat-based control and automation. This integration allows you to:
+
+- **Control Shannon via chat** — Trigger pentests using natural language
+- **Monitor progress in real-time** — Get status updates and logs delivered to your chat
+- **Schedule automated scans** — Set up cron-based security testing
+- **Receive result summaries** — Get concise vulnerability reports in your inbox
+
+**Quick Start with OpenClaw:**
+
+```bash
+# The skill is located in the ./openclaw/ directory
+# See ./openclaw/README.md for detailed setup instructions
+```
+
+**Example commands:**
+
+```bash
+# Start a pentest
+./openclaw/shannon-helper.sh start https://example.com my-repo
+
+# Check status
+./openclaw/shannon-helper.sh status
+
+# View results
+./openclaw/shannon-helper.sh summary my-workspace
+
+# Get vulnerability counts
+./openclaw/shannon-helper.sh vulns my-workspace
+```
+
+For full documentation, see [`./openclaw/SKILL.md`](./openclaw/SKILL.md).
+
+---
+
 ## 🏗️ Architecture
 
 Shannon emulates a human penetration tester's methodology using a sophisticated multi-agent architecture. It combines white-box source code analysis with black-box dynamic exploitation across four distinct phases:
