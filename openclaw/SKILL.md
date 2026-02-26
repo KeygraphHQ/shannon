@@ -119,10 +119,15 @@ The skill will:
 ## Requirements
 
 - Docker and Docker Compose (Shannon runs via Docker)
-- Anthropic API key (or Claude Code OAuth token)
+- AI Provider API key:
+  - **Anthropic** (recommended) - Get from https://console.anthropic.com
+  - **Or use alternative providers** via Router Mode:
+    - OpenAI (GPT models)
+    - OpenRouter (Gemini models)
+    - **Z.AI (GLM models)** - Get from https://docs.z.ai
 - Target application source code (white-box testing only)
 - ~1-1.5 hours per full pentest run
-- ~$50 in Anthropic API costs per run (using Claude 4.5 Sonnet)
+- API costs vary by provider and model choice
 
 ## Important Notes
 
