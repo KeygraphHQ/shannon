@@ -22,6 +22,7 @@ Set provider keys as needed:
 ## 4) Temporal Compatibility
 - Workflow/activity structure and contracts are unchanged.
 - Existing `runLlmPrompt (via compatibility wrapper runClaudePrompt)` contract is preserved while underlying provider implementation is provider-agnostic.
+- Existing `runClaudePrompt` contract is preserved while underlying provider implementation is provider-agnostic.
 
 ## 5) Branding Changes
 - Splash screen and report footer now use `config/branding.yaml`.
