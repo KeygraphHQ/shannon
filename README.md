@@ -4,7 +4,10 @@ Provider-agnostic autonomous pentesting framework for web applications you own.
 
 This guide is written for **GitHub users** and explains how to run everything from scratch on an **Ubuntu server**, including different LLM provider options and your first pentest run.
 
----
+- Groq
+- Google Gemini
+- Ollama (local)
+- OpenAI-compatible APIs (OpenAI, Azure, OpenRouter, custom)
 
 ## Table of Contents
 
@@ -367,7 +370,7 @@ docker compose restart worker
 - Check `success_condition`
 - For 2FA, confirm valid `totp_secret`
 
----
+## Docs
 
 For extra operational detail, see:
 
