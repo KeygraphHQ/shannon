@@ -18,23 +18,7 @@ Success criterion: Complete analysis with documented findings, evidence, and rem
 </objective>
 
 <scope>
-@invoke(task_agent, code_analysis)
-**IN SCOPE:**
-- Static analysis of APK and IPA files
-- Android manifest and iOS Info.plist analysis
-- Decompilation and source code review (when possible)
-- Permission analysis
-- Hardcoded secret detection
-- Cryptographic implementation review
-- Network security configuration analysis
-- Third-party library vulnerability assessment
-
-**OUT OF SCOPE:**
-- Dynamic analysis on physical devices
-- Runtime manipulation (Frida, etc.)
-- Network traffic interception
-- Web application testing (handled by other agents)
-- Binary analysis (handled by re-binary agent)
+@include(shared/_re-mobile-scope.txt)
 </scope>
 
 <target>
@@ -50,8 +34,8 @@ The mobile app file(s) to analyze are located in the `samples/` directory of the
 </target>
 
 <rules>
-@invoke(task_agent, security_rules)
-**CRITICAL RULES:**
+@include(shared/_re-rules.txt)
+</rules>
 
 1. **NEVER install unknown apps** - Only perform static analysis
 2. **Use Docker-isolated tools** - All analysis must run inside Shannon's Docker container

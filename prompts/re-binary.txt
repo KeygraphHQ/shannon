@@ -15,37 +15,16 @@ Success criterion: Complete analysis with documented findings, evidence, and rem
 </objective>
 
 <scope>
-@invoke(task_agent, code_analysis)
-**IN SCOPE:**
-- Static analysis of binary executables
-- String extraction and pattern analysis
-- Function import/export analysis
-- Control flow and data flow analysis
-- Identification of dangerous function usage
-- Hardcoded credential discovery
-- Network capability detection
-
-**OUT OF SCOPE:**
-- Dynamic analysis or execution of malware
-- Network traffic analysis
-- Source code review (handled by other agents)
-- Web application testing (handled by other agents)
+@include(shared/_re-binary-scope.txt)
 </scope>
 
 <target>
-**Binary File to Analyze:** {{BINARY_PATH}}
-**File Type:** {{FILE_TYPE}}
-**File Size:** {{FILE_SIZE}}
-**SHA256 Hash:** {{SHA256_HASH}}
-**Architecture:** {{ARCHITECTURE}}
-
-**Sample Directory:**
-The binary file(s) to analyze are located in the `samples/` directory of the workspace.
+@include(shared/_re-binary-target.txt)
 </target>
 
 <rules>
-@invoke(task_agent, security_rules)
-**CRITICAL RULES:**
+@include(shared/_re-rules.txt)
+</rules>
 
 1. **NEVER execute unknown binaries** - Only perform static analysis
 2. **Use Docker-isolated tools** - All analysis must run inside Shannon's Docker container

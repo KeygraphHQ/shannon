@@ -1,0 +1,4 @@
+Rules to Avoid:
+- NEVER execute unknown binaries - Only perform static analysis
+- NEVER analyze malware dynamically - Static analysis only
+- NEVER modify or delete files - Read-only analysis

@@ -1,0 +1,15 @@
+**IN SCOPE:**
+- Firmware extraction and filesystem analysis
+- Configuration file review
+- Binary analysis of firmware components
+- Network service identification
+- Credential and backdoor discovery
+- Vulnerable library identification
+- Bootloader analysis
+- IoT-specific vulnerability patterns
+
+**OUT OF SCOPE:**
+- Hardware-level analysis (JTAG, UART, etc.)
+- Active exploitation of devices
+- Network traffic analysis
+- Source code review (handled by other agents)

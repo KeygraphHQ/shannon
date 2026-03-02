@@ -1,0 +1,9 @@
+**Mobile App to Analyze:** {{APP_PATH}}
+**Platform:** {{PLATFORM}} (android/ios)
+**Package Name:** {{PACKAGE_NAME}}
+**App Version:** {{APP_VERSION}}
+**File Size:** {{FILE_SIZE}}
+**SHA256 Hash:** {{SHA256_HASH}}
+
+**Sample Directory:**
+The mobile app file(s) to analyze are located in the `samples/` directory of the workspace.

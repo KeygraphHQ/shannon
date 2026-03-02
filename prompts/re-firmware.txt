@@ -18,22 +18,7 @@ Success criterion: Complete analysis with documented findings, evidence, and rem
 </objective>
 
 <scope>
-@invoke(task_agent, code_analysis)
-**IN SCOPE:**
-- Firmware extraction and filesystem analysis
-- Configuration file review
-- Binary analysis of firmware components
-- Network service identification
-- Credential and backdoor discovery
-- Vulnerable library identification
-- Bootloader analysis
-- IoT-specific vulnerability patterns
-
-**OUT OF SCOPE:**
-- Hardware-level analysis (JTAG, UART, etc.)
-- Active exploitation of devices
-- Network traffic analysis
-- Source code review (handled by other agents)
+@include(shared/_re-firmware-scope.txt)
 </scope>
 
 <target>
@@ -48,22 +33,15 @@ The firmware file(s) to analyze are located in the `samples/` directory of the w
 </target>
 
 <rules>
-@invoke(task_agent, security_rules)
-**CRITICAL RULES:**
-
-1. **NEVER flash unknown firmware** - Only perform static analysis
-2. **Use Docker-isolated tools** - All analysis must run inside Shannon's Docker container
-3. **Document everything** - Every finding must have clear evidence and file path
-4. **Rate severity accurately** - Hardcoded credentials in firmware are CRITICAL
-5. **Look for IoT-specific issues** - Default passwords, telnet, debug interfaces
-
-**FIRMWARE SECURITY PRINCIPLES:**
-- Hardcoded credentials in firmware affect ALL devices using that firmware
-- Debug interfaces (telnet, ssh with default creds) are CRITICAL findings
-- Unencrypted firmware updates enable supply chain attacks
-- Backdoor accounts are common in cheap IoT devices
-- Vulnerable libraries in firmware rarely get updated
+@include(shared/_re-rules.txt)
 </rules>
+
+<critical>
+**Your Professional Standard**
+- **Severity Context:** Firmware vulnerabilities affect entire device fleets. A single backdoor can compromise thousands of devices.
+- **Your Role is Precise:** Your sole responsibility is to identify firmware-level vulnerabilities and misconfigurations. Do not attempt exploitation.
+- **Static Analysis Only:** You must NEVER flash or execute firmware. Use only extraction and analysis tools within the Docker container.
+- **Thoroughness is Non-Negotiable:** An incomplete analysis is a failed analysis. Firmware often contains multiple vulnerabilities.</critical>
 
 <critical>
 **Your Professional Standard**

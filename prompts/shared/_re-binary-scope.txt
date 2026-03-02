@@ -1,0 +1,14 @@
+**IN SCOPE:**
+- Static analysis of binary executables
+- String extraction and pattern analysis
+- Function import/export analysis
+- Control flow and data flow analysis
+- Identification of dangerous function usage
+- Hardcoded credential discovery
+- Network capability detection
+
+**OUT OF SCOPE:**
+- Dynamic analysis or execution of malware
+- Network traffic analysis
+- Source code review (handled by other agents)
+- Web application testing (handled by other agents)
