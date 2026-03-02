@@ -156,12 +156,37 @@ cmd_start() {
         echo "ERROR: Bedrock mode requires the following env vars in .env:$MISSING"
         exit 1
       fi
+    elif [ "$CLAUDE_CODE_USE_VERTEX" = "1" ]; then
+      # Vertex AI mode — validate required GCP credentials
+      MISSING=""
+      [ -z "$CLOUD_ML_REGION" ] && MISSING="$MISSING CLOUD_ML_REGION"
+      [ -z "$ANTHROPIC_VERTEX_PROJECT_ID" ] && MISSING="$MISSING ANTHROPIC_VERTEX_PROJECT_ID"
+      [ -z "$ANTHROPIC_SMALL_MODEL" ] && MISSING="$MISSING ANTHROPIC_SMALL_MODEL"
+      [ -z "$ANTHROPIC_MEDIUM_MODEL" ] && MISSING="$MISSING ANTHROPIC_MEDIUM_MODEL"
+      [ -z "$ANTHROPIC_LARGE_MODEL" ] && MISSING="$MISSING ANTHROPIC_LARGE_MODEL"
+      if [ -n "$MISSING" ]; then
+        echo "ERROR: Vertex AI mode requires the following env vars in .env:$MISSING"
+        exit 1
+      fi
+      # Validate service account key file (must be inside ./credentials/ for Docker mount)
+      if [ -z "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+        echo "ERROR: Vertex AI mode requires GOOGLE_APPLICATION_CREDENTIALS in .env"
+        echo "       Place your service account key in ./credentials/ and set:"
+        echo "       GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json"
+        exit 1
+      fi
+      if [ ! -f "$GOOGLE_APPLICATION_CREDENTIALS" ]; then
+        echo "ERROR: Service account key file not found: $GOOGLE_APPLICATION_CREDENTIALS"
+        echo "       Download a key from the GCP Console (IAM > Service Accounts > Keys)"
+        exit 1
+      fi
     elif [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
       echo "       (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock,"
+      echo "        CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI,"
       echo "        or ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
       exit 1
     fi
@@ -222,7 +247,7 @@ cmd_start() {
   fi
 
   # Ensure audit-logs directory exists with write permissions for container user (UID 1001)
-  mkdir -p ./audit-logs
+  mkdir -p ./audit-logs ./credentials
   chmod 777 ./audit-logs
 
   # Ensure repo deliverables directory is writable by container user (UID 1001)

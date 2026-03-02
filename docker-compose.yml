@@ -27,6 +27,10 @@ services:
       - CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK:-}
       - AWS_REGION=${AWS_REGION:-}
       - AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:-}
+      - CLAUDE_CODE_USE_VERTEX=${CLAUDE_CODE_USE_VERTEX:-}
+      - CLOUD_ML_REGION=${CLOUD_ML_REGION:-}
+      - ANTHROPIC_VERTEX_PROJECT_ID=${ANTHROPIC_VERTEX_PROJECT_ID:-}
+      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
       - ANTHROPIC_SMALL_MODEL=${ANTHROPIC_SMALL_MODEL:-}
       - ANTHROPIC_MEDIUM_MODEL=${ANTHROPIC_MEDIUM_MODEL:-}
       - ANTHROPIC_LARGE_MODEL=${ANTHROPIC_LARGE_MODEL:-}
@@ -39,6 +43,7 @@ services:
       - ./prompts:/app/prompts
       - ./audit-logs:/app/audit-logs
       - ${OUTPUT_DIR:-./audit-logs}:/app/output
+      - ./credentials:/app/credentials:ro
       - ./repos:/repos
       - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb
