@@ -40,6 +40,13 @@ export enum DeliverableType {
   AUTH_EVIDENCE = 'AUTH_EVIDENCE',
   AUTHZ_EVIDENCE = 'AUTHZ_EVIDENCE',
   SSRF_EVIDENCE = 'SSRF_EVIDENCE',
+
+  // Reverse Engineering agents (Phase 6)
+  RE_BINARY_ANALYSIS = 'RE_BINARY_ANALYSIS',
+  RE_MOBILE_ANALYSIS = 'RE_MOBILE_ANALYSIS',
+  RE_FIRMWARE_ANALYSIS = 'RE_FIRMWARE_ANALYSIS',
+  RE_MALWARE_ANALYSIS = 'RE_MALWARE_ANALYSIS',
+  RE_COMPREHENSIVE_REPORT = 'RE_COMPREHENSIVE_REPORT',
 }
 
 /**
@@ -64,6 +71,13 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.AUTH_EVIDENCE]: 'auth_exploitation_evidence.md',
   [DeliverableType.AUTHZ_EVIDENCE]: 'authz_exploitation_evidence.md',
   [DeliverableType.SSRF_EVIDENCE]: 'ssrf_exploitation_evidence.md',
+
+  // Reverse Engineering deliverables (Phase 6)
+  [DeliverableType.RE_BINARY_ANALYSIS]: 're_binary_analysis_deliverable.md',
+  [DeliverableType.RE_MOBILE_ANALYSIS]: 're_mobile_analysis_deliverable.md',
+  [DeliverableType.RE_FIRMWARE_ANALYSIS]: 're_firmware_analysis_deliverable.md',
+  [DeliverableType.RE_MALWARE_ANALYSIS]: 're_malware_analysis_deliverable.md',
+  [DeliverableType.RE_COMPREHENSIVE_REPORT]: 're_comprehensive_analysis_report.md',
 };
 
 /**

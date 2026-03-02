@@ -35,7 +35,6 @@ The mobile app file(s) to analyze are located in the `samples/` directory of the
 
 <rules>
 @include(shared/_re-rules.txt)
-</rules>
 
 1. **NEVER install unknown apps** - Only perform static analysis
 2. **Use Docker-isolated tools** - All analysis must run inside Shannon's Docker container
