@@ -87,6 +87,7 @@ Shannon is available in two editions:
   - [Usage Examples](#usage-examples)
   - [Workspaces and Resuming](#workspaces-and-resuming)
   - [Configuration (Optional)](#configuration-optional)
+  - [AWS Bedrock](#aws-bedrock)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
@@ -107,6 +108,7 @@ Shannon is available in two editions:
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
+  - **AWS Bedrock** - Route through Amazon Bedrock with AWS credentials (see [AWS Bedrock](#aws-bedrock))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
@@ -347,6 +349,33 @@ pipeline:
 ```
 
 `max_concurrent_pipelines` controls how many vulnerability pipelines run simultaneously (1-5, default: 5). Lower values reduce the chance of hitting rate limits but increase wall-clock time.
+
+### AWS Bedrock
+
+Shannon also supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) instead of using an Anthropic API key.
+
+#### Quick Setup
+
+1. Add your AWS credentials to `.env`:
+
+```bash
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=us-east-1
+AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
+
+# Set models with Bedrock-specific IDs for your region
+ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+```
+
+2. Run Shannon as usual:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name
+```
+
+Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 

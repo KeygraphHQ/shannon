@@ -142,14 +142,27 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key (router mode can use alternative provider API keys)
+  # Check for API key (Bedrock and router modes can bypass this)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
+    if [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
+      # Bedrock mode — validate required AWS credentials
+      MISSING=""
+      [ -z "$AWS_REGION" ] && MISSING="$MISSING AWS_REGION"
+      [ -z "$AWS_BEARER_TOKEN_BEDROCK" ] && MISSING="$MISSING AWS_BEARER_TOKEN_BEDROCK"
+      [ -z "$ANTHROPIC_SMALL_MODEL" ] && MISSING="$MISSING ANTHROPIC_SMALL_MODEL"
+      [ -z "$ANTHROPIC_MEDIUM_MODEL" ] && MISSING="$MISSING ANTHROPIC_MEDIUM_MODEL"
+      [ -z "$ANTHROPIC_LARGE_MODEL" ] && MISSING="$MISSING ANTHROPIC_LARGE_MODEL"
+      if [ -n "$MISSING" ]; then
+        echo "ERROR: Bedrock mode requires the following env vars in .env:$MISSING"
+        exit 1
+      fi
+    elif [ "$ROUTER" = "true" ] && { [ -n "$OPENAI_API_KEY" ] || [ -n "$OPENROUTER_API_KEY" ]; }; then
       # Router mode with alternative provider - set a placeholder for SDK init
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-      echo "       (or use ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
+      echo "       (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock,"
+      echo "        or ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
       exit 1
     fi
   fi
