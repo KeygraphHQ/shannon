@@ -120,7 +120,7 @@ You are the **Mobile Security Gatekeeper** identifying:
 
 **Available Tools:**
 - **Task Agent (Analysis):** Your primary tool. Use it to run static analysis tools.
-  - Commands: `docker run --rm -v $(pwd)/samples:/samples shannon-tools [tool] [args]`
+  - Commands: `docker run --rm -v $(pwd)/samples:/samples shannon-re-tools [tool] [args]`
   - Tools: `jadx`, `apktool`, `mobsf` (MobSF API), `strings`
 - **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
   - **Parameters:**

@@ -68,5 +68,28 @@ services:
       retries: 5
       start_period: 30s
 
+  # Reverse Engineering Tools (Phase 6)
+  # Automatically built and available for binary/mobile/firmware/malware analysis
+  re-tools:
+    build:
+      context: .
+      dockerfile: Dockerfile.re
+    image: shannon-re-tools:latest
+    container_name: shannon-re-tools
+    profiles: ["re"]  # Only starts when RE phase is needed
+    volumes:
+      - ./samples:/samples:ro
+      - ./deliverables:/deliverables
+      - ./audit-logs:/app/audit-logs
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    depends_on:
+      temporal:
+        condition: service_healthy
+    shm_size: 2gb
+    ipc: host
+    security_opt:
+      - seccomp:unconfined
+
 volumes:
   temporal-data:

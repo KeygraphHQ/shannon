@@ -53,6 +53,7 @@ Options for 'start':
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
   PIPELINE_TESTING=true  Use minimal prompts for fast testing
   ROUTER=true            Route requests through claude-code-router (multi-model support)
+  RE=true               Enable Phase 6 - Reverse Engineering tools (binary/mobile/firmware/malware analysis)
 
 Options for 'stop':
   CLEAN=true             Remove all data including volumes
@@ -62,6 +63,8 @@ Examples:
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+  ./shannon start URL=https://example.com REPO=repo-name RE=true
+  ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit RE=true
   ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon stop CLEAN=true
@@ -84,6 +87,7 @@ parse_args() {
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
       WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
+      RE=*) RE="${arg#RE=}" ;;
     esac
   done
 }
@@ -202,10 +206,31 @@ cmd_start() {
       sleep 5
     fi
 
-    # Set ANTHROPIC_BASE_URL to route through router
+      # Set ANTHROPIC_BASE_URL to route through router
     export ANTHROPIC_BASE_URL="http://router:3456"
     # Set auth token to match router's APIKEY
     export ANTHROPIC_AUTH_TOKEN="shannon-router-key"
+  fi
+
+  # Handle RE (Reverse Engineering) flag - start RE tools for Phase 6
+  if [ "$RE" = "true" ]; then
+    echo "Starting Reverse Engineering tools for Phase 6..."
+    
+    # Check if RE tools image exists, build if not
+    if ! docker image inspect shannon-re-tools:latest >/dev/null 2>&1; then
+      echo "Building RE tools Docker image (this may take a few minutes on first run)..."
+      docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE build re-tools
+    fi
+    
+    # Start RE tools container
+    echo "Starting RE tools container..."
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE --profile re up -d re-tools
+    
+    # Ensure samples directory exists
+    mkdir -p ./samples
+    chmod 777 ./samples
+    
+    echo "RE tools ready! Phase 6 will be executed after web pentest."
   fi
 
   # Ensure audit-logs directory exists with write permissions for container user (UID 1001)
