@@ -103,10 +103,46 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'report-executive',
     deliverableFilename: 'comprehensive_security_assessment_report.md',
   },
+  // Phase 6: Reverse Engineering (Sequential execution due to resource constraints)
+  're-binary': {
+    name: 're-binary',
+    displayName: 'Binary Analysis agent',
+    prerequisites: ['report'],
+    promptTemplate: 're-binary',
+    deliverableFilename: 're_binary_analysis_deliverable.md',
+  },
+  're-mobile': {
+    name: 're-mobile',
+    displayName: 'Mobile App Analysis agent',
+    prerequisites: ['re-binary'],
+    promptTemplate: 're-mobile',
+    deliverableFilename: 're_mobile_analysis_deliverable.md',
+  },
+  're-firmware': {
+    name: 're-firmware',
+    displayName: 'Firmware Analysis agent',
+    prerequisites: ['re-mobile'],
+    promptTemplate: 're-firmware',
+    deliverableFilename: 're_firmware_analysis_deliverable.md',
+  },
+  're-malware': {
+    name: 're-malware',
+    displayName: 'Malware Analysis agent',
+    prerequisites: ['re-firmware'],
+    promptTemplate: 're-malware',
+    deliverableFilename: 're_malware_analysis_deliverable.md',
+  },
+  're-report': {
+    name: 're-report',
+    displayName: 'Reverse Engineering Report agent',
+    prerequisites: ['re-malware'],
+    promptTemplate: 're-report',
+    deliverableFilename: 're_comprehensive_analysis_report.md',
+  },
 });
 
 // Phase names for metrics aggregation
-export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
+export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting' | 'reverse-engineering';
 
 // Map agents to their corresponding phases (single source of truth)
 export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
@@ -123,6 +159,12 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
   'report': 'reporting',
+  // Phase 6: Reverse Engineering (all map to 'reverse-engineering' phase)
+  're-binary': 'reverse-engineering',
+  're-mobile': 'reverse-engineering',
+  're-firmware': 'reverse-engineering',
+  're-malware': 'reverse-engineering',
+  're-report': 'reverse-engineering',
 });
 
 // Factory function for vulnerability queue validators
@@ -176,6 +218,13 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
   // NOTE: Report generation is typically text-based and doesn't use browser automation,
   // but assigning MCP server anyway for potential screenshot inclusion or future needs
   'report-executive': 'playwright-agent3',
+
+  // Phase 6: Reverse Engineering (sequential execution, reuse playwright agents)
+  're-binary': 'playwright-agent1',
+  're-mobile': 'playwright-agent2',
+  're-firmware': 'playwright-agent3',
+  're-malware': 'playwright-agent4',
+  're-report': 'playwright-agent5',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
@@ -220,6 +269,32 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
       logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
     }
 
+    return reportExists;
+  },
+
+  // Phase 6: Reverse Engineering agents
+  're-binary': async (sourceDir: string): Promise<boolean> => {
+    const deliverableFile = path.join(sourceDir, 'deliverables', 're_binary_analysis_deliverable.md');
+    return await fs.pathExists(deliverableFile);
+  },
+  're-mobile': async (sourceDir: string): Promise<boolean> => {
+    const deliverableFile = path.join(sourceDir, 'deliverables', 're_mobile_analysis_deliverable.md');
+    return await fs.pathExists(deliverableFile);
+  },
+  're-firmware': async (sourceDir: string): Promise<boolean> => {
+    const deliverableFile = path.join(sourceDir, 'deliverables', 're_firmware_analysis_deliverable.md');
+    return await fs.pathExists(deliverableFile);
+  },
+  're-malware': async (sourceDir: string): Promise<boolean> => {
+    const deliverableFile = path.join(sourceDir, 'deliverables', 're_malware_analysis_deliverable.md');
+    return await fs.pathExists(deliverableFile);
+  },
+  're-report': async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+    const reportFile = path.join(sourceDir, 'deliverables', 're_comprehensive_analysis_report.md');
+    const reportExists = await fs.pathExists(reportFile);
+    if (!reportExists) {
+      logger.error('Missing required deliverable: re_comprehensive_analysis_report.md');
+    }
     return reportExists;
   },
 });

@@ -26,6 +26,12 @@ export const ALL_AGENTS = [
   'ssrf-exploit',
   'authz-exploit',
   'report',
+  // Reverse Engineering Phase (Phase 6)
+  're-binary',
+  're-mobile',
+  're-firmware',
+  're-malware',
+  're-report',
 ] as const;
 
 /**
@@ -66,6 +72,11 @@ export interface AgentDefinition {
 export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
 
 /**
+ * Reverse Engineering target types.
+ */
+export type REType = 'binary' | 'mobile' | 'firmware' | 'malware';
+
+/**
  * Decision returned by queue validation for exploitation phase.
  */
 export interface ExploitationDecision {
@@ -73,4 +84,14 @@ export interface ExploitationDecision {
   shouldRetry: boolean;
   vulnerabilityCount: number;
   vulnType: VulnType;
+}
+
+/**
+ * Reverse Engineering analysis decision.
+ */
+export interface REAnalysisDecision {
+  shouldAnalyze: boolean;
+  reType: REType;
+  targetPath: string;
+  reason: string;
 }
