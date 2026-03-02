@@ -88,6 +88,7 @@ Shannon is available in two editions:
   - [Workspaces and Resuming](#workspaces-and-resuming)
   - [Configuration (Optional)](#configuration-optional)
   - [AWS Bedrock](#aws-bedrock)
+  - [Google Vertex AI](#google-vertex-ai)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
@@ -109,6 +110,7 @@ Shannon is available in two editions:
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
   - **AWS Bedrock** - Route through Amazon Bedrock with AWS credentials (see [AWS Bedrock](#aws-bedrock))
+  - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
@@ -376,6 +378,43 @@ ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 ```
 
 Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
+
+### Google Vertex AI
+
+Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) instead of using an Anthropic API key.
+
+#### Quick Setup
+
+1. Create a service account with the `roles/aiplatform.user` role in the [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts), then download a JSON key file.
+
+2. Place the key file in the `./credentials/` directory:
+
+```bash
+mkdir -p ./credentials
+cp /path/to/your-sa-key.json ./credentials/gcp-sa-key.json
+```
+
+3. Add your GCP configuration to `.env`:
+
+```bash
+CLAUDE_CODE_USE_VERTEX=1
+CLOUD_ML_REGION=us-east5
+ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
+GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+
+# Set models with Vertex AI model IDs
+ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+```
+
+4. Run Shannon as usual:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name
+```
+
+Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
