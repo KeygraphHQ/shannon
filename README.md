@@ -382,7 +382,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
 | OpenRouter | google/gemini-3-flash-preview |
-| Novita | deepseek/deepseek-v3.2 |
+| Novita | deepseek/deepseek-v3.2 (default), minimax-minimax-m2.5, zai-org-glm-5 |
 
 #### Disclaimer
 
