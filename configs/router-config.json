@@ -25,6 +25,14 @@
       "transformer": {
         "use": ["openrouter"]
       }
+    },
+    {
+      "name": "novita",
+      "api_base_url": "https://api.novita.ai/openai/v1/chat/completions",
+      "api_key": "$NOVITA_API_KEY",
+      "models": [
+        "deepseek/deepseek-v3.1"
+      ]
     }
   ],
   "Router": {

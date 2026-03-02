@@ -107,7 +107,7 @@ Shannon is available in two editions:
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
-  - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
+  - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI, Google Gemini via OpenRouter, or Novita (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 ### Quick Start
 
@@ -363,6 +363,8 @@ Shannon can experimentally route requests through alternative AI providers using
 OPENAI_API_KEY=sk-...
 # OR
 OPENROUTER_API_KEY=sk-or-...
+# OR
+NOVITA_API_KEY=your-novita-api-key
 
 # Set default model:
 ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
@@ -380,6 +382,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
 | OpenRouter | google/gemini-3-flash-preview |
+| Novita | deepseek/deepseek-v3.1 |
 
 #### Disclaimer
 
