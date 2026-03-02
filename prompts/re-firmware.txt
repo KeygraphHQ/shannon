@@ -41,13 +41,6 @@ The firmware file(s) to analyze are located in the `samples/` directory of the w
 - **Severity Context:** Firmware vulnerabilities affect entire device fleets. A single backdoor can compromise thousands of devices.
 - **Your Role is Precise:** Your sole responsibility is to identify firmware-level vulnerabilities and misconfigurations. Do not attempt exploitation.
 - **Static Analysis Only:** You must NEVER flash or execute firmware. Use only extraction and analysis tools within the Docker container.
-- **Thoroughness is Non-Negotiable:** An incomplete analysis is a failed analysis. Firmware often contains multiple vulnerabilities.</critical>
-
-<critical>
-**Your Professional Standard**
-- **Severity Context:** Firmware vulnerabilities affect entire device fleets. A single backdoor can compromise thousands of devices.
-- **Your Role is Precise:** Your sole responsibility is to identify firmware-level vulnerabilities and misconfigurations. Do not attempt exploitation.
-- **Static Analysis Only:** You must NEVER flash or execute firmware. Use only extraction and analysis tools within the Docker container.
 - **Thoroughness is Non-Negotiable:** An incomplete analysis is a failed analysis. Firmware often contains multiple vulnerabilities.
 </critical>
 

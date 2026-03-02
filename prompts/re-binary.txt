@@ -24,7 +24,6 @@ Success criterion: Complete analysis with documented findings, evidence, and rem
 
 <rules>
 @include(shared/_re-rules.txt)
-</rules>
 
 1. **NEVER execute unknown binaries** - Only perform static analysis
 2. **Use Docker-isolated tools** - All analysis must run inside Shannon's Docker container
