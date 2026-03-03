@@ -13,7 +13,8 @@
  * - "large"  (Opus — deep reasoning, complex analysis)
  *
  * Users override via ANTHROPIC_SMALL_MODEL / ANTHROPIC_MEDIUM_MODEL / ANTHROPIC_LARGE_MODEL,
- * which works across all providers (direct, Bedrock, Vertex).
+ * or use ANTHROPIC_MODEL as a global fallback for all tiers.
+ * Works across all providers (direct, Bedrock, Vertex).
  */
 
 export type ModelTier = 'small' | 'medium' | 'large';
@@ -26,6 +27,11 @@ const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
 
 /** Resolve a model tier to a concrete model ID. */
 export function resolveModel(tier: ModelTier = 'medium'): string {
+  // Global override takes precedence
+  if (process.env.ANTHROPIC_MODEL) {
+    return process.env.ANTHROPIC_MODEL;
+  }
+
   switch (tier) {
     case 'small':
       return process.env.ANTHROPIC_SMALL_MODEL || DEFAULT_MODELS.small;
