@@ -156,7 +156,8 @@ export class AgentExecutionService {
       agentName, // description
       agentName,
       auditSession,
-      logger
+      logger,
+      AGENTS[agentName].modelTier
     );
 
     // 6. Spending cap check - defense-in-depth
