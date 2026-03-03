@@ -24,6 +24,7 @@ import { detectExecutionContext, formatErrorOutput, formatCompletionMessage } fr
 import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
+import { resolveModel, type ModelTier } from './models.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 declare global {
@@ -202,7 +203,8 @@ export async function runClaudePrompt(
   description: string = 'Claude analysis',
   agentName: string | null = null,
   auditSession: AuditSession | null = null,
-  logger: ActivityLogger
+  logger: ActivityLogger,
+  modelTier: ModelTier = 'medium'
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -225,22 +227,31 @@ export async function runClaudePrompt(
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
-  if (process.env.ANTHROPIC_API_KEY) {
-    sdkEnv.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY;
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    sdkEnv.CLAUDE_CODE_OAUTH_TOKEN = process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  }
-  if (process.env.ANTHROPIC_BASE_URL) {
-    sdkEnv.ANTHROPIC_BASE_URL = process.env.ANTHROPIC_BASE_URL;
-  }
-  if (process.env.ANTHROPIC_AUTH_TOKEN) {
-    sdkEnv.ANTHROPIC_AUTH_TOKEN = process.env.ANTHROPIC_AUTH_TOKEN;
+  const passthroughVars = [
+    'ANTHROPIC_API_KEY',
+    'CLAUDE_CODE_OAUTH_TOKEN',
+    'ANTHROPIC_BASE_URL',
+    'ANTHROPIC_AUTH_TOKEN',
+    'CLAUDE_CODE_USE_BEDROCK',
+    'AWS_REGION',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLOUD_ML_REGION',
+    'ANTHROPIC_VERTEX_PROJECT_ID',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'ANTHROPIC_SMALL_MODEL',
+    'ANTHROPIC_MEDIUM_MODEL',
+    'ANTHROPIC_LARGE_MODEL',
+  ];
+  for (const name of passthroughVars) {
+    if (process.env[name]) {
+      sdkEnv[name] = process.env[name]!;
+    }
   }
 
   // 5. Configure SDK options
   const options = {
-    model: 'claude-sonnet-4-5-20250929',
+    model: resolveModel(modelTier),
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,

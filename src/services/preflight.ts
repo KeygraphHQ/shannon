@@ -14,7 +14,7 @@
  * Checks run sequentially, cheapest first:
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
- * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, or router mode)
+ * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, Vertex AI, or router mode)
  */
 
 import fs from 'fs/promises';
@@ -24,6 +24,7 @@ import { PentestError, isRetryableError } from './error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
 import { parseConfig } from '../config-parser.js';
+import { resolveModel } from '../ai/models.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 // === Repository Validation ===
@@ -165,11 +166,75 @@ async function validateCredentials(
     return ok(undefined);
   }
 
-  // 2. Check that at least one credential is present
+  // 2. Bedrock mode — validate required AWS credentials are present
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
+    const required = ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
+    const missing = required.filter(v => !process.env[v]);
+    if (missing.length > 0) {
+      return err(
+        new PentestError(
+          `Bedrock mode requires the following env vars in .env: ${missing.join(', ')}`,
+          'config',
+          false,
+          { missing },
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
+    logger.info('Bedrock credentials OK');
+    return ok(undefined);
+  }
+
+  // 3. Vertex AI mode — validate required GCP credentials are present
+  if (process.env.CLAUDE_CODE_USE_VERTEX === '1') {
+    const required = ['CLOUD_ML_REGION', 'ANTHROPIC_VERTEX_PROJECT_ID', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
+    const missing = required.filter(v => !process.env[v]);
+    if (missing.length > 0) {
+      return err(
+        new PentestError(
+          `Vertex AI mode requires the following env vars in .env: ${missing.join(', ')}`,
+          'config',
+          false,
+          { missing },
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
+    // Validate service account credentials file is accessible
+    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    if (!credPath) {
+      return err(
+        new PentestError(
+          'Vertex AI mode requires GOOGLE_APPLICATION_CREDENTIALS pointing to a service account key JSON file',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
+    try {
+      await fs.access(credPath);
+    } catch {
+      return err(
+        new PentestError(
+          `Service account key file not found at: ${credPath}`,
+          'config',
+          false,
+          { credPath },
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
+    logger.info('Vertex AI credentials OK');
+    return ok(undefined);
+  }
+
+  // 4. Check that at least one credential is present
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env',
+        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, or CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI)',
         'config',
         false,
         {},
@@ -178,12 +243,12 @@ async function validateCredentials(
     );
   }
 
-  // 3. Validate via SDK query
+  // 5. Validate via SDK query
   const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
   logger.info(`Validating ${authType} via SDK...`);
 
   try {
-    for await (const message of query({ prompt: 'hi', options: { model: 'claude-haiku-4-5-20251001', maxTurns: 1 } })) {
+    for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
       if (message.type === 'assistant' && message.error) {
         return classifySdkError(message.error, authType);
       }
