@@ -47,7 +47,7 @@ Usage:
   ./shannon help                          Show this help message
 
 Options for 'start':
-  REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
+  REPO=<name>            Folder under ./repos/, or any host path (e.g. REPO=/path/to/repo)
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
@@ -59,6 +59,7 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=/home/user/my-project
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
@@ -155,17 +156,30 @@ cmd_start() {
   fi
 
   # Determine container path for REPO
-  # - If REPO is already a container path (/benchmarks/*, /repos/*), use as-is
+  # - If REPO is already a container path (/benchmarks/*, /repos/*, /ext-repo), use as-is
+  # - If REPO is a host path (absolute, or relative containing /), mount it at /ext-repo
   # - Otherwise, treat as a folder name under ./repos/ (mounted at /repos in container)
   case "$REPO" in
-    /benchmarks/*|/repos/*)
+    /benchmarks/*|/repos/*|/ext-repo*)
       CONTAINER_REPO="$REPO"
+      ;;
+    /*|./*|../*)
+      # Host path: resolve to absolute, export for dynamic volume mount
+      REPO_ABS="$(cd "$(dirname "$REPO")" 2>/dev/null && pwd)/$(basename "$REPO")"
+      if [ ! -d "$REPO_ABS" ]; then
+        echo "ERROR: Repository not found at $REPO"
+        exit 1
+      fi
+      export REPO_DIR="$REPO_ABS"
+      CONTAINER_REPO="/ext-repo"
+      REPO="$REPO_ABS"  # Used below for deliverables setup
       ;;
     *)
       if [ ! -d "./repos/$REPO" ]; then
         echo "ERROR: Repository not found at ./repos/$REPO"
         echo ""
-        echo "Place your target repository under the ./repos/ directory"
+        echo "Place your target repository under the ./repos/ directory,"
+        echo "or pass an absolute/relative path: REPO=/path/to/your/repo"
         exit 1
       fi
       CONTAINER_REPO="/repos/$REPO"
@@ -213,7 +227,10 @@ cmd_start() {
   chmod 777 ./audit-logs
 
   # Ensure repo deliverables directory is writable by container user (UID 1001)
-  if [ -d "./repos/$REPO" ]; then
+  if [ -n "$REPO_DIR" ] && [ -d "$REPO_DIR" ]; then
+    mkdir -p "$REPO_DIR/deliverables"
+    chmod 777 "$REPO_DIR/deliverables"
+  elif [ -d "./repos/$REPO" ]; then
     mkdir -p "./repos/$REPO/deliverables"
     chmod 777 "./repos/$REPO/deliverables"
   fi

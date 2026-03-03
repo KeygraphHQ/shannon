@@ -10,12 +10,12 @@ AI-powered penetration testing agent for defensive security analysis. Automates 
 # Setup
 cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
 
-# Prepare repo (REPO is a folder name inside ./repos/, not an absolute path)
+# Prepare repo — either place it under ./repos/, or pass a host path directly
 git clone https://github.com/org/repo.git ./repos/my-repo
-# or symlink: ln -s /path/to/existing/repo ./repos/my-repo
 
 # Run
-./shannon start URL=<url> REPO=my-repo
+./shannon start URL=<url> REPO=my-repo                      # Folder under ./repos/
+./shannon start URL=<url> REPO=/path/to/my-repo             # Arbitrary host path
 ./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
 
 # Workspaces & Resume
@@ -150,7 +150,7 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 ## Troubleshooting
 
-- **"Repository not found"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. Clone or symlink your repo there first: `ln -s /path/to/repo ./repos/my-repo`
+- **"Repository not found"** — `REPO` accepts a folder name under `./repos/` (e.g. `REPO=my-repo`) or any absolute/relative host path (e.g. `REPO=/home/user/my-repo`). The path must exist on the host.
 - **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
 - **Worker not processing** — Check `docker compose ps`
 - **Reset state** — `./shannon stop CLEAN=true`
