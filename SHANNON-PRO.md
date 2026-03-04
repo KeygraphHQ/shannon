@@ -117,7 +117,9 @@ Traditional SCA flags any library with a known CVE regardless of whether the vul
 
 ## Secrets Detection
 
-Shannon Pro combines two approaches to secrets scanning. Standard regex-based pattern matching catches known formats (AWS keys, API tokens, etc.). Simultaneously, during the point issue detection phase, LLM-based detection catches secrets that standard patterns miss, such as dynamically constructed credentials, custom credential formats, and obfuscated tokens. The LLM layer also filters out test data, placeholders, and documentation examples that regex scanners frequently flag as false positives.
+Shannon Pro combines three approaches to secrets scanning. Standard regex-based pattern matching catches known formats (AWS keys, API tokens, etc.). Simultaneously, during the point issue detection phase, LLM-based detection catches secrets that standard patterns miss, such as dynamically constructed credentials, custom credential formats, and obfuscated tokens. The LLM layer also filters out test data, placeholders, and documentation examples that regex scanners frequently flag as false positives.
+
+For discovered secrets, Shannon Pro performs liveness validation: an agent determines the API context for each credential and attempts to authenticate against the corresponding service. This distinguishes active, exploitable secrets from revoked or rotated credentials, ensuring teams focus remediation effort on secrets that represent real exposure. Liveness checks use read-only API calls (e.g., identity verification endpoints) to avoid triggering side effects or account lockouts, and in the self-hosted runner deployment, all validation occurs within the customer's network.
 
 ## Boundary Analysis
 
