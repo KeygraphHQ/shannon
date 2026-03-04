@@ -1,3 +1,6 @@
+Wrapper
+"Applications that call themselves 'Open Source' but are just a pretty interface for consuming paid services."
+
 > [!NOTE]
 > **[Shannon Lite achieves a 96.15% success rate on a hint-free, source-aware XBOW benchmark. &rarr;](https://github.com/KeygraphHQ/shannon/tree/main/xben-benchmark-results/README.md)**
 
