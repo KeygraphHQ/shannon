@@ -53,7 +53,7 @@ Shannon closes this gap by acting as your on-demand whitebox pentester. It doesn
 - **Fully Autonomous Operation**: Launch the pentest with a single command. The AI handles everything from advanced 2FA/TOTP logins (including sign in with Google) and browser navigation to the final report with zero intervention.
 - **Pentester-Grade Reports with Reproducible Exploits**: Delivers a final report focused on proven, exploitable findings, complete with copy-and-paste Proof-of-Concepts to eliminate false positives and provide actionable results.
 - **Critical OWASP Vulnerability Coverage**: Currently identifies and validates the following critical vulnerabilities: Injection, XSS, SSRF, and Broken Authentication/Authorization, with more types in development.
-- **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy, then performs live, browser and command line based exploits on the running application to confirm real-world risk.
+- **Code-Aware Dynamic Testing**: Analyzes your source code to intelligently guide its attack strategy, then performs live browser- and command-line-based exploits on the running application to confirm real-world risk.
 - **Powered by Integrated Security Tools**: Enhances its discovery phase by leveraging leading reconnaissance and testing tools—including **Nmap, Subfinder, WhatWeb, and Schemathesis**—for deep analysis of the target environment.
 - **Parallel Processing for Faster Results**: Get your report faster. The system parallelizes the most time-intensive phases, running analysis and exploitation for all vulnerability types concurrently.
 
@@ -136,7 +136,7 @@ EOF
 ./shannon start URL=https://your-app.com REPO=your-repo
 ```
 
-Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
+Shannon builds the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
 
 ### Monitoring Progress
 
