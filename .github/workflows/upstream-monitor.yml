@@ -1,0 +1,202 @@
+name: Upstream Security Monitor
+
+on:
+  schedule:
+    - cron: '0 8 * * *' # Daily at 8am UTC
+  workflow_dispatch: # Manual trigger
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  monitor-upstream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Add upstream remote and fetch
+        run: |
+          git remote add upstream https://github.com/KeygraphHQ/shannon.git || true
+          git fetch upstream main
+
+      - name: Check for new upstream commits
+        id: check
+        run: |
+          COMMIT_COUNT=$(git rev-list main..upstream/main --count)
+          echo "commit_count=$COMMIT_COUNT" >> "$GITHUB_OUTPUT"
+
+          if [ "$COMMIT_COUNT" -eq 0 ]; then
+            echo "No new upstream commits. Exiting."
+            exit 0
+          fi
+
+          echo "Found $COMMIT_COUNT new upstream commit(s)."
+          git log main..upstream/main --oneline > /tmp/commit_list.txt
+          cat /tmp/commit_list.txt
+
+      - name: Check for existing open issue
+        if: steps.check.outputs.commit_count != '0'
+        id: dedup
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          EXISTING=$(gh issue list --label "upstream-update" --state open --json number --jq 'length')
+          if [ "$EXISTING" -gt 0 ]; then
+            echo "Open upstream-update issue already exists. Skipping."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Generate diff and context
+        if: steps.check.outputs.commit_count != '0' && steps.dedup.outputs.skip != 'true'
+        run: |
+          # Generate the diff
+          git diff main...upstream/main > /tmp/upstream_diff.txt
+
+          # Check diff size (100KB guard)
+          DIFF_SIZE=$(wc -c < /tmp/upstream_diff.txt)
+          echo "Diff size: $DIFF_SIZE bytes"
+
+          if [ "$DIFF_SIZE" -gt 102400 ]; then
+            echo "Warning: Diff exceeds 100KB ($DIFF_SIZE bytes). Truncating." > /tmp/diff_note.txt
+            head -c 102400 /tmp/upstream_diff.txt > /tmp/upstream_diff_truncated.txt
+            echo -e "\n\n[TRUNCATED — original diff was $DIFF_SIZE bytes]" >> /tmp/upstream_diff_truncated.txt
+            mv /tmp/upstream_diff_truncated.txt /tmp/upstream_diff.txt
+          else
+            echo "" > /tmp/diff_note.txt
+          fi
+
+          # Changed files list
+          git diff main...upstream/main --name-status > /tmp/changed_files.txt
+
+          # Dependency changes
+          git diff main...upstream/main -- '**/package.json' > /tmp/dep_changes.txt 2>/dev/null || echo "No package.json changes" > /tmp/dep_changes.txt
+
+          # Env changes
+          git diff main...upstream/main -- '**/.env*' '**/env*' > /tmp/env_changes.txt 2>/dev/null || echo "No env file changes" > /tmp/env_changes.txt
+
+      - name: Call Claude API for security review
+        if: steps.check.outputs.commit_count != '0' && steps.dedup.outputs.skip != 'true'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          PROMPT=$(cat .github/scripts/security-review-prompt.txt)
+          COMMIT_LIST=$(cat /tmp/commit_list.txt)
+          CHANGED_FILES=$(cat /tmp/changed_files.txt)
+          DEP_CHANGES=$(cat /tmp/dep_changes.txt)
+          ENV_CHANGES=$(cat /tmp/env_changes.txt)
+          DIFF=$(cat /tmp/upstream_diff.txt)
+          DIFF_NOTE=$(cat /tmp/diff_note.txt)
+
+          # Build the user message with all context
+          USER_MSG=$(cat <<ENDMSG
+          ## Upstream Commits ($(cat /tmp/commit_list.txt | wc -l | tr -d ' ') new)
+
+          $COMMIT_LIST
+
+          ## Changed Files
+
+          $CHANGED_FILES
+
+          ## Dependency Changes
+
+          $DEP_CHANGES
+
+          ## Environment File Changes
+
+          $ENV_CHANGES
+
+          $DIFF_NOTE
+
+          ## Full Diff
+
+          \`\`\`diff
+          $DIFF
+          \`\`\`
+          ENDMSG
+          )
+
+          # Call Claude API
+          RESPONSE=$(curl -s https://api.anthropic.com/v1/messages \
+            -H "content-type: application/json" \
+            -H "x-api-key: $ANTHROPIC_API_KEY" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$(jq -n \
+              --arg system "$PROMPT" \
+              --arg user_msg "$USER_MSG" \
+              '{
+                model: "claude-sonnet-4-6",
+                max_tokens: 4096,
+                system: $system,
+                messages: [
+                  { role: "user", content: $user_msg }
+                ]
+              }')")
+
+          # Extract the text response
+          echo "$RESPONSE" | jq -r '.content[0].text' > /tmp/security_review.txt
+
+          # Check for API errors
+          if echo "$RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            echo "Claude API error:"
+            echo "$RESPONSE" | jq '.error'
+            exit 1
+          fi
+
+      - name: Create GitHub issue
+        if: steps.check.outputs.commit_count != '0' && steps.dedup.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COMMIT_COUNT: ${{ steps.check.outputs.commit_count }}
+        run: |
+          REVIEW=$(cat /tmp/security_review.txt)
+          COMMIT_LIST=$(cat /tmp/commit_list.txt)
+          CHANGED_FILES=$(cat /tmp/changed_files.txt)
+
+          ISSUE_BODY=$(cat <<'HEADER'
+          ## Upstream Security Review
+
+          **Upstream:** `KeygraphHQ/shannon`
+          **Fork:** `benreceveur/shannon`
+          HEADER
+          )
+
+          ISSUE_BODY+="
+          **New commits:** $COMMIT_COUNT
+
+          ---
+
+          $REVIEW
+
+          ---
+
+          <details>
+          <summary>Commit List ($COMMIT_COUNT commits)</summary>
+
+          \`\`\`
+          $COMMIT_LIST
+          \`\`\`
+
+          </details>
+
+          <details>
+          <summary>Changed Files</summary>
+
+          \`\`\`
+          $CHANGED_FILES
+          \`\`\`
+
+          </details>
+
+          ---
+          *Generated by upstream-monitor workflow — $(date -u +%Y-%m-%d)*"
+
+          gh issue create \
+            --title "Upstream Review: $COMMIT_COUNT new commits from KeygraphHQ/shannon" \
+            --body "$ISSUE_BODY" \
+            --label "upstream-update,security-review"
