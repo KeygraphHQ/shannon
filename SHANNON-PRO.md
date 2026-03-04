@@ -1,6 +1,6 @@
 # Shannon Pro
 
-Shannon Pro is Keygraph's comprehensive AppSec platform, combining SAST, DAST, SCA, secrets scanning, business logic security testing, and autonomous pentesting in a single correlated workflow:
+Shannon Pro is Keygraph's comprehensive AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous pentesting in a single correlated workflow:
 
 - **Agentic static analysis:** CPG-based data flow, SCA with reachability, secrets detection, business logic security testing
 - **Static-dynamic correlation:** static findings are fed into the dynamic pipeline and exploited against the running application, so every reported vulnerability has a working proof-of-concept
@@ -234,11 +234,10 @@ Shannon is offered in two editions to serve different operational needs:
 | Feature | Shannon Lite | Shannon Pro |
 | --- | --- | --- |
 | **Licensing** | AGPL-3.0 (open source) | Commercial |
-| **Static Analysis** | N/A | Full agentic static analysis (SAST, SCA, secrets, business logic security testing) |
+| **Static Analysis** | Code review prompting | Full agentic static analysis (SAST, SCA, secrets, business logic security testing) |
 | **Dynamic Testing** | Autonomous AI pentest framework | Autonomous AI pentesting with static-dynamic correlation |
-| **Analysis Engine** | Basic code review prompting | CPG-based data flow with LLM reasoning at every node |
+| **Analysis Engine** | Code review prompting | CPG-based data flow with LLM reasoning at every node |
 | **Business Logic** | N/A | Automated invariant discovery, test scenario generation, and exploit synthesis |
-| **Correlation** | N/A | Cross-references static and dynamic findings for confirmed exploitability |
 | **Integration** | Manual / CLI | Native CI/CD, GitHub PR scanning, enterprise support, self-hosted runner |
 | **Deployment** | CLI / manual | Managed cloud or self-hosted runner (customer data plane, Keygraph control plane) |
 | **Boundary Analysis** | N/A | Automatic service boundary detection with team routing |
