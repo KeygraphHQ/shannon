@@ -1,3 +1,4 @@
+>[!NOTE]
 > **[📢 New: AWS Bedrock, Google Vertex AI support now available →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
 
 <div align="center">
@@ -26,7 +27,9 @@ Shannon analyzes your web application's source code to identify potential attack
 
 **Why Shannon Exists**
 
-Most teams run penetration tests annually, but ship code continuously. Shannon closes that gap by providing on-demand, automated penetration testing that can run against every build or release.
+Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But your penetration test? That happens once a year. This creates a *massive* security gap. For the other 364 days, you could be unknowingly shipping vulnerabilities to production.
+
+Shannon closes that gap by providing on-demand, automated penetration testing that can run against every build or release.
 
 > [!NOTE]
 > **Shannon is part of the Keygraph Security and Compliance Platform**
@@ -553,10 +556,6 @@ Sample penetration test reports from industry-standard vulnerable applications:
 - Zero false positives for XSS (correctly identified robust XSS defenses)
 
 📄 **[View Complete Report →](sample-reports/shannon-report-crapi.md)**
-
----
-
-*All reports contain reproducible proof-of-concept exploits for every finding.*
 
 ---
 
