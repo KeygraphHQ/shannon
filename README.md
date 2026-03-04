@@ -1,3 +1,5 @@
+> **[📢 New: AWS Bedrock, Google Vertex AI support now available →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
+
 <div align="center">
 
 <img src="./assets/github-banner.png" alt="Shannon — AI Pentester for Web Applications and APIs" width="100%">
@@ -11,7 +13,7 @@ It analyzes your source code, identifies attack vectors, and executes real explo
 
 ---
 
-[Keygraph Website](https://keygraph.io) • [Documentation](https://docs.keygraph.io) • [Discord](https://discord.gg/KAqzSHHpRt)
+[Keygraph Website](https://keygraph.io) • [Documentation](https://docs.keygraph.io) • [Announcements](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements) • [Discord](https://discord.gg/KAqzSHHpRt)
 
 ---
 </div>
@@ -92,11 +94,10 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 | Capability | Shannon Lite | Shannon Pro (All-in-One AppSec) |
 | --- | --- | --- |
 | **Licensing** | AGPL-3.0 | Commercial |
-| **Static Analysis** | None | Full agentic SAST, SCA, secrets, business logic testing |
+| **Static Analysis** | Code review prompting | Full agentic SAST, SCA, secrets, business logic testing |
 | **Dynamic Testing** | Autonomous AI pentesting | Autonomous AI pentesting with static-dynamic correlation |
 | **Analysis Engine** | Code review prompting | CPG-based data flow with LLM reasoning at every node |
 | **Business Logic** | None | Automated invariant discovery, fuzzer generation, exploit synthesis |
-| **Correlation** | None | Cross-references static and dynamic findings |
 | **CI/CD Integration** | Manual / CLI | Native CI/CD, GitHub PR scanning |
 | **Deployment** | CLI | Managed cloud or self-hosted runner |
 | **Boundary Analysis** | None | Automatic service boundary detection with team routing |
