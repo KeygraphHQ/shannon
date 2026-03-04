@@ -82,7 +82,7 @@ function buildMcpServers(
       const isDocker = process.env.SHANNON_DOCKER === 'true';
 
       const mcpArgs: string[] = [
-        '@playwright/mcp@latest',
+        '@playwright/mcp@0.0.68',
         '--isolated',
         '--user-data-dir', userDataDir,
       ];
@@ -92,11 +92,18 @@ function buildMcpServers(
         mcpArgs.push('--browser', 'chromium');
       }
 
+      // Security: Only pass required env vars to MCP subprocess (not full process.env)
       const envVars: Record<string, string> = Object.fromEntries(
         Object.entries({
-          ...process.env,
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          NODE_PATH: process.env.NODE_PATH,
+          npm_config_prefix: process.env.npm_config_prefix,
           PLAYWRIGHT_HEADLESS: 'true',
-          ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
+          ...(isDocker && {
+            PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1',
+            DISPLAY: process.env.DISPLAY,
+          }),
         }).filter((entry): entry is [string, string] => entry[1] !== undefined)
       );
 
@@ -145,8 +152,8 @@ async function writeErrorLog(
     };
     const logPath = path.join(sourceDir, 'error.log');
     await fs.appendFile(logPath, JSON.stringify(errorLog) + '\n');
-  } catch {
-    // Best-effort error log writing - don't propagate failures
+  } catch (logWriteError) {
+    console.error(`Warning: Failed to write error log: ${(logWriteError as Error).message}`);
   }
 }
 

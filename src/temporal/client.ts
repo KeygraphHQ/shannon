@@ -65,6 +65,9 @@ async function terminateExistingWorkflows(
   client: Client,
   workspaceName: string
 ): Promise<string[]> {
+  if (!isValidWorkspaceName(workspaceName)) {
+    throw new Error(`Invalid workspace name: "${workspaceName}"`);
+  }
   const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
 
   if (!(await fileExists(sessionPath))) {
@@ -324,8 +327,9 @@ async function loadPipelineConfig(configPath: string | undefined): Promise<Pipel
       result.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
     }
     return result;
-  } catch {
-    // Config errors surface later in preflight. Don't block workflow start.
+  } catch (error) {
+    // Config errors surface later in preflight. Log a warning but don't block workflow start.
+    console.warn(`Warning: Could not parse pipeline config: ${(error as Error).message}`);
     return {};
   }
 }
@@ -389,15 +393,20 @@ async function waitForWorkflowResult(
   handle: WorkflowHandle<(input: PipelineInput) => Promise<PipelineState>>,
   workspace: WorkspaceResolution
 ): Promise<void> {
+  let consecutiveQueryFailures = 0;
   const progressInterval = setInterval(async () => {
     try {
       const progress = await handle.query<PipelineProgress>(PROGRESS_QUERY);
+      consecutiveQueryFailures = 0;
       const elapsed = Math.floor(progress.elapsedMs / 1000);
       console.log(
         `[${elapsed}s] Phase: ${progress.currentPhase || 'unknown'} | Agent: ${progress.currentAgent || 'none'} | Completed: ${progress.completedAgents.length}/13`
       );
     } catch {
-      // Workflow may have completed
+      consecutiveQueryFailures++;
+      if (consecutiveQueryFailures === 3) {
+        console.warn('Warning: Progress polling failing — workflow may have completed or Temporal may be unreachable');
+      }
     }
   }, 30000);
 
@@ -422,7 +431,7 @@ async function waitForWorkflowResult(
           );
           console.log(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`);
         } catch {
-          // Non-fatal, skip cumulative cost display
+          console.log('Cumulative cost: unavailable (could not read session.json)');
         }
       }
     }

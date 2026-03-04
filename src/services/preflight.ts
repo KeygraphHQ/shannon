@@ -181,7 +181,7 @@ async function validateCredentials(
         )
       );
     }
-    logger.info('Bedrock credentials OK');
+    logger.warn('Bedrock credentials present (validity not verified until first agent run)');
     return ok(undefined);
   }
 
@@ -226,7 +226,7 @@ async function validateCredentials(
         )
       );
     }
-    logger.info('Vertex AI credentials OK');
+    logger.warn('Vertex AI credentials present (validity not verified until first agent run)');
     return ok(undefined);
   }
 

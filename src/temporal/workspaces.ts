@@ -94,8 +94,12 @@ async function listWorkspaces(): Promise<void> {
         completedAt: data.session.completedAt ? new Date(data.session.completedAt) : null,
         costUsd: data.metrics.total_cost_usd,
       });
-    } catch {
-      // Skip directories without valid session.json
+    } catch (error) {
+      // Skip missing session.json (expected for non-workspace dirs),
+      // but warn about corrupted session files
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+        console.warn(`Warning: Skipping corrupted workspace "${entry}": ${(error as Error).message}`);
+      }
     }
   }
 

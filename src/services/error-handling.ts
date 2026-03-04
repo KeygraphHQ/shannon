@@ -273,8 +273,8 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
     return { type: 'InvalidTargetError', retryable: false };
   }
 
-  // === TRANSIENT ERRORS (Retryable) ===
-  // Rate limits (429), server errors (5xx), network issues
-  // Let Temporal retry with configured backoff
-  return { type: 'TransientError', retryable: true };
+  // === UNKNOWN ERRORS (Non-retryable by default) ===
+  // Fail-safe: unknown errors are not retried to avoid expensive retry loops.
+  // Explicitly classified patterns above cover all known transient cases.
+  return { type: 'UnknownError', retryable: false };
 }

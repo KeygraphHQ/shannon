@@ -321,12 +321,9 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
   const { repoPath } = input;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
-  try {
-    await assembleFinalReport(repoPath, logger);
-  } catch (error) {
-    const err = error as Error;
-    logger.warn(`Error assembling final report: ${err.message}`);
-  }
+  // Let errors propagate — failed report assembly should fail the workflow
+  // since the report is the primary deliverable
+  await assembleFinalReport(repoPath, logger);
 }
 
 /**
@@ -342,7 +339,8 @@ export async function injectReportMetadataActivity(input: ActivityInput): Promis
     await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
   } catch (error) {
     const err = error as Error;
-    logger.warn(`Error injecting model into report: ${err.message}`);
+    // Non-fatal: metadata injection is best-effort, but warn visibly
+    logger.error(`Failed to inject model metadata into report: ${err.message}`);
   }
 }
 
@@ -393,7 +391,15 @@ export async function loadResumeState(
   expectedUrl: string,
   expectedRepoPath: string
 ): Promise<ResumeState> {
-  // 1. Validate workspace exists
+  // 1. Validate workspace name format (defense-in-depth against path traversal)
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(workspaceName)) {
+    throw ApplicationFailure.nonRetryable(
+      `Invalid workspace name: "${workspaceName}"`,
+      'InvalidWorkspaceNameError'
+    );
+  }
+
+  // 2. Validate workspace exists
   const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
 
   const exists = await fileExists(sessionPath);
