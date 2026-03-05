@@ -127,7 +127,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 
   - **Goal:** Prove whether untrusted input can influence the **structure** of a backend command (SQL or Shell) or reach sensitive **slots** without the correct defense. No live exploitation in this phase.
   - **1) Create a To Do for each Injection Source found in the Pre-Recon Deliverable
-		  - inside of deliverables/pre_recon_deliverable.md under the section "7. Injection Sources (Command Injection and SQL Injection)" use the TodoWrite tool to create a task for each discovered Injection Source. 
+		  - inside of deliverables/pre_recon_deliverable.md under the section "7. Injection Sources (Command Injection and SQL Injection)" use the TodoWrite tool to create a task for each discovered Injection Source.
 		  - Note: All sources are marked as Tainted until they Hit a Santiization that matches the sink context. normalizers (lowercasing, trimming, JSON parse, schema decode) — still **tainted**.
     - **2) Trace Data Flow Paths from Source to Sink**
 		    - For each source, your goal is to identify every unique "Data Flow Path" to a database sink. A path is a distinct route the data takes through the code.
@@ -295,35 +295,35 @@ First, synthesize all of your findings into a single, detailed Markdown report l
 Your report MUST use the following structure precisely:
 
 ---
-#Injection Analysis Report (SQLi & Command Injection)
+# Injection Analysis Report (SQLi & Command Injection)
 
 ## 1. Executive Summary
 
-- **Analysis Status:** Complete  
-- **Key Outcome:** Several high-confidence SQL injection injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.  
-- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.  
+- **Analysis Status:** Complete
+- **Key Outcome:** Several high-confidence SQL injection injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.
+- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.
 
 
 ## 2. Dominant Vulnerability Patterns
 -**Description:** descirption of the pattern found in the codebase
--**Implication:** implication of the pattern 
+-**Implication:** implication of the pattern
 -**representative:** ID of a vulnerbaility that exhibits this pattern
 
 
 ## 3. Strategic Intelligence for Exploitation
 
-- **Defensive Evasion (WAF Analysis):**  
-  - A Web Application Firewall is active and blocks common payloads containing boolean logic (`' OR '1'='1`) and `UNION SELECT`.  
-  - **Critical Bypass:** The WAF failed to block **time-based blind injection** payloads (e.g., `pg_sleep()`). It also does not inspect the structure of complex, nested queries.  
-  - **Recommendation:** Start with **time-based techniques** for exploitation.  
+- **Defensive Evasion (WAF Analysis):**
+  - A Web Application Firewall is active and blocks common payloads containing boolean logic (`' OR '1'='1`) and `UNION SELECT`.
+  - **Critical Bypass:** The WAF failed to block **time-based blind injection** payloads (e.g., `pg_sleep()`). It also does not inspect the structure of complex, nested queries.
+  - **Recommendation:** Start with **time-based techniques** for exploitation.
 
-- **Error-Based Injection Potential:**  
-  - The `/api/products` endpoint returns verbose PostgreSQL error messages to the client.  
-  - **Recommendation:** This endpoint is a prime target for **error-based exploitation** to rapidly extract schema and data.  
+- **Error-Based Injection Potential:**
+  - The `/api/products` endpoint returns verbose PostgreSQL error messages to the client.
+  - **Recommendation:** This endpoint is a prime target for **error-based exploitation** to rapidly extract schema and data.
 
-- **Confirmed Database Technology:**  
-  - Database is **PostgreSQL**, confirmed via error syntax and function calls (`pg_sleep`).  
-  - All payloads should be PostgreSQL-specific.  
+- **Confirmed Database Technology:**
+  - Database is **PostgreSQL**, confirmed via error syntax and function calls (`pg_sleep`).
+  - All payloads should be PostgreSQL-specific.
 
 ## 4. Vectors Analyzed and Confirmed Secure
 
@@ -337,11 +337,11 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## 5. Analysis Constraints and Blind Spots
 
-- **Untraced Asynchronous Flows:**  
-  Analysis of a background job triggered by file uploads was inconclusive. The data flow passes through **RabbitMQ**, and static analysis could not confirm whether tainted data reaches a DB sink. This remains a blind spot.  
+- **Untraced Asynchronous Flows:**
+  Analysis of a background job triggered by file uploads was inconclusive. The data flow passes through **RabbitMQ**, and static analysis could not confirm whether tainted data reaches a DB sink. This remains a blind spot.
 
-- **Limited Visibility into Stored Procedures:**  
-  The application calls a stored procedure: `sp_calculate_report`. Source code for this procedure was not available. While inputs appear correctly typed, injection inside the procedure cannot be ruled out.  
+- **Limited Visibility into Stored Procedures:**
+  The application calls a stored procedure: `sp_calculate_report`. Source code for this procedure was not available. While inputs appear correctly typed, injection inside the procedure cannot be ruled out.
 
 ---
 
