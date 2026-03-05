@@ -44,7 +44,7 @@ services:
       - ./audit-logs:/app/audit-logs
       - ${OUTPUT_DIR:-./audit-logs}:/app/output
       - ./credentials:/app/credentials:ro
-      - ./repos:/repos
+      - ${REPO_MOUNT_SOURCE:-./repos}:${REPO_MOUNT_TARGET:-/repos}
       - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb
     ipc: host

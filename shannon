@@ -40,14 +40,14 @@ show_help() {
            AI Penetration Testing Framework
 
 Usage:
-  ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
+  ./shannon start URL=<url> REPO=<path>   Start a pentest workflow
   ./shannon workspaces                    List all workspaces
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon stop                          Stop all containers
   ./shannon help                          Show this help message
 
 Options for 'start':
-  REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
+  REPO=<path>            Repository path: folder name under ./repos/, absolute, or relative path
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
@@ -59,6 +59,8 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=/home/user/projects/my-app
+  ./shannon start URL=https://example.com REPO=../other-project/my-app
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
   ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
@@ -96,10 +98,10 @@ is_temporal_ready() {
 
 # Ensure containers are running with correct mounts
 ensure_containers() {
-  # If custom OUTPUT_DIR is set, always refresh worker to ensure correct volume mount
+  # If custom mounts are set, always refresh worker to ensure correct volume mounts
   # Docker compose will only recreate if the mount actually changed
-  if [ -n "$OUTPUT_DIR" ]; then
-    echo "Ensuring worker has correct output mount..."
+  if [ -n "$OUTPUT_DIR" ] || [ -n "$REPO_MOUNT_SOURCE" ]; then
+    echo "Ensuring worker has correct volume mounts..."
     docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d worker 2>/dev/null || true
   fi
 
@@ -138,7 +140,7 @@ cmd_start() {
   # Validate required vars
   if [ -z "$URL" ] || [ -z "$REPO" ]; then
     echo "ERROR: URL and REPO are required"
-    echo "Usage: ./shannon start URL=<url> REPO=<name>"
+    echo "Usage: ./shannon start URL=<url> REPO=<path>"
     exit 1
   fi
 
@@ -193,17 +195,36 @@ cmd_start() {
   fi
 
   # Determine container path for REPO
-  # - If REPO is already a container path (/benchmarks/*, /repos/*), use as-is
-  # - Otherwise, treat as a folder name under ./repos/ (mounted at /repos in container)
+  # Mode 1: Already a container path (/benchmarks/*, /repos/*) — use as-is
+  # Mode 2: Host filesystem path (contains / or starts with .) — resolve and mount
+  # Mode 3: Simple name — legacy behavior, folder under ./repos/
   case "$REPO" in
     /benchmarks/*|/repos/*)
+      # Container path — use as-is (e.g., internal benchmarks)
       CONTAINER_REPO="$REPO"
       ;;
+    /*|./*|../*|..|.)
+      # Absolute or relative path — resolve to absolute and mount into container
+      REPO_HOST_PATH="$(cd "$REPO" 2>/dev/null && pwd -P)" || {
+        echo "ERROR: Repository not found at $REPO"
+        echo ""
+        echo "Provide an absolute path, a relative path, or a folder name under ./repos/"
+        exit 1
+      }
+      export REPO_MOUNT_SOURCE="$REPO_HOST_PATH"
+      export REPO_MOUNT_TARGET="/target-repo"
+      CONTAINER_REPO="/target-repo"
+      ;;
     *)
+      # Simple name — legacy behavior: folder under ./repos/
+      unset REPO_MOUNT_SOURCE REPO_MOUNT_TARGET
       if [ ! -d "./repos/$REPO" ]; then
         echo "ERROR: Repository not found at ./repos/$REPO"
         echo ""
-        echo "Place your target repository under the ./repos/ directory"
+        echo "Provide a folder name under ./repos/, or use an absolute/relative path:"
+        echo "  REPO=my-repo                    (looks in ./repos/my-repo)"
+        echo "  REPO=/home/user/projects/repo   (absolute path)"
+        echo "  REPO=../other-project/repo      (relative path)"
         exit 1
       fi
       CONTAINER_REPO="/repos/$REPO"
@@ -251,7 +272,12 @@ cmd_start() {
   chmod 777 ./audit-logs
 
   # Ensure repo deliverables directory is writable by container user (UID 1001)
-  if [ -d "./repos/$REPO" ]; then
+  if [ -n "$REPO_HOST_PATH" ]; then
+    # Arbitrary path mode — use resolved host path
+    mkdir -p "$REPO_HOST_PATH/deliverables"
+    chmod 777 "$REPO_HOST_PATH/deliverables"
+  elif [ -d "./repos/$REPO" ]; then
+    # Legacy mode — folder under ./repos/
     mkdir -p "./repos/$REPO/deliverables"
     chmod 777 "./repos/$REPO/deliverables"
   fi
