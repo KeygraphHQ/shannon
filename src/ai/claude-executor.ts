@@ -224,28 +224,34 @@ export async function runClaudePrompt(
   const mcpServers = buildMcpServers(sourceDir, agentName, logger);
 
   // 4. Build env vars to pass to SDK subprocesses
+  // Start with the full parent environment so the subprocess has PATH, HOME,
+  // and other vars the AWS SDK credential chain needs to function.
   const sdkEnv: Record<string, string> = {
+    ...Object.fromEntries(
+      Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] != null)
+    ),
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
-  const passthroughVars = [
-    'ANTHROPIC_API_KEY',
-    'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_AUTH_TOKEN',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'AWS_REGION',
-    'AWS_BEARER_TOKEN_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'CLOUD_ML_REGION',
-    'ANTHROPIC_VERTEX_PROJECT_ID',
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    'ANTHROPIC_SMALL_MODEL',
-    'ANTHROPIC_MEDIUM_MODEL',
-    'ANTHROPIC_LARGE_MODEL',
-  ];
-  for (const name of passthroughVars) {
-    if (process.env[name]) {
-      sdkEnv[name] = process.env[name]!;
+
+  // When using Bedrock with IAM/SSO credentials, remove empty auth vars
+  // that would cause Claude Code to attempt the wrong auth method.
+  // - Empty ANTHROPIC_API_KEY → Claude Code tries API-key auth with blank key
+  // - Empty AWS_BEARER_TOKEN_BEDROCK → tries bearer-token auth with blank token
+  // - AWS_PROFILE → tries profile-based auth without ~/.aws/config
+  // - Empty CLAUDE_CODE_OAUTH_TOKEN → may interfere with provider selection
+  if (sdkEnv.CLAUDE_CODE_USE_BEDROCK === '1' && sdkEnv.AWS_ACCESS_KEY_ID) {
+    const authVarsToClean = [
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+      'ANTHROPIC_BASE_URL',
+      'AWS_BEARER_TOKEN_BEDROCK',
+      'AWS_PROFILE',
+      'CLAUDE_CODE_OAUTH_TOKEN',
+      'CLAUDE_CODE_USE_VERTEX',
+      'ANTHROPIC_VERTEX_PROJECT_ID',
+    ];
+    for (const key of authVarsToClean) {
+      if (!sdkEnv[key]) delete sdkEnv[key];
     }
   }
 
