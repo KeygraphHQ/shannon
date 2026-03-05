@@ -300,14 +300,15 @@ Your report MUST use the following structure precisely:
 ## 1. Executive Summary
 
 - **Analysis Status:** Complete
-- **Key Outcome:** Several high-confidence SQL injection injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.
+- **Key Outcome:** Several high-confidence SQL injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.
 - **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.
 
 
 ## 2. Dominant Vulnerability Patterns
-- **Description:** descirption of the pattern found in the codebase
+
+- **Description:** description of the pattern found in the codebase
 - **Implication:** implication of the pattern
-- **representative:** ID of a vulnerbaility that exhibits this pattern
+- **Representative:** ID of a vulnerability that exhibits this pattern
 
 
 ## 3. Strategic Intelligence for Exploitation
