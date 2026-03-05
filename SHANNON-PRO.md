@@ -30,7 +30,7 @@ The static analysis stage performs comprehensive code-level security assessment 
 
 ## SAST: Data Flow Analysis
 
-Shannon Pro transforms the target codebase into a Code Property Graph (CPG) that combines the abstract syntax tree, control flow graph, and program dependence graph into a unified structure. Nodes represent AST elements (expressions, statements, declarations) and edges capture AST relationships, control flow, and data dependence. The analysis proceeds in three phases.
+Shannon Pro transforms the target codebase into a Code Property Graph (CPG) that combines the abstract syntax tree, control flow graph, and program dependence graph into a unified structure. Nodes represent program constructs (such as expressions, statements, and declarations), and edges capture syntactic, control-flow, and data-dependence relationships. The analysis proceeds in three phases.
 
 ### Phase 1: Source and Sink Extraction
 
@@ -74,9 +74,9 @@ Shannon Pro's business logic security testing operates in four phases:
 
 **Phase 2: Fuzzer Generation.** For each discovered invariant, a second agent generates a targeted fuzzer: a test scenario designed to violate the invariant. These are not random inputs. The agent reads the code, understands the expected authorization checks (or lack thereof), and constructs specific adversarial scenarios. For an authorization invariant, the fuzzer might construct a request where a user from one organization references a resource belonging to another organization. For a state machine invariant, it might craft a sequence of API calls that skips a required approval step.
 
-**Phase 3: Violation Detection.** The generated fuzzers are executed against the codebase (statically, through code path analysis, or dynamically when correlated with the pentest pipeline). When a fuzzer succeeds, meaning the invariant does not hold, the system has identified a confirmed business logic vulnerability. The agent traces the violation back to the specific code location where the missing check or flawed logic exists.
+**Phase 3: Violation Detection.** The generated fuzzers are executed against a stubbed test environment that replicates the application's business logic with mocked dependencies. When a fuzzer succeeds, meaning the invariant does not hold, the system has identified a confirmed business logic vulnerability. The agent traces the violation back to the specific code location where the missing check or flawed logic exists.
 
-**Phase 4: Exploit Synthesis.** For every confirmed violation, the system produces a full proof-of-concept exploit with step-by-step reproduction instructions, the specific API calls or user actions required, the observed versus expected behavior, and the security impact. When correlated with the dynamic testing pipeline, these exploits are validated against the running application to confirm real-world exploitability.
+**Phase 4: Exploit Synthesis.** For every confirmed violation, the system produces a full proof-of-concept exploit with step-by-step reproduction instructions, the specific API calls or user actions required, the observed versus expected behavior, and the security impact.
 
 ### Real-World Example: Cross-Tenant Data Access (CWE-639)
 
@@ -84,7 +84,7 @@ In a production multi-tenant platform, Shannon Pro's business logic security tes
 
 **Invariant discovered:** Document access must verify that the document belongs to the requesting user's organization.
 
-**Fuzzer generated:** The agent identified that the `GetDocument` endpoint in `document_handler.go` retrieves documents by ID from the database but never validates that the document's `organization_id` matches the authenticated user's `organization_id` before returning the response.
+**Fuzzer generated:** The agent extracted the `GetDocument` handler logic into a stubbed test environment, mocking the database layer to return documents with known organization IDs. The fuzzer generated combinations of requesting user organizations and document owner organizations, testing whether the handler enforces organizational boundaries.
 
 **Violation confirmed:** An attacker from Organization B can access documents belonging to Organization A by calling the `GetDocument` endpoint with the victim's document ID, without any authorization check preventing cross-organization access.
 
@@ -241,7 +241,7 @@ Shannon is offered in two editions to serve different operational needs:
 | **Integration** | Manual / CLI | Native CI/CD, GitHub PR scanning, enterprise support, self-hosted runner |
 | **Deployment** | CLI / manual | Managed cloud or self-hosted runner (customer data plane, Keygraph control plane) |
 | **Boundary Analysis** | N/A | Automatic service boundary detection with team routing |
-| **Best For** | Independent research and testing | Enterprise application security posture management |
+| **Best For** | Local testing of own applications | Enterprise application security posture management |
 
 ---
 

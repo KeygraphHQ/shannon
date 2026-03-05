@@ -1,5 +1,5 @@
 >[!NOTE]
-> **[📢 New: AWS Bedrock, Google Vertex AI support now available →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
+> **[📢 New: Claude models on AWS Bedrock and Google Vertex AI now supported. →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
 
 <div align="center">
 
@@ -14,7 +14,7 @@ It analyzes your source code, identifies attack vectors, and executes real explo
 
 ---
 
-[Keygraph Website](https://keygraph.io) • [Documentation](https://docs.keygraph.io) • [Announcements](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements) • [Discord](https://discord.gg/KAqzSHHpRt)
+[Keygraph Website](https://keygraph.io) • [Announcements](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements) • [Discord](https://discord.gg/KAqzSHHpRt)
 
 ---
 </div>
@@ -59,7 +59,7 @@ Shannon is developed by [Keygraph](https://keygraph.io) and available in two edi
 
 | Edition | License | Best For |
 |---------|---------|----------|
-| **Shannon Lite** | AGPL-3.0 | Security teams, independent researchers, testing your own applications. |
+| **Shannon Lite** | AGPL-3.0 | Local testing of your own applications. |
 | **Shannon Pro** | Commercial | Organizations needing a single AppSec platform (SAST, SCA, secrets, business logic testing, autonomous pentesting) with CI/CD integration and self-hosted deployment. |
 
 > **This repository contains Shannon Lite,** the core autonomous AI pentesting framework. **Shannon Pro** is Keygraph's all-in-one AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous AI pentesting in a single correlated workflow. Every finding is validated with a working proof-of-concept exploit.
@@ -88,7 +88,7 @@ The same multi-agent pentest pipeline as Shannon Lite (reconnaissance, parallel 
 
 **Static-Dynamic Correlation**
 
-This is the core differentiator. A data flow vulnerability identified in static analysis (e.g., unsanitized input reaching a SQL query) is not reported as a theoretical risk. It is fed to the corresponding exploit agent, which attempts to exploit it against the live application. A business logic invariant violation (e.g., missing cross-tenant authorization) is routed to the Authz agent for runtime confirmation. Confirmed exploits are traced back to the exact source code location, giving developers both proof of exploitability and the line of code to fix.
+This is the core differentiator. A data flow vulnerability identified in static analysis (e.g., unsanitized input reaching a SQL query) is not reported as a theoretical risk. It is fed to the corresponding exploit agent, which attempts to exploit it against the live application. Confirmed exploits are traced back to the exact source code location, giving developers both proof of exploitability and the line of code to fix.
 
 **Deployment Model**
 
