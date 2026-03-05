@@ -59,7 +59,7 @@ Shannon is developed by [Keygraph](https://keygraph.io) and available in two edi
 
 | Edition | License | Best For |
 |---------|---------|----------|
-| **Shannon Lite** | AGPL-3.0 | Local test testing of your own applications. |
+| **Shannon Lite** | AGPL-3.0 | Local testing of your own applications. |
 | **Shannon Pro** | Commercial | Organizations needing a single AppSec platform (SAST, SCA, secrets, business logic testing, autonomous pentesting) with CI/CD integration and self-hosted deployment. |
 
 > **This repository contains Shannon Lite,** the core autonomous AI pentesting framework. **Shannon Pro** is Keygraph's all-in-one AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous AI pentesting in a single correlated workflow. Every finding is validated with a working proof-of-concept exploit.
