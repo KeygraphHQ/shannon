@@ -13,8 +13,9 @@ Shannon is an autonomous, white-box AI pentester for web applications and APIs. 
 It analyzes your source code, identifies attack vectors, and executes real exploits to prove vulnerabilities before they reach production.
 
 ---
-
-[Keygraph Website](https://keygraph.io) • [Announcements](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements) • [Discord](https://discord.gg/KAqzSHHpRt)
+<a href="[https://discord.gg/9ZqQPuhJB7](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)"><img src="./assets/announcements.png" height="40" alt="Announcements"></a>
+<a href="https://discord.gg/9ZqQPuhJB7"><img src="./assets/discord.png" height="40" alt="Join Discord"></a>
+<a href="https://www.linkedin.com/company/keygraph/"><img src=“linkedin.png" height="40" alt="Follow on Linkedin"></a>
 
 ---
 </div>
