@@ -25,6 +25,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import dotenv from 'dotenv';
 import * as activities from './activities.js';
+import { shutdownCopilotClient } from '../ai/copilot-executor.js';
 
 dotenv.config();
 
@@ -67,6 +68,7 @@ async function runWorker(): Promise<void> {
   try {
     await worker.run();
   } finally {
+    await shutdownCopilotClient();
     await connection.close();
     console.log('Worker stopped');
   }

@@ -41,6 +41,8 @@ show_help() {
 
 Usage:
   ./shannon start URL=<url> REPO=<name>   Start a pentest workflow
+  ./shannon login                         Authenticate with GitHub Copilot
+  ./shannon models                        List available Copilot models
   ./shannon workspaces                    List all workspaces
   ./shannon logs ID=<workflow-id>         Tail logs for a specific workflow
   ./shannon stop                          Stop all containers
@@ -144,7 +146,17 @@ cmd_start() {
 
   # Check for API key (Bedrock and router modes can bypass this)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
+    if [ -n "$GITHUB_TOKEN" ] || [ -n "$GH_TOKEN" ] || [ -n "$COPILOT_GITHUB_TOKEN" ] || [ "$COPILOT_PROVIDER" = "true" ]; then
+      # GitHub Copilot mode — validate token is present
+      if [ -z "$GITHUB_TOKEN" ] && [ -z "$GH_TOKEN" ] && [ -z "$COPILOT_GITHUB_TOKEN" ]; then
+        echo "ERROR: Copilot mode requires a GitHub token."
+        echo "       Set GITHUB_TOKEN, GH_TOKEN, or COPILOT_GITHUB_TOKEN in .env"
+        exit 1
+      fi
+      export COPILOT_PROVIDER=true
+      # Set a placeholder so SDK init doesn't fail on missing ANTHROPIC_API_KEY
+      export ANTHROPIC_API_KEY="copilot-mode"
+    elif [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
       # Bedrock mode — validate required AWS credentials
       MISSING=""
       [ -z "$AWS_REGION" ] && MISSING="$MISSING AWS_REGION"
@@ -185,7 +197,8 @@ cmd_start() {
       export ANTHROPIC_API_KEY="router-mode"
     else
       echo "ERROR: Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env"
-      echo "       (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock,"
+      echo "       (or use GITHUB_TOKEN for Copilot mode,"
+      echo "        CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock,"
       echo "        CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI,"
       echo "        or ROUTER=true with OPENAI_API_KEY or OPENROUTER_API_KEY)"
       exit 1
@@ -351,11 +364,211 @@ cmd_stop() {
   fi
 }
 
+cmd_login() {
+  echo ""
+  echo "  GitHub Copilot Login"
+  echo "  ===================="
+  echo ""
+  echo "  Shannon can use GitHub Copilot to access AI models (Claude, GPT, Gemini)"
+  echo "  without needing a separate Anthropic API key."
+  echo ""
+
+  # Check if already configured
+  if [ -f .env ]; then
+    set -a; source .env 2>/dev/null; set +a
+    EXISTING_TOKEN="${COPILOT_GITHUB_TOKEN:-${GH_TOKEN:-${GITHUB_TOKEN:-}}}"
+    if [ -n "$EXISTING_TOKEN" ] && [ "$EXISTING_TOKEN" != "ghp_your-github-token-here" ]; then
+      echo "  A GitHub token is already configured in .env"
+      printf "  Do you want to replace it? [y/N] "
+      read -r REPLACE
+      if [ "$REPLACE" != "y" ] && [ "$REPLACE" != "Y" ]; then
+        echo "  Keeping existing token."
+        return 0
+      fi
+    fi
+  fi
+
+  # Method 1: gh CLI (preferred)
+  if command -v gh &>/dev/null; then
+    echo "  Found GitHub CLI (gh). Logging in..."
+    echo ""
+
+    # Check if already authenticated
+    if gh auth status &>/dev/null; then
+      echo "  Already authenticated with GitHub CLI."
+      printf "  Re-authenticate with Copilot scope? [Y/n] "
+      read -r REAUTH
+      if [ "$REAUTH" = "n" ] || [ "$REAUTH" = "N" ]; then
+        # Just extract existing token
+        TOKEN=$(gh auth token 2>/dev/null)
+        if [ -n "$TOKEN" ]; then
+          save_github_token "$TOKEN"
+          return 0
+        fi
+      fi
+    fi
+
+    # Login with copilot scope
+    echo "  This will open a browser for GitHub authentication."
+    echo ""
+    if gh auth login --scopes "copilot" --web; then
+      TOKEN=$(gh auth token 2>/dev/null)
+      if [ -n "$TOKEN" ]; then
+        save_github_token "$TOKEN"
+        echo ""
+        echo "  Login successful! You can now run:"
+        echo "    ./shannon start URL=<url> REPO=<name>"
+        return 0
+      else
+        echo "  ERROR: Login succeeded but could not extract token."
+        echo "  Run 'gh auth token' manually and add GITHUB_TOKEN to .env"
+        return 1
+      fi
+    else
+      echo ""
+      echo "  gh auth login failed. Falling back to manual method..."
+      echo ""
+    fi
+  fi
+
+  # Method 2: Manual PAT creation
+  echo "  No GitHub CLI found (or login failed). Create a token manually:"
+  echo ""
+  echo "  1. Go to: https://github.com/settings/tokens?type=beta"
+  echo "  2. Click 'Generate new token'"
+  echo "  3. Give it a name (e.g. 'Shannon Pentest')"
+  echo "  4. Under 'Permissions', enable 'Copilot' access"
+  echo "  5. Click 'Generate token' and copy the token"
+  echo ""
+  echo "  Or for a classic token:"
+  echo "  1. Go to: https://github.com/settings/tokens/new"
+  echo "  2. Give it a name, set expiration"
+  echo "  3. Check the 'copilot' scope"
+  echo "  4. Click 'Generate token' and copy it"
+  echo ""
+  printf "  Paste your GitHub token (input hidden): "
+  read -rs TOKEN
+  echo ""
+
+  if [ -z "$TOKEN" ]; then
+    echo "  ERROR: No token provided."
+    return 1
+  fi
+
+  # Basic token format validation
+  case "$TOKEN" in
+    ghp_*|gho_*|ghu_*|ghs_*|ghr_*|github_pat_*)
+      ;;
+    *)
+      echo "  WARNING: Token doesn't match expected GitHub token format (ghp_*, github_pat_*, etc.)"
+      printf "  Continue anyway? [y/N] "
+      read -r CONTINUE
+      if [ "$CONTINUE" != "y" ] && [ "$CONTINUE" != "Y" ]; then
+        echo "  Aborted."
+        return 1
+      fi
+      ;;
+  esac
+
+  save_github_token "$TOKEN"
+  echo ""
+  echo "  Token saved! You can now run:"
+  echo "    ./shannon start URL=<url> REPO=<name>"
+}
+
+save_github_token() {
+  local TOKEN="$1"
+
+  # Create .env if it doesn't exist
+  if [ ! -f .env ]; then
+    cp .env.example .env 2>/dev/null || touch .env
+  fi
+
+  # Update or add GITHUB_TOKEN in .env
+  if grep -q '^GITHUB_TOKEN=' .env 2>/dev/null; then
+    # Replace existing line (portable sed)
+    sed -i.bak "s|^GITHUB_TOKEN=.*|GITHUB_TOKEN=$TOKEN|" .env && rm -f .env.bak
+  elif grep -q '^# GITHUB_TOKEN=' .env 2>/dev/null; then
+    # Uncomment and set
+    sed -i.bak "s|^# GITHUB_TOKEN=.*|GITHUB_TOKEN=$TOKEN|" .env && rm -f .env.bak
+  else
+    # Append
+    echo "" >> .env
+    echo "GITHUB_TOKEN=$TOKEN" >> .env
+  fi
+
+  # Enable Copilot provider
+  if grep -q '^COPILOT_PROVIDER=' .env 2>/dev/null; then
+    sed -i.bak 's|^COPILOT_PROVIDER=.*|COPILOT_PROVIDER=true|' .env && rm -f .env.bak
+  elif grep -q '^# COPILOT_PROVIDER=' .env 2>/dev/null; then
+    sed -i.bak 's|^# COPILOT_PROVIDER=.*|COPILOT_PROVIDER=true|' .env && rm -f .env.bak
+  else
+    echo "COPILOT_PROVIDER=true" >> .env
+  fi
+
+  # Comment out ANTHROPIC_API_KEY placeholder if it's still the default
+  if grep -q '^ANTHROPIC_API_KEY=your-api-key-here' .env 2>/dev/null; then
+    sed -i.bak 's|^ANTHROPIC_API_KEY=your-api-key-here|# ANTHROPIC_API_KEY=your-api-key-here|' .env && rm -f .env.bak
+  fi
+
+  echo "  Saved GITHUB_TOKEN to .env and enabled COPILOT_PROVIDER=true"
+}
+
+cmd_models() {
+  echo ""
+  echo "  Available Copilot Models"
+  echo "  ========================"
+  echo ""
+  echo "  Claude Models:"
+  echo "    claude-haiku-4.5          Claude Haiku 4.5 (fast, small tasks)"
+  echo "    claude-sonnet-4           Claude Sonnet 4"
+  echo "    claude-sonnet-4.5         Claude Sonnet 4.5"
+  echo "    claude-sonnet-4.6         Claude Sonnet 4.6 (default medium)"
+  echo "    claude-opus-41            Claude Opus 4.1"
+  echo "    claude-opus-4.5           Claude Opus 4.5"
+  echo "    claude-opus-4.6           Claude Opus 4.6 (default large)"
+  echo ""
+  echo "  GPT Models:"
+  echo "    gpt-4o                    GPT-4o"
+  echo "    gpt-4.1                   GPT-4.1"
+  echo "    gpt-5                     GPT-5"
+  echo "    gpt-5-mini                GPT-5 Mini"
+  echo "    gpt-5.1                   GPT-5.1"
+  echo "    gpt-5.1-codex             GPT-5.1 Codex"
+  echo "    gpt-5.1-codex-max         GPT-5.1 Codex Max"
+  echo "    gpt-5.1-codex-mini        GPT-5.1 Codex Mini"
+  echo "    gpt-5.2                   GPT-5.2"
+  echo "    gpt-5.2-codex             GPT-5.2 Codex"
+  echo ""
+  echo "  Gemini Models:"
+  echo "    gemini-2.5-pro            Gemini 2.5 Pro"
+  echo "    gemini-3-flash-preview    Gemini 3 Flash"
+  echo "    gemini-3-pro-preview      Gemini 3 Pro Preview"
+  echo "    gemini-3.1-pro-preview    Gemini 3.1 Pro Preview"
+  echo ""
+  echo "  Other Models:"
+  echo "    grok-code-fast-1          Grok Code Fast 1"
+  echo ""
+  echo "  Override in .env:"
+  echo "    COPILOT_SMALL_MODEL=claude-haiku-4.5"
+  echo "    COPILOT_MEDIUM_MODEL=claude-sonnet-4.6"
+  echo "    COPILOT_LARGE_MODEL=claude-opus-4.6"
+  echo ""
+}
+
 # Main command dispatch
 case "${1:-help}" in
   start)
     shift
     cmd_start "$@"
+    ;;
+  login)
+    shift
+    cmd_login "$@"
+    ;;
+  models)
+    shift
+    cmd_models "$@"
     ;;
   logs)
     shift

@@ -129,6 +129,9 @@ RUN npm prune --production && \
 
 RUN npm install -g @anthropic-ai/claude-code
 
+# Install GitHub Copilot CLI (required by @github/copilot-sdk for Copilot provider mode)
+RUN npm install -g @github/copilot 2>/dev/null || true
+
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
