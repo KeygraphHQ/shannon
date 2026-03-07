@@ -82,7 +82,7 @@ function buildMcpServers(
       const isDocker = process.env.SHANNON_DOCKER === 'true';
 
       const mcpArgs: string[] = [
-        '@playwright/mcp@latest',
+        '@playwright/mcp@0.0.68',
         '--isolated',
         '--user-data-dir', userDataDir,
       ];
@@ -92,13 +92,29 @@ function buildMcpServers(
         mcpArgs.push('--browser', 'chromium');
       }
 
-      const envVars: Record<string, string> = Object.fromEntries(
-        Object.entries({
-          ...process.env,
-          PLAYWRIGHT_HEADLESS: 'true',
-          ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
-        }).filter((entry): entry is [string, string] => entry[1] !== undefined)
-      );
+      // NOTE: Explicit allowlist — the Playwright MCP subprocess must not inherit
+      // secrets (API keys, AWS tokens) from the parent process.
+      const MCP_ENV_ALLOWLIST = [
+        'PATH', 'HOME', 'NODE_PATH', 'DISPLAY',
+        'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH',
+      ] as const;
+
+      const envVars: Record<string, string> = {
+        PLAYWRIGHT_HEADLESS: 'true',
+        ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
+      };
+
+      for (const key of MCP_ENV_ALLOWLIST) {
+        if (process.env[key]) {
+          envVars[key] = process.env[key]!;
+        }
+      }
+
+      for (const [key, value] of Object.entries(process.env)) {
+        if (key.startsWith('XDG_') && value !== undefined) {
+          envVars[key] = value;
+        }
+      }
 
       mcpServers[playwrightMcpName] = {
         type: 'stdio' as const,
