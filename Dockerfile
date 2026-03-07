@@ -130,9 +130,9 @@ RUN npm prune --production && \
 RUN npm install -g @anthropic-ai/claude-code
 
 # Create directories for session data and ensure proper permissions
-RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
+RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs /target-repo && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
-    chmod 777 /app && \
+    chmod 777 /app /target-repo && \
     chmod 777 /tmp/.cache && \
     chmod 777 /tmp/.config && \
     chmod 777 /tmp/.npm && \
