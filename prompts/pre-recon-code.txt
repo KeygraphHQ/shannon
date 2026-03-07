@@ -229,11 +229,11 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
   - **Configuration Security:** Environment separation and secret handling **Specifically search for infrastructure configuration (e.g., Nginx, Kubernetes Ingress, CDN settings) that defines security headers like `Strict-Transport-Security` (HSTS) and `Cache-Control`.**
   - **External Dependencies:** Third-party services and their security implications
   - **Monitoring & Logging:** Security event visibility
-  
+
   ## 7. Overall Codebase Indexing
-  - Provide a detailed, multi-sentence paragraph describing the codebase's directory structure, organization, and any significant tools or 
+  - Provide a detailed, multi-sentence paragraph describing the codebase's directory structure, organization, and any significant tools or
     conventions used (e.g., build orchestration, code generation, testing frameworks). Focus on how this structure impacts discoverability of security-relevant components.
-    
+
    ## 8. Critical File Paths
 		- List all the specific file paths referenced in the analysis above in a simple bulleted list. This list is for the next agent to use as a starting point.
 	  - List all the specific file paths referenced in your analysis, categorized by their security relevance. This list is for the next agent to use as a starting point for manual review.
@@ -245,8 +245,8 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 	  - **Sensitive Data & Secrets Handling:** [e.g., `internal/utils/encryption.go`, `internal/secrets/manager.go`]
 	  - **Middleware & Input Validation:** [e.g., `internal/middleware/validator.go`, `internal/handlers/input_parsers.go`]
 	  - **Logging & Monitoring:** [e.g., `internal/logging/logger.go`, `config/monitoring.yaml`]
-	  - **Infrastructure & Deployment:** [e.g., `infra/pulumi/main.go`, `kubernetes/deploy.yaml`, `nginx.conf`, `gateway-ingress.yaml`]  
-	 
+	  - **Infrastructure & Deployment:** [e.g., `infra/pulumi/main.go`, `kubernetes/deploy.yaml`, `nginx.conf`, `gateway-ingress.yaml`]
+
 	 ## 9. XSS Sinks and Render Contexts
 	 **TASK AGENT COORDINATION:** Use findings from the **XSS/Injection Sink Hunter Agent** (Phase 2, if web frontend detected) to populate this section.
 
@@ -298,84 +298,84 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
   - **SSRF Sink:** Any server-side request that incorporates user-controlled data (partially or fully)
   - **Purpose:** Identify all outbound HTTP requests, URL fetchers, and network connections that could be manipulated to force the server to make requests to unintended destinations
   - **Critical Requirements:** For each sink found, provide the exact file path and code location
-  
+
   ### HTTP(S) Clients
   - `curl`, `requests` (Python), `axios` (Node.js), `fetch` (JavaScript/Node.js)
   - `net/http` (Go), `HttpClient` (Java/.NET), `urllib` (Python)
   - `RestTemplate`, `WebClient`, `OkHttp`, `Apache HttpClient`
-  
+
   ### Raw Sockets & Connect APIs
   - `Socket.connect`, `net.Dial` (Go), `socket.connect` (Python)
   - `TcpClient`, `UdpClient`, `NetworkStream`
   - `java.net.Socket`, `java.net.URL.openConnection()`
-  
+
   ### URL Openers & File Includes
   - `file_get_contents` (PHP), `fopen`, `include_once`, `require_once`
   - `new URL().openStream()` (Java), `urllib.urlopen` (Python)
   - `fs.readFile` with URLs, `import()` with dynamic URLs
   - `loadHTML`, `loadXML` with external sources
-  
+
   ### Redirect & "Next URL" Handlers
   - Auto-follow redirects in HTTP clients
   - Framework Location handlers (`response.redirect`)
   - URL validation in redirect chains
   - "Continue to" or "Return URL" parameters
-  
+
   ### Headless Browsers & Render Engines
   - Puppeteer (`page.goto`, `page.setContent`)
   - Playwright (`page.navigate`, `page.route`)
   - Selenium WebDriver navigation
   - html-to-pdf converters (wkhtmltopdf, Puppeteer PDF)
   - Server-Side Rendering (SSR) with external content
-  
+
   ### Media Processors
   - ImageMagick (`convert`, `identify` with URLs)
   - GraphicsMagick, FFmpeg with network sources
   - wkhtmltopdf, Ghostscript with URL inputs
   - Image optimization services with URL parameters
-  
+
   ### Link Preview & Unfurlers
   - Chat application link expanders
   - CMS link preview generators
   - oEmbed endpoint fetchers
   - Social media card generators
   - URL metadata extractors
-  
+
   ### Webhook Testers & Callback Verifiers
   - "Ping my webhook" functionality
   - Outbound callback verification
   - Health check notifications
   - Event delivery confirmations
   - API endpoint validation tools
-  
+
   ### SSO/OIDC Discovery & JWKS Fetchers
   - OpenID Connect discovery endpoints
   - JWKS (JSON Web Key Set) fetchers
   - OAuth authorization server metadata
   - SAML metadata fetchers
   - Federation metadata retrievers
-  
+
   ### Importers & Data Loaders
   - "Import from URL" functionality
   - CSV/JSON/XML remote loaders
   - RSS/Atom feed readers
   - API data synchronization
   - Configuration file fetchers
-  
+
   ### Package/Plugin/Theme Installers
   - "Install from URL" features
   - Package managers with remote sources
   - Plugin/theme downloaders
   - Update mechanisms with remote checks
   - Dependency resolution with external repos
-  
+
   ### Monitoring & Health Check Frameworks
   - URL pingers and uptime checkers
   - Health check endpoints
   - Monitoring probe systems
   - Alerting webhook senders
   - Performance testing tools
-  
+
   ### Cloud Metadata Helpers
   - AWS/GCP/Azure instance metadata callers
   - Cloud service discovery mechanisms

@@ -137,7 +137,7 @@ From `deliverables/pre_recon_deliverable.md`, use Section 10 (SSRF Sinks) to gui
 - Verify protection against DNS rebinding attacks and localhost access.
 **If failed → classify:** `service_discovery` → **suggested attack:** internal_service_access / cloud_metadata_retrieval.
 
-## 4) Port Restriction and Service Access Controls  
+## 4) Port Restriction and Service Access Controls
 - Verify that only approved ports are accessible (typically 80, 443, sometimes 8080, 8443).
 - Check for restrictions on accessing common internal service ports (22, 23, 25, 53, 135, 445, 993, 995, etc.).
 - Validate that cloud metadata endpoints are specifically blocked (169.254.169.254, metadata.google.internal, etc.).
@@ -180,9 +180,9 @@ Use the TodoWrite tool to create a task for each discovered sink (any server-sid
 For each sink, trace the origin of its data variable backward through the application logic. Your job is to find either a valid sanitizer or a source.
 
 - **Sanitization Check (Early Termination):**
-    
+
     When you hit a sanitizer, apply two checks:
-    
+
     1. **Context Match:** Does it actually mitigate SSRF for this sink?
         - HTTP(S) client → scheme + host/domain allowlist + CIDR/IP checks.
         - Raw sockets → port allowlist + CIDR/IP checks.
@@ -190,9 +190,9 @@ For each sink, trace the origin of its data variable backward through the applic
         - Webhook testers/callbacks → per-tenant/domain allowlists.
         - OIDC/JWKS fetchers → issuer/domain allowlist + HTTPS enforcement.
     2. **Mutation Check:** Any concatenations, redirects, or protocol swaps after sanitization but before sink?
-    
+
     If sanitization is valid **and** no unsafe mutations exist, terminate this path as **SAFE**.
-    
+
 - **Path Forking:** If a sink variable can be populated from multiple branches, trace each branch independently.
 - **Track Mutations:** Record concatenations, redirect logic, or transformations. Any mutation **after sanitization** invalidates protections.
 - **Source Check (Termination):**
@@ -262,7 +262,7 @@ Your report MUST use the following structure precisely:
 
 ## 2. Dominant Vulnerability Patterns
 
-### Pattern 1: Insufficient URL Validation  
+### Pattern 1: Insufficient URL Validation
 - **Description:** A recurring and critical pattern was observed where user-supplied URLs are not properly validated before being used in outbound HTTP requests.
 - **Implication:** Attackers can force the server to make requests to internal services, cloud metadata endpoints, or arbitrary external resources.
 - **Representative Findings:** `SSRF-VULN-01`, `SSRF-VULN-02`.

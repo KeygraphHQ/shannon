@@ -154,7 +154,7 @@ This reconnaissance report provides a comprehensive map of the application's att
 
 **How to Use the Network Mapping (Section 6):** The entity/flow mapping shows system boundaries and data sensitivity levels. Pay special attention to flows marked with authorization guards and entities handling PII/sensitive data.
 
-**Priority Order for Testing:** Start with Section 8's High-priority horizontal candidates, then vertical escalation endpoints for each role level, finally context-based workflow bypasses. 
+**Priority Order for Testing:** Start with Section 8's High-priority horizontal candidates, then vertical escalation endpoints for each role level, finally context-based workflow bypasses.
 
 ## 1. Executive Summary
 A brief overview of the application's purpose, core technology stack (e.g., Next.js, Cloudflare), and the primary user-facing components that constitute the attack surface.
@@ -209,7 +209,7 @@ A table of all discovered network-accessible API endpoints with authorization de
 **Network Surface Focus:** Only report input vectors that are accessible through the target web application's network interface. Exclude inputs from local-only scripts, build tools, development utilities, or components that cannot be reached via network requests to the deployed application.
 
 This is the most important section for the next phase. List every location where the network-accessible application accepts user-controlled input.
-Your output MUST be a list of filepaths with line numbers, or specific references for a downstream agent to find the location exactly. 
+Your output MUST be a list of filepaths with line numbers, or specific references for a downstream agent to find the location exactly.
 - **URL Parameters:** [e.g., `?redirect_url=`, `?user_id=`]
 - **POST Body Fields (JSON/Form):** [e.g., `username`, `password`, `search_query`, `profile.description`]
 - **HTTP Headers:** [e.g., `X-Forwarded-For` if used by the app, custom headers]

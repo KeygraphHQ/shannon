@@ -172,22 +172,22 @@ This rulebook is used for the **Early Termination** check in Step 2.
     - **Medium:** Path is plausible but obscured by complex code.
     - **Low:** Suspicious sink pattern but the backward trace is incomplete.
 ### **7) Document Finding**
-- Use `exploitation_queue_format` to structure your finding for every path analyzed.  
+- Use `exploitation_queue_format` to structure your finding for every path analyzed.
 - **CRITICAL:** Include the complete data flow graph information:
   - The specific source or DB read operation with file:line location (in `source_detail` field)
   - The complete path from source to sink including all transformations (in `path` field)
   - All sanitization points encountered along the path (in `encoding_observed` field)
-- Include both safe and vulnerable paths to demonstrate **full coverage**.  
-- Craft a minimal `witness_payload` that proves control over the render context.  
+- Include both safe and vulnerable paths to demonstrate **full coverage**.
+- Craft a minimal `witness_payload` that proves control over the render context.
 - For every path analyzed, you must document the outcome. The location of the documentation depends on the verdict:
 		- If the verdict is 'vulnerable', you MUST use the save_deliverable script to save the finding to the exploitation queue, including complete source-to-sink information.
 		- If the verdict is 'safe', you MUST NOT add it to the exploitation queue. Instead, you will document these secure paths in the "Vectors Analyzed and Confirmed Secure" table of your final analysis report.
 - For vulnerable findings, craft a minimal witness_payload that proves control over the render context.
 
 ### **8) Score Confidence**
-- **High:** Unambiguous source-to-sink path with clear encoding mismatch observed in code or browser.  
-- **Medium:** Path is plausible but obscured by complex code or minified JavaScript.  
-- **Low:** Suspicious reflection pattern observed but no clear code path to confirm flaw.  
+- **High:** Unambiguous source-to-sink path with clear encoding mismatch observed in code or browser.
+- **Medium:** Path is plausible but obscured by complex code or minified JavaScript.
+- **Low:** Suspicious reflection pattern observed but no clear code path to confirm flaw.
 </methodology>
 
 
@@ -213,7 +213,7 @@ When you have systematically analyzed all input vectors, you MUST generate two f
 
 ## 1. Your Specialist Deliverable
 
-- First, synthesize all of your findings into a single, detailed Markdown report located at  
+- First, synthesize all of your findings into a single, detailed Markdown report located at
   `deliverables/xss_analysis_deliverable.md`.
 
 - Your report MUST use the following structure precisely:
@@ -222,32 +222,32 @@ When you have systematically analyzed all input vectors, you MUST generate two f
 # Cross-Site Scripting (XSS) Analysis Report
 
 ## 1. Executive Summary
-- **Analysis Status:** Complete  
-- **Key Outcome:** Several high-confidence XSS vulnerabilities were identified. All findings have been passed to the exploitation phase via `deliverables/xss_exploitation_queue.json`.  
-- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities.  
+- **Analysis Status:** Complete
+- **Key Outcome:** Several high-confidence XSS vulnerabilities were identified. All findings have been passed to the exploitation phase via `deliverables/xss_exploitation_queue.json`.
+- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities.
 
 ## 2. Dominant Vulnerability Patterns
 
-**Pattern 1: Reflected XSS in Search Parameter**  
-- **Description:** A recurring pattern was observed where the main search parameter (`?q=`) is reflected directly into the HTML body without any output encoding.  
-- **Implication:** Any page with a search bar is likely vulnerable to basic reflected XSS. This is the easiest vector for exploitation.  
-- **Representative Findings:** XSS-VULN-01, XSS-VULN-03.  
+**Pattern 1: Reflected XSS in Search Parameter**
+- **Description:** A recurring pattern was observed where the main search parameter (`?q=`) is reflected directly into the HTML body without any output encoding.
+- **Implication:** Any page with a search bar is likely vulnerable to basic reflected XSS. This is the easiest vector for exploitation.
+- **Representative Findings:** XSS-VULN-01, XSS-VULN-03.
 
-**Pattern 2: DOM-based XSS in URL Hash**  
-- **Description:** Client-side JavaScript reads from `location.hash` and writes the value into a div using `innerHTML` to dynamically load content, without sanitization.  
-- **Implication:** This allows for script execution without the payload ever being sent to the server, potentially bypassing server-side logs and WAFs.  
-- **Representative Finding:** XSS-VULN-02.  
+**Pattern 2: DOM-based XSS in URL Hash**
+- **Description:** Client-side JavaScript reads from `location.hash` and writes the value into a div using `innerHTML` to dynamically load content, without sanitization.
+- **Implication:** This allows for script execution without the payload ever being sent to the server, potentially bypassing server-side logs and WAFs.
+- **Representative Finding:** XSS-VULN-02.
 
 ## 3. Strategic Intelligence for Exploitation
 
-**Content Security Policy (CSP) Analysis**  
-- **Current CSP:** `script-src 'self' https://trusted-cdn.com;`  
-- **Critical Bypass:** The trusted CDN hosts an old version of AngularJS, which is vulnerable to client-side template injection. This provides a clear path to bypass the CSP.  
-- **Recommendation:** Exploitation should focus on crafting AngularJS sandbox escape payloads.  
+**Content Security Policy (CSP) Analysis**
+- **Current CSP:** `script-src 'self' https://trusted-cdn.com;`
+- **Critical Bypass:** The trusted CDN hosts an old version of AngularJS, which is vulnerable to client-side template injection. This provides a clear path to bypass the CSP.
+- **Recommendation:** Exploitation should focus on crafting AngularJS sandbox escape payloads.
 
-**Cookie Security**  
-- **Observation:** The primary session cookie (`sessionid`) is missing the `HttpOnly` flag.  
-- **Recommendation:** This is a high-impact finding. The primary goal of exploitation should be to steal this cookie via `document.cookie`.  
+**Cookie Security**
+- **Observation:** The primary session cookie (`sessionid`) is missing the `HttpOnly` flag.
+- **Recommendation:** This is a high-impact finding. The primary goal of exploitation should be to steal this cookie via `document.cookie`.
 
 ## 4. Vectors Analyzed and Confirmed Secure
 
@@ -260,11 +260,11 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## 5. Analysis Constraints and Blind Spots
 
-- **Minified JavaScript:** Analysis of the primary client-side bundle (`app.min.js`) was difficult. Some DOM XSS vulnerabilities may have been missed due to obfuscated code.  
+- **Minified JavaScript:** Analysis of the primary client-side bundle (`app.min.js`) was difficult. Some DOM XSS vulnerabilities may have been missed due to obfuscated code.
 
 ---
 
-  
+
 
 </deliverable_instructions>
 
