@@ -677,12 +677,9 @@ Shannon is designed for legitimate security auditing purposes only.
 
 Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` as malware. These are false positives caused by exploit code in the reports. Add an exclusion for the Shannon directory in Windows Defender, or use Docker/WSL2.
 
-#### **7. Prompt Injection Risk from Untrusted Repositories**
+#### **7. Security Considerations**
 
-Shannon feeds repository source code into LLM prompts for white-box analysis. A malicious repository can embed adversarial instructions in comments, strings, or documentation that hijack agent behavior.
-
-> [!WARNING]
-> **Do not scan repositories from untrusted sources.** Only scan repositories you own, trust, or have reviewed for adversarial content.
+Shannon Lite is designed for scanning repositories and applications you own or have explicit permission to test. Do not point it at untrusted or adversarial codebases. Like any AI-powered tool that reads source code, Shannon Lite is susceptible to prompt injection from content in the scanned repository.
 
 
 ## 📜 License
