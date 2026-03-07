@@ -16,6 +16,7 @@ It analyzes your source code, identifies attack vectors, and executes real explo
 
 <a href="https://github.com/KeygraphHQ/shannon/discussions/categories/announcements"><img src="./assets/announcements.png" height="40" alt="Announcements"></a>
 <a href="https://discord.gg/9ZqQPuhJB7"><img src="./assets/discord.png" height="40" alt="Join Discord"></a>
+<a href="https://keygraph.io/"><img src="./assets/Keygraph_Button.png" height="40" alt="Visit Keygraph.io"></a>
 <a href="https://www.linkedin.com/company/keygraph/"><img src="./assets/linkedin.png" height="40" alt="Follow Us on Linkedin"></a>
 
 ---
