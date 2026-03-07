@@ -3,8 +3,8 @@ services:
     image: temporalio/temporal:latest
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
-      - "7233:7233"   # gRPC
-      - "8233:8233"   # Web UI (built-in)
+      - "127.0.0.1:7233:7233"   # gRPC
+      - "127.0.0.1:8233:8233"   # Web UI (built-in)
     volumes:
       - temporal-data:/home/temporal
     healthcheck:
@@ -47,7 +47,6 @@ services:
       - ./repos:/repos
       - ${BENCHMARKS_BASE:-.}:/benchmarks
     shm_size: 2gb
-    ipc: host
     security_opt:
       - seccomp:unconfined
 
@@ -63,7 +62,7 @@ services:
              envsubst < /config/router-config.json > /root/.claude-code-router/config.json &&
              ccr start"
     ports:
-      - "3456:3456"
+      - "127.0.0.1:3456:3456"
     volumes:
       - ./configs/router-config.json:/config/router-config.json:ro
     environment:

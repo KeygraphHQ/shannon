@@ -102,10 +102,19 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
 // Pure function: Process @include() directives
 async function processIncludes(content: string, baseDir: string): Promise<string> {
   const includeRegex = /@include\(([^)]+)\)/g;
-  // Use a Promise.all to handle all includes concurrently
+  const resolvedBase = path.resolve(baseDir);
+
   const replacements: IncludeReplacement[] = await Promise.all(
     Array.from(content.matchAll(includeRegex)).map(async (match) => {
-      const includePath = path.join(baseDir, match[1]!);
+      const includePath = path.resolve(baseDir, match[1]!);
+      if (!includePath.startsWith(resolvedBase + path.sep) && includePath !== resolvedBase) {
+        throw new PentestError(
+          `Path traversal detected in @include(): ${match[1]}`,
+          'prompt',
+          false,
+          { includePath, baseDir: resolvedBase }
+        );
+      }
       const sharedContent = await fs.readFile(includePath, 'utf8');
       return {
         placeholder: match[0],
