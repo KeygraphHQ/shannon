@@ -25,6 +25,7 @@ import { ErrorCode } from '../types/errors.js';
 import { type Result, ok, err } from '../types/result.js';
 import { parseConfig } from '../config-parser.js';
 import { resolveModel } from '../ai/models.js';
+import { isCopilotProvider } from '../ai/copilot-executor.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 // === Repository Validation ===
@@ -232,9 +233,53 @@ async function validateCredentials(
 
   // 4. Check that at least one credential is present
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+    // 4a. GitHub Copilot mode — validate token via SDK
+    if (isCopilotProvider()) {
+      logger.info('Copilot provider detected — validating GitHub token...');
+      const { CopilotClient } = await import('@github/copilot-sdk');
+      const token = process.env.COPILOT_GITHUB_TOKEN
+        || process.env.GH_TOKEN
+        || process.env.GITHUB_TOKEN;
+      if (!token) {
+        return err(
+          new PentestError(
+            'Copilot mode requires a GitHub token. Run "./shannon login" or set GITHUB_TOKEN in .env',
+            'config',
+            false,
+            {},
+            ErrorCode.AUTH_FAILED
+          )
+        );
+      }
+      try {
+        const testClient = new CopilotClient({
+          githubToken: token,
+          useStdio: true,
+          autoStart: true,
+          autoRestart: false,
+          logLevel: 'none' as const,
+        });
+        await testClient.start();
+        const models = await testClient.listModels();
+        await testClient.stop();
+        logger.info(`Copilot token OK (${models.length} models available)`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return err(
+          new PentestError(
+            `GitHub token validation failed: ${message}. Run "./shannon login" to re-authenticate.`,
+            'config',
+            false,
+            {},
+            ErrorCode.AUTH_FAILED
+          )
+        );
+      }
+      return ok(undefined);
+    }
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, or CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI)',
+        'No API credentials found. Set ANTHROPIC_API_KEY, CLAUDE_CODE_OAUTH_TOKEN, or GITHUB_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, CLAUDE_CODE_USE_VERTEX=1 for Vertex AI, or GITHUB_TOKEN for Copilot)',
         'config',
         false,
         {},

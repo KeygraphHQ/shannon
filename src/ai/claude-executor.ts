@@ -25,6 +25,7 @@ import { createProgressManager } from './progress-manager.js';
 import { createAuditLogger } from './audit-logger.js';
 import { getActualModelName } from './router-utils.js';
 import { resolveModel, type ModelTier } from './models.js';
+import { isCopilotProvider, runCopilotPrompt } from './copilot-executor.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 
 declare global {
@@ -212,6 +213,7 @@ export async function validateAgentOutput(
 
 // Low-level SDK execution. Handles message streaming, progress, and audit logging.
 // Exported for Temporal activities to call single-attempt execution.
+// Routes to Copilot SDK when COPILOT_PROVIDER=true or GitHub token is the only credential.
 export async function runClaudePrompt(
   prompt: string,
   sourceDir: string,
@@ -222,6 +224,11 @@ export async function runClaudePrompt(
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium'
 ): Promise<ClaudePromptResult> {
+  // 0. Route to Copilot SDK when configured
+  if (isCopilotProvider()) {
+    return runCopilotPrompt(prompt, sourceDir, context, description, agentName, auditSession, logger, modelTier);
+  }
+
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
