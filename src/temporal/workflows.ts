@@ -372,7 +372,31 @@ export async function pentestPipelineWorkflow(
     log.info('Preflight validation passed');
 
     // === Phase 1: Pre-Reconnaissance ===
-    await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
+    if (!shouldSkip('pre-recon')) {
+      state.currentPhase = 'pre-recon';
+      state.currentAgent = 'pre-recon';
+      await a.logPhaseTransition(activityInput, 'pre-recon', 'start');
+
+      const cacheResult = await preflightActs.checkPrereconCacheActivity(activityInput);
+
+      if (cacheResult.action === 'skip') {
+        log.info('Pre-recon cache hit: source unchanged, skipping');
+      } else if (cacheResult.action === 'delta') {
+        log.info('Pre-recon cache hit: source changed, running delta update');
+        state.agentMetrics['pre-recon'] = await a.runPreReconDeltaAgent(activityInput);
+        await preflightActs.savePrereconCacheActivity(activityInput);
+      } else {
+        log.info('No pre-recon cache, running full analysis');
+        state.agentMetrics['pre-recon'] = await a.runPreReconAgent(activityInput);
+        await preflightActs.savePrereconCacheActivity(activityInput);
+      }
+
+      state.completedAgents.push('pre-recon');
+      await a.logPhaseTransition(activityInput, 'pre-recon', 'complete');
+    } else {
+      log.info('Skipping pre-recon (already complete)');
+      state.completedAgents.push('pre-recon');
+    }
 
     // === Phase 2: Reconnaissance ===
     await runSequentialPhase('recon', 'recon', a.runReconAgent);

@@ -38,6 +38,7 @@ import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { createActivityLogger } from './activity-logger.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import { isErr } from '../types/result.js';
+import { checkPrereconCache, savePrereconCache, type CacheCheckResult } from '../services/prerecon-cache.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -200,6 +201,10 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
   return runAgentActivity('pre-recon', input);
 }
 
+export async function runPreReconDeltaAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runAgentActivity('pre-recon-delta', input);
+}
+
 export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
   return runAgentActivity('recon', input);
 }
@@ -312,6 +317,35 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
   } finally {
     clearInterval(heartbeatInterval);
   }
+}
+
+/**
+ * Check pre-recon cache to determine if full, delta, or skip.
+ * Writes diff summary file for the delta agent when action is 'delta'.
+ */
+export async function checkPrereconCacheActivity(
+  input: ActivityInput
+): Promise<CacheCheckResult> {
+  const logger = createActivityLogger();
+  const result = await checkPrereconCache(input.repoPath, logger);
+
+  if (result.action === 'delta') {
+    const diffPath = path.join(input.repoPath, 'deliverables', '.prerecon-diff.md');
+    await fs.writeFile(diffPath, result.diffSummary, 'utf8');
+    logger.info('Wrote diff summary for delta agent');
+  }
+
+  return result;
+}
+
+/**
+ * Save pre-recon cache metadata after successful analysis.
+ */
+export async function savePrereconCacheActivity(
+  input: ActivityInput
+): Promise<void> {
+  const logger = createActivityLogger();
+  await savePrereconCache(input.repoPath, logger);
 }
 
 /**
