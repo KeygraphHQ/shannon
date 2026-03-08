@@ -132,7 +132,13 @@ export async function checkPrereconCache(
   }
 
   // 5. Compare cached commit to current HEAD
-  const headCommit = await getHeadCommit(repoPath);
+  let headCommit: string;
+  try {
+    headCommit = await getHeadCommit(repoPath);
+  } catch {
+    logger.warn('Failed to get HEAD commit, running full analysis');
+    return { action: 'full' };
+  }
 
   if (metadata.commitHash === headCommit) {
     logger.info('Source code unchanged since last pre-recon, skipping');
@@ -140,11 +146,17 @@ export async function checkPrereconCache(
   }
 
   // 6. Generate diff summary for delta agent
-  logger.info(`Source code changed (${metadata.commitHash.slice(0, 8)}..${headCommit.slice(0, 8)}), preparing delta analysis`);
-  const diffSummary = await generateDiffSummary(repoPath, metadata.commitHash, headCommit);
-  const cachedAnalysis = await fs.readFile(deliverablePath, 'utf8');
+  try {
+    logger.info(`Source code changed (${metadata.commitHash.slice(0, 8)}..${headCommit.slice(0, 8)}), preparing delta analysis`);
+    const diffSummary = await generateDiffSummary(repoPath, metadata.commitHash, headCommit);
+    const cachedAnalysis = await fs.readFile(deliverablePath, 'utf8');
 
-  return { action: 'delta', diffSummary, cachedAnalysis };
+    return { action: 'delta', diffSummary, cachedAnalysis };
+  } catch (error) {
+    const errMsg = error instanceof Error ? error.message : String(error);
+    logger.warn(`Failed to generate diff summary: ${errMsg}, running full analysis`);
+    return { action: 'full' };
+  }
 }
 
 /**
