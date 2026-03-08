@@ -20,6 +20,14 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     deliverableFilename: 'code_analysis_deliverable.md',
     modelTier: 'large',
   },
+  'pre-recon-delta': {
+    name: 'pre-recon-delta',
+    displayName: 'Pre-recon delta agent',
+    prerequisites: [],
+    promptTemplate: 'pre-recon-delta',
+    deliverableFilename: 'code_analysis_deliverable.md',
+    modelTier: 'medium',
+  },
   'recon': {
     name: 'recon',
     displayName: 'Recon agent',
@@ -113,6 +121,7 @@ export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'expl
 // Map agents to their corresponding phases (single source of truth)
 export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.freeze({
   'pre-recon': 'pre-recon',
+  'pre-recon-delta': 'pre-recon',
   'recon': 'recon',
   'injection-vuln': 'vulnerability-analysis',
   'xss-vuln': 'vulnerability-analysis',
@@ -156,6 +165,7 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
   // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
   // but assigning MCP server anyway for consistency and future extensibility
   'pre-recon-code': 'playwright-agent1',
+  'pre-recon-delta': 'playwright-agent1',
 
   // Phase 2: Reconnaissance (actual prompt name is 'recon')
   recon: 'playwright-agent2',
@@ -184,6 +194,12 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
   // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
   'pre-recon': async (sourceDir: string): Promise<boolean> => {
+    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    return await fs.pathExists(codeAnalysisFile);
+  },
+
+  // Pre-recon delta agent - validates the code analysis deliverable exists for updating
+  'pre-recon-delta': async (sourceDir: string): Promise<boolean> => {
     const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
     return await fs.pathExists(codeAnalysisFile);
   },
