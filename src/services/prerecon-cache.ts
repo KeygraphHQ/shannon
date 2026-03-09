@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Josep Maria Viñolas Auquer <josepmaria@isardvdi.com>
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
