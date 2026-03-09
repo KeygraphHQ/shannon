@@ -384,11 +384,11 @@ export async function pentestPipelineWorkflow(
       } else if (cacheResult.action === 'delta') {
         log.info('Pre-recon cache hit: source changed, running delta update');
         state.agentMetrics['pre-recon'] = await a.runPreReconDeltaAgent(activityInput);
-        await preflightActs.savePrereconCacheActivity(activityInput);
+        await preflightActs.savePrereconCacheActivity(activityInput, cacheResult.sourceCommitHash);
       } else {
         log.info('No pre-recon cache, running full analysis');
         state.agentMetrics['pre-recon'] = await a.runPreReconAgent(activityInput);
-        await preflightActs.savePrereconCacheActivity(activityInput);
+        await preflightActs.savePrereconCacheActivity(activityInput, cacheResult.sourceCommitHash);
       }
 
       state.completedAgents.push('pre-recon');

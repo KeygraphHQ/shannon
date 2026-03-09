@@ -14,7 +14,6 @@
  */
 export const ALL_AGENTS = [
   'pre-recon',
-  'pre-recon-delta',
   'recon',
   'injection-vuln',
   'xss-vuln',

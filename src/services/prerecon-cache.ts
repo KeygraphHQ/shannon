@@ -29,6 +29,9 @@ export type CacheCheckResult =
   | { action: 'skip' }
   | { action: 'delta'; diffSummary: string; cachedAnalysis: string };
 
+/** Lightweight result for Temporal event history (no large payloads). */
+export type CacheAction = { action: 'full' | 'skip' | 'delta'; sourceCommitHash: string };
+
 const CACHE_FILENAME = '.prerecon-cache.json';
 const DELIVERABLE_FILENAME = 'code_analysis_deliverable.md';
 
@@ -59,7 +62,7 @@ async function commitExists(repoPath: string, commitHash: string): Promise<boole
 /**
  * Get the current HEAD commit hash.
  */
-async function getHeadCommit(repoPath: string): Promise<string> {
+export async function getHeadCommit(repoPath: string): Promise<string> {
   const result = await $`cd ${repoPath} && git rev-parse HEAD`.quiet();
   return result.stdout.trim();
 }
@@ -161,23 +164,27 @@ export async function checkPrereconCache(
 
 /**
  * Save pre-recon cache metadata after a successful analysis.
+ *
+ * @param sourceCommitHash - The source code HEAD commit captured BEFORE agent
+ *   execution. Must be passed explicitly because agent execution creates
+ *   checkpoint commits that change HEAD.
  */
 export async function savePrereconCache(
   repoPath: string,
+  sourceCommitHash: string,
   logger: ActivityLogger
 ): Promise<void> {
   const deliverablesDir = path.join(repoPath, 'deliverables');
   const cachePath = path.join(deliverablesDir, CACHE_FILENAME);
 
-  const headCommit = await getHeadCommit(repoPath);
   const repoId = await getRepoId(repoPath);
 
   const metadata: PrereconCacheMetadata = {
-    commitHash: headCommit,
+    commitHash: sourceCommitHash,
     timestamp: new Date().toISOString(),
     repoId,
   };
 
   await atomicWrite(cachePath, metadata);
-  logger.info(`Pre-recon cache saved at commit ${headCommit.slice(0, 8)}`);
+  logger.info(`Pre-recon cache saved at commit ${sourceCommitHash.slice(0, 8)}`);
 }

@@ -26,19 +26,19 @@ import { ExploitationCheckerService } from '../services/exploitation-checker.js'
 import type { VulnType, ExploitationDecision } from '../services/queue-validation.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
-import type { AgentName } from '../types/agents.js';
+import type { AgentName, AgentDefinition } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import type { AgentMetrics, ResumeState } from './shared.js';
 import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
 import { readJson, fileExists } from '../utils/file-io.js';
 import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
-import { AGENTS } from '../session-manager.js';
+import { AGENTS, PRE_RECON_DELTA_AGENT } from '../session-manager.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { createActivityLogger } from './activity-logger.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import { isErr } from '../types/result.js';
-import { checkPrereconCache, savePrereconCache, type CacheCheckResult } from '../services/prerecon-cache.js';
+import { checkPrereconCache, savePrereconCache, getHeadCommit, type CacheAction } from '../services/prerecon-cache.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -105,7 +105,8 @@ function buildSessionMetadata(input: ActivityInput): SessionMetadata {
  */
 async function runAgentActivity(
   agentName: AgentName,
-  input: ActivityInput
+  input: ActivityInput,
+  agentDef?: AgentDefinition
 ): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
   const startTime = Date.now();
@@ -141,7 +142,8 @@ async function runAgentActivity(
         attemptNumber,
       },
       auditSession,
-      logger
+      logger,
+      agentDef
     );
 
     // 4. Return metrics
@@ -202,7 +204,7 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
 }
 
 export async function runPreReconDeltaAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('pre-recon-delta', input);
+  return runAgentActivity('pre-recon', input, PRE_RECON_DELTA_AGENT);
 }
 
 export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
@@ -322,11 +324,16 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
 /**
  * Check pre-recon cache to determine if full, delta, or skip.
  * Writes diff summary file for the delta agent when action is 'delta'.
+ * Returns only the action string to avoid storing large payloads in Temporal event history.
  */
 export async function checkPrereconCacheActivity(
   input: ActivityInput
-): Promise<CacheCheckResult> {
+): Promise<CacheAction> {
   const logger = createActivityLogger();
+
+  // Capture source HEAD before any agent execution changes it
+  const sourceCommitHash = await getHeadCommit(input.repoPath);
+
   const result = await checkPrereconCache(input.repoPath, logger);
 
   if (result.action === 'delta') {
@@ -335,17 +342,18 @@ export async function checkPrereconCacheActivity(
     logger.info('Wrote diff summary for delta agent');
   }
 
-  return result;
+  return { action: result.action, sourceCommitHash };
 }
 
 /**
  * Save pre-recon cache metadata after successful analysis.
  */
 export async function savePrereconCacheActivity(
-  input: ActivityInput
+  input: ActivityInput,
+  sourceCommitHash: string
 ): Promise<void> {
   const logger = createActivityLogger();
-  await savePrereconCache(input.repoPath, logger);
+  await savePrereconCache(input.repoPath, sourceCommitHash, logger);
 }
 
 /**
