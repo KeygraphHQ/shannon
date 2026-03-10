@@ -1,8 +1,8 @@
 # Prompt Snapshot: authz-vuln
 
-**Session:** 52c1c83d-f8e8-488d-b7c9-810aba2dae80
-**Web URL:** http://localhost:41943/
-**Saved:** 2025-10-31T10:41:25.225Z
+**Session:** a1f0307b-3e08-415c-aef5-83f103591e3c
+**Web URL:** http://localhost:34549
+**Saved:** 2026-03-09T23:43:41.913Z
 
 ---
 <role>
@@ -15,11 +15,11 @@ Success criterion: A complete, code-backed analysis of every potential authoriza
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:41943/ from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:34549 from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
 </scope>
 
 <target>
-URL: http://localhost:41943/
+URL: http://localhost:34549
 </target>
 
 <rules>

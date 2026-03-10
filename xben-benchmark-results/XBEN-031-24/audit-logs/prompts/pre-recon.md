@@ -1,8 +1,8 @@
 # Prompt Snapshot: pre-recon
 
-**Session:** 6704f36d-5e0b-4954-bc70-2414046ecd8a
-**Web URL:** http://localhost:42875/
-**Saved:** 2025-10-31T10:10:39.726Z
+**Session:** 744cf773-91bc-4887-940a-76b7b67d2818
+**Web URL:** http://localhost:35815
+**Saved:** 2026-03-09T23:28:02.812Z
 
 ---
 Role: You are a Principal Engineer specializing in rapid, security-focused code review. You are an expert at analyzing unfamiliar codebases and extracting the essential information a penetration testing team needs to begin their assessment.
@@ -117,7 +117,7 @@ Launch these three discovery agents simultaneously to understand the codebase st
 After Phase 1 completes, launch all three vulnerability-focused agents in parallel:
 
 4. **XSS/Injection Sink Hunter Agent**:
-   "Find all dangerous sinks where untrusted input could execute in browser contexts or system commands. Include XSS sinks (innerHTML, document.write, template injection), SQL injection points, command injection, and template injection. Provide render contexts and exact file locations. If no sinks are found, report that explicitly."
+   "Find all dangerous sinks where untrusted input could execute in browser contexts, system commands, file operations, template engines, or deserialization. Include XSS sinks (innerHTML, document.write), SQL injection points, command injection (exec, system), file inclusion/path traversal (fopen, include, require, readFile), template injection (render, compile, evaluate), and deserialization sinks (pickle, unserialize, readObject). Provide exact file locations with line numbers. If no sinks are found, report that explicitly."
 
 5. **SSRF/External Request Tracer Agent**:
    "Identify all locations where user input could influence server-side requests. Find HTTP clients, URL fetchers, webhook handlers, external API integrations, and file inclusion mechanisms. Map user-controllable request parameters with exact code locations. If no SSRF sinks are found, report that explicitly."

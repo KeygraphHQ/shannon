@@ -1,8 +1,8 @@
 # Prompt Snapshot: auth-vuln
 
-**Session:** 1677a190-20d6-4c5a-af5c-48cec04994ec
-**Web URL:** http://localhost:8081
-**Saved:** 2025-10-30T23:15:13.906Z
+**Session:** cb03bc3c-0fc6-43a3-95a6-7e3493b65f04
+**Web URL:** http://localhost:38229
+**Saved:** 2026-03-09T23:47:12.485Z
 
 ---
 <role>
@@ -16,11 +16,11 @@ Success criterion: A complete, code-backed analysis of every potential authentic
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:8081 from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:38229 from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
 </scope>
 
 <target>
-URL: http://localhost:8081
+URL: http://localhost:38229
 </target>
 
 <rules>
