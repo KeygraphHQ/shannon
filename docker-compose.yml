@@ -26,7 +26,15 @@ services:
       - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
       - CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK:-}
       - AWS_REGION=${AWS_REGION:-}
-      - AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:-}
+      # NOTE: Only pass AWS_BEARER_TOKEN_BEDROCK when it is actually set.
+      # An empty value causes Claude Code to attempt bearer-token auth with a
+      # blank token instead of falling back to SigV4 IAM credentials.
+      # Do NOT pass AWS_PROFILE — the container has no ~/.aws/config,
+      # and the AWS SDK prefers profile over env-var creds, causing auth failure.
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
+      - AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN:-}
+      - AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION:-}
       - CLAUDE_CODE_USE_VERTEX=${CLAUDE_CODE_USE_VERTEX:-}
       - CLOUD_ML_REGION=${CLOUD_ML_REGION:-}
       - ANTHROPIC_VERTEX_PROJECT_ID=${ANTHROPIC_VERTEX_PROJECT_ID:-}

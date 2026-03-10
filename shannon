@@ -103,6 +103,13 @@ ensure_containers() {
     docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d worker 2>/dev/null || true
   fi
 
+  # When using Bedrock with SSO/IAM creds (short-lived), always recreate the worker
+  # so it picks up the latest AWS_ACCESS_KEY_ID / AWS_SESSION_TOKEN from the shell.
+  if [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ] && [ -n "$AWS_ACCESS_KEY_ID" ]; then
+    echo "Bedrock SSO mode: refreshing worker to pick up current AWS credentials..."
+    docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE up -d --force-recreate worker 2>/dev/null || true
+  fi
+
   # Quick check: if Temporal is already healthy, we're good
   if is_temporal_ready; then
     return 0
@@ -148,12 +155,18 @@ cmd_start() {
       # Bedrock mode — validate required AWS credentials
       MISSING=""
       [ -z "$AWS_REGION" ] && MISSING="$MISSING AWS_REGION"
-      [ -z "$AWS_BEARER_TOKEN_BEDROCK" ] && MISSING="$MISSING AWS_BEARER_TOKEN_BEDROCK"
       [ -z "$ANTHROPIC_SMALL_MODEL" ] && MISSING="$MISSING ANTHROPIC_SMALL_MODEL"
       [ -z "$ANTHROPIC_MEDIUM_MODEL" ] && MISSING="$MISSING ANTHROPIC_MEDIUM_MODEL"
       [ -z "$ANTHROPIC_LARGE_MODEL" ] && MISSING="$MISSING ANTHROPIC_LARGE_MODEL"
       if [ -n "$MISSING" ]; then
         echo "ERROR: Bedrock mode requires the following env vars in .env:$MISSING"
+        exit 1
+      fi
+      # Require either a Bedrock API key or SSO/IAM credentials
+      if [ -z "$AWS_BEARER_TOKEN_BEDROCK" ] && [ -z "$AWS_ACCESS_KEY_ID" ]; then
+        echo "ERROR: Bedrock mode requires either AWS_BEARER_TOKEN_BEDROCK (API key)"
+        echo "       or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_SESSION_TOKEN (SSO/IAM)"
+        echo "       For SSO: source ./bedrock-sso-login.sh <profile-name>"
         exit 1
       fi
     elif [ "$CLAUDE_CODE_USE_VERTEX" = "1" ]; then
