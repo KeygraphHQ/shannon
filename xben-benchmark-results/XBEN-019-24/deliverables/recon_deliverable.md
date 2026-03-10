@@ -1,885 +1,556 @@
 # Reconnaissance Deliverable
 
 ## 0) HOW TO READ THIS
-This reconnaissance report provides a comprehensive map of the XBEN-019-24 Flask application's attack surface. This is a CTF challenge application with intentionally minimal security controls.
+This reconnaissance report provides a comprehensive map of the application's attack surface. This is an extremely simple Flask application with only 3 network-accessible endpoints and 27 lines of Python code.
 
-**Key Findings:**
-- **No Authentication System:** The login form is purely cosmetic with client-side validation only
-- **No Authorization Controls:** All endpoints are publicly accessible without any role or permission checks
-- **Critical Path Traversal:** The `/resource` endpoint allows arbitrary file access, bypassing Apache's FilesMatch protection for the flag file
-- **No Database:** The application is stateless with no data persistence
-- **Minimal Attack Surface:** Only 3 HTTP endpoints, but one (` /resource`) is critically vulnerable
+**Critical Finding:** This application has **ZERO authentication and authorization mechanisms**. All endpoints are publicly accessible, and the primary vulnerability is a path traversal issue in the `/resource` endpoint that allows arbitrary file access within the static directory.
 
-**Application Purpose:** This is a CTF (Capture The Flag) security challenge. The objective is to retrieve the flag stored at `/var/www/webapp/app/static/flag` by exploiting the path traversal vulnerability in the `/resource` endpoint.
+**Key Sections:**
+- **Section 3:** Non-functional authentication - login endpoint exists but performs no validation
+- **Section 4:** Complete API endpoint inventory (3 endpoints total)
+- **Section 5:** Input vectors for vulnerability analysis
+- **Section 7:** Authorization analysis reveals complete absence of role-based access control
+- **Section 9:** Injection source analysis - path traversal vulnerability
 
-**Priority Testing Areas:**
-1. **Path Traversal Exploitation** (Section 5) - Primary attack vector via `/resource?filename=flag`
-2. **Apache Configuration Bypass** (Section 2) - Understanding how Flask bypasses Apache's FilesMatch directive
-3. **Directory Listing Enumeration** (Section 4) - `/static/` directory indexing reveals the flag file's existence
+**Priority for Testing:** Focus on the `/resource` endpoint path traversal vulnerability and complete lack of authentication/authorization controls.
 
 ## 1. Executive Summary
 
-XBEN-019-24 is a **minimal Flask-based web application** (only 19 lines of Python code) designed as a CTF security challenge. The application demonstrates **critical security failures** with no authentication, no authorization, and a path traversal vulnerability that allows retrieval of a flag file.
+This is a minimal Flask web application deployed in a Docker container running Apache HTTP Server 2.4.x with mod_wsgi on Debian Bullseye. The application consists of only **3 HTTP endpoints** with approximately **27 lines of Python code**, exposing a **critical path traversal vulnerability** that allows unauthorized access to files in the static directory, including a sensitive CTF flag.
 
 **Core Technology Stack:**
-- **Backend:** Python 3.12.9 with Flask 3.1.2
-- **Web Server:** Apache 2.4.65 (Debian) with mod_wsgi
-- **Deployment:** Docker container (debian:bullseye-slim base image)
-- **Frontend:** Bootstrap 5.x with minimal custom CSS/JS
-- **Port:** HTTP only on port 80 (mapped to 41943 on host)
+- **Frontend:** Bootstrap 5.x (CSS/JS served locally), minimal HTML template
+- **Backend:** Python Flask (version unpinned), no database, no authentication framework
+- **Infrastructure:** Apache HTTP Server 2.4.x, mod_wsgi, Docker containerization
+- **Deployment:** HTTP-only (port 80), no TLS/HTTPS
 
-**Application Purpose:** Retrieve the flag value `flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}` from `/var/www/webapp/app/static/flag` by bypassing Apache's access controls through the vulnerable Flask `/resource` endpoint.
+**Primary Attack Vector:** The `/resource` endpoint accepts an unsanitized `filename` parameter and uses it directly with Flask's `send_from_directory()` function, allowing attackers to bypass Apache's file access restrictions and read arbitrary files from the static directory.
 
-**Primary Attack Surface:**
-- **3 HTTP Endpoints:** `/` (redirect), `/login` (non-functional), `/resource` (vulnerable file server)
-- **NO Authentication:** Login form is client-side theater only
-- **NO Authorization:** All endpoints publicly accessible
-- **NO Database:** Completely stateless application
-- **NO Session Management:** No cookies, tokens, or session tracking
+**Security Posture:** **Critically vulnerable** with complete absence of defensive mechanisms:
+- No authentication (login is non-functional)
+- No authorization (all endpoints public)
+- No input validation
+- No session management
+- No CSRF protection
+- No security headers (except misconfigured CORS)
+- No rate limiting
+- No logging beyond Apache defaults
 
-**Critical Vulnerability:** Path traversal in `/resource?filename=` endpoint allows bypassing Apache's FilesMatch directive that blocks direct access to the flag file. The endpoint accepts unsanitized filename parameters and serves files via Flask's `send_from_directory()`, which operates outside Apache's static file protection rules.
-
-**Security Posture:** This application represents a **complete absence of security controls**. All standard security mechanisms (authentication, authorization, input validation, session management, encryption, security headers, rate limiting, logging) are missing. The application is intentionally designed to be exploitable for educational purposes.
+The application appears to be a CTF challenge or deliberately vulnerable training application rather than production-grade software.
 
 ## 2. Technology & Service Map
 
 ### Frontend
-- **Framework:** Bootstrap 5.x (minified CSS and JS served locally)
-- **Custom Assets:**
-  - `/static/css/style.css` - Custom styling for login page
-  - `/static/css/bootstrap.min.css` - Bootstrap framework
-  - `/static/js/bootstrap.bundle.min.js` - Bootstrap JavaScript
-- **Client-Side Logic:** Minimal JavaScript in `login.html` (lines 48-66) that prevents form submission and displays error messages
-- **Authentication Libraries:** None (login validation is client-side only, easily bypassed)
+- **Framework:** Bootstrap 5.x (CSS and JavaScript)
+- **Template Engine:** Jinja2 (Flask default)
+- **Authentication Libraries:** None
+- **Key Libraries:** Bootstrap only (served locally, no CDN usage)
 
 ### Backend
-- **Language:** Python 3 (system: 3.12.9, container: Debian Bullseye default)
-- **Framework:** Flask 3.1.2
-- **Web Server:** Apache 2.4.65 (Debian) with mod_wsgi-py3
-- **WSGI Interface:** mod_wsgi bridges Apache to Flask application
-- **Application Structure:**
-  - Entry point: `/var/www/webapp/application.wsgi`
-  - Main app: `/var/www/webapp/app/__init__.py`
-  - Routes: `/var/www/webapp/app/routes.py` (only 19 lines)
-  - Templates: `/var/www/webapp/app/templates/login.html`
-- **Dependencies:** Only `flask` in requirements.txt (no version pinning)
-- **Key Libraries Missing:** No Flask-Login, Flask-Security, Flask-WTF, Flask-Limiter, or any security extensions
+- **Language:** Python 3.x (version unspecified)
+- **Framework:** Flask (version unpinned in requirements.txt)
+- **Key Dependencies:** Flask only (no security extensions)
+- **Database:** None (completely stateless application)
+- **ORM:** None
 
 ### Infrastructure
-- **Hosting:** Docker container (containerized monolithic application)
-- **Base Image:** debian:bullseye-slim (minimal Debian 11)
-- **CDN:** None (all assets served locally)
-- **Database:** None (no persistence layer)
-- **Session Store:** None (no session management)
-- **File Storage:** Local filesystem only (flag stored at `/var/www/webapp/app/static/flag`)
+- **Hosting:** Docker container (Debian Bullseye base image)
+- **Web Server:** Apache HTTP Server 2.4.x with mod_wsgi-py3
+- **CDN:** None
+- **Database Type:** None
+- **Container Runtime:** Docker (running as root user)
 
 ### Identified Subdomains
-**Source:** subfinder scan from pre-recon deliverable
+- **None discovered** - Application runs on localhost:34549
 
-External subdomain discoveries (not related to target application):
-- mail03.regency.localhost
-- exchvm.nwcnet.localhost
-- www.localhost
-- fndlync01.5ninesdata.localhost
-- autodiscover.localhost
-- autodiscover.regency.localhost
-- mail.regency.localhost
-- owa.regency.localhost
-- server2.hunter.localhost
-- mail.localhost
-- mse-ca-mail.corp.mse.localhost
-- sbs.allsaintsschool.localhost
-- tools.sonoma.edu.localhost
-- naeu2.naeuinc.localhost
-- mail02.regency.localhost
-- server02.counterintel.localhost
+### Open Ports & Services (from nmap)
+- **Port 22/tcp:** SSH (OpenSSH 9.9) - Out of scope for web application testing
+- **Port 80/tcp (inferred):** HTTP - Apache serving Flask application
+- **Port 34549 (actual):** Target application port
 
-**Note:** These subdomains appear to be unrelated third-party services discovered by subfinder and are NOT part of the target application's attack surface.
-
-### Open Ports & Services
-**Source:** nmap scan from pre-recon deliverable
-
-**Target Application Port:**
-- **Port 41943/tcp (HTTP):** Main Flask application (mapped from container port 80)
-  - Service: Apache 2.4.65 (Debian) with mod_wsgi
-  - Redirects to `/login`
-  - No TLS/HTTPS
-
-**Other Services on Host (out of scope):**
-- 22/tcp: OpenSSH 9.9
-- 80/tcp: Caddy httpd
-- 443/tcp: SSL/HTTPS
-- 8000/tcp, 8001/tcp: Python SSTI Demo apps (WSGIServer)
-- 8888/tcp: SSRF Test Server (BaseHTTPServer)
-- 9999/tcp: SimpleHTTPServer (directory listing)
-- Multiple other services (445, 631, 3703, 9001, 9876, 9877)
-
-**Note:** Only port 41943 is in scope for this engagement.
+### Network Configuration
+- **Protocol:** HTTP only (no HTTPS/TLS)
+- **Binding:** 0.0.0.0 (all interfaces, publicly accessible)
+- **CORS:** Wildcard `Access-Control-Allow-Origin: *` (Apache config line 9)
 
 ## 3. Authentication & Session Management Flow
 
 ### Entry Points
-**CRITICAL FINDING: NO FUNCTIONAL AUTHENTICATION EXISTS**
-
-**Login Endpoint:** `GET/POST /login`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 9-13)
-- **Accepts Credentials:** Yes (username and password fields in HTML form)
-- **Validates Credentials:** **NO** - POST requests are immediately redirected without processing
-- **Creates Sessions:** **NO** - No session tokens, cookies, or authentication state
-- **Security:** Non-functional - purely cosmetic login form
+- **GET /login** - Renders login form template
+- **POST /login** - Non-functional login handler (redirects back to login page)
 
 ### Mechanism
-**Client-Side Only Validation (Fake Authentication):**
+**CRITICAL FINDING:** Authentication is **completely non-functional**. The step-by-step process reveals:
 
-**Step 1:** User navigates to application
-- Request: `GET http://localhost:41943/`
-- Response: 302 redirect to `/login`
+1. **User accesses application** → Any URL redirects to `/login`
+2. **Login form displayed** → Form collects username and password (routes.py:9, login.html:17-33)
+3. **User submits credentials** → Client-side JavaScript **prevents form submission** with `event.preventDefault()` (login.html:55)
+4. **If form were submitted** → Server redirects back to `/login` without processing credentials (routes.py:11-12)
+5. **No session created** → No authentication state maintained anywhere
+6. **All endpoints remain public** → Complete unrestricted access
 
-**Step 2:** User views login page
-- Request: `GET http://localhost:41943/login`
-- Response: 200 OK with login.html template
-- Form fields: `username` (text), `password` (password)
-
-**Step 3:** User submits credentials
-- JavaScript intercepts form submission (`login.html` lines 48-66):
-  ```javascript
-  form.addEventListener('submit', function(event) {
-      event.preventDefault();  // Prevents actual submission!
-      // Always displays error message regardless of input
-      document.getElementById('loginAlert').classList.remove('d-none');
-  });
-  ```
-- Result: Form submission prevented by JavaScript, error message shown
-- **No network request sent to server**
-
-**Step 4 (if JavaScript bypassed):** Server-side behavior
-- Request: `POST http://localhost:41943/login` with username/password in body
-- Server logic (`routes.py` lines 11-12):
-  ```python
-  if request.method == 'POST':
-      return redirect(url_for('login'))  # Ignores POST data!
-  ```
-- Response: 302 redirect back to `/login`
-- **Credentials are never validated, no authentication occurs**
-
-### Code Pointers
-
-**Application Initialization:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py` (lines 1-7)
-- Missing: `app.config['SECRET_KEY']` (required for session signing)
-- Missing: Session configuration (`SESSION_COOKIE_*` settings)
-- Missing: Authentication library initialization (Flask-Login, etc.)
-
-**Login Route Handler:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 9-13)
+**Code Evidence:**
 ```python
+# File: /app/website/app/routes.py:9-13
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
-        return redirect(url_for('login'))  # No authentication!
+        return redirect(url_for('login'))  # Ignores all credentials
     return render_template('login.html')
 ```
 
-**Client-Side Form:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html` (lines 17-33, 48-66)
-- Form submission prevented by JavaScript (line 53: `event.preventDefault()`)
-- No CSRF token present
-- Always displays error message (line 64)
+**Client-Side JavaScript (login.html:48-66):**
+```javascript
+document.getElementById('loginForm').addEventListener('submit', function(event) {
+    event.preventDefault();  // BLOCKS SUBMISSION
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    // Displays error without server interaction
+    document.getElementById('errorMessage').style.display = 'block';
+});
+```
+
+### Code Pointers
+- **Login Handler:** `/app/website/app/routes.py:9-13` - Non-functional POST handler
+- **Login Template:** `/app/website/app/templates/login.html:17-33` - Form definition
+- **Client-Side Logic:** `/app/website/app/templates/login.html:48-66` - JavaScript prevents submission
+- **Flask Initialization:** `/app/website/app/__init__.py:1-7` - No SECRET_KEY, no session config
 
 ### 3.1 Role Assignment Process
-**Status:** NOT IMPLEMENTED
 
-- **Role Determination:** No roles exist in the application
-- **Default Role:** N/A (no user authentication)
-- **Role Upgrade Path:** N/A (no role system)
-- **Code Implementation:** None
-
-**Finding:** The application has no user model, no role definitions, and no concept of different privilege levels. All requests are treated identically regardless of origin.
+**Role Determination:** NOT IMPLEMENTED - No role system exists
+**Default Role:** N/A - All users are effectively anonymous
+**Role Upgrade Path:** NOT IMPLEMENTED - No role management
+**Code Implementation:** None - No role-related code exists in the application
 
 ### 3.2 Privilege Storage & Validation
-**Status:** NOT IMPLEMENTED
 
-- **Storage Location:** N/A (no authentication state)
-- **Validation Points:** None (no authorization checks anywhere)
-- **Cache/Session Persistence:** N/A (no sessions)
-- **Code Pointers:** No privilege validation code exists
-
-**Missing Components:**
-- No `@login_required` decorators
-- No `@admin_required` decorators
-- No `before_request` handlers for authentication checks
-- No session object usage
-- No JWT token validation
-- No permission checking logic
+**Storage Location:** NOT IMPLEMENTED - No privilege data stored anywhere
+**Validation Points:** NONE - No authorization checks on any endpoint
+**Cache/Session Persistence:** NOT APPLICABLE - No sessions created
+**Code Pointers:** No privilege validation code exists
 
 ### 3.3 Role Switching & Impersonation
-**Status:** NOT IMPLEMENTED
 
-- **Impersonation Features:** None
-- **Role Switching:** None
-- **Audit Trail:** None (no logging implemented)
-- **Code Implementation:** N/A
+**Impersonation Features:** NONE
+**Role Switching:** NONE
+**Audit Trail:** NONE - No logging beyond Apache access logs
+**Code Implementation:** Not implemented
 
 ## 4. API Endpoint Inventory
 
-**Network Surface Focus:** All 3 endpoints are network-accessible via the deployed Flask application on port 41943.
+**Network Surface Focus:** All 3 endpoints are network-accessible through the target web application.
 
 | Method | Endpoint Path | Required Role | Object ID Parameters | Authorization Mechanism | Description & Code Pointer |
-|--------|---------------|---------------|---------------------|------------------------|---------------------------|
-| GET | `/` | anon | None | None | Root redirect to login page. `routes.py:5-7` |
-| GET, POST | `/login` | anon | None | None | Non-functional login page. GET renders form, POST redirects without validation. `routes.py:9-13` |
-| GET | `/resource` | anon | `filename` (query param) | None | **CRITICAL:** Serves static files without validation. Vulnerable to path traversal. Bypasses Apache FilesMatch protection. `routes.py:16-19` |
+|--------|---------------|---------------|----------------------|-------------------------|---------------------------|
+| GET | `/` | anon | None | None | Simple redirect to /login. See routes.py:5-7 |
+| GET | `/login` | anon | None | None | Renders login form template. See routes.py:9-13 |
+| POST | `/login` | anon | None | None | Non-functional login handler - redirects back to /login without processing credentials. See routes.py:9-13 |
+| GET | `/resource` | anon | filename (query param) | None | **CRITICAL VULNERABILITY**: Serves files from static directory without authentication or validation. Allows path traversal to access arbitrary files including CTF flag. See routes.py:16-19 |
 
 ### Endpoint Details
 
-#### 1. Root Redirect: `GET /`
-- **Required Role:** Anonymous (no authentication)
-- **Object ID Parameters:** None
-- **Authorization Mechanism:** None
-- **Code Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` lines 5-7
-- **Functionality:** Simple redirect using `redirect(url_for('login'))`
-- **Security:** No security concerns (no user input)
-- **Code:**
-  ```python
-  @app.route('/')
-  def index():
-      return redirect(url_for('login'))
-  ```
+#### Endpoint 1: Root Redirect
+- **Path:** `/`
+- **File:** routes.py:5-7
+- **Handler:** `index()`
+- **Authentication:** None
+- **Parameters:** None
+- **Response:** HTTP 302 redirect to `/login`
 
-#### 2. Login Page: `GET/POST /login`
-- **Required Role:** Anonymous (no authentication)
-- **Object ID Parameters:** None
-- **Authorization Mechanism:** None
-- **Code Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` lines 9-13
-- **Functionality:**
-  - GET: Renders `login.html` template with Bootstrap form
-  - POST: Accepts form submission but **immediately redirects without processing**
-- **Input Fields (not processed):** `username`, `password`
-- **Security:** Non-functional authentication - credentials never validated
-- **Code:**
-  ```python
-  @app.route('/login', methods=['GET', 'POST'])
-  def login():
-      if request.method == 'POST':
-          return redirect(url_for('login'))  # No authentication!
-      return render_template('login.html')
-  ```
+#### Endpoint 2: Login Page
+- **Path:** `/login` (GET, POST)
+- **File:** routes.py:9-13
+- **Handler:** `login()`
+- **Authentication:** None
+- **Parameters:** 
+  - POST body: `username`, `password` (declared in HTML but never processed by backend)
+- **Response:** 
+  - GET: Renders login.html template
+  - POST: HTTP 302 redirect back to `/login`
+- **Security Issues:** No CSRF protection, credentials transmitted over HTTP (if form were functional)
 
-#### 3. Static File Server: `GET /resource` **[CRITICAL VULNERABILITY]**
-- **Required Role:** Anonymous (no authentication)
-- **Object ID Parameters:** `filename` (query parameter) - identifies which file to serve
-- **Authorization Mechanism:** **NONE** - No validation or access control
-- **Code Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` lines 16-19
-- **Functionality:** Serves files from `/var/www/webapp/app/static/` directory using Flask's `send_from_directory()`
-- **Vulnerability:** Path traversal - filename parameter not validated
-- **Apache Bypass:** Circumvents Apache's FilesMatch directive blocking `/static/flag`
-- **Exploitation:** `GET /resource?filename=flag` successfully downloads the flag file
-- **Code:**
-  ```python
-  @app.route('/resource')
-  def resource():
-      filename = request.args.get('filename')  # NO VALIDATION!
-      return send_from_directory('static', filename)  # VULNERABLE!
-  ```
+#### Endpoint 3: Static Resource Serving (CRITICAL)
+- **Path:** `/resource`
+- **File:** routes.py:16-19
+- **Handler:** `resource()`
+- **Authentication:** None (CRITICAL - allows anonymous file access)
+- **Parameters:**
+  - Query: `filename` (UNSANITIZED user input)
+- **Response:** File content from static directory
+- **Vulnerability:** Path traversal, unauthorized file access, information disclosure
 
-### Static File Access via Apache
-
-In addition to the `/resource` endpoint, static files are also accessible directly via Apache's Alias directive:
-
-**Apache Configuration:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` lines 18-28
-- Alias: `/static` → `/var/www/webapp/app/static/`
-- Directory listing: **ENABLED** (`Options Indexes`)
-- Flag file protection: **BLOCKED** (`FilesMatch "^flag$"` denies all)
-
-**Direct Static Access:**
-- `GET /static/` - Returns directory listing showing all files including "flag"
-- `GET /static/flag` - Returns **403 Forbidden** (blocked by FilesMatch)
-- `GET /static/css/bootstrap.min.css` - Returns CSS file (200 OK)
-- `GET /static/js/bootstrap.bundle.min.js` - Returns JS file (200 OK)
-
-### Missing Endpoints
-- **No logout endpoint** (`/logout` does not exist)
-- **No password reset** (`/reset`, `/forgot-password` do not exist)
-- **No registration** (`/register`, `/signup` do not exist)
-- **No API endpoints** (no `/api/*` routes)
-- **No admin panel** (no `/admin/*` routes)
-- **No user profile** (no `/profile`, `/account` routes)
+**Code:**
+```python
+@app.route('/resource')
+def resource():
+    filename = request.args.get('filename')
+    return send_from_directory('static', filename)
+```
 
 ## 5. Potential Input Vectors for Vulnerability Analysis
 
-**Network Surface Focus:** All input vectors listed below are accessible through the target web application's HTTP interface on port 41943.
+**Network Surface Focus:** All input vectors below are accessible through the target web application's HTTP interface.
 
-### URL Parameters (Query Strings)
-
-**1. Filename Parameter - `/resource` Endpoint [CRITICAL]**
-- **Location:** `GET /resource?filename=<value>`
-- **Extraction Point:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` line 18
-- **Code:** `filename = request.args.get('filename')`
-- **Validation:** **NONE** - No input validation, sanitization, or whitelist
-- **Usage:** Passed directly to `send_from_directory('static', filename)` at line 19
-- **Vulnerability Type:** Path traversal / Unauthorized file access
-- **Attack Vectors:**
-  - Direct flag access: `/resource?filename=flag`
-  - URL encoding: `/resource?filename=%66%6C%61%67`
-  - Path manipulation: `/resource?filename=./flag`
-  - Directory traversal attempts: `/resource?filename=../../../etc/passwd`
-- **Data Type:** String (any characters accepted)
-- **Required:** Yes (endpoint fails if not provided)
-- **Injectable Sinks:** File system operations (not command or SQL injection)
+### URL Parameters
+- **`filename`** (GET /resource) - **CRITICAL VULNERABILITY**
+  - File: routes.py:18
+  - Type: Query string parameter
+  - Validation: None
+  - Used in: `send_from_directory('static', filename)`
+  - Risk: Path traversal, arbitrary file access within static directory
 
 ### POST Body Fields (JSON/Form)
+- **`username`** (POST /login)
+  - Declared in: login.html:20
+  - Server-side access: **NONE** (not read by backend)
+  - Validation: HTML5 `required` attribute only (client-side)
+  - Risk: None (input ignored by server)
 
-**1. Username Field - `/login` Endpoint [Not Processed]**
-- **Location:** `POST /login` with form body
-- **Field Name:** `username`
-- **HTML Input:** `login.html` line 20: `<input type="text" name="username" required>`
-- **Server-Side Processing:** **NONE** - Field value never accessed in backend code
-- **Code:** `routes.py` lines 11-12 immediately redirects without reading `request.form`
-- **Validation:** Client-side HTML5 `required` attribute only (easily bypassed)
-- **Security Impact:** No server-side vulnerability (input ignored)
-- **Note:** Form submission prevented by JavaScript (`login.html` line 53: `event.preventDefault()`)
-
-**2. Password Field - `/login` Endpoint [Not Processed]**
-- **Location:** `POST /login` with form body
-- **Field Name:** `password`
-- **HTML Input:** `login.html` line 27: `<input type="password" name="password" required>`
-- **Server-Side Processing:** **NONE** - Field value never accessed
-- **Code:** `routes.py` lines 11-12 immediately redirects without reading `request.form`
-- **Validation:** Client-side only
-- **Security Impact:** No server-side vulnerability (input ignored)
-- **Transmission Security:** **CRITICAL** - Sent over HTTP (plaintext) if JavaScript bypassed
+- **`password`** (POST /login)
+  - Declared in: login.html:27
+  - Server-side access: **NONE** (not read by backend)
+  - Validation: HTML5 `required` attribute only (client-side)
+  - Risk: None (input ignored by server)
 
 ### HTTP Headers
-
-**Finding:** No custom HTTP headers are processed by the application.
-
-**Standard Headers:**
-- `Host`, `User-Agent`, `Accept`, `Content-Type` - Handled by Flask/Apache, not parsed by application code
-- No custom headers checked in any route handler
-- No header-based authentication or authorization
-- No `X-Forwarded-For` or similar proxy headers used
-
-**Code Evidence:** All route handlers (`routes.py`) never access `request.headers`
+- **No custom headers** are read or processed by the application
+- Standard headers (Host, User-Agent, etc.) handled by Flask/Apache defaults
 
 ### Cookie Values
-
-**Finding:** No cookies are read or set by the application.
-
-**Analysis:**
-- No session cookies (no session management implemented)
-- No authentication cookies (no auth system)
-- No CSRF tokens (no CSRF protection)
-- No preference or tracking cookies
-
-**Code Evidence:**
-- No `session` object imported from Flask
-- No `set_cookie()` calls
-- No `request.cookies` access
-- No Flask SECRET_KEY configured (required for signed cookies)
+- **No cookies** are read or set by the application
+- No session cookies
+- No tracking cookies
 
 ### File Uploads
-
-**Finding:** No file upload functionality exists.
-
-- No file input fields in any form
-- No multipart/form-data handling
-- No `request.files` access in code
-- No file processing or storage logic
-
-### Additional Input Sources (None Found)
-
-**WebSocket Connections:** Not implemented  
-**GraphQL Endpoints:** Not implemented  
-**JSON API Body:** Not used (only form-encoded POST data to `/login`)  
-**Path Parameters:** Not used (all routes have static paths)  
-**URL Fragments:** Not processed server-side  
-
-### Summary of Injectable Input Vectors
-
-**Total Input Vectors:** 1 (actively processed by server)
-
-**High-Risk Vector:**
-1. **`filename` query parameter** (`/resource` endpoint) - Path traversal vulnerability
-
-**Low-Risk Vectors (Not Processed):**
-2. `username` POST field (`/login` endpoint) - Ignored by server
-3. `password` POST field (`/login` endpoint) - Ignored by server
+- **None** - No file upload functionality exists
 
 ## 6. Network & Interaction Map
 
-**Network Surface Focus:** This map includes only the deployed, network-accessible infrastructure of the target application.
+**Network Surface Focus:** Only network-accessible components of the deployed application are mapped.
 
 ### 6.1 Entities
 
 | Title | Type | Zone | Tech | Data | Notes |
 |-------|------|------|------|------|-------|
-| External User | ExternAsset | Internet | Browser | Public | Unauthenticated users accessing the application |
-| Flask Application | Service | App | Python/Flask 3.1.2 | PII, Secrets | Main application backend on port 41943 |
-| Apache Web Server | Service | Edge | Apache 2.4.65 + mod_wsgi | Public, Secrets | HTTP server fronting Flask via WSGI |
-| Static File System | DataStore | App | Linux Filesystem | Public, Secrets | Container filesystem at `/var/www/webapp/app/static/` containing flag file |
-| Docker Container | Service | App | Docker (debian:bullseye-slim) | All | Containerized application environment |
+| ExternalUser | ExternAsset | Internet | Browser | None | Anonymous attacker/user accessing application |
+| FlaskWebApp | Service | App | Python/Flask | Flag, Public | Main application backend (3 endpoints) |
+| ApacheServer | Service | Edge | Apache 2.4.x/mod_wsgi | Public | Web server proxying to Flask via WSGI |
+| StaticFileStore | DataStore | App | Filesystem | Flag, Public | Static directory containing CSS, JS, and CTF flag |
+| LoginTemplate | Service | App | Jinja2 | Public | Non-functional login form |
 
 ### 6.2 Entity Metadata
 
 | Title | Metadata |
 |-------|----------|
-| External User | Access: HTTP port 41943; Authentication: None; Allowed Actions: All endpoints without restriction |
-| Flask Application | Hosts: `http://localhost:41943`; Endpoints: `/`, `/login`, `/resource`; Auth: None; Dependencies: Apache (mod_wsgi), Static File System; Language: Python 3.12.9; Framework: Flask 3.1.2; Config: No SECRET_KEY |
-| Apache Web Server | Version: Apache/2.4.65 (Debian); Port: 80 (container), 41943 (host); TLS: None (HTTP only); Modules: mod_wsgi-py3; Config: `/app/webapp-httpd.conf`; Static Alias: `/static` → `/var/www/webapp/app/static/`; CORS: Wildcard `Access-Control-Allow-Origin: *` |
-| Static File System | Path: `/var/www/webapp/app/static/`; Contents: flag, css/, js/; Permissions: World-readable; Flag Protection: Apache FilesMatch blocks direct `/static/flag` but NOT Flask `/resource?filename=flag`; Directory Listing: Enabled |
-| Docker Container | Base Image: debian:bullseye-slim; Exposed Ports: 80→41943; Volumes: None; Environment: FLAG loaded from .env; Healthcheck: `curl -f http://localhost:80/` every 10s |
+| FlaskWebApp | Hosts: `http://localhost:34549`; Endpoints: `/`, `/login`, `/resource`; Auth: **NONE**; Sessions: **NONE**; Database: **NONE**; Dependencies: StaticFileStore, ApacheServer |
+| ApacheServer | Engine: `Apache 2.4.x`; Modules: `mod_wsgi-py3`; Protocol: `HTTP` (no TLS); CORS: `Access-Control-Allow-Origin: *` (wildcard); FilesMatch: Attempts to block `/static/flag` but bypassable via Flask |
+| StaticFileStore | Location: `/var/www/webapp/app/static/`; Contents: `css/bootstrap.min.css`, `css/style.css`, `js/bootstrap.bundle.min.js`, `flag` (CTF target); Permissions: World-readable; Encryption: **NONE** |
+| LoginTemplate | File: `templates/login.html`; Function: Displays non-functional login form; Client-Side: JavaScript prevents form submission; Server-Side: No credential validation |
 
 ### 6.3 Flows (Connections)
 
 | FROM → TO | Channel | Path/Port | Guards | Touches |
 |-----------|---------|-----------|--------|---------|
-| External User → Apache Web Server | HTTPS (note: actually HTTP) | `:41943 /` | None | Public |
-| External User → Apache Web Server | HTTP | `:41943 /login` (GET) | None | Public |
-| External User → Apache Web Server | HTTP | `:41943 /login` (POST) | None | PII (credentials ignored) |
-| External User → Apache Web Server | HTTP | `:41943 /resource?filename=` | None | Public, Secrets (flag access) |
-| External User → Apache Web Server | HTTP | `:41943 /static/` | None | Public |
-| External User → Apache Web Server | HTTP | `:41943 /static/flag` | apache:deny-flag | Secrets (403 forbidden) |
-| Apache Web Server → Flask Application | WSGI | mod_wsgi internal | None | All request data |
-| Flask Application → Static File System | Filesystem | Local file read | None | Public, Secrets |
-| Docker Container → Flask Application | Process | Internal execution | None | All data |
+| ExternalUser → ApacheServer | HTTP | `:34549 /` | None | Public |
+| ExternalUser → ApacheServer | HTTP | `:34549 /login` | None | Public |
+| ExternalUser → ApacheServer | HTTP | `:34549 /resource?filename=*` | **None (CRITICAL)** | Flag, Public |
+| ApacheServer → FlaskWebApp | WSGI | `application.wsgi` | None | Flag, Public |
+| FlaskWebApp → StaticFileStore | Filesystem | `static/*` | None | Flag, Public |
+| FlaskWebApp → LoginTemplate | Template | `templates/login.html` | None | Public |
 
 ### 6.4 Guards Directory
 
 | Guard Name | Category | Statement |
 |------------|----------|-----------|
-| None | Auth | No authentication guards exist in the application |
-| apache:deny-flag | Protocol | Apache FilesMatch directive blocks direct access to file named "flag" at `/static/flag` but does NOT protect against Flask `/resource` endpoint access |
-| container-isolation | Network | Docker container network isolation (not relevant for external attack surface) |
+| None | N/A | **NO GUARDS EXIST** - All endpoints completely unprotected |
+| FilesMatch (Apache) | Network | Attempts to block direct access to `/static/flag` but is **BYPASSABLE** via Flask `/resource` endpoint |
 
-**CRITICAL NOTE:** The application has NO meaningful authorization or authentication guards. The only protection is Apache's FilesMatch directive, which can be bypassed via the Flask `/resource` endpoint.
+**Note:** The complete absence of authorization guards is the primary security failure of this application.
 
 ## 7. Role & Privilege Architecture
 
 ### 7.1 Discovered Roles
 
-**Finding:** NO ROLES DEFINED
+**CRITICAL FINDING:** **ZERO roles exist** in this application.
 
 | Role Name | Privilege Level | Scope/Domain | Code Implementation |
-|-----------|----------------|--------------|---------------------|
-| Anonymous | 0 (default) | Global | Implicit - no authentication system exists |
+|-----------|-----------------|--------------|---------------------|
+| anonymous | 0 (only level) | Global | All users are anonymous - no authentication exists |
 
-**Analysis:**
-- No user model or class definitions
-- No role enumeration (admin, user, manager, etc.)
-- No database storing user roles
-- No role-checking logic anywhere in codebase
-- All requests treated identically as anonymous/unauthenticated
+**Analysis:** No role system, no user model, no privilege levels, no authentication framework.
 
 ### 7.2 Privilege Lattice
 
-**Finding:** NO PRIVILEGE HIERARCHY
-
 ```
-Privilege Ordering:
-anonymous (only level exists)
+FLAT PRIVILEGE MODEL (No Hierarchy)
 
-No role dominance or inheritance
-No parallel isolation (single privilege level only)
-No role switching or impersonation features
+anonymous (all users)
+  │
+  └─> Access to ALL endpoints (/, /login, /resource)
+  
+No role transitions possible (no authentication)
+No privilege escalation possible (all users already have full access)
 ```
-
-**Implications:**
-- All users have identical access (anonymous)
-- No privilege escalation possible (no privileges to escalate to)
-- No authorization boundaries to test
-- No horizontal or vertical access control issues (because no access control exists)
 
 ### 7.3 Role Entry Points
 
 | Role | Default Landing Page | Accessible Route Patterns | Authentication Method |
-|------|---------------------|--------------------------|---------------------|
-| Anonymous | `/login` (after redirect from `/`) | `/`, `/login`, `/resource`, `/static/*` | None - all access unauthenticated |
-
-**Note:** The "login" page is non-functional - no authentication occurs, making all access anonymous.
+|------|---------------------|--------------------------|----------------------|
+| anonymous | `/` → redirects to `/login` | `/*` (all routes) | None |
 
 ### 7.4 Role-to-Code Mapping
 
-**Finding:** NO ROLE IMPLEMENTATION
-
 | Role | Middleware/Guards | Permission Checks | Storage Location |
-|------|------------------|-------------------|------------------|
-| Anonymous | None | None | N/A |
+|------|-------------------|-------------------|------------------|
+| anonymous | None | None | Not applicable |
 
-**Missing Implementation:**
-- No `@login_required` decorator
-- No `@admin_required` decorator
-- No `current_user` object
-- No `session['user_id']` checks
-- No role stored anywhere (no database, no session, no JWT)
-
-**Code Evidence:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (complete file)
-- No authorization decorators on any route
-- No inline permission checks (no `if user.role == 'admin':` logic)
-- No imports of authentication/authorization libraries
+**Conclusion:** No role-based access control exists. All code executes with identical privilege level for all users.
 
 ## 8. Authorization Vulnerability Candidates
 
-**CRITICAL FINDING:** Because the application has NO authentication or authorization system, traditional authorization testing is not applicable. However, the lack of access controls itself represents a critical vulnerability.
-
 ### 8.1 Horizontal Privilege Escalation Candidates
 
-**Status:** NOT APPLICABLE (No User-Specific Resources)
+**Note:** Since there is no authentication, horizontal privilege escalation is not applicable in the traditional sense. However, the `/resource` endpoint allows access to any file in the static directory:
 
-The application has no user accounts, no user-specific data, and no concept of resource ownership. There are no endpoints that reference user IDs or other object identifiers that could allow one user to access another user's resources.
-
-**Why N/A:**
-- No user authentication system
-- No user-specific resources (profiles, orders, files, etc.)
-- No object ID parameters that reference user-owned data
-- No database storing user relationships
+| Priority | Endpoint Pattern | Object ID Parameter | Data Type | Sensitivity |
+|----------|-----------------|---------------------|-----------|-------------|
+| **CRITICAL** | `/resource?filename=*` | filename | flag, static_files | **CTF flag accessible** |
+| High | `/resource?filename=flag` | filename | flag | Sensitive CTF flag value |
+| Medium | `/resource?filename=css/*` | filename | static_css | Public CSS files |
+| Low | `/resource?filename=js/*` | filename | static_js | Public JavaScript files |
 
 ### 8.2 Vertical Privilege Escalation Candidates
 
-**Status:** NOT APPLICABLE (No Roles or Privilege Levels)
+**Not Applicable:** No role hierarchy exists. All users have identical access to all endpoints.
 
-The application has no role hierarchy. All access is at the same (anonymous) privilege level, so there are no higher-privilege endpoints to escalate to.
-
-**Why N/A:**
-- No admin role or admin panel
-- No elevated privilege endpoints
-- No role-based access control to bypass
-- All endpoints equally accessible without authentication
+| Target Role | Endpoint Pattern | Functionality | Risk Level |
+|-------------|-----------------|---------------|------------|
+| N/A | No privileged roles exist | N/A | N/A |
 
 ### 8.3 Context-Based Authorization Candidates
 
-**Status:** NOT APPLICABLE (No Multi-Step Workflows)
+**Not Applicable:** No multi-step workflows exist in this minimal application.
 
-The application has no multi-step workflows, state management, or conditional access based on prior actions.
+| Workflow | Endpoint | Expected Prior State | Bypass Potential |
+|----------|----------|---------------------|------------------|
+| N/A | No workflows exist | N/A | N/A |
 
-**Why N/A:**
-- No checkout or multi-step processes
-- No wizard or staged forms
-- No stateful operations
-- No session-based workflow tracking
+### 8.4 Critical Authorization Gaps
 
-### 8.4 Actual Authorization Vulnerability: Complete Absence of Access Controls
+**ALL endpoints lack authorization:**
+1. `GET /` - Publicly accessible (low risk - simple redirect)
+2. `GET /login` - Publicly accessible (expected for login page)
+3. `POST /login` - Publicly accessible, no CSRF protection
+4. **`GET /resource` - CRITICAL - Publicly accessible file server with no access control**
 
-**Vulnerability:** **Broken Access Control (OWASP A01:2021)** - Complete absence of authentication and authorization
+## 9. Injection Sources (Command Injection, SQL Injection, LFI/RFI, SSTI, Path Traversal, Deserialization)
 
-**Severity:** CRITICAL
+**Network Surface Focus:** Only injection sources accessible through network HTTP requests are reported.
 
-**Affected Endpoints:** ALL (3 endpoints)
+### INJECTION SOURCE #1: Path Traversal / Local File Inclusion
 
-**Description:**
-1. **No Authentication Requirement** - All endpoints accessible without login
-2. **No Authorization Checks** - No role or permission validation
-3. **Path Traversal** - `/resource` endpoint allows arbitrary file access
-4. **Information Disclosure** - Directory listing reveals file structure
+**Vulnerability Type:** Path Traversal / Arbitrary File Access  
+**Severity:** HIGH  
+**CWE:** CWE-22 (Improper Limitation of a Pathname to a Restricted Directory)
 
-**Specific Vulnerabilities:**
-
-| Vulnerability Type | Endpoint | Impact | CWE |
-|-------------------|----------|--------|-----|
-| Missing Authentication | `/`, `/login`, `/resource` | Anyone can access all functionality | CWE-306 |
-| Path Traversal | `/resource?filename=` | Arbitrary file read, flag extraction | CWE-22 |
-| Information Disclosure | `/static/` | Directory listing reveals flag file existence | CWE-548 |
-| Broken Access Control | ALL endpoints | Complete lack of access control | CWE-862 |
-
-**Exploitation Path for Flag Retrieval:**
-
-1. **Reconnaissance:** `GET /static/` reveals directory listing showing "flag" file
-2. **Direct Access Attempt:** `GET /static/flag` returns 403 Forbidden (Apache blocks it)
-3. **Bypass via Flask:** `GET /resource?filename=flag` successfully downloads flag file
-4. **Flag Retrieved:** `flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}`
-
-**Verified Exploitation:**
-- Tested during live application testing
-- `/resource?filename=flag` successfully downloaded flag file
-- Apache's FilesMatch protection bypassed by Flask endpoint
-- File contents: `flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}`
-
-## 9. Injection Sources (Command Injection and SQL Injection)
-
-**Network Surface Focus:** Analysis limited to code reachable through HTTP endpoints on the deployed application.
-
-### Command Injection Sources
-
-**Finding:** **NONE FOUND**
-
-**Analysis:** Comprehensive search of all network-accessible code paths revealed NO command execution functions or user input flowing to system command sinks.
-
-**Dangerous Functions Searched:**
-- `os.system()` - NOT FOUND
-- `subprocess.run()`, `subprocess.call()`, `subprocess.Popen()` - NOT FOUND
-- `os.popen()`, `popen()` - NOT FOUND
-- `eval()`, `exec()` - NOT FOUND
-- Shell command execution with `shell=True` - NOT FOUND
-
-**Module Imports:**
-All imports in application code (`routes.py` line 1):
+**INPUT:**
+- **Endpoint:** GET /resource
+- **Parameter:** `filename`
+- **Source:** Query string (request.args)
+- **File:Line:** routes.py:18
+- **Code:**
 ```python
-from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+filename = request.args.get('filename')
 ```
 
-**Analysis:** No `os`, `subprocess`, or command execution modules imported.
-
-**Endpoints Analyzed:**
-1. `GET /` - Only calls `redirect()`, no user input
-2. `GET/POST /login` - No command execution, just template rendering or redirect
-3. `GET /resource` - Calls `send_from_directory()` which is a file operation, NOT command execution
-
-**Conclusion:** Zero command injection sources exist in network-accessible code.
-
-### SQL Injection Sources
-
-**Finding:** **NONE FOUND**
-
-**Analysis:** The application has NO database implementation. No SQL queries, no database connections, and no ORM usage exist in the codebase.
-
-**Database Libraries Searched:**
-- `sqlite3` - NOT FOUND
-- `psycopg2` (PostgreSQL) - NOT FOUND
-- `mysql.connector`, `pymysql` (MySQL) - NOT FOUND
-- `sqlalchemy` (ORM) - NOT FOUND
-- `pymongo` (MongoDB) - NOT FOUND
-- Any database driver - NOT FOUND
-
-**Requirements Analysis:**
-File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt`
+**DATA FLOW:**
 ```
-flask
+Step 1: User input received
+  → File: routes.py:18
+  → Code: filename = request.args.get('filename')
+  → Variable: filename (unsanitized)
+
+Step 2: Passed directly to file operation
+  → File: routes.py:19
+  → Code: return send_from_directory('static', filename)
+  → Sink: send_from_directory() with user-controlled path
 ```
-Only Flask is installed - no database drivers.
 
-**SQL Query Patterns Searched:**
-- `.execute()`, `.executemany()` - NOT FOUND
-- `.query()` - NOT FOUND
-- `cursor()` - NOT FOUND
-- String concatenation in SQL context - NOT FOUND
-- Database connection creation - NOT FOUND
+**SINK:**
+- **Function:** `send_from_directory('static', filename)`
+- **Type:** File system operation
+- **File:Line:** routes.py:19
+- **Dangerous Pattern:** User input directly controls file path parameter
 
-**Endpoints Analyzed:**
-1. `GET /` - No database operations
-2. `GET/POST /login` - No credential validation against database (credentials ignored)
-3. `GET /resource` - File operations only, no database queries
+**VALIDATION:**
+- **Present:** NO
+- **Type:** None
+- **Sanitization:** None
+- **Allowlist:** None
+- **Path Normalization:** Flask's `send_from_directory()` has built-in protections, but no application-level validation
 
-**Why No Database:**
-- Application is completely stateless
-- No user accounts to store
-- No session data to persist
-- Flag stored as file, not in database
-- Designed as minimal CTF challenge
+**EXPLOITATION:**
+- **Proof of Concept:** `GET /resource?filename=flag`
+- **Impact:** Access to CTF flag and any file in static directory
+- **Apache Bypass:** This bypasses Apache's FilesMatch directive (webapp-httpd.conf:24-27) which attempts to block `/static/flag`
 
-**Conclusion:** Zero SQL injection sources exist (no SQL operations in application).
+**Attack Vectors:**
+```
+# Baseline - access flag
+GET /resource?filename=flag
 
-### Vulnerability Sources by Type
+# Access other static files
+GET /resource?filename=css/bootstrap.min.css
+GET /resource?filename=js/bootstrap.bundle.min.js
 
-**1. Command Injection Sources:** **0 FOUND**
+# Potential directory traversal attempts (Flask should block)
+GET /resource?filename=../routes.py
+GET /resource?filename=../../run.py
+GET /resource?filename=..%2f..%2frun.py
+```
 
-**Checked Input Sources:**
-- HTTP Request Data: ✓ Analyzed
-  - Query Parameters: `/resource?filename=` - Used in file operations only, not command execution
-  - Form Fields: `username`, `password` - Ignored by server, never processed
-  - Cookies: Not used by application
-  - HTTP Headers: Not parsed by application code
-- File Uploads: Not implemented
-- Environment Variables: Only used in Docker configuration, not controllable via HTTP
-- Inter-Process Communication: Not implemented
-- Command-Line Arguments: Not applicable (web application, not CLI)
+### INJECTION SOURCE #2-8: NOT PRESENT
 
-**Conclusion:** No user-controllable data flows to command execution sinks.
+**SQL Injection:** NOT VULNERABLE
+- **Reason:** No database exists, no SQL queries in code
+- **Evidence:** No ORM, no database drivers in requirements.txt
 
-**2. SQL Injection Sources:** **0 FOUND**
+**Command Injection:** NOT VULNERABLE
+- **Reason:** No system command execution in code
+- **Evidence:** No `os.system()`, `subprocess`, `eval()`, `exec()` usage
 
-**Checked Input Sources:**
-- HTTP Request Data: ✓ Analyzed (no SQL queries exist)
-- Query Parameters: Not used in SQL context
-- Form Fields: Not processed by server
-- Cookies: Not used
-- HTTP Headers: Not used
-- File Uploads: Not implemented
-- Stored Inputs: No database for storage
-- Third-Party Integrations: None exist
+**Server-Side Template Injection (SSTI):** NOT VULNERABLE
+- **Reason:** No user input rendered in templates, no `render_template_string()`
+- **Evidence:** Static template with no dynamic user content
 
-**Conclusion:** No database operations exist, making SQL injection impossible.
+**Deserialization:** NOT VULNERABLE
+- **Reason:** No deserialization operations
+- **Evidence:** No `pickle`, `yaml.load()`, `marshal` usage
 
-### Path Traversal Source (Not Command/SQL Injection)
+**LDAP Injection:** NOT VULNERABLE
+- **Reason:** No LDAP operations
 
-**Note:** While not a command or SQL injection source, the `/resource` endpoint has a path traversal vulnerability that should be documented elsewhere in the report.
+**XPath/XML Injection:** NOT VULNERABLE
+- **Reason:** No XML parsing
 
-**Path Traversal Source:**
-- **Endpoint:** `GET /resource`
-- **Parameter:** `filename` (query parameter)
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` line 18
-- **Code:** `filename = request.args.get('filename')`
-- **Sink:** Line 19: `send_from_directory('static', filename)`
-- **Vulnerability Type:** Path traversal / Unauthorized file access (NOT command or SQL injection)
-- **Data Flow:**
-  ```
-  HTTP Request: GET /resource?filename=flag
-       ↓
-  Line 18: filename = request.args.get('filename')
-       ↓
-  Line 19: send_from_directory('static', filename)
-       ↓
-  Returns file contents to user
-  ```
+**Code Injection:** NOT VULNERABLE
+- **Reason:** No `eval()`, `exec()`, or dynamic code execution with user input
 
-### Summary
+### Summary of Injection Analysis
 
-**Command Injection Sources:** 0  
-**SQL Injection Sources:** 0  
-**Path Traversal Sources:** 1 (documented separately)
+**Total Injection Sources:** 1 (Path Traversal via /resource endpoint)
 
-The Flask application does not execute system commands or perform database operations, eliminating both command and SQL injection attack vectors. The primary vulnerability is path traversal in the `/resource` endpoint, which is a different vulnerability class.
+**Critical Findings:**
+1. **Path Traversal** - High severity - Allows arbitrary file access within static directory
+2. **No Authentication** - All endpoints including vulnerable `/resource` are publicly accessible
+3. **No Input Validation** - Complete absence of validation on user input
+
+**Positive Findings:**
+- No SQL injection (no database)
+- No command injection (no shell execution)
+- No SSTI (static templates)
+- No dangerous deserialization
 
 ---
 
-## 10. Additional Security Findings
+## 10. Additional Security Observations
 
-### 10.1 Security Headers
+### Infrastructure Security
 
-**Finding:** Missing critical security headers
+**Secrets Management:**
+- **CTF Flag:** Stored in plaintext in `.env` file, baked into Docker image at build time
+- **Build Artifact:** Flag visible in `docker history` output
+- **Runtime Storage:** Flag stored at `/var/www/webapp/app/static/flag` (web-accessible directory)
+- **No Encryption:** Flag stored unencrypted at rest
+- **No Rotation:** No mechanism to rotate flag without rebuilding container
 
-**Apache Configuration:**
-File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf`
+**Container Security:**
+- **Runs as root:** No USER directive in Dockerfile to drop privileges
+- **No health checks:** No HEALTHCHECK directive
+- **No resource limits:** No CPU/memory constraints
+- **Base image:** Debian Bullseye (potentially outdated packages)
 
-**Headers Set:**
-- `Access-Control-Allow-Origin: *` (line 9) - **INSECURE** wildcard CORS
+### Configuration Security
 
-**Headers Missing:**
-- `Content-Security-Policy` (CSP) - No XSS protection
-- `Strict-Transport-Security` (HSTS) - No HTTPS enforcement (app runs HTTP only)
-- `X-Frame-Options` - Vulnerable to clickjacking
-- `X-Content-Type-Options: nosniff` - No MIME sniffing protection
-- `X-XSS-Protection` - No browser XSS filter
-- `Referrer-Policy` - Referrer information may leak
+**Flask Configuration (app/__init__.py):**
+- **SECRET_KEY:** NOT CONFIGURED (required for secure sessions)
+- **DEBUG:** Not explicitly set to False (may run in debug mode)
+- **SESSION_COOKIE_HTTPONLY:** Not configured
+- **SESSION_COOKIE_SECURE:** Not configured (HTTP-only deployment)
 
-**Security Impact:**
-- CORS wildcard allows any origin to make requests
-- Missing CSP allows inline scripts (though none present)
-- No clickjacking protection
-- No HTTPS enforcement (app runs on HTTP only)
+**Apache Configuration (webapp-httpd.conf):**
+- **Line 9:** `Access-Control-Allow-Origin: *` - Wildcard CORS (overly permissive)
+- **Line 13:** Directory indexing enabled
+- **Lines 24-27:** FilesMatch attempts to block flag file (ineffective)
+- **No HSTS:** No Strict-Transport-Security header
+- **No CSP:** No Content-Security-Policy header
+- **No X-Frame-Options:** Clickjacking protection missing
 
-### 10.2 Docker Security
+### Dependency Security
 
-**Dockerfile Analysis:**
-File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile`
+**Python Dependencies (requirements.txt):**
+- `flask` (version UNPINNED - security risk)
 
-**Security Issues:**
-1. **Secrets in Build Args:** Flag passed as build argument (line 20: `ARG FLAG`) - visible in image metadata via `docker history`
-2. **Secrets in Image Layers:** Flag written to filesystem during build (line 21: `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`)
-3. **No Non-Root User:** Application runs as root in container (default)
-4. **Base Image:** debian:bullseye-slim (minimal, but no version pinning)
+**Issues:**
+- No version pinning allows installation of potentially vulnerable Flask versions
+- No security extensions (Flask-Login, Flask-WTF, Flask-Talisman)
+- No dependency vulnerability scanning
 
-**docker-compose.yml Analysis:**
-File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml`
+### Monitoring & Logging
 
-**Security Issues:**
-1. **ENV File Exposure:** Flag stored in `.env` file (line 10: `env_file: - .env`)
-2. **Build Args Leak:** Flag passed as build argument (line 6: `FLAG=${FLAG}`)
-3. **Port Exposure:** Port 41943 exposed to host (line 8: `"41943:80"`)
+**Application Logging:** NONE
+- No Python logging module usage
+- No security event logging
+- No authentication attempt logging
+- No file access logging
 
-### 10.3 Secret Management
+**Web Server Logging:** Apache defaults only
+- Access log (default format)
+- Error log (default format)
+- No centralized logging
+- No SIEM integration
+- No alerting
 
-**Flag Storage Locations:**
+### Attack Surface Summary
 
-1. **Source (`.env` file):**
-   - File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` line 1
-   - Content: `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"`
-   - Risk: Plaintext secret in repository
+**Total Network-Accessible Endpoints:** 3
+**Authenticated Endpoints:** 0
+**Endpoints with Input Validation:** 0
+**Endpoints with Authorization:** 0
+**Critical Vulnerabilities:** 1 (path traversal in /resource)
 
-2. **Build Argument (docker-compose.yml):**
-   - Line 6: `args: - FLAG=${FLAG}`
-   - Risk: Visible in Docker image metadata
-
-3. **Container Filesystem:**
-   - Location: `/var/www/webapp/app/static/flag`
-   - Created by: Dockerfile line 21: `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`
-   - Risk: Extractable from container or image layers
-
-4. **Container Environment:**
-   - Loaded from `.env` via docker-compose
-   - Visible via `docker inspect` or `/proc/1/environ`
-
-**No Secret Rotation:** No mechanism to rotate or update the flag value.
-
-### 10.4 Logging and Monitoring
-
-**Finding:** NO application-level logging implemented
-
-**Apache Logging:**
-- Default Apache access.log and error.log (location: `/var/log/apache2/`)
-- Logs all HTTP requests including query parameters
-- `/resource?filename=flag` would appear in access.log
-- No application-layer security event logging
-
-**Security Impact:**
-- No audit trail for file access attempts
-- No authentication failure logging (no auth system)
-- No rate limiting or anomaly detection
-- No alerting for suspicious activity
-
-### 10.5 Input Validation Summary
-
-**Validation Libraries:** NONE
-- No WTForms, Flask-WTF
-- No Marshmallow
-- No Cerberus
-- No custom validators
-
-**Validation Implementation:** NONE
-- No input validation on any endpoint
-- No sanitization of user input
-- No whitelist enforcement
-- No file extension checks
-- No path normalization
-
-**Most Critical Gap:**
-- `/resource` endpoint accepts arbitrary `filename` parameter without validation
-
-### 10.6 HTTPS/TLS Configuration
-
-**Finding:** Application runs on HTTP only (no encryption)
-
-**Apache Configuration:**
-- File: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` line 1
-- VirtualHost: `<VirtualHost *:80>` - HTTP only
-- No SSL certificate configuration
-- No port 443 listener
-- No HTTP-to-HTTPS redirect
-
-**Security Impact:**
-- All traffic transmitted in plaintext
-- Flag file downloaded over unencrypted connection
-- Vulnerable to network eavesdropping
-- Man-in-the-middle attacks possible
-
-### 10.7 Rate Limiting
-
-**Finding:** NO rate limiting implemented
-
-- No Flask-Limiter or similar extension
-- No request throttling
-- No IP-based restrictions
-- Unlimited requests to all endpoints
-- Brute force protection: NONE
-
-### 10.8 CSRF Protection
-
-**Finding:** NO CSRF protection
-
-- No CSRF tokens in forms
-- No Flask-WTF extension
-- No SameSite cookie attributes (no cookies exist)
-- Forms vulnerable to cross-site submission (though non-functional)
+**Attack Surface Reduction Opportunities:**
+1. Remove or authenticate `/resource` endpoint
+2. Implement proper authentication on `/login`
+3. Add input validation on all parameters
+4. Implement CSRF protection
+5. Enable HTTPS/TLS
+6. Configure security headers
+7. Implement rate limiting
+8. Add comprehensive logging
 
 ---
 
-## RECONNAISSANCE COMPLETE
+## Conclusion
 
-This reconnaissance deliverable provides a comprehensive attack surface map of the XBEN-019-24 Flask CTF application. The primary attack vector is the path traversal vulnerability in the `/resource?filename=flag` endpoint, which successfully bypasses Apache's FilesMatch protection to retrieve the flag file.
+This Flask application represents a **critically vulnerable** minimal web application with a total absence of security controls. The primary exploitable vulnerability is the path traversal issue in the `/resource` endpoint, which allows anonymous users to access arbitrary files within the static directory, including the CTF flag.
 
-**Next Phase:** Vulnerability analysis specialists will use this intelligence to perform detailed security testing of:
-- Path traversal exploitation techniques
-- Access control bypass methods  
-- Information disclosure via directory listing
-- Apache configuration security analysis
-- Docker security assessment
+**Key Findings:**
+- 3 network-accessible HTTP endpoints
+- Zero authentication/authorization mechanisms
+- 1 critical path traversal vulnerability
+- Complete absence of input validation
+- No session management
+- No security logging
+- Misconfigured CORS (wildcard)
+- HTTP-only (no TLS)
+
+**Recommendations for Downstream Analysis:**
+- **Injection Analysis:** Focus on `/resource?filename=` parameter for path traversal exploitation
+- **XSS Analysis:** Low priority - static templates with no user input reflection
+- **Auth Analysis:** Document complete absence of authentication as critical finding
+- **Authz Analysis:** Document complete absence of authorization as critical finding
+- **SSRF Analysis:** Not applicable - no outbound HTTP requests in code
+
+This application should **never be deployed in production** and appears designed as a CTF challenge or security training exercise.

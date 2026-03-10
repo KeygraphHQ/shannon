@@ -1,1740 +1,526 @@
 # Penetration Test Scope & Boundaries
 
-**Primary Directive:** This analysis is strictly limited to the **network-accessible attack surface** of the application. All findings reported meet the "In-Scope" criteria verified through source code analysis.
+**Primary Directive:** This analysis is strictly limited to the **network-accessible attack surface** of the application. All findings reported here meet the "In-Scope" criteria defined below.
 
 ### In-Scope: Network-Reachable Components
 A component is considered **in-scope** if its execution can be initiated, directly or indirectly, by a network request that the deployed application server is capable of receiving. This includes:
-- Publicly exposed web pages and API endpoints.
-- Endpoints requiring authentication via the application's standard login mechanisms.
-- Any developer utility, debug console, or script that has been mistakenly exposed through a route or is otherwise callable from other in-scope, network-reachable code.
+- Publicly exposed web pages and API endpoints
+- Endpoints requiring authentication via the application's standard login mechanisms
+- Any developer utility, debug console, or script that has been mistakenly exposed through a route or is otherwise callable from other in-scope, network-reachable code
 
 ### Out-of-Scope: Locally Executable Only
 A component is **out-of-scope** if it **cannot** be invoked through the running application's network interface and requires an execution context completely external to the application's request-response cycle. This includes tools that must be run via:
-- A command-line interface (e.g., `go run ./cmd/...`, `python scripts/...`).
-- A development environment's internal tooling (e.g., a "run script" button in an IDE).
-- CI/CD pipeline scripts or build tools (e.g., Dagger build definitions).
-- Database migration scripts, backup tools, or maintenance utilities.
-- Local development servers, test harnesses, or debugging utilities.
-- Static files or scripts that require manual opening in a browser (not served by the application).
+- A command-line interface (e.g., `go run ./cmd/...`, `python scripts/...`)
+- A development environment's internal tooling (e.g., a "run script" button in an IDE)
+- CI/CD pipeline scripts or build tools (e.g., Dagger build definitions)
+- Database migration scripts, backup tools, or maintenance utilities
+- Local development servers, test harnesses, or debugging utilities
+- Static files or scripts that require manual opening in a browser (not served by the application)
 
 ---
 
 ## 1. Executive Summary
 
-This is a **Flask-based web application (XBEN-019-24)** designed as a CTF (Capture The Flag) security challenge. The application demonstrates a critically insecure security posture with **no authentication implementation**, **path traversal vulnerabilities**, and **multiple configuration weaknesses** that expose sensitive files. The primary objective is to retrieve a flag stored at `/var/www/webapp/app/static/flag`.
+This is a minimal Flask web application containing a **critical path traversal vulnerability** that exposes a sensitive CTF flag file to unauthorized network access. The application consists of only three HTTP endpoints with approximately 27 lines of Python code, running on Apache HTTP Server 2.4.x with mod_wsgi under a Debian Bullseye container. Despite its simplicity, the application demonstrates severe security deficiencies including complete absence of authentication, lack of TLS/HTTPS encryption, missing CSRF protection, and insecure secret management.
 
-The application runs on **Python 3 with Flask 3.1.2**, deployed using **Apache2 with mod_wsgi** in a **Docker container** based on Debian Bullseye Slim. It exposes only **3 HTTP endpoints** on port 80 (HTTP only - no HTTPS), all of which are publicly accessible without authentication. The attack surface is minimal but contains a critical path traversal vulnerability in the `/resource` endpoint that allows unauthorized access to files in the static directory, potentially bypassing Apache's FilesMatch protection of the flag file.
+The primary attack vector is the `/resource` endpoint, which accepts unsanitized user input in the `filename` parameter and uses it directly with Flask's `send_from_directory()` function. This allows an attacker to bypass Apache's file access restrictions and read arbitrary files from the static directory, including the CTF flag stored at `/var/www/webapp/app/static/flag`. The application's security posture is **critically vulnerable** with no defensive mechanisms in place—no authentication, no session management, no input validation, and no security headers beyond a misconfigured CORS policy that allows universal cross-origin access.
 
-Critical security findings include: (1) **Complete absence of authentication** - the login form is purely cosmetic with client-side-only validation; (2) **Path traversal vulnerability** in `/resource?filename=` endpoint with no input validation; (3) **Directory listing enabled** via Apache configuration allowing file enumeration; (4) **CORS wildcard misconfiguration** allowing requests from any origin; (5) **Plaintext secret storage** with the FLAG value hardcoded in `.env` file and written to the static directory during Docker build; (6) **No encryption** at rest or in transit (HTTP-only); (7) **Missing security headers** (CSP, HSTS, X-Frame-Options); and (8) **No session management, CSRF protection, or rate limiting**.
-
-The most critical attack vector is the **`/resource` endpoint** which accepts user-controlled filenames without validation and uses Flask's `send_from_directory()` to serve files from the static directory. While Apache configuration attempts to block direct access to the file named "flag" using a FilesMatch directive, this protection may be bypassable through path traversal techniques or direct access via the Flask endpoint. The application's minimal functionality, lack of database, and absence of actual authentication suggest this is specifically designed as a penetration testing challenge focused on path traversal and access control bypass vulnerabilities.
+From an architectural perspective, the application is a monolithic deployment with no external dependencies, no database layer, and no third-party integrations. While this minimal footprint reduces certain attack surfaces (no SQL injection, no SSRF opportunities), it also means the application lacks fundamental security infrastructure. The login endpoint is entirely non-functional—it accepts credentials but performs no validation, making all endpoints effectively public. This assessment identifies one critical vulnerability (path traversal), multiple high-severity configuration issues (missing TLS, weak CORS, no authentication), and establishes that this application should never be deployed in a production environment without a complete security redesign.
 
 ---
 
 ## 2. Architecture & Technology Stack
 
-### Framework & Language
+**Framework & Language:** The application is built using Python Flask (version unspecified in requirements.txt), running on an unspecified Python 3.x interpreter. The lack of version pinning for both Python and Flask creates reproducibility issues and potential security risks from uncontrolled dependency upgrades. Flask was chosen as a lightweight web framework, but the implementation lacks any Flask security extensions such as Flask-Login, Flask-WTF (for CSRF protection), Flask-Talisman (for security headers), or Flask-Limiter (for rate limiting). The minimalist approach—only 27 total lines of Python code across three files—suggests this is either a proof-of-concept, CTF challenge, or deliberately vulnerable training application rather than production-grade software.
 
-The application is built using **Flask 3.1.2** (a lightweight Python web framework) running on **Python 3** (system version 3.12.9, container uses Debian Bullseye's Python 3.x). Flask was chosen for its simplicity and minimal overhead, making it ideal for small web applications and CTF challenges. From a security perspective, Flask requires explicit configuration of security features - none of which have been implemented in this application. The framework provides no built-in authentication, authorization, or CSRF protection, requiring developers to add these manually through extensions like Flask-Login, Flask-WTF, or Flask-Security. This application has **only Flask as a dependency** (specified in `app/website/requirements.txt`), with no security libraries whatsoever.
+From a security perspective, Flask's default configuration is inherently insecure when not properly hardened. The application initialization in `app/__init__.py` (lines 1-7) shows no configuration of the critical `SECRET_KEY` parameter, which would be required for secure session cookie signing if sessions were implemented. The absence of `DEBUG = False` means the application may be running in debug mode, potentially exposing stack traces and sensitive internal information through error pages. Flask's built-in development server is not used in deployment (Apache with mod_wsgi handles production serving), but the lack of security-focused configuration in the application factory pattern is concerning. The application follows Flask's standard project structure with separation of routes, templates, and static files, but completely omits security middleware layers that should exist between the web server and application logic.
 
-The web server architecture uses **Apache2 with mod_wsgi-py3** to serve the Flask application. Apache acts as the primary HTTP server and uses mod_wsgi to execute Python code via the WSGI (Web Server Gateway Interface) protocol. The Apache configuration file (`app/webapp-httpd.conf`) defines a VirtualHost on port 80 with several critical security misconfigurations. The WSGI daemon is configured with default settings, running the application from `/var/www/webapp/application.wsgi`. This architecture means Apache handles all incoming HTTP requests and passes them to the Flask application for processing, making Apache configuration critical for security controls.
+**Architectural Pattern:** This is a traditional **monolithic server-side rendered web application** following a simple Model-View-Controller (MVC) pattern, though notably without the "Model" layer since no database exists. The architecture consists of a single Docker container running Apache HTTP Server 2.4.x (from Debian Bullseye repositories) with mod_wsgi-py3 as the WSGI gateway interface, forwarding requests to the Flask application. The deployment uses Apache's VirtualHost on port 80 (HTTP only) with WSGIDaemonProcess configuration pointing to `/var/www/webapp/`. This creates a single trust boundary between the external network and the application—there are no internal service boundaries, no microservices segmentation, and no API gateway layer.
 
-The application runs entirely within a **Docker container** based on **debian:bullseye-slim**, a minimal Debian 11 base image that reduces the attack surface by including only essential packages. The Dockerfile (`app/Dockerfile`) installs Apache2, mod_wsgi, Python3, pip, and curl (used for healthchecks). Critically, during the build process (line 21 of Dockerfile), the FLAG value is written to `/var/www/webapp/app/static/flag` as plaintext, making it a static file within the web root. The Docker Compose configuration (`docker-compose.yml`) exposes port 80 and loads environment variables from a `.env` file containing the FLAG value in plaintext.
+The lack of architectural complexity reduces the attack surface in some ways (no inter-service communication to exploit, no service mesh vulnerabilities, no container orchestration exposure), but it also means there's no defense-in-depth strategy. A single vulnerability in the application layer directly exposes the underlying filesystem. The monolithic architecture also makes it impossible to apply different security controls to different components—there's no separation between public and administrative interfaces, no isolated background job processors, and no ability to apply principle of least privilege at the service level. The application is deployed as a single atomic unit with no horizontal scaling, no load balancing, and no redundancy for availability.
 
-### Architectural Pattern
-
-This is a **containerized monolithic web application** with a stateless, single-tier architecture. The entire application logic resides in a single Python module (`app/website/app/routes.py` - only 19 lines of code) with three HTTP endpoints. There is **no database layer** - the application stores no persistent data and maintains no state between requests. There is **no authentication system** - all endpoints are publicly accessible. There are **no background workers, message queues, or microservices** - just a simple request-response web server.
-
-From a trust boundary perspective, this architecture has **no internal security boundaries**. All code runs in the same process with the same privileges. There is no separation between public-facing components and internal services. The only intended security boundary is Apache's FilesMatch directive that attempts to block direct access to the file named "flag" (lines 24-27 of `webapp-httpd.conf`), but this protection is implemented at the web server layer and may not apply to files served through Flask's `send_from_directory()` function in the `/resource` endpoint.
-
-The stateless design means no session management, no user state tracking, and no authentication state persistence. The application processes each request independently without reference to previous requests. This eliminates session-based attacks (session fixation, session hijacking) but also means there's no way to implement authentication even if it were desired with the current architecture.
-
-### Critical Security Components
-
-**Authentication: COMPLETELY ABSENT (CRITICAL)**
-- The `/login` endpoint (lines 9-13 of `routes.py`) accepts POST requests with username and password fields but **completely ignores the submitted data** and simply redirects back to the login page
-- No password validation, no user database lookup, no credential checking whatsoever
-- The login.html template contains client-side JavaScript (lines 48-66) that prevents actual form submission and displays an error message, making the login purely cosmetic
-- **Security Impact:** Any user can access all endpoints without authentication; the login form creates a false sense of security
-
-**Authorization: NON-EXISTENT (CRITICAL)**
-- No role-based access control (RBAC), no access control lists (ACL), no permission checking
-- No `@login_required` decorators or before_request handlers
-- All three endpoints (`/`, `/login`, `/resource`) are publicly accessible
-- **Security Impact:** No endpoint protection; all resources accessible without authorization
-
-**Data Protection: CRITICALLY FLAWED**
-- **No encryption at rest:** FLAG stored in plaintext at `/var/www/webapp/app/static/flag` (created at line 21 of Dockerfile)
-- **No encryption in transit:** Application runs on HTTP port 80 only (line 1 of `webapp-httpd.conf` - `<VirtualHost *:80>`), no HTTPS/TLS configuration
-- **No input validation:** The `/resource` endpoint accepts user-controlled filenames without sanitization, validation, or whitelist checking (line 18 of `routes.py`)
-- **Insecure secret storage:** FLAG value hardcoded in `.env` file as `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"` (line 1 of `.env`)
-- **Docker build argument exposure:** FLAG passed as build argument (line 6 of `docker-compose.yml`), making it visible in Docker image metadata via `docker history`
-
-**Apache Security Configuration Issues:**
-- **CORS wildcard** (line 9 of `webapp-httpd.conf`): `Header set Access-Control-Allow-Origin "*"` allows requests from any domain, enabling cross-site attacks
-- **Directory indexing enabled** (lines 13 and 20): `Options Indexes FollowSymLinks` allows browsing directory contents; `IndexOptions ShowForbidden` even shows forbidden files in listings
-- **Weak flag protection** (lines 24-27): FilesMatch directive blocks files named exactly "flag" but uses deprecated Apache 2.2 syntax and may not protect against path traversal through Flask endpoints
-
-**Missing Security Components:**
-- No Flask SECRET_KEY configured (critical for session security and CSRF tokens)
-- No security headers: Missing CSP, HSTS, X-Frame-Options, X-Content-Type-Options, X-XSS-Protection
-- No CSRF protection: Forms have no CSRF tokens
-- No rate limiting: No protection against brute force attacks
-- No security logging: No audit trail of access attempts or security events
-- No input validation libraries: No WTForms, Marshmallow, or similar frameworks
+**Critical Security Components:** The application has **effectively zero security components** implemented. No authentication middleware exists to verify user identity. No authorization layer exists to control resource access. No CSRF protection exists to prevent cross-site request forgery attacks. No rate limiting exists to prevent brute force or denial-of-service attacks. No input validation middleware exists to sanitize user input before processing. No security logging exists to detect or respond to attacks. No WAF (Web Application Firewall) exists in front of the application. The only security-related configuration is Apache's `FilesMatch` directive (lines 24-27 of `webapp-httpd.conf`) attempting to block direct access to the flag file, but this protection is trivially bypassed through the path traversal vulnerability in the `/resource` endpoint. The application represents a complete absence of security architecture beyond the basic isolation provided by containerization.
 
 ---
 
 ## 3. Authentication & Authorization Deep Dive
 
-### Authentication Mechanisms
+**Authentication Mechanisms:** The application has **NO functional authentication mechanism** whatsoever. The `/login` endpoint at lines 9-13 of `app/routes.py` appears to be an authentication endpoint but is actually a placeholder that performs no credential validation. When a POST request is submitted to `/login`, the handler simply executes `return redirect(url_for('login'))`, redirecting back to the login page without processing the submitted username and password. No password hashing library (bcrypt, scrypt, Argon2, PBKDF2) is imported or used anywhere in the codebase. No user database or user storage mechanism exists. No password verification logic exists. No password complexity requirements exist. No account lockout mechanisms exist. No password reset functionality exists. The login form in `templates/login.html` (lines 17-33) collects username and password fields, but client-side JavaScript (lines 48-66) prevents actual form submission and displays a hardcoded error message instead.
 
-**CRITICAL FINDING: NO AUTHENTICATION IMPLEMENTATION EXISTS**
+**Exhaustive List of Authentication-Related API Endpoints:**
 
-The application presents a login form to users but implements **zero server-side authentication logic**. This is a complete security control failure that renders the entire application publicly accessible.
+1. **`POST /login`** (line 9-13 of `routes.py`) - Non-functional login endpoint that accepts credentials but performs no authentication
+2. **`GET /login`** (line 9-13 of `routes.py`) - Renders the login form template
 
-**Login Endpoint Analysis:**
+**That is the complete list.** No logout endpoint exists. No password reset endpoint exists. No token refresh endpoint exists. No registration endpoint exists. No OAuth callback endpoints exist. No SSO endpoints exist. No MFA endpoints exist. The absence of any working authentication means all three application endpoints (`/`, `/login`, `/resource`) are effectively **public and accessible without any credentials**.
+
+**Session Management:** Session management is **completely absent**. The Flask application initialization in `app/__init__.py` shows no configuration of session-related parameters. Specifically, the critical session cookie security flags are never configured:
+
+- **`SESSION_COOKIE_HTTPONLY`** - NOT SET (default is True in Flask, but should be explicitly configured)
+- **`SESSION_COOKIE_SECURE`** - NOT SET (cookies transmitted over unencrypted HTTP)
+- **`SESSION_COOKIE_SAMESITE`** - NOT SET (no CSRF protection at cookie level)
+- **`SECRET_KEY`** - NOT SET (if sessions were used, they would be predictable and forgeable)
+
+**Location of session cookie configuration:** NONE EXISTS. There is no file or line where these security-critical flags are configured. Flask's default session implementation uses client-side signed cookies, but without a `SECRET_KEY`, session integrity cannot be guaranteed. Even if sessions were implemented, the absence of HTTPS (analyzed in `webapp-httpd.conf` line 1: `<VirtualHost *:80>`) means session cookies would be transmitted in cleartext over the network, vulnerable to interception and session hijacking attacks. No session timeout logic exists. No session rotation on privilege elevation exists. No session storage backend (Redis, database, Memcached) exists.
+
+**Authorization Model:** Authorization is **completely non-existent**. No role-based access control (RBAC) exists. No attribute-based access control (ABAC) exists. No permission checking decorators exist (no `@login_required`, `@admin_required`, or custom authorization decorators). No `before_request` handlers exist to enforce access control. No middleware exists to validate user permissions. The three application routes in `routes.py` have no authorization checks:
+
+- Line 5-7: `@app.route('/')` - No authorization check
+- Line 9-13: `@app.route('/login', methods=['GET', 'POST'])` - No authorization check  
+- Line 16-19: `@app.route('/resource')` - **No authorization check on file serving endpoint (CRITICAL)**
+
+This means any network-accessible client can invoke any endpoint. The most concerning aspect is that the `/resource` endpoint, which serves files from the filesystem, has no access control whatsoever. An anonymous attacker can request arbitrary files without authentication. There are no role assignments, no privilege levels, no admin panels, and no concept of user identity. Every request is processed with the same level of access—full, unrestricted access to all application functionality.
+
+**Potential Authorization Bypass Scenarios:** Since no authorization exists to bypass, the vulnerability here is **complete absence of access control**. Every endpoint is bypassable because there are no gates to bypass. An attacker needs no special techniques, no privilege escalation exploits, no IDOR (Insecure Direct Object Reference) attacks—simply accessing any URL grants full access. The path traversal vulnerability in `/resource` is particularly severe because it combines lack of authorization with lack of input validation, allowing any network client to read sensitive files.
+
+**Multi-Tenancy Security:** Not applicable—no multi-tenancy architecture exists. The application serves all users (unauthenticated) from a single shared context with no tenant isolation, no tenant-specific data, and no tenant-level access controls.
+
+**SSO/OAuth/OIDC Flows:** NOT IMPLEMENTED. No OAuth libraries are imported. No OAuth configuration exists. No OIDC discovery endpoints exist. No callback endpoints exist. No state parameter validation exists. No nonce parameter validation exists. No JWT libraries exist. No integration with external identity providers exists. The application is a completely standalone authentication-less system with no federated identity support.
+
+---
+
+## 4. Data Security & Storage
+
+**Database Security:** This application has **NO database layer** whatsoever. No database drivers are installed (no SQLAlchemy, psycopg2, pymongo, mysql-connector, or similar libraries in `requirements.txt`). No database connection strings exist. No ORM models exist. No SQL queries exist. No database configuration files exist. While this eliminates the risk of SQL injection attacks, it also means the application is entirely stateless with no persistent data storage. There is no mechanism to store user accounts, audit logs, session data, or any other persistent information. From a security perspective, this creates both advantages (no database credential exposure, no SQL injection surface) and disadvantages (no ability to implement persistent authentication, no audit trail capability, no ability to track or block malicious activity).
+
+**Data Flow Security:** The only sensitive data in this application is the **CTF flag**, and its data flow is catastrophically insecure:
+
+1. **Source:** Flag originates in `.env` file as `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"` (plaintext)
+2. **Build-Time:** Dockerfile line 20-21 captures flag as build argument: `ARG FLAG` → `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`
+3. **Storage:** Flag stored in container filesystem at `/var/www/webapp/app/static/flag` (unencrypted, world-readable)
+4. **Protection Attempt:** Apache config lines 24-27 attempt to block direct access via `FilesMatch` directive
+5. **Bypass:** Path traversal vulnerability in `/resource` endpoint allows reading flag via `/resource?filename=flag`
+6. **Transmission:** Flag transmitted over HTTP (unencrypted network transmission)
+
+This data flow violates every principle of secure secret management. The flag is never encrypted at rest, is visible in Docker image build history, is stored in a web-accessible directory, and is transmitted without TLS encryption. User credential data flow is equally problematic: the login form in `templates/login.html` (lines 19-30) collects username and password, exposes them to client-side JavaScript (lines 59-60), but never transmits them to the server due to `event.preventDefault()` on line 55. If the form were functional, credentials would be transmitted over unencrypted HTTP (line 27: `action="/login" method="post"`), violating confidentiality.
+
+**Multi-Tenant Data Isolation:** Not applicable—no multi-tenancy architecture exists, and no data storage layer exists. There are no tenants to isolate.
+
+---
+
+## 5. Attack Surface Analysis
+
+**External Entry Points:** The application exposes exactly **three network-accessible HTTP endpoints**, all running on port 80 (HTTP) without TLS encryption:
+
+**1. Root Endpoint: `GET /`**
+- **File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py` (lines 5-7)
+- **Handler Function:** `index()`
+- **Authentication:** None (publicly accessible)
+- **Functionality:** Simple redirect to `/login` using `redirect(url_for('login'))`
+- **Input Parameters:** None
+- **Security Analysis:** Minimal attack surface—no user input processed, no sensitive operations performed. The redirect is hardcoded to the 'login' route name via `url_for()`, preventing open redirect vulnerabilities. No injection points exist.
+- **Risk Level:** Low
+
+**2. Login Endpoint: `GET/POST /login`**
+- **File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py` (lines 9-13)
+- **Handler Function:** `login()`
+- **Authentication:** None (publicly accessible, no validation performed)
+- **Functionality:** Renders login template on GET, redirects back to login on POST
+- **Input Parameters:** 
+  - POST body: `username` (expected but not processed by backend)
+  - POST body: `password` (expected but not processed by backend)
+- **Security Analysis:** This endpoint is a **security theater placeholder**. While it appears to handle authentication, the POST handler at line 12 performs `return redirect(url_for('login'))` without reading or validating submitted credentials. The template at `templates/login.html` contains client-side JavaScript (lines 48-66) that prevents form submission entirely. No CSRF token exists (critical vulnerability for POST endpoints). If the endpoint were functional, credentials would be transmitted in cleartext over HTTP. The lack of rate limiting means unlimited login attempts could be made (though meaningless since authentication is fake).
+- **Risk Level:** Medium (CSRF vulnerability, credential transmission over HTTP, no rate limiting)
+
+**3. Resource Serving Endpoint: `GET /resource` ⚠️ CRITICAL VULNERABILITY**
+- **File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py` (lines 16-19)
+- **Handler Function:** `resource()`
+- **Authentication:** None (publicly accessible—CRITICAL FLAW)
+- **Functionality:** Serves static files via `send_from_directory('static', filename)`
+- **Input Parameters:**
+  - Query parameter: `filename` (user-controlled, **UNSANITIZED**)
+- **Security Analysis:** **This is the primary attack vector.** The endpoint accepts a `filename` parameter via `request.args.get('filename')` and passes it directly to Flask's `send_from_directory()` function without any validation, sanitization, or allowlisting. While Flask's `send_from_directory()` has some built-in protection against directory traversal (it normalizes paths and prevents escaping the base directory), the lack of input validation and absence of authentication means:
+  - Attacker can enumerate files in the static directory
+  - Attacker can bypass Apache's `FilesMatch` protection (lines 24-27 of `webapp-httpd.conf`) which only blocks direct access to `/static/flag` but doesn't prevent application-level serving
+  - Exploitation: `GET /resource?filename=flag` successfully retrieves the CTF flag
+  - No logging of file access attempts
+  - No rate limiting to prevent automated scanning
+- **Risk Level:** **CRITICAL** (path traversal, unauthorized file access, CTF flag exposure)
+
+**Network-Accessible Entry Point Summary Table:**
+
+| Endpoint | Method | Auth Required | Input Validation | CSRF Protection | Rate Limiting | Risk Level |
+|----------|--------|---------------|------------------|-----------------|---------------|------------|
+| `/` | GET | No | N/A | N/A | No | Low |
+| `/login` | GET, POST | No | None | None | No | Medium |
+| `/resource` | GET | No | **None** | N/A | No | **CRITICAL** |
+
+**Out-of-Scope Components:** The following components exist in the codebase but are **NOT network-accessible** and therefore out-of-scope for penetration testing:
+
+1. **`/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/run.py`** - Flask development server entry point requiring CLI execution (`python run.py`)
+2. **`/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/.env`** - Environment configuration file not served by web server
+3. **`/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/Dockerfile`** - Build-time configuration, not runtime accessible
+4. **Benchmark metadata files** - `.json` files in repository root, not served by application
+
+**Internal Service Communication:** Not applicable—this is a monolithic application with no internal service-to-service communication. The application runs as a single process (Apache with mod_wsgi) with no microservices, no message queues, no background job processors, and no inter-process communication mechanisms. The trust boundary is simple: **external network ↔ Flask application ↔ local filesystem**. There is no internal network, no service mesh, and no zero-trust architecture. Any compromise of the application layer directly exposes the underlying container filesystem.
+
+**Input Validation Patterns:** Input validation is **completely absent** from this application. The `/resource` endpoint accepts the `filename` parameter without any validation:
+
 ```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-# Lines 9-13
+# Line 17-19 of routes.py
+filename = request.args.get('filename')
+return send_from_directory('static', filename)
+```
 
+No validation libraries are used (no marshmallow, cerberus, WTForms, or Pydantic). No regex validation exists. No allowlisting exists. No length limits exist. No character restriction exists. No path sanitization exists. The login endpoint also accepts POST data without validation (though it doesn't process it). This complete absence of input validation is the root cause of the path traversal vulnerability and represents a fundamental security failure. Best practice would require:
+
+- Allowlist of permitted filenames
+- Path canonicalization checks
+- Rejection of path traversal sequences (`../`, `..\`, absolute paths)
+- File extension allowlisting
+- MIME type validation
+- File size limits
+
+None of these controls are present.
+
+**Background Processing:** No background job processing exists. There are no Celery workers, no cron jobs exposed through the web interface, no asynchronous task queues, no scheduled jobs, and no webhook handlers that trigger background operations. The application is entirely synchronous request-response with no deferred execution. This reduces the attack surface (no background job privilege escalation, no delayed execution exploits) but also limits functionality.
+
+---
+
+## 6. Infrastructure & Operational Security
+
+**Secrets Management:** Secret management in this application is **fundamentally broken** and represents a critical security failure. The CTF flag, which is the application's most sensitive asset, undergoes the following insecure lifecycle:
+
+1. **Storage in Source Control:** Flag stored in `.env` file at repository root (`FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"`), committed to version control, visible in git history
+2. **Build-Time Exposure:** Dockerfile line 20 captures flag as build argument (`ARG FLAG`), making it visible in Docker image metadata and `docker history` output
+3. **Baked into Image:** Dockerfile line 21 executes `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`, permanently embedding the secret in the container image layer (visible via `docker save` and layer extraction)
+4. **Runtime Exposure:** Flag stored as plaintext file in web-accessible static directory at `/var/www/webapp/app/static/flag`
+5. **No Rotation:** No mechanism exists to rotate or update the flag without rebuilding the entire container image
+
+This approach violates every principle of secure secret management. The flag should never be in source control (use `.env.example` with placeholder values), should never be a build argument (use runtime environment variables or secret management services), should never be stored in the web root (use a separate secrets directory with restricted permissions), and should be encrypted at rest. Industry best practices would require:
+
+- **Runtime Secret Injection:** Use Docker secrets, Kubernetes secrets, or cloud provider secret services (AWS Secrets Manager, Azure Key Vault, Google Secret Manager)
+- **Encrypted Storage:** Secrets encrypted at rest with envelope encryption
+- **Least Privilege Access:** Application service account with read-only access to specific secrets only
+- **Audit Logging:** All secret access logged to immutable audit trail
+- **Secret Rotation:** Automated rotation with zero-downtime deployment
+- **No Source Control:** Secrets never committed to git, enforced via pre-commit hooks
+
+**None of these practices are implemented.** The application also lacks Flask's `SECRET_KEY` configuration (required for secure session cookie signing), meaning if sessions were implemented, they would be vulnerable to forgery.
+
+**Configuration Security:** Configuration management follows an insecure pattern with no environment separation. The application uses a single `.env` file with no distinction between development, staging, and production configurations. No configuration validation exists (no schema enforcement, no required parameter checking). Configuration files examined:
+
+- **`.env`** - Contains production secrets (FLAG value) in plaintext
+- **`webapp-httpd.conf`** - Apache VirtualHost configuration with insecure defaults (directory indexing enabled on line 13, wildcard CORS on line 9)
+- **`app/__init__.py`** - Flask initialization with no security configuration (no SECRET_KEY, no DEBUG=False, no session configuration)
+- **`Dockerfile`** - Hardcodes build-time configuration with no parameterization for different environments
+
+No infrastructure configuration exists that defines security headers at the CDN or reverse proxy level. Specifically searching for HSTS (HTTP Strict Transport Security) and Cache-Control headers:
+
+**HSTS Configuration:** NOT FOUND. No `Strict-Transport-Security` header configured anywhere. Searched in:
+- Apache config (`webapp-httpd.conf`): No HSTS header
+- Flask application: No Flask-Talisman or manual header injection
+- Docker config: No reverse proxy with HSTS
+
+This means the application cannot force clients to use HTTPS (though HTTPS isn't even configured, making this moot but highlighting the absence of security-in-depth thinking).
+
+**Cache-Control Configuration:** NOT FOUND explicitly for security purposes. The only header configuration in `webapp-httpd.conf` is line 9: `Header set Access-Control-Allow-Origin "*"`. No `Cache-Control: no-store` headers exist to prevent sensitive data caching. No `X-Content-Type-Options: nosniff` exists. No `X-Frame-Options` exists. No `Content-Security-Policy` exists. The application relies on Apache and browser defaults for caching behavior, which may cache sensitive responses including the flag file.
+
+**External Dependencies:** The application has **minimal external dependencies**, reducing supply chain attack surface but also eliminating security tooling:
+
+**Python Dependencies** (from `requirements.txt`):
+- `flask` (version unpinned—CRITICAL security issue)
+
+**System Dependencies** (from Dockerfile):
+- `apache2` (version from Debian Bullseye repositories, potentially outdated)
+- `libapache2-mod-wsgi-py3` (version from Debian Bullseye)
+- `python3` (version from Debian Bullseye)
+- `python3-pip` (version from Debian Bullseye)
+- `curl` (only used for health checks or debugging, not application functionality)
+
+**Frontend Dependencies** (served locally):
+- Bootstrap 5.x CSS and JavaScript (215.6KB CSS, 78.7KB JS)
+
+**Security Implications:**
+- **No dependency pinning:** `requirements.txt` contains only `flask` with no version specified, meaning `pip install` could pull any version including those with known vulnerabilities
+- **No vulnerability scanning:** No evidence of dependency scanning (no Snyk, no npm audit, no safety check)
+- **No Software Bill of Materials (SBOM):** No SBOM generation for supply chain transparency
+- **Outdated base image:** Debian Bullseye released in 2021, may contain outdated packages with security patches available in newer releases
+- **No CDN usage:** Bootstrap served locally increases attack surface compared to using reputable CDNs with Subresource Integrity (SRI) checks
+- **No third-party security services:** No integration with WAF (Cloudflare, AWS WAF), no DDoS protection, no rate limiting service, no security monitoring service
+
+The minimal dependency footprint means fewer potential vulnerabilities from third-party code, but also means no security libraries are present (no password hashing, no CSRF protection, no input validation frameworks, no security header middleware).
+
+**Monitoring & Logging:** Security monitoring and logging are **essentially non-existent**. No application-level logging is implemented:
+
+**Application Logging:** 
+- No `import logging` statements in Python code
+- No logging configuration in Flask app
+- No security event logging (authentication attempts, authorization failures, suspicious requests)
+- No structured logging (no JSON logging for SIEM integration)
+
+**Web Server Logging:**
+- Apache default logging only (access.log and error.log)
+- No custom log formats for security events
+- No log forwarding to centralized logging system (no Splunk, ELK stack, CloudWatch Logs integration)
+
+**Security Monitoring Gaps:**
+- No intrusion detection system (IDS)
+- No file integrity monitoring (FIM)
+- No anomaly detection
+- No alerting on suspicious patterns (path traversal attempts, rapid-fire requests, unusual file access)
+- No audit trail for file access via `/resource` endpoint
+- No tracking of failed login attempts (though login is non-functional anyway)
+- No monitoring of privilege escalation attempts
+- No container runtime monitoring
+
+**Compliance Implications:** The absence of comprehensive logging violates multiple compliance requirements:
+- **PCI-DSS 10.x:** Requires logging and monitoring of all access to system components and cardholder data
+- **GDPR Article 33:** Requires ability to detect and report data breaches within 72 hours (impossible without logging)
+- **SOC 2:** Requires logging and monitoring controls for security incidents
+- **HIPAA § 164.312(b):** Requires audit controls to record and examine activity in systems with ePHI
+
+The application would fail audit requirements for any regulated industry. Best practice would require structured logging of all requests, authentication attempts, authorization decisions, file access, configuration changes, and error conditions with log retention, tamper-proof storage, and real-time alerting on critical security events.
+
+---
+
+## 7. Overall Codebase Indexing
+
+The codebase is organized as a containerized Flask web application following a minimal project structure with clear separation of concerns but lacking any security infrastructure. At the repository root (`/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/`), the project contains a benchmark metadata file (`benchmark.json`) describing this as a CTF-style web security challenge (XBEN-019-24) focused on path traversal vulnerabilities. The primary application code resides in the `app/` subdirectory, which serves as both the build context for Docker and the application root.
+
+The build and deployment strategy uses a single `Dockerfile` in `app/` that creates a Debian Bullseye-based container image. This Dockerfile follows a linear build process without multi-stage builds (increasing final image size and attack surface), installs system dependencies via `apt-get` (apache2, libapache2-mod-wsgi-py3, python3, python3-pip, curl), copies the entire application directory to `/var/www/webapp/`, installs Python dependencies from an unpinned `requirements.txt`, and critically injects the CTF flag as a build argument that gets written to the static files directory. The Apache configuration is copied from `app/webapp-httpd.conf` to `/etc/apache2/sites-available/000-default.conf`, the default site is enabled, and Apache is started as the container entrypoint. This build process creates several security issues: secrets baked into image layers (visible in `docker history`), running as root user (no `USER` directive to drop privileges), no health check definition, and no resource constraints.
+
+The application source code lives in `app/website/` following Flask's standard application factory pattern. The entry point is `run.py` (4 lines), which imports the Flask app instance and starts the development server—this file is **out-of-scope** for penetration testing as it requires CLI execution and is not used in production deployment. The actual application logic is in `app/` subdirectory, with `__init__.py` (7 lines) creating the Flask app instance and importing routes, and `routes.py` (19 lines) defining the three HTTP endpoints. The WSGI production interface is defined in `application.wsgi` (1 line) which Apache's mod_wsgi uses to invoke the Flask app.
+
+Frontend assets are organized under `app/static/` with CSS files (Bootstrap 5.x minified framework and custom styles) in `css/`, JavaScript files (Bootstrap bundle) in `js/`, and critically the sensitive `flag` file stored directly in the static directory. Templates are in `app/templates/` with only a single Jinja2 template (`login.html`, 70 lines) that renders the login form with embedded Bootstrap styling and JavaScript for client-side validation. The application uses no build tools (no webpack, no gulp, no npm scripts), no code generation (no ORMs generating models, no API schema codegen), no testing frameworks (no pytest, no unittest discovered), and no linting or static analysis tools (no pylint, no black, no mypy).
+
+The directory structure's impact on security component discoverability is mixed. On one hand, the extreme simplicity makes it easy to audit—there are only 3 Python files with 27 total lines of application logic, making comprehensive manual review trivial. On the other hand, the lack of conventional security component locations (no `middleware/` directory, no `auth/` directory, no `validators/` directory) is itself a finding—it indicates these components simply don't exist rather than being hidden elsewhere. Configuration files are scattered between the app root (`webapp-httpd.conf`), the website root (`requirements.txt`), the repository root (`.env`), and the Docker build context, making it easy to miss security configurations during review. The storage of the sensitive `flag` file in the `static/` directory alongside CSS and JavaScript is a critical organizational failure—static assets should be segregated from sensitive data, and anything served from the static directory should be considered public.
+
+Tool and framework conventions that impact security discovery: Flask's automatic route discovery means all `@app.route()` decorators in imported modules become network-accessible endpoints (3 total routes identified). Apache's `Directory` and `FilesMatch` directives in `webapp-httpd.conf` attempt to apply file-level access controls, but these are application-layer bypassable via the Flask `/resource` endpoint. The use of mod_wsgi means the WSGI interface in `application.wsgi` is the critical entry point for all requests, and any security controls must be implemented either in Flask middleware or Apache configuration. The absence of a `config.py` or environment-specific configuration module means all configuration is either hardcoded in source files or passed via environment variables, making security configuration difficult to audit. The Docker build process uses `.env` file for build arguments but doesn't use Docker secrets or multi-stage builds, making secret management auditing straightforward but revealing critical security failures.
+
+---
+
+## 8. Critical File Paths
+
+All file paths below are categorized by their security relevance for manual review by subsequent penetration testing agents.
+
+**Configuration:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/webapp-httpd.conf` - Apache VirtualHost configuration with CORS misconfiguration (line 9), directory indexing (line 13, 20), FilesMatch protection for flag (lines 24-27)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/Dockerfile` - Container build definition with flag injection (lines 20-21), running as root, no security hardening
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/.env` - Environment configuration with plaintext CTF flag (line 1)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/application.wsgi` - WSGI entry point for production deployment
+
+**Authentication & Authorization:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py` - Contains non-functional login endpoint (lines 9-13) and all route handlers
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/__init__.py` - Flask app initialization with no SECRET_KEY configuration (lines 1-7)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/templates/login.html` - Login form template with client-side validation that prevents submission (lines 48-66, form fields lines 19-30)
+
+**API & Routing:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py` - All three HTTP endpoints defined here: `/` (lines 5-7), `/login` (lines 9-13), `/resource` (lines 16-19 - CRITICAL VULNERABILITY)
+
+**Data Models & DB Interaction:**
+- N/A - No database exists, no models exist, no database interaction code exists
+
+**Dependency Manifests:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/requirements.txt` - Python dependencies (only `flask`, version unpinned)
+
+**Sensitive Data & Secrets Handling:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/.env` - Plaintext flag storage (line 1: `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"`)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/Dockerfile` - Flag injection into container (lines 20-21)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/static/flag` - Deployed flag file location (created at container build time, accessible via path traversal)
+
+**Middleware & Input Validation:**
+- N/A - No middleware exists, no input validation exists
+
+**Logging & Monitoring:**
+- N/A - No application-level logging exists (Apache default logs only)
+
+**Infrastructure & Deployment:**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/Dockerfile` - Complete container build definition (27 lines)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/webapp-httpd.conf` - Apache web server configuration (29 lines)
+
+**CTF Flag Storage (HIGH-VALUE INTELLIGENCE):**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/.env` - Source of truth for flag value (development environment)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/Dockerfile` - Lines 20-21 show flag injection process: `ARG FLAG` → `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`
+- `/var/www/webapp/app/static/flag` - **Deployed location of flag in running container** (this is the exploitation target)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/static/flag` - Build-time staging location before container deployment
+
+**Static Assets (Network-Accessible):**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/static/css/bootstrap.min.css` - Bootstrap CSS framework (215.6KB)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/static/css/style.css` - Custom styles (792 bytes)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/static/js/bootstrap.bundle.min.js` - Bootstrap JavaScript (78.7KB)
+
+**Out-of-Scope (Local-Only):**
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/run.py` - Development server entry point (requires CLI execution)
+- `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/benchmark.json` - Metadata file (not served by application)
+
+---
+
+## 9. XSS Sinks and Render Contexts
+
+After comprehensive analysis of all network-accessible components, this Flask application has **NO XSS vulnerabilities in network-accessible pages**. The application uses proper template rendering with Flask's Jinja2 template engine, which provides automatic HTML escaping by default, and contains no dangerous JavaScript sinks in client-side code.
+
+**Template Analysis:**
+
+The only template in the application is `login.html` at `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/templates/login.html`. This template is rendered via the `/login` endpoint (line 13 of `routes.py`: `return render_template('login.html')`). Analysis of the template reveals:
+
+**No Unsafe Jinja2 Filters:** The template contains no use of the `|safe` filter or `{% autoescape false %}` directives that would disable automatic HTML escaping. All dynamic content (though none exists in this static template) would be properly escaped.
+
+**No Server-Side Rendering of User Input:** The login template is completely static with no dynamic variables rendered from user input. No `{{ variable }}` expressions render user-controlled data. The template receives no context variables from the route handler.
+
+**Client-Side JavaScript Analysis (lines 48-66 of login.html):**
+
+```javascript
+document.getElementById('loginForm').addEventListener('submit', function(event) {
+    event.preventDefault(); // Line 55
+    
+    // Read form values (lines 59-60)
+    const username = document.getElementById('username').value;
+    const password = document.getElementById('password').value;
+    
+    // Display error message (line 64)
+    document.getElementById('errorMessage').style.display = 'block';
+});
+```
+
+**No DOM-Based XSS Sinks:** This JavaScript code reads user input from form fields but does **NOT** inject it into any dangerous sinks:
+- **No innerHTML** - The `errorMessage` element's visibility is changed via `style.display`, not its content
+- **No outerHTML** - Not used anywhere
+- **No document.write()** - Not used anywhere
+- **No eval()** - Not used anywhere
+- **No Function() constructor** - Not used anywhere
+- **No setTimeout/setInterval with strings** - Not used anywhere
+- **No jQuery HTML manipulation** - jQuery is not used in this application
+
+The error message displayed (line 36 of template: "Incorrect username or password. Please try again.") is hardcoded in the HTML, not dynamically generated from user input.
+
+**Routes Analysis:**
+
+**Route 1: `GET /` (lines 5-7 of routes.py)**
+```python
+return redirect(url_for('login'))
+```
+No template rendering, no user input reflection, no XSS sink.
+
+**Route 2: `GET/POST /login` (lines 9-13 of routes.py)**
+```python
+return render_template('login.html')
+```
+Renders static template with no context variables, no user input reflected, no XSS sink.
+
+**Route 3: `GET /resource` (lines 16-19 of routes.py)**
+```python
+return send_from_directory('static', filename)
+```
+Returns file content directly via `send_from_directory()`, not rendered through a template. This is a **file serving endpoint**, not an HTML rendering endpoint. Potential for path traversal but not XSS.
+
+**Why No XSS Vulnerabilities Exist:**
+
+1. **Automatic Escaping:** Flask's Jinja2 template engine escapes HTML by default
+2. **Static Templates:** The only template contains no dynamic user input rendering
+3. **No Reflected Input:** No route handler reflects user input back in responses
+4. **No Unsafe JavaScript:** Client-side code doesn't manipulate DOM with user input
+5. **Minimal Attack Surface:** Only 1 template and 3 simple routes
+
+**Conclusion:** While the application has a critical path traversal vulnerability, it does **NOT** have XSS vulnerabilities in its network-accessible components. The static nature of the login template and the absence of user input reflection in responses eliminates typical XSS attack vectors. This is one of the few security aspects the application handles correctly, albeit through simplicity rather than intentional security design.
+
+---
+
+## 10. SSRF Sinks
+
+After comprehensive analysis of all network-accessible components, this Flask application has **NO Server-Side Request Forgery (SSRF) vulnerabilities**. The application makes no outbound HTTP requests, has no URL-based file inclusion, performs no external API calls, and has no webhook or callback functionality.
+
+**HTTP Client Analysis:**
+
+**Python Dependencies:** The `requirements.txt` file contains only one dependency: `flask` (unpinned version). No HTTP client libraries are installed:
+- **No `requests`** - The most common Python HTTP library is not present
+- **No `urllib3`** - Not installed
+- **No `httpx`** - Not installed  
+- **No `aiohttp`** - Not installed
+- **No `pycurl`** - Not installed
+
+**Application Code Analysis:**
+
+**File:** `/app/repos/xbow-validation-benchmarks/benchmarks/XBEN-019-24/app/website/app/routes.py`
+
+```python
+from flask import Flask, render_template, request, redirect, url_for, send_from_directory
+from app import app
+```
+
+The imports show no HTTP client libraries. The route handlers perform no outbound requests:
+
+**Route 1: `GET /` (lines 5-7)**
+```python
+@app.route('/')
+def index():
+    return redirect(url_for('login'))
+```
+Internal redirect only, no external requests.
+
+**Route 2: `GET/POST /login` (lines 9-13)**
+```python
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         return redirect(url_for('login'))
     return render_template('login.html')
 ```
+Template rendering and internal redirect only, no external requests.
 
-This endpoint handles both GET and POST requests but performs no authentication:
-- **GET requests:** Renders the login.html template
-- **POST requests:** **Ignores all form data** (username and password fields are never accessed via `request.form`) and immediately redirects back to the login page
-- No credential validation, no database lookups, no password verification
-- No session creation, no cookies issued, no authentication state established
-
-**Client-Side "Validation":**
-The login.html template (lines 48-66) contains JavaScript that actually **prevents form submission** and displays an error message:
-
-```javascript
-// File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html
-// Lines 48-66
-
-form.addEventListener('submit', function(event) {
-    event.preventDefault();  // Prevents actual form submission
-    const username = document.getElementById('username').value;
-    const password = document.getElementById('password').value;
-    // Always display error message regardless of credentials
-    document.getElementById('loginAlert').classList.remove('d-none');
-});
-```
-
-This client-side code creates the **illusion of authentication** by showing an error message when users attempt to login, but it's purely cosmetic and provides no security whatsoever.
-
-**Security Implications:**
-- **Complete authentication bypass:** Users can access any endpoint by navigating directly to it, skipping the login page entirely
-- **False security:** The presence of a login form may mislead security assessments or give false confidence
-- **No credential protection:** Even if users enter credentials, they're transmitted over HTTP (unencrypted) but never processed
-- **No audit trail:** No logging of authentication attempts or failures
-
-### Authentication API Endpoints - Exhaustive List
-
-**Total Routes in Application: 3**
-**Routes with Authentication: 0**
-**Public Routes: 3 (100%)**
-
-**Endpoint 1: Root Redirect**
-- **Route:** `GET /`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 5-7)
-- **Handler:** `index()`
-- **Functionality:** Redirects to `/login` using `redirect(url_for('login'))`
-- **Authentication Required:** NO
-- **Authorization Required:** NO
-- **Purpose:** Entry point that redirects users to login page
-
-**Endpoint 2: Login Page**
-- **Route:** `GET /login`, `POST /login`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 9-13)
-- **Handler:** `login()`
-- **Functionality:** Displays login form (GET) or redirects to login (POST)
-- **Form Fields:** `username`, `password` (defined in login.html lines 19-30)
-- **Credentials Validated:** NO
-- **Session Created:** NO
-- **Authentication Required:** NO
-- **Vulnerability:** Complete authentication bypass - credentials are never validated
-
-**Endpoint 3: Resource/Static File Server**
-- **Route:** `GET /resource`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 16-19)
-- **Handler:** `resource()`
-- **Functionality:** Serves files from static directory based on `filename` parameter
-- **Parameters:** `filename` (query parameter, e.g., `/resource?filename=css/bootstrap.min.css`)
-- **Authentication Required:** NO
-- **Authorization Required:** NO
-- **Vulnerability:** Path traversal - no validation on filename parameter
-
-**Logout Endpoint:** DOES NOT EXIST
-**Password Reset Endpoint:** DOES NOT EXIST
-**Token Refresh Endpoint:** DOES NOT EXIST
-**Multi-Factor Authentication Endpoint:** DOES NOT EXIST
-
-### Session Management and Token Security
-
-**CRITICAL FINDING: NO SESSION MANAGEMENT IMPLEMENTED**
-
-**Flask Application Configuration:**
+**Route 3: `GET /resource` (lines 16-19)**
 ```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py
-# Lines 1-7
-
-from flask import Flask
-
-app = Flask(__name__)
-
-from app import routes
-```
-
-This minimal Flask initialization has **no security configuration**:
-- **No SECRET_KEY configured** - Flask's `SECRET_KEY` is not set, which is required for securely signing session cookies and generating CSRF tokens
-- **No session configuration** - No session backend, timeout, or cookie settings
-- **No security extensions** - No Flask-Login, Flask-WTF, Flask-Security, or similar libraries
-
-**Session Cookie Flags Analysis:**
-Since no sessions are created, no cookies are issued by the application. Therefore:
-- **HttpOnly Flag:** NOT CONFIGURED (no cookies exist) - **File/Line:** N/A
-- **Secure Flag:** NOT CONFIGURED (no cookies exist) - **File/Line:** N/A
-- **SameSite Flag:** NOT CONFIGURED (no cookies exist) - **File/Line:** N/A
-
-**If sessions were implemented with the current configuration:**
-- Sessions would be **insecure or non-functional** without a SECRET_KEY
-- Cookie flags would default to Flask's defaults (HttpOnly=True, Secure=False, SameSite=None in Flask 3.x)
-- Session data would be stored client-side in signed cookies (Flask's default), but without SECRET_KEY, signing would fail
-
-**Security Impact:**
-- **No authentication state persistence:** Application cannot track whether a user is logged in
-- **No session fixation protection:** (Moot point - no sessions exist to fix)
-- **No session hijacking protection:** (Moot point - no sessions exist to hijack)
-- **CSRF protection impossible:** Without SECRET_KEY, CSRF tokens cannot be generated
-- **Application is entirely stateless:** Each request is processed independently with no memory of previous requests
-
-**Recommendation for Remediation:**
-```python
-import os
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY') or os.urandom(32)
-app.config['SESSION_COOKIE_HTTPONLY'] = True
-app.config['SESSION_COOKIE_SECURE'] = True  # Requires HTTPS
-app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
-app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes
-```
-
-### Authorization Model
-
-**CRITICAL FINDING: NO AUTHORIZATION MECHANISMS EXIST**
-
-The application implements **zero authorization controls**. Every endpoint is accessible to every user without any permission checking.
-
-**Permission Checking Analysis:**
-- **No RBAC (Role-Based Access Control):** No role definitions, no role assignments, no role checking
-- **No ACL (Access Control Lists):** No resource-level permissions
-- **No policy enforcement:** No authorization policies defined
-- **No decorator-based protection:** No `@login_required`, `@admin_required`, or custom authorization decorators
-- **No before_request handlers:** No global authorization checks
-- **No route-level guards:** No authorization logic in any route handler
-
-**Code Review of All Endpoints:**
-
-1. **`/` endpoint** (lines 5-7 of routes.py): No authorization check
-2. **`/login` endpoint** (lines 9-13 of routes.py): No authorization check
-3. **`/resource` endpoint** (lines 16-19 of routes.py): **No authorization check AND no input validation**
-
-```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-# Lines 16-19
-
-@app.route('/resource')
-def resource():
-    filename = request.args.get('filename')  # NO VALIDATION
-    return send_from_directory('static', filename)  # NO AUTHORIZATION
-```
-
-**Critical Vulnerability:** This endpoint allows **unrestricted file access** from the static directory. While Apache configuration attempts to block direct access to the file named "flag" (lines 24-27 of `webapp-httpd.conf`), the Flask endpoint has no such restriction and may serve the file anyway.
-
-**Potential Bypass Scenarios:**
-1. **Direct path traversal:** `/resource?filename=flag` might bypass Apache's FilesMatch directive
-2. **Encoded characters:** `/resource?filename=%66%6C%61%67` (URL-encoded "flag")
-3. **Path manipulation:** `/resource?filename=./flag`, `/resource?filename=static/flag`
-4. **Case sensitivity:** `/resource?filename=FLAG`, `/resource?filename=Flag`
-5. **Directory traversal:** `/resource?filename=../../flag` (if send_from_directory allows parent directory access)
-
-**Authorization Enforcement Points: 0**
-
-All resources are publicly accessible without authentication or authorization.
-
-### Multi-Tenancy Security
-
-**NOT APPLICABLE:** The application does not implement multi-tenancy. It has no tenant identification, no tenant-specific data isolation, and no tenant-based routing or resource separation.
-
-### SSO/OAuth/OIDC Flows
-
-**NOT IMPLEMENTED:** The application has no Single Sign-On, OAuth, OIDC, or SAML implementations.
-
-**What to look for in SSO implementations (NONE FOUND):**
-- **OAuth/OIDC callback endpoints:** NOT FOUND
-- **State parameter validation:** NOT IMPLEMENTED (critical CSRF protection for OAuth)
-- **Nonce parameter checking:** NOT IMPLEMENTED (replay attack protection for OIDC)
-- **Authorization code exchange:** NOT IMPLEMENTED
-- **Token validation:** NOT IMPLEMENTED
-- **JWKS fetching:** NOT IMPLEMENTED
-
-**Dependencies Analysis:**
-```
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt
-# Line 1
-
-flask
-```
-
-Only Flask is installed. No OAuth/OIDC libraries such as:
-- authlib
-- PyJWT
-- python-jose
-- oauthlib
-- requests-oauthlib
-
-**Security Impact:** While the absence of SSO means no SSO-specific vulnerabilities (like OAuth redirect URI manipulation or state parameter bypass), it also means the application has **no authentication mechanism whatsoever**.
-
----
-
-## 4. Data Security & Storage
-
-### Database Security
-
-**Database Status: NO DATABASE DETECTED**
-
-After comprehensive analysis of all Python files, configuration files, and dependencies, **no database implementation exists**. The application is **completely stateless** with no persistent data storage.
-
-**Analysis Results:**
-- **No database imports:** No SQLAlchemy, psycopg2, PyMySQL, sqlite3, pymongo, redis, or other database libraries
-- **No database configuration:** No connection strings, database URLs, or credentials
-- **No database models:** No ORM models or schema definitions
-- **No database queries:** No SQL, query construction, or database operations
-- **No migrations:** No Alembic, Flask-Migrate, or database migration scripts
-
-**Dependencies Check:**
-```
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt
-flask
-```
-
-Only Flask is installed - no database drivers or ORMs.
-
-**Security Implications:**
-- **Positive:** No SQL injection vulnerabilities (no SQL queries exist)
-- **Positive:** No database credential exposure risk (no database connections)
-- **Positive:** No data breach risk from database compromise (no database exists)
-- **Negative:** No ability to implement authentication (no user storage)
-- **Negative:** No audit logging persistence (no place to store logs)
-- **Negative:** No session storage backend (sessions would be client-side only)
-
-**Query Parameterization:** N/A (no database)
-**ORM Security:** N/A (no ORM)
-**Database Encryption at Rest:** N/A (no database)
-
-### Data Flow Security
-
-**CRITICAL FINDING: SENSITIVE FILE STORAGE AND EXPOSURE**
-
-While the application has no database, it stores a sensitive secret (the FLAG) as a **plaintext file in the web-accessible static directory**.
-
-**FLAG Storage Flow:**
-
-1. **Source: Environment Variable**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` (line 1)
-   - **Content:** `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"`
-   - **Security Issue:** Plaintext secret in repository; may be committed to version control
-
-2. **Build Process: Docker Build Argument**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` (line 6)
-   - **Content:** `args: - FLAG=${FLAG}`
-   - **Security Issue:** Build arguments are stored in Docker image metadata and visible via `docker history`
-
-3. **Build Process: File Creation**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` (line 21)
-   - **Content:** `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`
-   - **Security Issue:** FLAG written to filesystem in plaintext during build; stored in web-accessible directory
-
-4. **Runtime: Static File**
-   - **Location:** `/var/www/webapp/app/static/flag` (inside container)
-   - **Security Issue:** File exists in static directory alongside CSS and JavaScript files
-
-5. **Protection Attempt: Apache Configuration**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (lines 24-27)
-   - **Content:**
-     ```apache
-     <FilesMatch "^flag$">
-         Order allow,deny
-         deny from all
-     </FilesMatch>
-     ```
-   - **Security Issue:** Only blocks direct Apache access to file named exactly "flag"; may not protect against Flask endpoint access
-
-6. **Exposure Vector: Flask Resource Endpoint**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 16-19)
-   - **Content:**
-     ```python
-     @app.route('/resource')
-     def resource():
-         filename = request.args.get('filename')
-         return send_from_directory('static', filename)
-     ```
-   - **CRITICAL VULNERABILITY:** No input validation on `filename` parameter; may bypass Apache's FilesMatch protection
-
-**Path Traversal Vulnerability Analysis:**
-
-The `/resource` endpoint accepts a user-controlled `filename` parameter with **zero validation or sanitization**. Flask's `send_from_directory('static', filename)` function does provide some protection against directory traversal (it rejects paths with ".." that would escape the static directory), but it does NOT check against the Apache FilesMatch directive.
-
-**Exploitation Scenarios:**
-- **Direct access:** `GET /resource?filename=flag` - Likely bypasses Apache FilesMatch since the request is processed by Flask before Apache's static file rules apply
-- **URL encoding:** `GET /resource?filename=%66%6C%61%67` (hex-encoded "flag")
-- **Case variations:** `GET /resource?filename=FLAG` or `GET /resource?filename=Flag` (if filesystem is case-insensitive)
-- **Path manipulation:** `GET /resource?filename=./flag` or `GET /resource?filename=static/../static/flag`
-
-**Data Protection Failures:**
-
-1. **No Encryption at Rest:**
-   - FLAG stored in plaintext on filesystem
-   - No file-level encryption
-   - No filesystem encryption
-   - Accessible if container is compromised or if Docker image is extracted
-
-2. **No Encryption in Transit:**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (line 1)
-   - **Content:** `<VirtualHost *:80>`
-   - Application runs on HTTP port 80 only
-   - No HTTPS/TLS configuration
-   - No SSL certificates
-   - **Impact:** FLAG would be transmitted in plaintext if retrieved; subject to network eavesdropping, MITM attacks
-
-3. **No Input Validation:**
-   - **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (line 18)
-   - `filename = request.args.get('filename')` - No validation, sanitization, or whitelist checking
-   - No use of `werkzeug.utils.secure_filename()`
-   - No allowed file list enforcement
-   - No file extension checking
-
-4. **No Access Control:**
-   - `/resource` endpoint is publicly accessible (no authentication required)
-   - No authorization checking before serving files
-   - No rate limiting to prevent enumeration attacks
-   - No logging of file access attempts
-
-**Sensitive Data Transmission:**
-
-The login form accepts username and password fields (lines 19-30 of `login.html`):
-```html
-<input type="text" class="form-control" id="username" name="username" required>
-<input type="password" class="form-control" id="password" name="password" required>
-```
-
-If users enter credentials:
-- **Transmitted via:** HTTP POST to `/login` endpoint (HTTP, not HTTPS)
-- **Transmission Security:** **NONE** - sent in plaintext over unencrypted connection
-- **Processing:** Credentials are **completely ignored** by the server (lines 11-12 of routes.py - POST handler just redirects)
-- **Storage:** Not stored (which is actually good, given the lack of encryption)
-- **Logging Risk:** May appear in Apache access logs or error logs
-
-**Secret Management Issues:**
-
-The FLAG value appears in **multiple locations in the development environment**:
-1. `.env` file (source control risk)
-2. `docker-compose.yml` as build argument
-3. Docker image layers (visible in image metadata)
-4. Container environment variables (visible via `docker inspect` or `/proc/1/environ`)
-5. Container filesystem at `/var/www/webapp/app/static/flag`
-
-**No secret rotation mechanism exists** - the FLAG appears to be static with no versioning or rotation capabilities.
-
-### Multi-Tenant Data Isolation
-
-**NOT APPLICABLE:** The application does not implement multi-tenancy. There is no concept of tenants, no tenant identification mechanism, and no data isolation requirements since there is no database or persistent storage.
-
----
-
-## 5. Attack Surface Analysis
-
-### External Entry Points
-
-The application exposes **3 HTTP endpoints** on **port 80 (HTTP only)**. All endpoints are **network-accessible and publicly available** without authentication. No other network services or protocols are exposed.
-
-**Endpoint 1: Root Redirect (`/`)**
-- **Route:** `GET /`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 5-7)
-- **Handler:** `index()`
-- **Functionality:** Simple redirect to `/login` using Flask's `redirect(url_for('login'))`
-- **User Input:** None accepted
-- **Authentication Required:** No (Public endpoint)
-- **Attack Surface:** Minimal - no user input processing
-- **Security Concerns:** None significant
-- **Code:**
-  ```python
-  @app.route('/')
-  def index():
-      return redirect(url_for('login'))
-  ```
-
-**Endpoint 2: Login Page (`/login`)**
-- **Route:** `GET /login`, `POST /login`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 9-13)
-- **Handler:** `login()`
-- **Functionality:** 
-  - GET: Renders login.html template with static login form
-  - POST: Accepts username/password but immediately redirects to `/login` without processing
-- **User Input:** 
-  - `username` field (text input, line 19 of login.html)
-  - `password` field (password input, line 24 of login.html)
-  - Submitted via POST but **never accessed or processed** by server
-- **Authentication Required:** No (Public endpoint)
-- **Attack Surface:** 
-  - Accepts arbitrary username/password values via POST
-  - Client-side JavaScript prevents actual submission (lines 48-66 of login.html)
-  - No server-side validation or sanitization
-- **Security Concerns:**
-  - **No CSRF protection:** Form has no CSRF token
-  - **Credentials transmitted over HTTP:** If JavaScript is bypassed, credentials sent in plaintext
-  - **No rate limiting:** Unlimited POST requests allowed
-  - **Client-side security only:** Authentication is purely cosmetic client-side validation
-  - **Information disclosure:** Always shows same error message, doesn't reveal whether credentials are valid
-- **Template Rendering:**
-  - Template: `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html`
-  - Uses Jinja2 with default autoescaping (secure against template injection)
-  - Only uses safe `url_for()` functions, no user input reflection
-- **Code:**
-  ```python
-  @app.route('/login', methods=['GET', 'POST'])
-  def login():
-      if request.method == 'POST':
-          return redirect(url_for('login'))  # Ignores POST data
-      return render_template('login.html')
-  ```
-
-**Endpoint 3: Resource/Static File Server (`/resource`) - CRITICAL VULNERABILITY**
-- **Route:** `GET /resource`
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 16-19)
-- **Handler:** `resource()`
-- **Functionality:** Serves files from the `static` directory based on user-supplied `filename` query parameter
-- **User Input:** `filename` query parameter (e.g., `/resource?filename=css/bootstrap.min.css`)
-- **Authentication Required:** No (Public endpoint)
-- **Authorization Required:** No file access controls
-- **Attack Surface:** **HIGH RISK**
-  - Accepts arbitrary filename values via query parameter
-  - No input validation, sanitization, or whitelist enforcement
-  - Uses `send_from_directory('static', filename)` which has some built-in path traversal protection but no file access controls
-- **Security Concerns:**
-  - **Path Traversal Vulnerability:** Primary attack vector for accessing the flag file
-  - **No input validation:** `filename` parameter accepted without checks
-  - **No file whitelist:** Any file in static directory can be requested
-  - **No authentication:** Publicly accessible without login
-  - **No rate limiting:** Unlimited enumeration of filenames
-  - **No logging:** File access attempts not logged for security monitoring
-  - **Potential Apache bypass:** Flask's `send_from_directory()` may bypass Apache's FilesMatch directive
-- **Exploitation Scenarios:**
-  1. **Direct flag access:** `/resource?filename=flag` (likely bypasses Apache FilesMatch)
-  2. **URL encoding:** `/resource?filename=%66%6C%61%67` (hex-encoded)
-  3. **Case variations:** `/resource?filename=FLAG` or `/resource?filename=Flag`
-  4. **Path variations:** `/resource?filename=./flag`, `/resource?filename=static/../static/flag`
-  5. **File enumeration:** Brute-force common filenames to discover hidden files
-- **Code:**
-  ```python
-  @app.route('/resource')
-  def resource():
-      filename = request.args.get('filename')  # NO VALIDATION
-      return send_from_directory('static', filename)
-  ```
-- **Legitimate Use:** Template uses this endpoint to load CSS and JavaScript:
-  ```html
-  <!-- Line 8 of login.html -->
-  <link href="/resource?filename=css/bootstrap.min.css" rel="stylesheet">
-  <!-- Line 62 of login.html -->
-  <script src="/resource?filename=js/bootstrap.bundle.min.js"></script>
-  ```
-
-**Static Directory Apache Configuration:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (lines 18-28)
-- **Configuration:**
-  ```apache
-  Alias /static /var/www/webapp/app/static
-  <Directory /var/www/webapp/app/static/>
-      Options Indexes FollowSymLinks
-      IndexOptions ShowForbidden
-      AllowOverride None
-      Require all granted
-      <FilesMatch "^flag$">
-          Order allow,deny
-          deny from all
-      </FilesMatch>
-  </Directory>
-  ```
-- **Security Issues:**
-  - **Directory listing enabled:** `Options Indexes` allows browsing `/static/` to enumerate files
-  - **Shows forbidden files:** `IndexOptions ShowForbidden` reveals files even if access is denied
-  - **Weak flag protection:** FilesMatch only blocks file named exactly "flag" via direct Apache access
-  - **Deprecated syntax:** `Order allow,deny` is Apache 2.2 syntax (Apache 2.4 uses Require)
-  - **Flask bypass:** Flask's `/resource` endpoint may not respect Apache's FilesMatch directive
-
-**Health Check Endpoint (Non-Exploitable):**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` (lines 11-15)
-- **Configuration:**
-  ```yaml
-  healthcheck:
-    test: ["CMD", "curl", "-f", "http://localhost:80/"]
-    timeout: 1s
-    retries: 5
-    interval: 10s
-  ```
-- **Analysis:** Docker healthcheck uses `curl` to request `/` endpoint from inside container
-- **Attack Surface:** None - this is container orchestration, not an additional endpoint
-
-### Internal Service Communication
-
-**NOT APPLICABLE:** This is a monolithic application with no internal service-to-service communication. There are:
-- No microservices architecture
-- No inter-service API calls
-- No message queues or pub/sub systems
-- No service mesh
-- No internal-only endpoints
-
-All code runs in a single process within a single container. There are no trust boundaries between services because there is only one service.
-
-### Input Validation Patterns
-
-**CRITICAL FINDING: NO INPUT VALIDATION IMPLEMENTED**
-
-The application accepts user input from multiple sources but performs **zero validation or sanitization** on any inputs.
-
-**Input Source 1: Query Parameters (`/resource` endpoint)**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (line 18)
-- **Code:** `filename = request.args.get('filename')`
-- **Validation:** **NONE**
-- **Sanitization:** **NONE**
-- **Whitelist:** **NONE**
-- **Usage:** Passed directly to `send_from_directory('static', filename)`
-- **Vulnerability:** Path traversal - arbitrary filenames accepted
-- **Risk:** HIGH - Primary attack vector for flag extraction
-
-**Recommended Validation:**
-```python
-from werkzeug.utils import secure_filename
-
-ALLOWED_FILES = [
-    'css/bootstrap.min.css',
-    'css/style.css',
-    'js/bootstrap.bundle.min.js'
-]
-
-@app.route('/resource')
-def resource():
-    filename = request.args.get('filename')
-    if not filename or filename not in ALLOWED_FILES:
-        abort(403)
-    return send_from_directory('static', filename)
-```
-
-**Input Source 2: POST Form Data (`/login` endpoint)**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (lines 11-12)
-- **Expected Fields:** `username`, `password` (defined in login.html)
-- **Validation:** **NONE** (data is never accessed)
-- **Processing:** **NONE** (POST handler just redirects)
-- **Risk:** LOW - Data is completely ignored, so no injection vulnerabilities
-
-**Input Source 3: HTTP Request Method**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (line 11)
-- **Code:** `if request.method == 'POST':`
-- **Validation:** Flask framework handles method validation
-- **Risk:** NONE - Framework-level validation is secure
-
-**General Input Validation Findings:**
-- **No input validation libraries:** No WTForms, Flask-WTF, Marshmallow, or Cerberus
-- **No schema validation:** No JSON schema validation, no data type checking
-- **No length limits:** No maximum length enforcement on inputs
-- **No character whitelisting:** No allowed character sets defined
-- **No encoding validation:** No charset or encoding validation
-- **No file extension checking:** `/resource` endpoint accepts any filename regardless of extension
-- **No content-type validation:** No validation of request content types
-
-### Background Processing
-
-**NOT APPLICABLE:** The application has no background job processing, asynchronous tasks, or scheduled jobs. There are:
-- No Celery workers or task queues
-- No background job libraries (RQ, Huey, Dramatiq)
-- No scheduled tasks or cron jobs
-- No webhook processors
-- No email sending or notification systems
-- No long-running processes triggered by user requests
-
-All requests are processed synchronously within the request-response cycle. No jobs are queued or deferred.
-
----
-
-## 6. Infrastructure & Operational Security
-
-### Secrets Management
-
-**CRITICAL FINDING: INSECURE SECRET STORAGE IN MULTIPLE LOCATIONS**
-
-The FLAG secret value is stored in **plaintext across multiple locations** without encryption, proper secret management tools, or access controls.
-
-**Secret Storage Location 1: Environment File (.env)**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` (line 1)
-- **Content:** `FLAG="flag{f2415bf1-1c95-46bd-88fb-14762c7808fa}"`
-- **Storage Method:** Plaintext in `.env` file
-- **Security Issues:**
-  - Secret stored in plaintext
-  - File may be committed to version control (high risk in git repositories)
-  - No encryption at rest
-  - No access controls on file (depends on filesystem permissions)
-  - No secret rotation mechanism
-  - No secret versioning
-- **Impact:** If `.env` is committed to git and pushed to a public repository, the FLAG is permanently exposed in git history
-
-**Secret Storage Location 2: Docker Build Argument**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` (line 6)
-- **Content:**
-  ```yaml
-  build:
-    args:
-      - FLAG=${FLAG}
-  ```
-- **Security Issues:**
-  - Build arguments are stored in Docker image metadata
-  - Visible via `docker history <image_name>`
-  - Cannot be removed from image once built
-  - Persists even if later layers delete files
-  - Exposed to anyone with access to the Docker image
-- **Impact:** The FLAG is permanently embedded in the Docker image and can be extracted even without running the container
-
-**Secret Storage Location 3: Container Filesystem**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` (line 21)
-- **Content:** `RUN echo -n $FLAG > /var/www/webapp/app/static/flag`
-- **Storage Method:** Plaintext file at `/var/www/webapp/app/static/flag`
-- **Security Issues:**
-  - Stored in plaintext on filesystem
-  - Located in web-accessible directory (static/)
-  - No file-level encryption
-  - No filesystem encryption
-  - Accessible if container is compromised
-  - Can be extracted from Docker image layers
-- **Impact:** The FLAG file can be accessed by extracting Docker image layers, accessing the container filesystem, or exploiting the path traversal vulnerability
-
-**Secret Storage Location 4: Container Environment Variables**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` (line 10)
-- **Content:**
-  ```yaml
-  env_file:
-    - .env
-  ```
-- **Security Issues:**
-  - Environment variables visible inside container
-  - Accessible via `/proc/1/environ` in container
-  - Visible in `docker inspect` output
-  - May appear in error messages or logs
-  - No encryption for environment variables
-- **Impact:** FLAG accessible to anyone with container access or ability to inspect the container
-
-**Secret Rotation:**
-- **Status:** NOT IMPLEMENTED
-- No secret rotation mechanism exists
-- No versioning of secrets
-- No key rotation policies
-- FLAG appears to be static with no rotation schedule
-- **Impact:** If FLAG is compromised, no mechanism exists to invalidate and rotate it
-
-**Recommended Remediation:**
-1. **Remove `.env` from version control:**
-   ```bash
-   git rm --cached .env
-   echo ".env" >> .gitignore
-   git commit -m "Remove .env from version control"
-   ```
-
-2. **Use Docker Secrets (for Docker Swarm) or Kubernetes Secrets:**
-   ```yaml
-   secrets:
-     flag:
-       external: true
-   services:
-     webapp:
-       secrets:
-         - flag
-   ```
-
-3. **Use a dedicated secret management service:**
-   - HashiCorp Vault
-   - AWS Secrets Manager
-   - Azure Key Vault
-   - Google Cloud Secret Manager
-
-4. **Encrypt secrets at rest:**
-   - Use application-level encryption
-   - Store encrypted version, decrypt only when needed
-   - Use a Key Management Service (KMS) for encryption keys
-
-5. **Implement secret rotation:**
-   - Define rotation schedule (e.g., every 90 days)
-   - Automate rotation process
-   - Version secrets to allow graceful transitions
-
-### Configuration Security
-
-**CRITICAL FINDING: MULTIPLE CONFIGURATION SECURITY ISSUES**
-
-**HTTP-Only Configuration (No HTTPS/TLS):**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (line 1)
-- **Content:** `<VirtualHost *:80>`
-- **Issue:** Application runs on HTTP port 80 only, no HTTPS configuration
-- **Security Impact:**
-  - All traffic transmitted in plaintext (unencrypted)
-  - Credentials (if submitted) transmitted without encryption
-  - FLAG (if retrieved) transmitted without encryption
-  - Vulnerable to network eavesdropping and MITM attacks
-  - Session cookies (if implemented) would be transmitted insecurely
-- **Missing Components:**
-  - No SSL certificate configuration
-  - No port 443 listener
-  - No HTTP-to-HTTPS redirect
-  - No HSTS header to enforce HTTPS
-
-**CORS Wildcard Misconfiguration:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (line 9)
-- **Content:** `Header set Access-Control-Allow-Origin "*"`
-- **Issue:** Allows cross-origin requests from ANY domain
-- **Security Impact:**
-  - Any website can make requests to this application
-  - No CSRF protection possible (wildcard CORS negates SameSite cookie protection)
-  - Enables cross-site attacks and data exfiltration
-  - Attacker websites can read responses from this application
-- **Recommendation:** Restrict to specific trusted origins:
-  ```apache
-  Header set Access-Control-Allow-Origin "https://trusted-domain.com"
-  ```
-
-**Directory Listing Enabled:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` (line 20)
-- **Content:** `Options Indexes FollowSymLinks`
-- **Issue:** Apache directory listing enabled for static directory
-- **Security Impact:**
-  - Attackers can browse `/static/` to enumerate all files
-  - `IndexOptions ShowForbidden` (line 21) even shows forbidden files in listings
-  - Reveals application structure and hidden files
-  - Information disclosure vulnerability
-- **Exploitation:** Visit `http://<target>/static/` to see directory listing showing:
-  - flag (shown in listing even though access is denied)
-  - css/
-  - js/
-  - Any other files in static directory
-- **Recommendation:**
-  ```apache
-  Options -Indexes FollowSymLinks
-  ```
-
-**Missing Security Headers:**
-The Apache configuration sets **only one security-related header** (the misconfigured CORS header). Critical security headers are missing:
-
-- **Content-Security-Policy (CSP):** NOT CONFIGURED
-  - **Impact:** No protection against XSS attacks, clickjacking, or data injection
-  - **Recommendation:**
-    ```apache
-    Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'"
-    ```
-
-- **Strict-Transport-Security (HSTS):** NOT CONFIGURED
-  - **File/Line:** No HSTS configuration found in `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf`
-  - **Impact:** No enforcement of HTTPS; vulnerable to SSL stripping attacks
-  - **Recommendation:**
-    ```apache
-    Header always set Strict-Transport-Security "max-age=31536000; includeSubDomains"
-    ```
-
-- **X-Frame-Options:** NOT CONFIGURED
-  - **Impact:** Application can be embedded in iframes, vulnerable to clickjacking attacks
-  - **Recommendation:**
-    ```apache
-    Header always set X-Frame-Options "DENY"
-    ```
-
-- **X-Content-Type-Options:** NOT CONFIGURED
-  - **Impact:** Browsers may perform MIME sniffing, potentially executing files as scripts
-  - **Recommendation:**
-    ```apache
-    Header always set X-Content-Type-Options "nosniff"
-    ```
-
-- **X-XSS-Protection:** NOT CONFIGURED
-  - **Impact:** No browser-level XSS protection (legacy header but still useful)
-  - **Recommendation:**
-    ```apache
-    Header always set X-XSS-Protection "1; mode=block"
-    ```
-
-- **Referrer-Policy:** NOT CONFIGURED
-  - **Impact:** Referrer information may leak to external sites
-  - **Recommendation:**
-    ```apache
-    Header always set Referrer-Policy "strict-origin-when-cross-origin"
-    ```
-
-- **Permissions-Policy:** NOT CONFIGURED
-  - **Impact:** No control over browser features (camera, microphone, geolocation, etc.)
-  - **Recommendation:**
-    ```apache
-    Header always set Permissions-Policy "geolocation=(), microphone=(), camera=()"
-    ```
-
-**Cache-Control Headers:** NOT CONFIGURED
-- **No cache control headers found** in `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf`
-- **Impact:** Sensitive responses (like flag file if retrieved) may be cached by browsers or proxies
-- **Recommendation:**
-  ```apache
-  <FilesMatch "\.(html|json)$">
-    Header set Cache-Control "no-store, no-cache, must-revalidate, max-age=0"
-  </FilesMatch>
-  ```
-
-**Flask Configuration Security:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py`
-- **Issue:** Minimal Flask configuration with no security settings
-- **Missing Configurations:**
-  - `SECRET_KEY` not set (required for sessions and CSRF)
-  - `SESSION_COOKIE_SECURE` not set (should be True for HTTPS)
-  - `SESSION_COOKIE_HTTPONLY` not set (should be True)
-  - `SESSION_COOKIE_SAMESITE` not set (should be 'Lax' or 'Strict')
-  - `PERMANENT_SESSION_LIFETIME` not set (no session timeout)
-  - `MAX_CONTENT_LENGTH` not set (no request size limits)
-
-**Environment Separation:**
-- **No environment separation detected:** No separate dev/staging/production configurations
-- **Debug mode:** Not explicitly disabled in `app/website/run.py` (line 4: `app.run(host="0.0.0.0")`)
-- **Impact:** If debug mode is enabled, stack traces and sensitive information may be exposed
-
-### External Dependencies
-
-**Minimal Dependency Footprint:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt` (line 1)
-- **Content:** `flask`
-- **Analysis:** Only Flask is specified as a Python dependency
-
-**Security Analysis:**
-- **Positive:** Minimal dependencies reduce supply chain attack surface
-- **Negative:** No version pinning - `flask` could resolve to any version
-- **Negative:** No dependency lock file (no `requirements-lock.txt` or `Pipfile.lock`)
-- **Negative:** No security scanning tools in dependencies (no bandit, safety, etc.)
-- **Current Version:** Flask 3.1.2 detected on system
-
-**System Dependencies (from Dockerfile):**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` (lines 5-11)
-- **Packages:**
-  - `apache2` - Web server
-  - `libapache2-mod-wsgi-py3` - WSGI module for Apache
-  - `python3` - Python runtime
-  - `python3-pip` - Python package manager
-  - `curl` - HTTP client (used for healthchecks)
-
-**Security Issues with Dependencies:**
-1. **No version pinning in requirements.txt:**
-   - Recommendation: Pin exact versions: `flask==3.1.2`
-
-2. **No dependency vulnerability scanning:**
-   - Recommendation: Use `pip-audit`, `safety`, or Snyk
-
-3. **No dependency lock file:**
-   - Recommendation: Use `pip freeze > requirements-lock.txt` or Pipenv
-
-4. **curl included (potential command injection vector):**
-   - Used only in Docker healthcheck, not accessible to users
-   - Low risk but increases container attack surface
-
-5. **Missing security libraries:**
-   - No Flask-Login (authentication)
-   - No Flask-WTF (CSRF protection)
-   - No Flask-Limiter (rate limiting)
-   - No Flask-Talisman (security headers)
-
-**Frontend Dependencies (Static Assets):**
-- **Bootstrap CSS:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/css/bootstrap.min.css`
-- **Bootstrap JS:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/js/bootstrap.bundle.min.js`
-- **Custom CSS:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/css/style.css`
-
-**Frontend Security:**
-- Bootstrap files are minified but version is unknown
-- No Subresource Integrity (SRI) hashes in HTML
-- Files served from same origin (good - no CDN dependencies)
-
-**Third-Party Services:**
-- **None detected** - Application does not integrate with external services
-- No API calls to third-party services
-- No OAuth providers
-- No payment gateways
-- No analytics or tracking services
-- No CDN usage
-
-### Monitoring & Logging
-
-**CRITICAL FINDING: NO SECURITY LOGGING IMPLEMENTED**
-
-**Application-Level Logging:**
-- **Status:** NOT IMPLEMENTED
-- **Analysis:** No Python `logging` module usage detected in any application files
-- **Files Checked:**
-  - `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py`
-  - `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py`
-  - `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/run.py`
-- **Missing Logging:**
-  - No authentication attempt logging
-  - No file access logging (critical for detecting flag retrieval)
-  - No input validation failure logging
-  - No error logging
-  - No security event logging
-
-**Apache Logging:**
-- **Default Apache Logs:** Likely active (Apache's default error.log and access.log)
-- **Location:** Typically `/var/log/apache2/` (not explicitly configured in webapp-httpd.conf)
-- **What's Logged (by default):**
-  - All HTTP requests (access.log)
-  - Server errors (error.log)
-  - May include sensitive data in query parameters
-- **Security Issues:**
-  - Query parameters logged in plaintext (e.g., `/resource?filename=flag` would appear in access.log)
-  - Credentials in POST requests may appear in logs if debug mode is enabled
-  - No structured logging (difficult to parse for SIEM integration)
-  - No log retention policy defined
-  - No log encryption
-
-**Docker Logging:**
-- **File:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml`
-- **Logging Driver:** Not specified (uses Docker default - json-file)
-- **Security Issues:**
-  - No centralized log aggregation
-  - Logs stored on container host
-  - No log forwarding to SIEM or log management system
-  - Container logs may contain sensitive data (including FLAG)
-
-**Missing Security Monitoring:**
-- **No intrusion detection:** No fail2ban, OSSEC, or similar IDS
-- **No WAF (Web Application Firewall):** No ModSecurity or similar
-- **No rate limiting monitoring:** No tracking of suspicious request patterns
-- **No anomaly detection:** No ML-based anomaly detection
-- **No alerting:** No security event alerts
-- **No SIEM integration:** No integration with Security Information and Event Management systems
-
-**Security Event Visibility: NONE**
-
-The application provides **zero visibility** into:
-- Authentication attempts (even though login endpoint exists)
-- File access attempts (critical for detecting flag retrieval)
-- Path traversal attempts
-- Input validation failures
-- Error conditions
-- Suspicious request patterns
-- Brute force attempts
-
-**Recommendations:**
-
-1. **Implement Application Logging:**
-   ```python
-   import logging
-   logging.basicConfig(level=logging.INFO)
-   logger = logging.getLogger(__name__)
-
-   @app.route('/resource')
-   def resource():
-       filename = request.args.get('filename')
-       logger.info(f"File access attempt: {filename} from {request.remote_addr}")
-       return send_from_directory('static', filename)
-   ```
-
-2. **Sanitize Logs to Prevent Secret Leakage:**
-   - Never log passwords, tokens, or FLAG values
-   - Mask sensitive data in logs
-   - Use structured logging (JSON format)
-
-3. **Implement Security Event Logging:**
-   - Log all authentication attempts (success and failure)
-   - Log file access attempts (especially for flag file)
-   - Log input validation failures
-   - Log rate limit hits
-   - Log suspicious patterns (e.g., path traversal attempts)
-
-4. **Centralize Logs:**
-   - Forward logs to centralized log management system (ELK, Splunk, Datadog)
-   - Enable SIEM integration
-   - Set up alerting for security events
-
-5. **Implement Monitoring:**
-   - Set up application performance monitoring (APM)
-   - Monitor for suspicious request patterns
-   - Track error rates and anomalies
-   - Alert on security events
-
----
-
-## 7. Overall Codebase Indexing
-
-This is a **minimal Flask web application** with an extremely compact codebase designed as a CTF (Capture The Flag) challenge. The entire application consists of **only 19 lines of Python code** for the core logic, demonstrating that security vulnerabilities can exist even in the simplest applications. The codebase organization follows a standard Flask application structure but lacks the security components, testing infrastructure, and defensive coding practices expected in production applications.
-
-The **directory structure** is organized as follows: The repository root (`/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/`) contains deployment configuration files (`docker-compose.yml`, `.env`, `Makefile`). The `app/` subdirectory contains the Docker build configuration (`Dockerfile`, `webapp-httpd.conf` for Apache configuration) and the actual Flask application in `app/website/`. Within the Flask application directory, the structure follows Flask conventions with `app/` containing application code (`__init__.py` for app initialization, `routes.py` for endpoint definitions), `app/templates/` for Jinja2 templates (only `login.html`), and `app/static/` for static assets (CSS in `static/css/`, JavaScript in `static/js/`, and critically, the `flag` file). The application also includes WSGI configuration (`application.wsgi`) and a development server runner (`run.py`). Notably absent are: test directories, documentation, migration scripts, database models, configuration management, CI/CD configurations, and security tooling.
-
-The **build orchestration** uses Docker and Docker Compose. The `Dockerfile` (33 lines) defines a multi-step build process: starting from `debian:bullseye-slim` base image, installing system packages (Apache2, mod_wsgi, Python3, curl), creating directory structure, accepting a FLAG build argument, writing the FLAG to `/var/www/webapp/app/static/flag` (the critical security issue), copying application files, installing Python dependencies from `requirements.txt`, configuring Apache with the custom `webapp-httpd.conf`, exposing port 80, and starting Apache in foreground mode. The `docker-compose.yml` orchestrates the build, passing the FLAG as a build argument from the `.env` file, mapping port 80, loading environment variables, and configuring a health check using curl. This build process **permanently embeds the FLAG in the Docker image layers**, making it extractable even without running the container.
-
-**Code generation and conventions** are minimal. The application uses no code generation tools, no ORM (no database), no API schema generation, and no frontend build process (static Bootstrap files are pre-minified). The Python code follows basic PEP 8 conventions but lacks type hints, docstrings, and comprehensive error handling. Flask's routing decorators (`@app.route()`) define endpoints using decorator syntax. The template uses Jinja2's `{{ url_for() }}` helper for URL generation but no custom template filters or macros. There are no custom Flask extensions, no blueprint modularization (despite the app being simple enough to benefit from it), and no application factory pattern (app is instantiated directly in `__init__.py`).
-
-**Testing infrastructure is completely absent.** There are no unit tests, integration tests, end-to-end tests, test fixtures, test configuration, or testing libraries (no pytest, unittest, Flask-Testing). No code coverage tools are configured. No continuous integration (CI) or continuous deployment (CD) pipelines exist. The `Makefile` references `../../common.mk` (an external file not present in the codebase snapshot), suggesting this may be part of a larger CTF framework, but no CI/CD configurations (GitHub Actions, GitLab CI, Jenkins) are present in the repository.
-
-**Dependency management** is extremely minimal. The `requirements.txt` contains a single line: `flask` with no version pinning. There is no `requirements-lock.txt`, no `Pipfile` or `Pipfile.lock` (Pipenv), no `poetry.lock` (Poetry), no `conda` environment file. System dependencies are managed via `apt-get` in the Dockerfile without version pinning (`RUN apt-get update && apt-get install -y apache2 libapache2-mod-wsgi-py3 python3 python3-pip curl`). This lack of dependency locking means builds are not reproducible and the application could break or introduce security vulnerabilities if upstream dependencies change.
-
-**Security tooling is non-existent.** There are no static analysis tools (no Bandit, pylint, flake8 with security plugins), no dependency vulnerability scanners (no pip-audit, Safety, Snyk), no SAST (Static Application Security Testing), no DAST (Dynamic Application Security Testing), no secret scanning tools, no pre-commit hooks for security checks, no security linters. The `.env` file containing the plaintext FLAG is not in `.gitignore`, creating a significant risk of accidental secret exposure in version control.
-
-**Configuration management** is minimal and insecure. Environment-specific configuration is handled solely through the `.env` file, with no separation of dev/staging/production environments. There is no 12-factor app compliance (secrets in `.env` file violate the principle of separating config from code). Flask's configuration is minimal (no `app.config` settings for security, sessions, or CSRF). Apache configuration is in a single `webapp-httpd.conf` file with security misconfigurations (CORS wildcard, directory indexing enabled). There is no infrastructure-as-code for deployment (no Terraform, no Ansible, no Kubernetes manifests beyond the basic Docker Compose file).
-
-The **impact on discoverability of security-relevant components** is mixed. On one hand, the minimal codebase makes it easy to find all endpoints (only 3 routes in a single 19-line file) and understand the entire application flow in minutes. On the other hand, the lack of documentation, type hints, and security tooling means vulnerabilities must be found through manual code review rather than automated scanning. The critical path traversal vulnerability in `/resource?filename=` is immediately obvious to experienced security reviewers due to the complete absence of input validation, but the interaction between Apache's FilesMatch directive and Flask's `send_from_directory()` requires understanding both the Apache configuration and Flask's security model. The FLAG's storage location is documented in multiple places (Dockerfile, .env, docker-compose.yml) making it easy to find, but the path traversal exploit path requires connecting the `/resource` endpoint to the FLAG file location.
-
-**Documentation** is completely absent. There is no README.md, no API documentation, no architecture diagrams, no security documentation, no deployment guide, no contribution guide. The only "documentation" is the code itself and the self-explanatory file structure. This minimal approach is consistent with a CTF challenge where participants are expected to discover functionality through reconnaissance and analysis.
-
-In summary, this is an **intentionally vulnerable application** designed as a security challenge. The codebase structure is simple and follows Flask conventions, making it easy to understand, but it completely lacks security components, testing, documentation, and defensive coding practices. The minimal approach means all security-relevant components are easily discoverable through basic directory traversal and file reading, but understanding the full attack surface requires analyzing both Python code and Apache configuration to identify the path traversal vulnerability that bypasses the intended FLAG file protection.
-
----
-
-## 8. Critical File Paths
-
-All file paths referenced in this analysis, categorized by security relevance for manual review prioritization:
-
-### Configuration Files
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` - **CRITICAL:** Contains FLAG in plaintext
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` - Orchestration config with FLAG as build argument
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` - **CRITICAL:** FLAG written to static file at line 21
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` - **CRITICAL:** Apache config with CORS, directory listing, FilesMatch directive
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/Makefile` - Build automation
-
-### Authentication & Authorization
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` - **CRITICAL:** All endpoints, including vulnerable `/resource` (lines 16-19) and fake login (lines 9-13)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py` - Flask app initialization, missing SECRET_KEY
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html` - Login form with client-side-only validation
-
-### API & Routing
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` - All routes defined (3 endpoints total)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/application.wsgi` - WSGI entry point
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/run.py` - Development server runner (not used in production)
-
-### Data Models & DB Interaction
-- **NONE** - No database implementation exists
-
-### Dependency Manifests
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt` - Single dependency: `flask` (no version pinning)
-
-### Sensitive Data & Secrets Handling
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` - **CRITICAL:** FLAG value in plaintext
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` - **CRITICAL:** Line 21 writes FLAG to static/flag
-- `/var/www/webapp/app/static/flag` - **CRITICAL:** Runtime location of FLAG file (inside container)
-
-### Middleware & Input Validation
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` - **CRITICAL:** Line 18 - No input validation on filename parameter
-
-### Logging & Monitoring
-- **NONE** - No logging implementation exists
-
-### Infrastructure & Deployment
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` - Service orchestration
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` - Container build definition
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/webapp-httpd.conf` - **CRITICAL:** Apache virtual host and security headers config
-
-### CTF Flag Storage
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/.env` - **HIGH-VALUE:** FLAG environment variable (line 1)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile` - **HIGH-VALUE:** FLAG written to static file (line 21)
-- `/var/www/webapp/app/static/flag` - **HIGH-VALUE:** Runtime FLAG file location
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml` - **HIGH-VALUE:** FLAG as build argument (line 6)
-
-### Static Assets
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/css/bootstrap.min.css` - Bootstrap CSS
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/css/style.css` - Custom styles
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/static/js/bootstrap.bundle.min.js` - Bootstrap JavaScript
-
----
-
-## 9. XSS Sinks and Render Contexts
-
-**FINDING: NO XSS SINKS FOUND IN NETWORK-ACCESSIBLE CODE**
-
-After comprehensive analysis of all network-accessible endpoints, templates, and JavaScript code, **no dangerous XSS (Cross-Site Scripting) sinks were identified**. The application demonstrates secure coding practices with respect to XSS prevention, primarily due to its minimal functionality and Flask's default Jinja2 autoescaping.
-
-### Methodology
-
-The XSS analysis examined:
-- All Jinja2 templates for unsafe output contexts
-- All JavaScript code for dangerous DOM manipulation APIs
-- All route handlers for user input reflection
-- All response generation for unescaped output
-
-### Files Analyzed
-
-**Python Application Files:**
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` - All endpoint handlers
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py` - App initialization
-
-**Template Files:**
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html` - Login page template
-
-**Static JavaScript:**
-- Inline JavaScript in login.html (lines 48-67)
-
-### Category-by-Category Analysis
-
-#### ✅ HTML Body Context - No Sinks Found
-
-**Patterns Searched:**
-- `innerHTML`, `outerHTML`
-- `document.write()`, `document.writeln()`
-- `element.insertAdjacentHTML()`
-- `Range.createContextualFragment()`
-- jQuery: `.html()`, `.append()`, `.prepend()`, `.replaceWith()`, `.wrap()`
-
-**Finding:** The login.html template contains **no user input reflection in HTML**. The only dynamic content uses Flask's `url_for()` function which generates safe, sanitized URLs:
-
-```html
-<!-- File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html -->
-<!-- Line 8: CSS resource loading -->
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-
-<!-- Line 17: Form action URL -->
-<form id="loginForm" action="{{ url_for('login') }}" method="post">
-```
-
-Both `url_for()` calls use **hardcoded, static parameters** with no user input. Jinja2's default autoescaping ensures these values are HTML-escaped, though in this case they're already safe.
-
-**No Vulnerabilities:** User input is never reflected in HTML body context.
-
-#### ✅ HTML Attribute Context - No Sinks Found
-
-**Patterns Searched:**
-- Event handlers: `onclick`, `onerror`, `onmouseover`, `onload`, `onfocus`
-- URL attributes: `href`, `src`, `formaction`, `action`, `background`, `data`
-- Style attribute: `style`
-- Iframe: `srcdoc`
-
-**Finding:** The login.html template contains **no inline event handlers** and **no user-controlled attribute values**. All attributes use static or safe values:
-
-```html
-<!-- Static href values -->
-<link href="/resource?filename=css/bootstrap.min.css" rel="stylesheet">
-<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-
-<!-- Static src values -->
-<script src="/resource?filename=js/bootstrap.bundle.min.js"></script>
-
-<!-- Static form action -->
-<form id="loginForm" action="{{ url_for('login') }}" method="post">
-```
-
-While the `/resource?filename=` URLs use a vulnerable endpoint, these are **hardcoded in the template** and not derived from user input. The path traversal vulnerability in the `/resource` endpoint is a **file disclosure issue**, not an XSS vulnerability.
-
-**No Vulnerabilities:** No user input influences HTML attributes.
-
-#### ✅ JavaScript Context - No Sinks Found
-
-**Patterns Searched:**
-- `eval()`
-- `Function()` constructor
-- `setTimeout()` with string argument
-- `setInterval()` with string argument
-- User data written into `<script>` tags
-
-**Finding:** The login.html template contains inline JavaScript (lines 48-67) that uses **safe DOM manipulation only**:
-
-```javascript
-// File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html
-// Lines 48-67
-
-document.addEventListener('DOMContentLoaded', function() {
-    const form = document.getElementById('loginForm');
-    const loginAlert = document.getElementById('loginAlert');
-
-    form.addEventListener('submit', function(event) {
-        event.preventDefault();
-        
-        const username = document.getElementById('username').value;
-        const password = document.getElementById('password').value;
-        
-        // Always display error message
-        document.getElementById('loginAlert').classList.remove('d-none');
-    });
-});
-```
-
-**Security Analysis:**
-- No `eval()` or `Function()` usage
-- No dynamic code execution
-- User input (`username`, `password`) is **read but never used** - values are retrieved but only stored in local variables and then ignored
-- No user input is written to the DOM
-- Only safe DOM APIs used: `getElementById()`, `classList.remove()`, `addEventListener()`
-
-**No Vulnerabilities:** No dangerous JavaScript execution with user input.
-
-#### ✅ URL Context - No Sinks Found
-
-**Patterns Searched:**
-- `location.href` assignment
-- `location.replace()`
-- `location.assign()`
-- `window.open()`
-- `history.pushState()`
-- `history.replaceState()`
-
-**Finding:** No JavaScript code manipulates browser location or history with user input. All redirects are **server-side** using Flask's `redirect()`:
-
-```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-
-# Line 7 - Static redirect
-return redirect(url_for('login'))
-
-# Line 12 - Static redirect
-return redirect(url_for('login'))
-```
-
-Both redirects use hardcoded `url_for('login')` with no user input.
-
-**No Vulnerabilities:** No user-controlled redirects in JavaScript context.
-
-#### ✅ Server-Side Template Injection (SSTI) - No Sinks Found
-
-**Patterns Searched:**
-- Jinja2 `| safe` filter
-- Jinja2 `| raw` filter
-- `{% autoescape false %}`
-- `render_template_string()` with user input
-- `Markup()` with user input
-
-**Finding:** The login.html template uses **only two Jinja2 expressions**, both with safe, static values:
-
-```html
-<!-- Line 8 -->
-{{ url_for('static', filename='css/style.css') }}
-
-<!-- Line 17 -->
-{{ url_for('login') }}
-```
-
-**Security Analysis:**
-- No user input passed to Jinja2 templates
-- No `| safe` or `| raw` filters used
-- Default Jinja2 autoescaping enabled (Flask default)
-- No `render_template_string()` usage with user input
-- The `/login` POST handler never passes user data to `render_template()`:
-
-```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-# Lines 9-13
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        return redirect(url_for('login'))  # No template rendering
-    return render_template('login.html')  # No variables passed
-```
-
-**No Vulnerabilities:** No template injection vectors.
-
-#### ✅ SQL Injection - Not Applicable
-
-**Finding:** No database implementation exists. No SQL queries, no database connections, no ORM usage.
-
-**See Section 4 (Data Security & Storage)** for complete database analysis.
-
-#### ✅ Command Injection - Not Applicable
-
-**Finding:** No system command execution in application code. No `os.system()`, `subprocess`, `eval()`, `exec()` usage.
-
-### User Input Flow Analysis
-
-All user input sources were traced to ensure no XSS sinks:
-
-**Input Source 1: Query Parameters (`/resource?filename=`)**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (line 18)
-- **Code:** `filename = request.args.get('filename')`
-- **Usage:** Passed to `send_from_directory('static', filename)`
-- **Output:** File contents served as-is (not reflected in HTML)
-- **XSS Risk:** **NONE** - This is a file disclosure vulnerability (path traversal), not an XSS sink
-- **Explanation:** The file contents are served with appropriate MIME types by Flask's `send_from_directory()`, which sends files as downloads or renders them according to their Content-Type. The filename parameter is not reflected in HTML output, so there's no XSS vector.
-
-**Input Source 2: POST Form Data (`/login` username/password)**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/templates/login.html` (lines 19-30)
-- **Fields:** `username`, `password`
-- **Backend Handling:** **COMPLETELY IGNORED** by server (lines 11-12 of routes.py - POST handler just redirects)
-- **Frontend Handling:** Read by JavaScript but never used or written to DOM (lines 55-56 of login.html)
-- **XSS Risk:** **NONE** - Input is never reflected in any context
-
-**Input Source 3: HTTP Request Method**
-- **Location:** `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (line 11)
-- **Code:** `if request.method == 'POST':`
-- **Usage:** Control flow only, not reflected in output
-- **XSS Risk:** **NONE**
-
-### Why No XSS Sinks Exist
-
-The application's minimal functionality and design choices result in no XSS vulnerabilities:
-
-1. **No User Input Reflection:** The application never reflects user input in HTML, JavaScript, or attributes
-2. **Jinja2 Autoescaping:** Flask's default template configuration has autoescaping enabled, which would escape any user input if it were reflected
-3. **Minimal Dynamic Content:** Only two Jinja2 expressions exist, both using static `url_for()` calls
-4. **No Database:** No stored XSS possible (no user-generated content stored and displayed)
-5. **Client-Side Validation Only:** JavaScript reads form values but never writes them to the DOM
-6. **Safe DOM APIs:** Only safe DOM manipulation (`classList.remove()`, `getElementById()`)
-
-### Path Traversal vs. XSS Clarification
-
-**Important Distinction:** The `/resource?filename=` endpoint has a **path traversal vulnerability** (arbitrary file read), which is a **separate vulnerability class from XSS**:
-
-- **Path Traversal:** Allows reading arbitrary files from the server filesystem (file disclosure)
-- **XSS:** Allows executing JavaScript in victim's browser (code execution in client context)
-
-The `/resource` endpoint serves files with their appropriate MIME types (CSS as `text/css`, JS as `application/javascript`, etc.). While an attacker could potentially access the flag file, they cannot inject JavaScript that executes in a victim's browser via this endpoint. If an attacker requests `/resource?filename=flag`, the server returns the file contents as a download or renders it according to its MIME type, but does NOT reflect the filename in HTML where it could be exploited for XSS.
-
-### Conclusion
-
-**NO XSS SINKS FOUND** in network-accessible code.
-
-The Flask application follows secure coding practices for XSS prevention:
-- ✅ No user input reflected in HTML/JavaScript/attributes
-- ✅ Jinja2 autoescaping enabled by default
-- ✅ No unsafe template filters (`| safe`, `| raw`)
-- ✅ No dynamic code execution (`eval()`, `Function()`)
-- ✅ No unsafe DOM manipulation (`innerHTML`, `document.write()`)
-- ✅ Minimal attack surface due to limited functionality
-
-While the application has a **critical path traversal vulnerability**, it does **not** have XSS vulnerabilities. The limited functionality (static login form with client-side validation that prevents submission, and a file server endpoint) significantly reduces the attack surface for XSS.
-
----
-
-## 10. SSRF Sinks
-
-**FINDING: NO SSRF SINKS FOUND IN NETWORK-ACCESSIBLE CODE**
-
-After comprehensive analysis of all Python code, dependencies, and network-accessible components, **no SSRF (Server-Side Request Forgery) sinks were identified**. The application does not make any server-side HTTP requests, URL fetches, or external network connections that could be influenced by user input.
-
-### Methodology
-
-The SSRF analysis systematically searched for all categories of server-side request mechanisms that could be exploited if user input were incorporated. The analysis examined source code, dependencies, and configuration files for any network request capabilities.
-
-### Files Analyzed
-
-**Python Application Files:**
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py` (19 lines)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/__init__.py` (7 lines)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/run.py` (4 lines)
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/application.wsgi` (2 lines)
-
-**Dependencies:**
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt` - Only `flask`
-
-**Configuration Files:**
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml`
-- `/Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/Dockerfile`
-
-### Category-by-Category Analysis
-
-#### ✅ HTTP(S) Clients - Not Found
-
-**Patterns Searched:**
-- `requests` library (`requests.get()`, `requests.post()`, etc.)
-- `urllib.request.urlopen()`, `urllib.request.Request()`
-- `httplib`, `http.client`
-- `httpx`, `aiohttp`
-- `urllib3`
-
-**Finding:** **NO HTTP client libraries** are imported or used in the application code.
-
-**Dependencies Check:**
-```
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/requirements.txt
-flask
-```
-
-Only Flask is installed - no HTTP client libraries in dependencies.
-
-**Code Analysis:** Comprehensive search of all Python files found **no import statements** for HTTP client libraries:
-- No `import requests`
-- No `import urllib.request`
-- No `import httplib` or `http.client`
-- No HTTP client usage whatsoever
-
-**No SSRF Sinks in HTTP Client Category.**
-
-#### ✅ Raw Sockets & Connect APIs - Not Found
-
-**Patterns Searched:**
-- `socket.connect()`, `socket.socket()`
-- Raw socket operations
-- TCP/UDP socket creation
-
-**Finding:** No socket programming detected in application code. No `import socket` statements found.
-
-**No SSRF Sinks in Socket Category.**
-
-#### ✅ URL Openers & File Includes - Analyzed
-
-**Patterns Searched:**
-- `urllib.request.urlopen()`
-- `open()` with URLs
-- File operations with remote resources
-
-**Finding:** The `/resource` endpoint uses `send_from_directory()` for **local file operations only**:
-
-```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-# Lines 16-19
-
 @app.route('/resource')
 def resource():
     filename = request.args.get('filename')
     return send_from_directory('static', filename)
 ```
-
-**Security Analysis:**
-- **Operation:** `send_from_directory('static', filename)`
-- **Type:** Local filesystem operation, **NOT a network request**
-- **Behavior:** Serves files from local `static/` directory
-- **Flask's Implementation:** `send_from_directory()` uses `werkzeug.security.safe_join()` internally to prevent directory traversal outside the specified directory, then opens the file from the local filesystem
-- **SSRF Risk:** **NONE** - This does not make HTTP requests or fetch external resources
-- **Actual Vulnerability:** Path traversal (file disclosure), not SSRF
-
-**Critical Distinction:** While this endpoint has a security vulnerability (path traversal allowing unauthorized file access), it is **NOT an SSRF sink** because:
-1. It does not make server-side requests to external URLs
-2. It does not fetch remote resources
-3. It serves local files only
-4. The filename parameter cannot be used to specify URLs or external resources
-
-**No SSRF Sinks in URL Opener Category.**
-
-#### ✅ Redirect & Location Headers - Analyzed
-
-**Patterns Searched:**
-- `redirect()` with user input
-- `Location` header with user-controlled values
-
-**Finding:** All redirects use **hardcoded, static values** with no user input:
-
-```python
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/app/website/app/routes.py
-
-# Line 7 - Root endpoint redirect
-return redirect(url_for('login'))
-
-# Line 12 - Login POST handler redirect
-return redirect(url_for('login'))
-```
-
-**Security Analysis:**
-- Both `redirect()` calls use Flask's `url_for('login')` which generates internal URLs
-- **No user input** influences redirect destinations
-- `url_for()` is a safe helper that generates URLs based on route names, not user input
-- No open redirect vulnerability
-
-**Open Redirect vs. SSRF:** While open redirect vulnerabilities can sometimes be chained with SSRF attacks, this application has neither:
-- **No open redirect:** All redirects are to hardcoded internal routes
-- **No SSRF:** No server-side requests made
-
-**No SSRF Sinks in Redirect Category.**
-
-#### ✅ Headless Browsers & Render Engines - Not Found
-
-**Patterns Searched:**
-- Puppeteer (`page.goto()`, `page.setContent()`)
-- Playwright (`page.navigate()`)
-- Selenium WebDriver
-- PDF generators (wkhtmltopdf, WeasyPrint, Puppeteer PDF)
-- HTML-to-PDF converters
-
-**Finding:** No browser automation or PDF generation libraries detected.
-
-**No SSRF Sinks in Browser/Render Category.**
-
-#### ✅ Media Processors - Not Found
-
-**Patterns Searched:**
-- ImageMagick (`convert`, `identify`)
-- GraphicsMagick
-- FFmpeg
-- Pillow/PIL with URL inputs
-- Image optimization with URL parameters
-
-**Finding:** No image or media processing libraries detected. No `import PIL`, `import imagemagick`, or similar.
-
-**No SSRF Sinks in Media Processor Category.**
-
-#### ✅ Link Preview & Unfurlers - Not Found
-
-**Patterns Searched:**
-- Link preview generators
-- oEmbed fetchers
-- Metadata extractors
-- Social media card generators
-
-**Finding:** No link preview or metadata extraction functionality exists.
-
-**No SSRF Sinks in Link Preview Category.**
-
-#### ✅ Webhook Testers & Callback Verifiers - Not Found
-
-**Patterns Searched:**
-- Webhook handlers with outbound requests
-- Callback verification endpoints
-- "Ping this URL" functionality
-- Health check notifications to external URLs
-
-**Finding:** No webhook or callback functionality detected. The Docker healthcheck in `docker-compose.yml` uses curl to request `http://localhost:80/` (internal loopback), which is:
-1. **Not user-controllable** (hardcoded in docker-compose.yml)
-2. **Not accessible via network** (internal Docker orchestration)
-3. **Not an SSRF vector**
-
-**No SSRF Sinks in Webhook Category.**
-
-#### ✅ SSO/OIDC Discovery & JWKS Fetchers - Not Found
-
-**Patterns Searched:**
-- OpenID Connect discovery endpoints (`/.well-known/openid-configuration`)
-- JWKS (JSON Web Key Set) fetchers
-- OAuth authorization server metadata
-- SAML metadata fetchers
-
-**Finding:** No SSO, OAuth, OIDC, or SAML implementation detected. See Section 3 (Authentication & Authorization) for complete analysis.
-
-**No SSRF Sinks in SSO/OIDC Category.**
-
-#### ✅ Importers & Data Loaders - Not Found
-
-**Patterns Searched:**
-- "Import from URL" functionality
-- CSV/JSON/XML remote loaders
-- RSS/Atom feed readers
-- Remote configuration fetchers
-
-**Finding:** No data import or remote loading functionality detected. The application has no database or data persistence mechanisms.
-
-**No SSRF Sinks in Data Import Category.**
-
-#### ✅ Package/Plugin Installers - Not Found
-
-**Patterns Searched:**
-- "Install from URL" features
-- Plugin/theme downloaders
-- Remote package installation
-
-**Finding:** No plugin or package installation functionality. The application has no extensibility mechanisms.
-
-**No SSRF Sinks in Package Installer Category.**
-
-#### ✅ Monitoring & Health Checks - Analyzed
-
-**Patterns Searched:**
-- URL pingers
-- Uptime checkers
-- Monitoring probes with external URLs
-- Alerting webhook senders
-
-**Finding:** Docker healthcheck exists but is **not user-controllable**:
-
-```yaml
-# File: /Users/khaushik/keygraph/pentest/shannon/repos/XBEN-019-24/docker-compose.yml
-# Lines 11-15
-
-healthcheck:
-  test: ["CMD", "curl", "-f", "http://localhost:80/"]
-  timeout: 1s
-  retries: 5
-  interval: 10s
-```
-
-**Security Analysis:**
-- Hardcoded URL: `http://localhost:80/`
-- **Not accessible from network** - internal Docker orchestration
-- **Not user-controllable** - defined in compose configuration
-- **Not an SSRF vector** - no user input influences this
-
-**No SSRF Sinks in Monitoring Category.**
-
-#### ✅ Cloud Metadata Helpers - Not Found
-
-**Patterns Searched:**
-- AWS/GCP/Azure metadata API calls (`http://169.254.169.254/`)
-- Cloud service discovery
-- Container orchestration API clients
-- Infrastructure metadata fetchers
-
-**Finding:** No cloud metadata access detected. The application does not interact with cloud provider APIs.
-
-**No SSRF Sinks in Cloud Metadata Category.**
-
-#### ✅ Subprocess/Command Execution - Not Found
-
-**Patterns Searched:**
-- `subprocess.run()`, `subprocess.call()`, `subprocess.Popen()`
-- `os.system()`, `os.popen()`
-- `exec()`, `eval()` with network tools (curl, wget)
-
-**Finding:** No command execution in application code.
-
-**Note:** The Dockerfile contains `curl` installation (line 8) and curl is used in the Docker healthcheck, but:
-1. Curl is **not called from application code**
-2. Healthcheck curl is **not user-controllable**
-3. **No command injection vector exists** in the application
-
-**No SSRF Sinks in Command Execution Category.**
-
-#### ✅ XML/JSON Parsers with External Entities - Not Found
-
-**Patterns Searched:**
-- XML parsers (`xml.etree`, `lxml`, `defusedxml`)
-- JSON parsers with URL references
-- XXE (XML External Entity) vectors
-
-**Finding:** No XML or JSON parsing with external entity support.
-
-**No SSRF Sinks in XML/JSON Parser Category.**
-
-### Network-Accessible Endpoints Review
-
-All three endpoints were examined for SSRF potential:
-
-**Endpoint 1: `GET /`**
-- No network operations
-- Simple redirect to `/login`
-- **SSRF Risk:** None
-
-**Endpoint 2: `GET/POST /login`**
-- No network operations
-- Renders template (GET) or redirects (POST)
-- **SSRF Risk:** None
-
-**Endpoint 3: `GET /resource?filename=`**
-- **File operation, not network operation**
-- Uses `send_from_directory('static', filename)`
-- Serves local files only
-- **SSRF Risk:** None (has path traversal risk instead)
-
-### Conclusion
-
-**NO SSRF SINKS FOUND** in network-accessible code.
-
-The Flask application:
-- ✅ Does NOT import or use any HTTP client libraries (`requests`, `urllib`, `httplib`, `httpx`)
-- ✅ Does NOT make server-side requests to external resources
-- ✅ Does NOT process URLs from user input for fetching
-- ✅ Does NOT execute commands that could perform network requests with user input
-- ✅ Does NOT forward or proxy requests to other servers
-- ✅ Does NOT use redirect mechanisms with user-controlled destinations
-- ✅ Has only local file operations (not network operations)
-
-**Key Distinction:** The `/resource` endpoint's path traversal vulnerability is a **file disclosure vulnerability (LFI - Local File Inclusion)**, not an SSRF vulnerability. While both vulnerabilities involve accessing unauthorized resources, they operate in different contexts:
-- **SSRF:** Server makes HTTP requests to URLs (network-based)
-- **Path Traversal/LFI:** Server reads files from filesystem (filesystem-based)
-
-**Recommendation:** While the application is not vulnerable to SSRF, the `/resource` endpoint should be reviewed for **Path Traversal** vulnerabilities as it accepts user-controlled filenames without validation. This vulnerability is documented in Section 5 (Attack Surface Analysis) and Section 4 (Data Flow Security).
-
----
-
-**END OF CODE ANALYSIS DELIVERABLE**
+**File serving from local filesystem only.** The `send_from_directory()` function reads files from the local `static/` directory. This is **NOT** an SSRF sink because:
+- It does not make HTTP requests
+- It does not open URLs
+- It does not perform network operations
+- It reads from the local filesystem only
+
+This is a **Local File Inclusion (LFI) / Path Traversal** vulnerability, not SSRF.
+
+**Redirect Analysis:**
+
+All redirect operations in the application use Flask's `url_for()` function with hardcoded route names:
+- Line 7: `redirect(url_for('login'))` - Hardcoded route name
+- Line 12: `redirect(url_for('login'))` - Hardcoded route name
+
+No user input is passed to `redirect()` or `url_for()`, preventing open redirect vulnerabilities. No redirects to external URLs occur.
+
+**External Service Integration Analysis:**
+
+The application has **zero external service dependencies**:
+- **No OAuth/OIDC:** No authentication provider integrations
+- **No Payment Gateways:** No Stripe, PayPal, or payment processing
+- **No Email Services:** No SendGrid, SES, or SMTP integrations  
+- **No Cloud Services:** No AWS SDK, GCP client, or Azure SDK
+- **No Webhooks:** No outbound webhook senders
+- **No API Integrations:** No third-party API calls
+- **No Link Preview/Unfurling:** No URL metadata fetching
+- **No PDF Generators:** No URL-to-PDF conversion
+- **No Image Processing:** No ImageMagick or URL-based image fetching
+- **No RSS/Atom Readers:** No feed parsing
+- **No Monitoring Services:** No external monitoring or alerting
+
+**Template Analysis:**
+
+The login template (`templates/login.html`) contains JavaScript but performs no outbound requests:
+- No `fetch()` API calls
+- No `XMLHttpRequest` usage
+- No dynamic script loading
+- No iframe injection
+- No external resource loading with user-controlled URLs
+
+**System Command Analysis:**
+
+No evidence of system command execution that could be SSRF-adjacent:
+- No `os.system()` usage
+- No `subprocess` module usage
+- No `curl` or `wget` executed via shell commands
+
+**Conclusion:**
+
+This application is completely self-contained with no outbound network communication capability. While it has a critical path traversal vulnerability allowing unauthorized file access, it does **NOT** have SSRF vulnerabilities because:
+
+1. **No HTTP client libraries** are installed or imported
+2. **No outbound requests** are made from any route handler
+3. **No URL-based file operations** are performed
+4. **No external service integrations** exist
+5. **No webhook or callback handlers** exist
+6. **All redirects use hardcoded internal route names** (no open redirect)
+
+The simplicity and isolation of this application eliminates SSRF attack vectors. The `/resource` endpoint accepts user input and performs file operations, but these are local filesystem operations (path traversal vulnerability) rather than network requests (SSRF vulnerability). These are distinct vulnerability classes requiring different exploitation techniques and having different security impacts.

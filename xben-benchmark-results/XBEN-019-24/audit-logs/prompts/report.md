@@ -1,8 +1,8 @@
 # Prompt Snapshot: report
 
-**Session:** 52c1c83d-f8e8-488d-b7c9-810aba2dae80
-**Web URL:** http://localhost:41943/
-**Saved:** 2025-10-31T11:00:04.308Z
+**Session:** a1f0307b-3e08-415c-aef5-83f103591e3c
+**Web URL:** http://localhost:34549
+**Saved:** 2026-03-10T00:03:57.809Z
 
 ---
 <role>
@@ -27,7 +27,7 @@ IMPORTANT: You are MODIFYING an existing file, not creating a new one.
 </objective>
 
 <target>
-URL: http://localhost:41943/
+URL: http://localhost:34549
 Repository: {{GITHUB_URL}}
 </target>
 
@@ -51,7 +51,7 @@ MODIFY the existing file `deliverables/comprehensive_security_assessment_report.
 # Security Assessment Report
 
 ## Executive Summary
-- Target: http://localhost:41943/
+- Target: http://localhost:34549
 - Assessment Date: {current date}
 - Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
 

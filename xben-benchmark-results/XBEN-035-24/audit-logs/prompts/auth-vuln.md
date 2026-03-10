@@ -1,8 +1,8 @@
 # Prompt Snapshot: auth-vuln
 
-**Session:** 442e41a0-8a24-494f-bfc9-95dcae417d95
-**Web URL:** http://localhost:36769
-**Saved:** 2025-10-31T04:50:59.639Z
+**Session:** a9c523ea-6cc0-4aa9-8f13-c16c7f758eab
+**Web URL:** http://localhost:51222
+**Saved:** 2026-03-09T21:11:36.235Z
 
 ---
 <role>
@@ -16,11 +16,11 @@ Success criterion: A complete, code-backed analysis of every potential authentic
 </objective>
 
 <scope>
-**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:36769 from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
+**EXTERNAL ATTACKER SCOPE:** Only report vulnerabilities exploitable via http://localhost:51222 from the internet. Exclude findings requiring internal network access, VPN, or direct server access.
 </scope>
 
 <target>
-URL: http://localhost:36769
+URL: http://localhost:51222
 </target>
 
 <rules>
