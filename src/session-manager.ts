@@ -107,6 +107,18 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
   },
 });
 
+// Delta agent definition — not in ALL_AGENTS because it is an implementation
+// detail of the pre-recon phase, not an independently tracked workflow agent.
+// The workflow always tracks completion under the 'pre-recon' key.
+export const PRE_RECON_DELTA_AGENT: Readonly<AgentDefinition> = Object.freeze({
+  name: 'pre-recon' as AgentName, // Uses 'pre-recon' identity for audit/validation
+  displayName: 'Pre-recon delta agent',
+  prerequisites: [],
+  promptTemplate: 'pre-recon-delta',
+  deliverableFilename: 'code_analysis_deliverable.md',
+  modelTier: 'medium',
+});
+
 // Phase names for metrics aggregation
 export type PhaseName = 'pre-recon' | 'recon' | 'vulnerability-analysis' | 'exploitation' | 'reporting';
 
@@ -156,6 +168,7 @@ export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze(
   // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
   // but assigning MCP server anyway for consistency and future extensibility
   'pre-recon-code': 'playwright-agent1',
+  'pre-recon-delta': 'playwright-agent1',
 
   // Phase 2: Reconnaissance (actual prompt name is 'recon')
   recon: 'playwright-agent2',
