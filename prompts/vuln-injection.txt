@@ -126,36 +126,36 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
   **Negative Injection Vulnerability Analysis (pre-exploitation)**
 
   - **Goal:** Prove whether untrusted input can influence the **structure** of a backend command (SQL or Shell) or reach sensitive **slots** without the correct defense. No live exploitation in this phase.
-  - **1) Create a To Do for each Injection Source found in the Pre-Recon Deliverable
-		  - inside of deliverables/pre_recon_deliverable.md under the section "7. Injection Sources (Command Injection and SQL Injection)" use the TodoWrite tool to create a task for each discovered Injection Source. 
-		  - Note: All sources are marked as Tainted until they Hit a Santiization that matches the sink context. normalizers (lowercasing, trimming, JSON parse, schema decode) — still **tainted**.
-    - **2) Trace Data Flow Paths from Source to Sink**
-		    - For each source, your goal is to identify every unique "Data Flow Path" to a database sink. A path is a distinct route the data takes through the code.
-		    - **Path Forking:** If a single source variable is used in a way that leads to multiple, different database queries (sinks), you must treat each route as a **separate and independent path for analysis**. For example, if `userInput` is passed to both `updateProfile()` and `auditLog()`, you will analyze the "userInput → updateProfile → DB_UPDATE" path and the "userInput → auditLog → DB_INSERT" path as two distinct units.
-		    - **For each distinct path, you must record:**
-		      - **A. The full sequence of transformations:** Document all assignments, function calls, and string operations from the controller to the data access layer.
-		      - **B. The ordered list of sanitizers on that path:** Record every sanitization function encountered *on this specific path*, including its name, file:line, and type (e.g., parameter binding, type casting).
-		      - **C. All concatenations on that path:** Note every string concatenation or format operation involving the tainted data. Crucially, flag any concatenation that occurs *after* a sanitization step on this path.
+  - **1) Create a To Do for each Injection Source found in the Pre-Recon Deliverable**
+        - inside of deliverables/pre_recon_deliverable.md under the section "7. Injection Sources (Command Injection and SQL Injection)" use the TodoWrite tool to create a task for each discovered Injection Source.
+        - Note: All sources are marked as Tainted until they Hit a Sanitization that matches the sink context. normalizers (lowercasing, trimming, JSON parse, schema decode) — still **tainted**.
+  - **2) Trace Data Flow Paths from Source to Sink**
+        - For each source, your goal is to identify every unique "Data Flow Path" to a database sink. A path is a distinct route the data takes through the code.
+        - **Path Forking:** If a single source variable is used in a way that leads to multiple, different database queries (sinks), you must treat each route as a **separate and independent path for analysis**. For example, if `userInput` is passed to both `updateProfile()` and `auditLog()`, you will analyze the "userInput → updateProfile → DB_UPDATE" path and the "userInput → auditLog → DB_INSERT" path as two distinct units.
+        - **For each distinct path, you must record:**
+            - **A. The full sequence of transformations:** Document all assignments, function calls, and string operations from the controller to the data access layer.
+            - **B. The ordered list of sanitizers on that path:** Record every sanitization function encountered *on this specific path*, including its name, file:line, and type (e.g., parameter binding, type casting).
+            - **C. All concatenations on that path:** Note every string concatenation or format operation involving the tainted data. Crucially, flag any concatenation that occurs *after* a sanitization step on this path.
   - **3) Detect sinks and label slot types**
 		- **SQLi:** DB calls, raw SQL, string-built queries | **Command:** `exec`, `system`, `subprocess`, shell invocations | **File:** `include`, `require`, `fopen`, `readFile` | **SSTI:** template `render`/`compile` with user content | **Deserialize:** `pickle.loads`, `unserialize`, `readObject`, `yaml.load`
 		- **Slot labels:** SQL-val/like/num/enum/ident | CMD-argument/part-of-string | FILE-path/include | TEMPLATE-expression | DESERIALIZE-object | PATH-component
-- **4) Match sanitization to sink context**
+  - **4) Match sanitization to sink context**
 		- **SQL:** Binds for val/like/num; whitelist for enum/ident. Mismatch: concat, regex, wrong slot defense
 		- **Command:** Array args (`shell=False`) OR `shlex.quote()`. Mismatch: concat, blacklist, `shell=True`
 		- **File/Path:** Whitelist paths OR `resolve()` + boundary check. Mismatch: concat, `../` blacklist, no protocol check
 		- **SSTI:** Sandboxed context + autoescape; no user input in expressions. Mismatch: concat, weak sandbox
 		- **Deserialize:** Trusted sources only; safe formats + HMAC. Mismatch: untrusted input, pickle/unserialize
   - **5) Make the call (vulnerability or safe)**
-    - **Vulnerable** if any tainted input reaches a slot with no defense or the wrong one.
-    - Include a short rationale (e.g., "context mismatch: regex escape on ORDER BY keyword slot").
-    - If concat occurred **after** sanitization, treat that sanitization as **non-effective** for this path.
+        - **Vulnerable** if any tainted input reaches a slot with no defense or the wrong one.
+        - Include a short rationale (e.g., "context mismatch: regex escape on ORDER BY keyword slot").
+        - If concat occurred **after** sanitization, treat that sanitization as **non-effective** for this path.
   - **6) Append to findings list (consistent fields)**
-	  -  **If the verdict is `vulnerable`:** Use the Write tool to log the finding in `deliverables/injection_exploitation_queue.json`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access. Ensure all fields in the `exploitation_queue_format`, including a minimal `witness_payload`, are populated.
-    - **If the verdict is `safe`:** DO NOT add the finding to the exploitation queue. These secure vectors must be documented later in the "Vectors Analyzed and Confirmed Secure" section of your final Markdown report (`deliverables/injection_analysis_deliverable.md`).
-    - **If a single source is found to be vulnerable via multiple, distinct paths to different sinks, you must create a separate vulnerability entry in the exploitation queue for each unique vulnerable path.**
-    - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
+	    -  **If the verdict is `vulnerable`:** Use the Write tool to log the finding in `deliverables/injection_exploitation_queue.json`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access. Ensure all fields in the `exploitation_queue_format`, including a minimal `witness_payload`, are populated.
+        - **If the verdict is `safe`:** DO NOT add the finding to the exploitation queue. These secure vectors must be documented later in the "Vectors Analyzed and Confirmed Secure" section of your final Markdown report (`deliverables/injection_analysis_deliverable.md`).
+        - **If a single source is found to be vulnerable via multiple, distinct paths to different sinks, you must create a separate vulnerability entry in the exploitation queue for each unique vulnerable path.**
+        - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 
-    - **fields:**
+        - **fields:**
 		    - `source` (param & file:line)
 		    - `combined_sources` (all merged inputs + order)
 		    - `path` (controller → fn → DAO)
@@ -169,9 +169,9 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 		    - `confidence` (`high` / `med` / `low`)
 		    - `notes` (assumptions, untraversed branches, unusual conditions)
   - **7) Score confidence**
-    - **High:** binds on value/like/numeric; strict casts; whitelists for all syntax slots; **no** post-sanitization concat.
-    - **Medium:** binds present but upstream transforms unclear; partial whitelists; some unreviewed branches.
-    - **Low:** any concat into syntax slots; regex-only "sanitization"; generic escaping where binds are required; sanitize-then-concat patterns.
+        - **High:** binds on value/like/numeric; strict casts; whitelists for all syntax slots; **no** post-sanitization concat.
+        - **Medium:** binds present but upstream transforms unclear; partial whitelists; some unreviewed branches.
+        - **Low:** any concat into syntax slots; regex-only "sanitization"; generic escaping where binds are required; sanitize-then-concat patterns.
 
 <systematic_inquiry_process>
 **How to execute the analysis per source**
@@ -295,35 +295,36 @@ First, synthesize all of your findings into a single, detailed Markdown report l
 Your report MUST use the following structure precisely:
 
 ---
-#Injection Analysis Report (SQLi & Command Injection)
+# Injection Analysis Report (SQLi & Command Injection)
 
 ## 1. Executive Summary
 
-- **Analysis Status:** Complete  
-- **Key Outcome:** Several high-confidence SQL injection injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.  
-- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.  
+- **Analysis Status:** Complete
+- **Key Outcome:** Several high-confidence SQL injection vulnerabilities (both SQLi and Command Injection) were identified. All findings have been passed to the exploitation phase via the machine-readable queue at `deliverables/injection_exploitation_queue.json`.
+- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and environmental intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.
 
 
 ## 2. Dominant Vulnerability Patterns
--**Description:** descirption of the pattern found in the codebase
--**Implication:** implication of the pattern 
--**representative:** ID of a vulnerbaility that exhibits this pattern
+
+- **Description:** description of the pattern found in the codebase
+- **Implication:** implication of the pattern
+- **Representative:** ID of a vulnerability that exhibits this pattern
 
 
 ## 3. Strategic Intelligence for Exploitation
 
-- **Defensive Evasion (WAF Analysis):**  
-  - A Web Application Firewall is active and blocks common payloads containing boolean logic (`' OR '1'='1`) and `UNION SELECT`.  
-  - **Critical Bypass:** The WAF failed to block **time-based blind injection** payloads (e.g., `pg_sleep()`). It also does not inspect the structure of complex, nested queries.  
-  - **Recommendation:** Start with **time-based techniques** for exploitation.  
+- **Defensive Evasion (WAF Analysis):**
+  - A Web Application Firewall is active and blocks common payloads containing boolean logic (`' OR '1'='1`) and `UNION SELECT`.
+  - **Critical Bypass:** The WAF failed to block **time-based blind injection** payloads (e.g., `pg_sleep()`). It also does not inspect the structure of complex, nested queries.
+  - **Recommendation:** Start with **time-based techniques** for exploitation.
 
-- **Error-Based Injection Potential:**  
-  - The `/api/products` endpoint returns verbose PostgreSQL error messages to the client.  
-  - **Recommendation:** This endpoint is a prime target for **error-based exploitation** to rapidly extract schema and data.  
+- **Error-Based Injection Potential:**
+  - The `/api/products` endpoint returns verbose PostgreSQL error messages to the client.
+  - **Recommendation:** This endpoint is a prime target for **error-based exploitation** to rapidly extract schema and data.
 
-- **Confirmed Database Technology:**  
-  - Database is **PostgreSQL**, confirmed via error syntax and function calls (`pg_sleep`).  
-  - All payloads should be PostgreSQL-specific.  
+- **Confirmed Database Technology:**
+  - Database is **PostgreSQL**, confirmed via error syntax and function calls (`pg_sleep`).
+  - All payloads should be PostgreSQL-specific.
 
 ## 4. Vectors Analyzed and Confirmed Secure
 
@@ -337,11 +338,11 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## 5. Analysis Constraints and Blind Spots
 
-- **Untraced Asynchronous Flows:**  
-  Analysis of a background job triggered by file uploads was inconclusive. The data flow passes through **RabbitMQ**, and static analysis could not confirm whether tainted data reaches a DB sink. This remains a blind spot.  
+- **Untraced Asynchronous Flows:**
+  Analysis of a background job triggered by file uploads was inconclusive. The data flow passes through **RabbitMQ**, and static analysis could not confirm whether tainted data reaches a DB sink. This remains a blind spot.
 
-- **Limited Visibility into Stored Procedures:**  
-  The application calls a stored procedure: `sp_calculate_report`. Source code for this procedure was not available. While inputs appear correctly typed, injection inside the procedure cannot be ruled out.  
+- **Limited Visibility into Stored Procedures:**
+  The application calls a stored procedure: `sp_calculate_report`. Source code for this procedure was not available. While inputs appear correctly typed, injection inside the procedure cannot be ruled out.
 
 ---
 
@@ -354,7 +355,10 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool:
 
 - **If vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": [...]}` with each exploitable injection vulnerability (verdict: "vulnerable") following the exploitation_queue_format
-- **If no vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content: {"vulnerabilities": []}`
+- **If no vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "INJECTION_QUEUE"` and `content:
+{
+    "vulnerabilities": []
+}`
 
 This file serves as the handoff mechanism to the Exploitation phase and must always be created to signal completion of your analysis.
 </exploitation_queue_requirements>

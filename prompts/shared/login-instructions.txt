@@ -1,5 +1,5 @@
 <!-- BEGIN:COMMON -->
-**IF you are not already logged in when you open playwright, these are the login instructions** 
+**IF you are not already logged in when you open playwright, these are the login instructions**
 **NOTE: playwright automatically saves sessions so ensure you are not already logged in before executing these steps**
 
 <user_provided_configuration>
@@ -53,7 +53,7 @@ After completing the login flow, verify successful authentication:
    - Page should NOT show authentication errors
    - Page should display authenticated user content/interface
 
-3. **Verification Success:** 
+3. **Verification Success:**
    - Login is successful - proceed with your primary task
    - You now have an authenticated browser session to work with
 
