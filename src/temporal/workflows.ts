@@ -180,6 +180,9 @@ export async function pentestPipelineWorkflow(
     ...(input.pipelineTestingMode !== undefined && {
       pipelineTestingMode: input.pipelineTestingMode,
     }),
+    ...(input.pipelineConfig?.optimization !== undefined && {
+      optimizationConfig: input.pipelineConfig.optimization,
+    }),
   };
 
   let resumeState: ResumeState | null = null;
@@ -479,6 +482,15 @@ export async function pentestPipelineWorkflow(
 
     // Log workflow completion summary
     await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+
+    // Save scan commit for incremental scanning (if optimization enabled)
+    if (input.pipelineConfig?.optimization?.enable_incremental_scan) {
+      try {
+        await a.saveScanCommit(activityInput);
+      } catch (error) {
+        log.warn(`Failed to save scan commit: ${error}`);
+      }
+    }
 
     return state;
   } catch (error) {

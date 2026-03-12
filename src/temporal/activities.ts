@@ -48,6 +48,8 @@ const MAX_OUTPUT_VALIDATION_RETRIES = 3;
 
 const HEARTBEAT_INTERVAL_MS = 2000;
 
+import type { OptimizationConfig } from '../types/config.js';
+
 /**
  * Input for all agent activities.
  */
@@ -59,6 +61,7 @@ export interface ActivityInput {
   pipelineTestingMode?: boolean;
   workflowId: string;
   sessionId: string;
+  optimizationConfig?: OptimizationConfig;
 }
 
 /**
@@ -106,7 +109,14 @@ async function runAgentActivity(
   agentName: AgentName,
   input: ActivityInput
 ): Promise<AgentMetrics> {
-  const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+  const {
+    repoPath,
+    configPath,
+    pipelineTestingMode = false,
+    workflowId,
+    webUrl,
+    optimizationConfig,
+  } = input;
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -121,7 +131,7 @@ async function runAgentActivity(
 
     // 1. Build session metadata and get/create container
     const sessionMetadata = buildSessionMetadata(input);
-    const container = getOrCreateContainer(workflowId, sessionMetadata);
+    const container = getOrCreateContainer(workflowId, sessionMetadata, optimizationConfig, logger);
 
     // 2. Create audit session for THIS agent execution
     // NOTE: Each agent needs its own AuditSession because AuditSession uses
@@ -138,6 +148,8 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        optimizationConfig,
+        optimizationManager: container.optimizationManager || undefined,
       },
       auditSession,
       logger
@@ -593,6 +605,24 @@ export async function logPhaseTransition(
     await auditSession.logPhaseStart(phase);
   } else {
     await auditSession.logPhaseComplete(phase);
+  }
+}
+
+/**
+ * Save scan commit for incremental scanning.
+ */
+export async function saveScanCommit(input: ActivityInput): Promise<void> {
+  const logger = createActivityLogger();
+  const sessionMetadata = buildSessionMetadata(input);
+  const container = getContainer(input.workflowId);
+  
+  if (container?.optimizationManager) {
+    try {
+      await container.optimizationManager.saveScanCommit();
+      logger.info('Scan commit saved for incremental scanning');
+    } catch (error) {
+      logger.warn(`Failed to save scan commit: ${error}`);
+    }
   }
 }
 

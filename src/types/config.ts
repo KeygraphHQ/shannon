@@ -59,6 +59,15 @@ export type RetryPreset = 'default' | 'subscription';
 export interface PipelineConfig {
   retry_preset?: RetryPreset;
   max_concurrent_pipelines?: number;
+  optimization?: OptimizationConfig;
+}
+
+export interface OptimizationConfig {
+  enable_incremental_scan?: boolean;
+  enable_caching?: boolean;
+  enable_context_prioritization?: boolean;
+  enable_model_optimization?: boolean;
+  max_context_size?: number; // Maximum tokens to include in context
 }
 
 export interface DistributedConfig {

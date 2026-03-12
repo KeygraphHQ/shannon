@@ -48,3 +48,11 @@ rules:
 # pipeline:
 #   retry_preset: subscription          # 'default' or 'subscription' (6h max retry for rate limit recovery)
 #   max_concurrent_pipelines: 2         # 1-5, default: 5 (reduce to lower API usage spikes)
+#   
+#   # Performance and cost optimization settings (optional)
+#   optimization:
+#     enable_incremental_scan: true     # Only analyze changed files (requires git repo)
+#     enable_caching: true              # Cache analysis results across runs
+#     enable_context_prioritization: true  # Prioritize high-risk files (auth, input handling, etc.)
+#     enable_model_optimization: true   # Use smaller models where appropriate
+#     max_context_size: 200000          # Maximum tokens per agent (optional, prevents context overflow)
