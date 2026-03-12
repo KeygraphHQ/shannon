@@ -17,10 +17,14 @@
  *   const result = await container.agentExecution.executeOrThrow(agentName, input, auditSession);
  */
 
+import { path } from 'zx';
 import type { SessionMetadata } from '../audit/utils.js';
 import { AgentExecutionService } from './agent-execution.js';
 import { ConfigLoaderService } from './config-loader.js';
 import { ExploitationCheckerService } from './exploitation-checker.js';
+import { OptimizationManager } from './optimization-manager.js';
+import type { OptimizationConfig } from '../types/config.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 
 /**
  * Dependencies required to create a Container.
@@ -32,6 +36,8 @@ import { ExploitationCheckerService } from './exploitation-checker.js';
  */
 export interface ContainerDependencies {
   readonly sessionMetadata: SessionMetadata;
+  readonly optimizationConfig?: OptimizationConfig;
+  readonly logger?: ActivityLogger;
 }
 
 /**
@@ -48,6 +54,7 @@ export class Container {
   readonly agentExecution: AgentExecutionService;
   readonly configLoader: ConfigLoaderService;
   readonly exploitationChecker: ExploitationCheckerService;
+  readonly optimizationManager: OptimizationManager | null;
 
   constructor(deps: ContainerDependencies) {
     this.sessionMetadata = deps.sessionMetadata;
@@ -56,6 +63,28 @@ export class Container {
     this.configLoader = new ConfigLoaderService();
     this.exploitationChecker = new ExploitationCheckerService();
     this.agentExecution = new AgentExecutionService(this.configLoader);
+
+    // Initialize OptimizationManager if config provided
+    if (deps.optimizationConfig && deps.logger) {
+      const workspaceDir = deps.sessionMetadata.outputPath || './audit-logs';
+      const cacheDir = path.join(workspaceDir, deps.sessionMetadata.id || 'default', '.shannon-cache');
+      
+      this.optimizationManager = new OptimizationManager(
+        deps.sessionMetadata.repoPath,
+        workspaceDir,
+        {
+          enableIncrementalScan: deps.optimizationConfig.enable_incremental_scan ?? true,
+          enableCaching: deps.optimizationConfig.enable_caching ?? true,
+          enableContextPrioritization: deps.optimizationConfig.enable_context_prioritization ?? true,
+          enableModelOptimization: deps.optimizationConfig.enable_model_optimization ?? true,
+          maxContextSize: deps.optimizationConfig.max_context_size,
+          cacheDir,
+        },
+        deps.logger
+      );
+    } else {
+      this.optimizationManager = null;
+    }
   }
 }
 
@@ -73,16 +102,28 @@ const containers = new Map<string, Container>();
  *
  * @param workflowId - Unique workflow identifier
  * @param sessionMetadata - Session metadata for audit paths
+ * @param optimizationConfig - Optional optimization configuration
+ * @param logger - Optional logger for optimization manager
  * @returns Container instance for the workflow
  */
 export function getOrCreateContainer(
   workflowId: string,
-  sessionMetadata: SessionMetadata
+  sessionMetadata: SessionMetadata,
+  optimizationConfig?: OptimizationConfig,
+  logger?: ActivityLogger
 ): Container {
   let container = containers.get(workflowId);
 
   if (!container) {
-    container = new Container({ sessionMetadata });
+    container = new Container({ sessionMetadata, optimizationConfig, logger });
+    // Initialize optimization manager if present
+    if (container.optimizationManager) {
+      container.optimizationManager.initialize().catch((err) => {
+        if (logger) {
+          logger.warn(`Failed to initialize optimization manager: ${err}`);
+        }
+      });
+    }
     containers.set(workflowId, container);
   }
 

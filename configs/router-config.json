@@ -25,6 +25,20 @@
       "transformer": {
         "use": ["openrouter"]
       }
+    },
+    {
+      "name": "gemini",
+      "api_base_url": "https://generativelanguage.googleapis.com/v1beta/models",
+      "api_key": "$GEMINI_API_KEY",
+      "models": [
+        "gemini-2.0-flash-exp",
+        "gemini-1.5-flash",
+        "gemini-1.5-pro",
+        "gemini-2.5-flash"
+      ],
+      "transformer": {
+        "use": ["gemini"]
+      }
     }
   ],
   "Router": {
