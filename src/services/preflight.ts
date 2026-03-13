@@ -61,10 +61,19 @@ async function validateRepo(
     );
   }
 
-  // 2. Check .git directory exists
-  try {
-    const gitStats = await fs.stat(`${repoPath}/.git`);
-    if (!gitStats.isDirectory()) {
+  // 2. Check .git exists directly, or that subdirectories contain git repos (multi-repo layout)
+  const directGit = await fs.stat(`${repoPath}/.git`).then(s => s.isDirectory()).catch(() => false);
+
+  if (!directGit) {
+    const entries = await fs.readdir(repoPath, { withFileTypes: true });
+    const subRepos = await Promise.all(
+      entries
+        .filter(e => e.isDirectory())
+        .map(e => fs.stat(`${repoPath}/${e.name}/.git`).then(s => s.isDirectory()).catch(() => false))
+    );
+    const hasSubRepos = subRepos.some(Boolean);
+
+    if (!hasSubRepos) {
       return err(
         new PentestError(
           `Not a git repository (no .git directory): ${repoPath}`,
@@ -75,16 +84,7 @@ async function validateRepo(
         )
       );
     }
-  } catch {
-    return err(
-      new PentestError(
-        `Not a git repository (no .git directory): ${repoPath}`,
-        'config',
-        false,
-        { repoPath },
-        ErrorCode.REPO_NOT_FOUND
-      )
-    );
+    logger.info('Multi-repository layout detected');
   }
 
   logger.info('Repository path OK');
