@@ -26,16 +26,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: 'pnpm'
 
       - name: Install dependencies
-        run: npm clean-install
-
-      - name: Verify dependency signatures
-        run: npm audit signatures
+        run: pnpm install --frozen-lockfile
 
       - name: Probe semantic-release
         id: probe
@@ -108,34 +109,35 @@ jobs:
             --certificate-identity https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }} \
             keygraph/shannon@${{ steps.build.outputs.digest }}
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Configure npm registry
         uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
+          cache: 'pnpm'
 
       - name: Install dependencies
-        run: npm clean-install
-
-      - name: Verify dependency signatures
-        run: npm audit signatures
+        run: pnpm install --frozen-lockfile
 
       - name: Set CLI package version
-        run: npm version "${{ needs.preflight.outputs.version }}" --workspace cli --no-git-tag-version --allow-same-version
+        run: cd apps/cli && npm version "${{ needs.preflight.outputs.version }}" --no-git-tag-version --allow-same-version
 
-      - name: Sync lockfile with bumped versions
-        run: npm i --package-lock-only
+      - name: Sync lockfile with bumped version
+        run: pnpm install --lockfile-only
 
       - name: Build CLI
-        run: npm run build:cli
+        run: pnpm --filter @keygraph/shannon run build
 
       - name: Publish npm package
-        working-directory: cli
+        working-directory: apps/cli
         run: |
           if npm view "@keygraph/shannon@${{ needs.preflight.outputs.version }}" version 2>/dev/null; then
             echo "Version already published, skipping"
           else
-            npm publish --access public
+            pnpm publish --access public --no-git-checks
           fi
 
   release:
@@ -151,13 +153,17 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
           node-version: 24
+          cache: 'pnpm'
 
       - name: Install dependencies
-        run: npm clean-install
+        run: pnpm install --frozen-lockfile
 
       - name: Create GitHub release
         env:

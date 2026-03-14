@@ -1,9 +1,4 @@
 {
-  "extends": "./tsconfig.base.json",
-  "compilerOptions": {
-    "rootDir": "./src",
-    "outDir": "./dist"
-  },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "mcp-server"]
+  "files": [],
+  "references": [{ "path": "apps/worker" }, { "path": "apps/cli" }, { "path": "packages/mcp-server" }]
 }

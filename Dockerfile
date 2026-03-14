@@ -50,16 +50,27 @@ RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/what
 # Install Python-based tools
 RUN pip3 install --no-cache-dir schemathesis
 
+# Install pnpm
+RUN npm install -g pnpm@10
+
 # Build Node.js application in builder to avoid QEMU emulation failures in CI
 WORKDIR /app
-COPY package*.json ./
-COPY cli/package.json ./cli/
-COPY mcp-server/package*.json ./mcp-server/
-RUN npm ci && npm cache clean --force
+
+# Copy workspace manifests for install layer caching
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
+COPY apps/worker/package.json ./apps/worker/
+COPY apps/cli/package.json ./apps/cli/
+COPY packages/mcp-server/package.json ./packages/mcp-server/
+
+RUN pnpm install --frozen-lockfile
+
 COPY . .
-RUN cd mcp-server && npm run build && cd .. && npm run build
-RUN npm prune --production && \
-    cd mcp-server && npm prune --production
+
+# Build mcp-server (dependency) then worker. CLI not needed in Docker
+RUN pnpm --filter @shannon/mcp-server run build && \
+    pnpm --filter @shannon/worker run build
+
+RUN pnpm prune --prod
 
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
@@ -119,13 +130,17 @@ RUN addgroup -g 1001 pentest && \
 # Set working directory
 WORKDIR /app
 
-# Copy built application from builder
-COPY --from=builder /app /app
+# Copy only what the worker needs (skip CLI source, infra, tsdown artifacts)
+COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.yaml /app/.npmrc /app/
+COPY --from=builder /app/node_modules /app/node_modules
+COPY --from=builder /app/apps/worker /app/apps/worker
+COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
+COPY --from=builder /app/packages /app/packages
 
 RUN npm install -g @anthropic-ai/claude-code
 
 # Create directories for session data and ensure proper permissions
-RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs /app/workspaces && \
+RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/workspaces && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
     chmod 777 /app && \
     chmod 777 /tmp/.cache && \
@@ -152,4 +167,4 @@ RUN git config --global user.email "agent@localhost" && \
     git config --global user.name "Pentest Agent" && \
     git config --global --add safe.directory '*'
 
-CMD ["node", "dist/temporal/worker.js"]
+CMD ["node", "apps/worker/dist/temporal/worker.js"]

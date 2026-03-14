@@ -3,35 +3,26 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "workspaces": [
-    "cli",
-    "mcp-server"
-  ],
+  "packageManager": "pnpm@10.12.1",
   "scripts": {
-    "build": "tsc",
-    "build:cli": "npm run build -w cli",
-    "build:mcp": "npm run build -w mcp-server",
-    "build:all": "npm run build:mcp && npm run build && npm run build:cli",
-    "temporal:server": "docker compose -f docker/docker-compose.temporal.yml up temporal -d",
-    "temporal:server:stop": "docker compose -f docker/docker-compose.temporal.yml down",
-    "temporal:worker": "node dist/temporal/worker.js",
-    "temporal:start": "node dist/temporal/worker.js"
-  },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.2.38",
-    "@temporalio/activity": "^1.11.0",
-    "@temporalio/client": "^1.11.0",
-    "@temporalio/worker": "^1.11.0",
-    "@temporalio/workflow": "^1.11.0",
-    "ajv": "^8.12.0",
-    "ajv-formats": "^2.1.1",
-    "dotenv": "^16.4.5",
-    "js-yaml": "^4.1.0",
-    "zx": "^8.0.0"
+    "build": "turbo run build",
+    "check": "turbo run check",
+    "biome": "biome check .",
+    "biome:fix": "biome check --write .",
+    "clean": "turbo run clean",
+    "temporal:worker": "node apps/worker/dist/temporal/worker.js",
+    "temporal:start": "node apps/worker/dist/temporal/worker.js"
   },
   "devDependencies": {
-    "@types/js-yaml": "^4.0.9",
+    "@biomejs/biome": "^2.0.0",
     "@types/node": "^25.0.3",
+    "turbo": "^2.5.0",
     "typescript": "^5.9.3"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@swc/core",
+      "protobufjs"
+    ]
   }
 }

@@ -47,11 +47,12 @@ ehthumbs.db
 Thumbs.db
 
 # CLI package (runs on host, not in container)
-# Keep cli/package.json so npm workspaces resolve and npm ci works with the root lockfile
-cli/src/
-cli/dist/
-cli/infra/
-cli/tsconfig.json
+# Keep apps/cli/package.json so pnpm workspaces resolve
+apps/cli/src/
+apps/cli/dist/
+apps/cli/infra/
+apps/cli/tsconfig.json
+apps/cli/tsdown.config.ts
 
 # Docker files (avoid recursive copying)
 Dockerfile*

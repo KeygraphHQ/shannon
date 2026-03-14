@@ -34,7 +34,7 @@ services:
     ports:
       - "127.0.0.1:3456:3456"
     volumes:
-      - ./configs/router-config.json:/config/router-config.json:ro
+      - ./apps/cli/infra/router-config.json:/config/router-config.json:ro
     environment:
       - HOST=0.0.0.0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

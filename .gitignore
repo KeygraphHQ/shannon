@@ -4,3 +4,4 @@ workspaces/
 credentials/
 dist/
 repos/
+.turbo/
