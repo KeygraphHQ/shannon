@@ -8,14 +8,14 @@
 /**
  * Workspace listing tool for Shannon.
  *
- * Reads audit-logs/ directories, parses session.json files, and displays
+ * Reads workspaces/ directories, parses session.json files, and displays
  * a formatted table of all workspaces with status, duration, and cost.
  *
  * Usage:
  *   node dist/temporal/workspaces.js
  *
  * Environment:
- *   AUDIT_LOGS_DIR - Override audit-logs directory (default: ./audit-logs)
+ *   WORKSPACES_DIR - Override workspaces directory (default: ./workspaces)
  */
 
 import fs from 'fs/promises';
@@ -67,21 +67,21 @@ function truncate(str: string, maxLen: number): string {
 }
 
 async function listWorkspaces(): Promise<void> {
-  const auditDir = process.env.AUDIT_LOGS_DIR || './audit-logs';
+  const workspacesDir = process.env.WORKSPACES_DIR || './workspaces';
 
   let entries: string[];
   try {
-    entries = await fs.readdir(auditDir);
+    entries = await fs.readdir(workspacesDir);
   } catch {
-    console.log('No audit-logs directory found.');
-    console.log(`Expected: ${auditDir}`);
+    console.log('No workspaces directory found.');
+    console.log(`Expected: ${workspacesDir}`);
     return;
   }
 
   const workspaces: WorkspaceInfo[] = [];
 
   for (const entry of entries) {
-    const sessionPath = path.join(auditDir, entry, 'session.json');
+    const sessionPath = path.join(workspacesDir, entry, 'session.json');
     try {
       const content = await fs.readFile(sessionPath, 'utf8');
       const data = JSON.parse(content) as SessionJson;
@@ -101,7 +101,7 @@ async function listWorkspaces(): Promise<void> {
 
   if (workspaces.length === 0) {
     console.log('\nNo workspaces found.');
-    console.log('Run a pipeline first: ./shannon start URL=<url> REPO=<repo>');
+    console.log('Run a pipeline first: ./shannon start -u <url> -r <repo>');
     return;
   }
 
@@ -161,7 +161,7 @@ async function listWorkspaces(): Promise<void> {
   console.log(`${summary}${resumeSummary}`);
 
   if (resumableCount > 0) {
-    console.log('\nResume with: ./shannon start URL=<url> REPO=<repo> WORKSPACE=<name>');
+    console.log('\nResume with: ./shannon start -u <url> -r <repo> -w <name>');
   }
 
   console.log();

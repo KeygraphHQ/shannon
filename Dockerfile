@@ -50,6 +50,17 @@ RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/what
 # Install Python-based tools
 RUN pip3 install --no-cache-dir schemathesis
 
+# Build Node.js application in builder to avoid QEMU emulation failures in CI
+WORKDIR /app
+COPY package*.json ./
+COPY cli/package.json ./cli/
+COPY mcp-server/package*.json ./mcp-server/
+RUN npm ci && npm cache clean --force
+COPY . .
+RUN cd mcp-server && npm run build && cd .. && npm run build
+RUN npm prune --production && \
+    cd mcp-server && npm prune --production
+
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
 
@@ -108,29 +119,13 @@ RUN addgroup -g 1001 pentest && \
 # Set working directory
 WORKDIR /app
 
-# Copy package files first for better caching
-COPY package*.json ./
-COPY mcp-server/package*.json ./mcp-server/
-
-# Install Node.js dependencies (including devDependencies for TypeScript build)
-RUN npm ci && \
-    cd mcp-server && npm ci && cd .. && \
-    npm cache clean --force
-
-# Copy application source code
-COPY . .
-
-# Build TypeScript (mcp-server first, then main project)
-RUN cd mcp-server && npm run build && cd .. && npm run build
-
-# Remove devDependencies after build to reduce image size
-RUN npm prune --production && \
-    cd mcp-server && npm prune --production
+# Copy built application from builder
+COPY --from=builder /app /app
 
 RUN npm install -g @anthropic-ai/claude-code
 
 # Create directories for session data and ensure proper permissions
-RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
+RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs /app/workspaces && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
     chmod 777 /app && \
     chmod 777 /tmp/.cache && \
@@ -157,5 +152,4 @@ RUN git config --global user.email "agent@localhost" && \
     git config --global user.name "Pentest Agent" && \
     git config --global --add safe.directory '*'
 
-# Set entrypoint
-ENTRYPOINT ["node", "dist/shannon.js"]
+CMD ["node", "dist/temporal/worker.js"]

@@ -44,6 +44,7 @@ export interface WorkflowSummary {
 export class WorkflowLogger {
   private readonly sessionMetadata: SessionMetadata;
   private readonly logStream: LogStream;
+  private workflowId: string | undefined;
 
   constructor(sessionMetadata: SessionMetadata) {
     this.sessionMetadata = sessionMetadata;
@@ -54,7 +55,11 @@ export class WorkflowLogger {
   /**
    * Initialize the log stream (creates file and writes header)
    */
-  async initialize(): Promise<void> {
+  async initialize(workflowId?: string): Promise<void> {
+    if (workflowId) {
+      this.workflowId = workflowId;
+    }
+
     if (this.logStream.isOpen) {
       return;
     }
@@ -76,7 +81,7 @@ export class WorkflowLogger {
       `================================================================================`,
       `Shannon Pentest - Workflow Log`,
       `================================================================================`,
-      `Workflow ID: ${this.sessionMetadata.id}`,
+      `Workflow ID: ${this.workflowId ?? this.sessionMetadata.id}`,
       `Target URL:  ${this.sessionMetadata.webUrl}`,
       `Started:     ${formatTimestamp()}`,
       `================================================================================`,
@@ -341,7 +346,7 @@ export class WorkflowLogger {
     await this.logStream.write(`================================================================================\n`);
     await this.logStream.write(`Workflow ${status}\n`);
     await this.logStream.write(`────────────────────────────────────────\n`);
-    await this.logStream.write(`Workflow ID: ${this.sessionMetadata.id}\n`);
+    await this.logStream.write(`Workflow ID: ${this.workflowId ?? this.sessionMetadata.id}\n`);
     await this.logStream.write(`Status:      ${summary.status}\n`);
     await this.logStream.write(`Duration:    ${formatDuration(summary.totalDurationMs)}\n`);
     await this.logStream.write(`Total Cost:  $${summary.totalCostUsd.toFixed(4)}\n`);

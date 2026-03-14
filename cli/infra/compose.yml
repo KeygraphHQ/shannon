@@ -8,8 +8,8 @@ services:
     container_name: shannon-temporal
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
-      - "127.0.0.1:7233:7233"   # gRPC
-      - "127.0.0.1:8233:8233"   # Web UI (built-in)
+      - "127.0.0.1:7233:7233"
+      - "127.0.0.1:8233:8233"
     volumes:
       - temporal-data:/home/temporal
     healthcheck:
@@ -19,12 +19,10 @@ services:
       retries: 10
       start_period: 30s
 
-  # Optional: claude-code-router for multi-model support
-  # Start with: ROUTER=true ./shannon start ...
   router:
     image: node:20-slim
     container_name: shannon-router
-    profiles: ["router"]  # Only starts when explicitly requested
+    profiles: ["router"]
     command: >
       sh -c "apt-get update && apt-get install -y gettext-base &&
              npm install -g @musistudio/claude-code-router &&
@@ -34,7 +32,7 @@ services:
     ports:
       - "127.0.0.1:3456:3456"
     volumes:
-      - ./configs/router-config.json:/config/router-config.json:ro
+      - ./router-config.json:/config/router-config.json:ro
     environment:
       - HOST=0.0.0.0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

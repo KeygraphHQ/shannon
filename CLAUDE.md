@@ -4,41 +4,108 @@ AI-powered penetration testing agent for defensive security analysis. Automates 
 
 ## Commands
 
-**Prerequisites:** Docker, Anthropic API key in `.env`
+**Prerequisites:** Docker, AI provider credentials (`.env` for local, `shn setup` or env vars for npx)
+
+### Dual CLI
+
+Shannon supports two CLI modes, auto-detected based on the current working directory:
+
+| | **npx** (`npx @keygraph/shannon`) | **Local** (`./shannon`) |
+|---|---|---|
+| **Install** | Zero-install via npm | Clone the repo |
+| **Image** | Pulled from Docker Hub (`keygraph/shannon:<version>`) | Built locally (`shannon-worker`) |
+| **State** | `~/.shannon/` | Project directory |
+| **Credentials** | `~/.shannon/config.toml` (via `shn setup`) or env vars | `./.env` |
+| **Config** | `~/.shannon/config.toml` (via `shn setup`) | N/A |
+| **Prompts** | Bundled in Docker image | Mounted from `./prompts/` (live-editable) |
+
+Mode detection: `./shannon` sets `SHANNON_LOCAL=1` env var; `cli/src/mode.ts` checks this to select local vs npx mode.
+
+### npx Quick Start
+
+```bash
+# Configure credentials (interactive wizard)
+npx @keygraph/shannon setup
+
+# Or export env vars directly (non-interactive / CI)
+export ANTHROPIC_API_KEY=your-key
+
+# Run
+npx @keygraph/shannon start -u <url> -r /path/to/repo
+```
+
+### Local (Development) Quick Start
 
 ```bash
 # Setup
-cp .env.example .env && edit .env  # Set ANTHROPIC_API_KEY
+echo "ANTHROPIC_API_KEY=your-key" > .env
 
-# Prepare repo (REPO is a folder name inside ./repos/, not an absolute path)
-git clone https://github.com/org/repo.git ./repos/my-repo
-# or symlink: ln -s /path/to/existing/repo ./repos/my-repo
+# Build (auto-runs if image missing)
+./shannon build
 
 # Run
-./shannon start URL=<url> REPO=my-repo
-./shannon start URL=<url> REPO=my-repo CONFIG=./configs/my-config.yaml
+./shannon start -u <url> -r my-repo
+./shannon start -u <url> -r my-repo -c ./configs/my-config.yaml
+./shannon start -u <url> -r /any/path/to/repo
+```
+
+### Common Commands
+
+```bash
+# Setup (npx mode only — one-time credential configuration)
+npx @keygraph/shannon setup
 
 # Workspaces & Resume
-./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # New named workspace
-./shannon start URL=<url> REPO=my-repo WORKSPACE=my-audit    # Resume (same command)
-./shannon start URL=<url> REPO=my-repo WORKSPACE=<auto-name> # Resume auto-named run
-./shannon workspaces                                          # List all workspaces
+./shannon start -u <url> -r my-repo -w my-audit    # New named workspace
+./shannon start -u <url> -r my-repo -w my-audit    # Resume (same command)
+./shannon workspaces                                 # List all workspaces
 
 # Monitor
-./shannon logs                      # Real-time worker logs
+./shannon logs <workspace>            # Tail workflow log
+./shannon status                      # Show running workers
 # Temporal Web UI: http://localhost:8233
 
 # Stop
-./shannon stop                      # Preserves workflow data
-./shannon stop CLEAN=true           # Full cleanup including volumes
+./shannon stop                        # Preserves workflow data
+./shannon stop --clean                # Full cleanup including volumes (confirms first)
 
-# Build
-npm run build
+# Image management
+./shannon build [--no-cache]          # Local mode: build worker image
+npx @keygraph/shannon update                # npx mode: pull latest image
+npx @keygraph/shannon uninstall             # npx mode: remove ~/.shannon/ (confirms first)
+
+# Build TypeScript (development)
+npm run build:all                    # Build core + CLI + MCP server
 ```
 
-**Options:** `CONFIG=<file>` (YAML config), `OUTPUT=<path>` (default: `./audit-logs/`), `WORKSPACE=<name>` (named workspace; auto-resumes if exists), `PIPELINE_TESTING=true` (minimal prompts, 10s retries), `REBUILD=true` (force Docker rebuild), `ROUTER=true` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
+TypeScript compiler options are shared via `tsconfig.base.json` at the root. All three packages extend it, overriding only `rootDir` and `outDir`. Shared devDependencies (`typescript`, `@types/node`) are hoisted to the root workspace.
+
+**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--router` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
 
 ## Architecture
+
+### CLI Package (`cli/`)
+Published as `@keygraph/shannon` on npm. Contains only Docker orchestration logic — no Temporal SDK, business logic, or prompts.
+
+- `cli/src/index.ts` — CLI dispatcher (`setup`, `start`, `stop`, `logs`, `workspaces`, `status`, `build`, `update`, `uninstall`, `info`)
+- `cli/src/mode.ts` — Auto-detection: local mode if `Dockerfile` + `docker-compose.yml` + `prompts/` exist in CWD
+- `cli/src/docker.ts` — Compose lifecycle, image pull/build, ephemeral `docker run` worker spawning
+- `cli/src/home.ts` — State directory management (`~/.shannon/` for npx, `./` for local)
+- `cli/src/env.ts` — `.env` loading, TOML fallback (npx only) via `cli/src/config/resolver.ts`, credential validation, env flag building
+- `cli/src/config/resolver.ts` — Cascading config (npx only): env vars → `~/.shannon/config.toml` (parsed with `smol-toml`)
+- `cli/src/config/writer.ts` — TOML serialization and secure file persistence (0o600)
+- `cli/src/commands/setup.ts` — Interactive TUI wizard (`@clack/prompts`) for provider credential setup (npx only)
+- `cli/src/paths.ts` — Repo/config path resolution (bare name → `./repos/<name>`, or any absolute/relative path)
+- `cli/src/commands/` — Command handlers
+- `cli/infra/compose.yml` — Bundled Temporal + router compose file for npx mode
+- `shannon` — Node.js entry point (`#!/usr/bin/env node`) that delegates to `cli/dist/index.js`
+
+### Docker Architecture
+Infra (Temporal + router) runs via `docker-compose.yml`. Workers are ephemeral `docker run --rm` containers, one per scan, each with a unique task queue and isolated volume mounts.
+
+- `docker-compose.yml` — Infra only: `shannon-temporal` (port 7233/8233) and `shannon-router` (port 3456, optional via profile). Network: `shannon-net`
+- `Dockerfile` — 2-stage build (builder + Chainguard Wolfi runtime). Entrypoint: `CMD ["node", "dist/temporal/worker.js"]`
+- No `docker-compose.docker.yml` — host gateway handled via `--add-host` flag in CLI
 
 ### Core Modules
 - `src/session-manager.ts` — Agent definitions (`AGENTS` record). Agent types in `src/types/agents.ts`
@@ -55,8 +122,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `src/temporal/activities.ts` — Thin wrappers — heartbeat loop, error classification, container lifecycle. Business logic delegated to `src/services/`
 - `src/temporal/activity-logger.ts` — `TemporalActivityLogger` implementation of `ActivityLogger` interface
 - `src/temporal/summary-mapper.ts` — Maps `PipelineSummary` to `WorkflowSummary`
-- `src/temporal/worker.ts` — Worker entry point
-- `src/temporal/client.ts` — CLI client for starting workflows
+- `src/temporal/worker.ts` — Combined worker + client entry point (per-invocation task queue, submits workflow, waits for result)
 - `src/temporal/shared.ts` — Types, interfaces, query definitions
 ### Five-Phase Pipeline
 
@@ -67,12 +133,12 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 5. **Reporting** (`report`) — Executive-level security report
 
 ### Supporting Systems
-- **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters
+- **Configuration** — YAML configs in `configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters. Credential resolution — local mode: env vars → `./.env`; npx mode: env vars → `~/.shannon/config.toml` (via `shn setup`)
 - **Prompts** — Per-phase templates in `prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `prompts/shared/` via `src/services/prompt-manager.ts`
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Playwright MCP for browser automation, TOTP generation via MCP tool. Login flow template at `prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
-- **Audit System** — Crash-safe append-only logging in `audit-logs/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
+- **Audit System** — Crash-safe append-only logging in `workspaces/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`audit/log-stream.ts`) shared stream primitive
 - **Deliverables** — Saved to `deliverables/` in the target repo via the `save_deliverable` MCP tool
-- **Workspaces & Resume** — Named workspaces via `WORKSPACE=<name>` or auto-named from URL+timestamp. Resume passes `--workspace` to the Temporal client (`src/temporal/client.ts`), which loads `session.json` to detect completed agents. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
+- **Workspaces & Resume** — Named workspaces via `-w <name>` or auto-named from URL+timestamp. Resume detects completed agents via `session.json`. `loadResumeState()` in `src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `src/temporal/workspaces.ts`
 
 ## Development Notes
 
@@ -85,7 +151,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 ### Modifying Prompts
 - Variable substitution: `{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`, `{{LOGIN_INSTRUCTIONS}}`
 - Shared partials in `prompts/shared/` included via `src/services/prompt-manager.ts`
-- Test with `PIPELINE_TESTING=true` for fast iteration
+- Test with `--pipeline-testing` for fast iteration
 
 ### Key Design Patterns
 - **Configuration-Driven** — YAML configs with JSON Schema validation
@@ -94,6 +160,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - **Modular Error Handling** — `ErrorCode` enum, `Result<T,E>` for explicit error propagation, automatic retry (3 attempts per agent)
 - **Services Boundary** — Activities are thin Temporal wrappers; `src/services/` owns business logic, accepts `ActivityLogger`, returns `Result<T,E>`. No Temporal imports in services
 - **DI Container** — Per-workflow in `src/services/container.ts`. `AuditSession` excluded (parallel safety)
+- **Ephemeral Workers** — Each scan runs in its own `docker run --rm` container with a per-invocation task queue. Temporal routes activities by queue name, so per-scan queues ensure activities never land on a worker with the wrong repo mounted
 
 ### Security
 Defensive security tool only. Use only on systems you own or have explicit permission to test.
@@ -142,18 +209,22 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 ## Key Files
 
-**Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`, `src/temporal/client.ts`
+**CLI:** `shannon` (entry point), `cli/src/index.ts` (dispatcher), `cli/src/docker.ts` (orchestration), `cli/src/mode.ts` (auto-detection)
+
+**Entry Points:** `src/temporal/workflows.ts`, `src/temporal/activities.ts`, `src/temporal/worker.ts`
 
 **Core Logic:** `src/session-manager.ts`, `src/ai/claude-executor.ts`, `src/config-parser.ts`, `src/services/`, `src/audit/`
 
-**Config:** `shannon` (CLI), `docker-compose.yml`, `configs/`, `prompts/`
+**Config:** `docker-compose.yml`, `cli/infra/compose.yml`, `configs/`, `prompts/`, `tsconfig.base.json` (shared compiler options)
+
+**CI/CD:** `.github/workflows/release.yml` (semantic-release: npm publish + Docker push + GitHub release), `.github/workflows/rollback.yml` (rollback npm and Docker latest tags)
 
 ## Troubleshooting
 
-- **"Repository not found"** — `REPO` must be a folder name inside `./repos/`, not an absolute path. Clone or symlink your repo there first: `ln -s /path/to/repo ./repos/my-repo`
+- **"Repository not found"** — Pass a bare name (`-r my-repo`) for `./repos/my-repo`, or a path (`-r /path/to/repo`) for any directory
 - **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
-- **Worker not processing** — Check `docker compose ps`
-- **Reset state** — `./shannon stop CLEAN=true`
+- **Worker not processing** — Check `docker ps --filter "name=shannon-worker-"`
+- **Reset state** — `./shannon stop --clean`
 - **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
-- **Missing tools** — Use `PIPELINE_TESTING=true` to skip nmap/subfinder/whatweb (graceful degradation)
+- **Missing tools** — Use `--pipeline-testing` to skip nmap/subfinder/whatweb (graceful degradation)
 - **Container permissions** — On Linux, may need `sudo` for docker commands

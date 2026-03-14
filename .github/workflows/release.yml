@@ -1,0 +1,165 @@
+name: Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  preflight:
+    name: Preflight
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    outputs:
+      should_release: ${{ steps.probe.outputs.should_release }}
+      version: ${{ steps.probe.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm clean-install
+
+      - name: Verify dependency signatures
+        run: npm audit signatures
+
+      - name: Probe semantic-release
+        id: probe
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          npx semantic-release@25 --dry-run --no-ci 2>&1 | tee semantic-release.log
+
+          if grep -q "The next release version is" semantic-release.log; then
+            echo "should_release=true" >> "$GITHUB_OUTPUT"
+            VERSION=$(grep -oE "The next release version is [0-9]+\.[0-9]+\.[0-9]+" semantic-release.log | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+            echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "should_release=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    name: Publish Docker and npm
+    needs: preflight
+    if: needs.preflight.outputs.should_release == 'true'
+    runs-on: ubuntu-latest
+    environment: release-publish
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64,linux/arm64
+          provenance: mode=max
+          sbom: true
+          tags: |
+            keygraph/shannon:${{ needs.preflight.outputs.version }}
+            keygraph/shannon:latest
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@v4.1.0
+
+      - name: Sign Docker image
+        run: cosign sign --yes keygraph/shannon@${{ steps.build.outputs.digest }}
+
+      - name: Verify Docker image signature
+        run: |
+          sleep 10
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }} \
+            keygraph/shannon@${{ steps.build.outputs.digest }}
+
+      - name: Configure npm registry
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Install dependencies
+        run: npm clean-install
+
+      - name: Verify dependency signatures
+        run: npm audit signatures
+
+      - name: Set CLI package version
+        run: npm version "${{ needs.preflight.outputs.version }}" --workspace cli --no-git-tag-version --allow-same-version
+
+      - name: Sync lockfile with bumped versions
+        run: npm i --package-lock-only
+
+      - name: Build CLI
+        run: npm run build:cli
+
+      - name: Publish npm package
+        working-directory: cli
+        run: |
+          if npm view "@keygraph/shannon@${{ needs.preflight.outputs.version }}" version 2>/dev/null; then
+            echo "Version already published, skipping"
+          else
+            npm publish --access public
+          fi
+
+  release:
+    name: Create GitHub release
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: npm clean-install
+
+      - name: Create GitHub release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release@25

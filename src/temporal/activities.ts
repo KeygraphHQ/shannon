@@ -337,7 +337,7 @@ export async function injectReportMetadataActivity(input: ActivityInput): Promis
   const logger = createActivityLogger();
   const effectiveOutputPath = outputPath
     ? path.join(outputPath, sessionId)
-    : path.join('./audit-logs', sessionId);
+    : path.join('./workspaces', sessionId);
   try {
     await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
   } catch (error) {
@@ -394,7 +394,7 @@ export async function loadResumeState(
   expectedRepoPath: string
 ): Promise<ResumeState> {
   // 1. Validate workspace exists
-  const sessionPath = path.join('./audit-logs', workspaceName, 'session.json');
+  const sessionPath = path.join('./workspaces', workspaceName, 'session.json');
 
   const exists = await fileExists(sessionPath);
   if (!exists) {
@@ -646,12 +646,12 @@ export async function logWorkflowComplete(
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Copy deliverables to audit-logs
+  // 6. Copy deliverables to workspaces
   try {
     await copyDeliverablesToAudit(sessionMetadata, repoPath);
   } catch (copyErr) {
     const logger = createActivityLogger();
-    logger.error('Failed to copy deliverables to audit-logs', {
+    logger.error('Failed to copy deliverables to workspaces', {
       error: copyErr instanceof Error ? copyErr.message : String(copyErr),
     });
   }

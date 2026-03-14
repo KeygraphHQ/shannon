@@ -118,7 +118,8 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 - [Product Line](#-product-line)
 - [Setup & Usage Instructions](#-setup--usage-instructions)
   - [Prerequisites](#prerequisites)
-  - [Quick Start](#quick-start)
+  - [Quick Start (npx)](#quick-start-npx--no-clone-required)
+  - [Quick Start (Clone & Build)](#quick-start-clone--build)
   - [Monitoring Progress](#monitoring-progress)
   - [Stopping Shannon](#stopping-shannon)
   - [Usage Examples](#usage-examples)
@@ -145,6 +146,7 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 ### Prerequisites
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
+- **Node.js 18+** - Required for npx mode ([Install Node.js](https://nodejs.org/))
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
@@ -152,7 +154,22 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
-### Quick Start
+### Quick Start (npx — no clone required)
+
+```bash
+# 1. Configure credentials (interactive wizard — one-time setup)
+npx @keygraph/shannon setup
+
+# Or export env vars directly (non-interactive / CI)
+export ANTHROPIC_API_KEY=your-api-key
+
+# 2. Run a pentest
+npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
+```
+
+Shannon will pull the worker image from Docker Hub, start the infrastructure, and launch an ephemeral worker container for the scan.
+
+### Quick Start (Clone & Build)
 
 ```bash
 # 1. Clone Shannon
@@ -161,30 +178,31 @@ cd shannon
 
 # 2. Configure credentials (choose one method)
 
-# Option A: Export environment variables
-export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
-
-# Option B: Create a .env file
+# Option A: Create a .env file
 cat > .env << 'EOF'
 ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
-# 3. Run a pentest
-./shannon start URL=https://your-app.com REPO=your-repo
+# Option B: Export environment variables
+export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
+
+# 3. Build and run a pentest
+./shannon build
+./shannon start -u https://your-app.com -r your-repo
 ```
 
-Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
+Shannon will build the worker image locally, start the infrastructure, and launch an ephemeral worker container for the scan.
 
 ### Monitoring Progress
 
 ```bash
-# View real-time worker logs
-./shannon logs
+# Tail workflow logs
+./shannon logs <workspace>
 
-# Query a specific workflow's progress
-./shannon query ID=shannon-1234567890
+# Show running workers
+./shannon status
 
 # Open the Temporal Web UI for detailed monitoring
 open http://localhost:8233
@@ -196,27 +214,37 @@ open http://localhost:8233
 # Stop all containers (preserves workflow data)
 ./shannon stop
 
-# Full cleanup (removes all data)
-./shannon stop CLEAN=true
+# Full cleanup — removes Temporal volumes (confirms first)
+./shannon stop --clean
+
+# npx mode: remove ~/.shannon/ and all data (confirms first)
+npx @keygraph/shannon uninstall
 ```
 
 ### Usage Examples
 
 ```bash
 # Basic pentest
-./shannon start URL=https://example.com REPO=repo-name
+./shannon start -u https://example.com -r repo-name
 
 # With a configuration file
-./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
+./shannon start -u https://example.com -r repo-name -c ./configs/my-config.yaml
 
 # Custom output directory
-./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
+./shannon start -u https://example.com -r repo-name -o ./my-reports
 
 # Named workspace
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
+./shannon start -u https://example.com -r repo-name -w q1-audit
+
+# Any repo path (not just ./repos/)
+./shannon start -u https://example.com -r /path/to/repo
 
 # List all workspaces
 ./shannon workspaces
+
+# Image management
+./shannon build --no-cache          # Local mode: rebuild worker image
+npx @keygraph/shannon update              # npx mode: pull latest image from Docker Hub
 ```
 
 ### Workspaces and Resuming
@@ -224,20 +252,21 @@ open http://localhost:8233
 Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
 
 **How it works:**
-- Every run creates a workspace in `audit-logs/` (auto-named by default, e.g. `example-com_shannon-1771007534808`)
-- Use `WORKSPACE=<name>` to give your run a custom name for easier reference
-- To resume any run, pass its workspace name via `WORKSPACE=` — Shannon detects which agents completed successfully and picks up where it left off
+- Every run creates a workspace (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+- Workspaces are stored in `./workspaces/` (local mode) or `~/.shannon/workspaces/` (npx mode)
+- Use `-w <name>` to give your run a custom name for easier reference
+- To resume any run, pass its workspace name via `-w` — Shannon detects which agents completed successfully and picks up where it left off
 - Each agent's progress is checkpointed via git commits, so resumed runs start from a clean, validated state
 
 ```bash
 # Start with a named workspace
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+./shannon start -u https://example.com -r repo-name -w my-audit
 
 # Resume the same workspace (skips completed agents)
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=my-audit
+./shannon start -u https://example.com -r repo-name -w my-audit
 
 # Resume an auto-named workspace from a previous run
-./shannon start URL=https://example.com REPO=repo-name WORKSPACE=example-com_shannon-1771007534808
+./shannon start -u https://example.com -r repo-name -w example-com_shannon-1771007534808
 
 # List all workspaces and their status
 ./shannon workspaces
@@ -248,7 +277,11 @@ Shannon supports **workspaces** that allow you to resume interrupted or failed r
 
 ### Prepare Your Repository
 
-Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
+Shannon can scan any repository on your machine. Pass a path with `-r`:
+- **Any path**: `-r /path/to/repo` or `-r ./relative/path` — used as-is
+- **Bare name** (local mode only): `-r my-repo` resolves to `./repos/my-repo`
+
+To use the `./repos/` convention, clone your repo there:
 
 ```bash
 git clone https://github.com/your-org/your-repo.git ./repos/your-repo
@@ -308,7 +341,7 @@ See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-com
 git clone https://github.com/KeygraphHQ/shannon.git
 cd shannon
 cp .env.example .env  # Edit with your API key
-./shannon start URL=https://your-app.com REPO=your-repo
+./shannon start -u https://your-app.com -r your-repo
 ```
 
 To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
@@ -328,8 +361,22 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-./shannon start URL=http://host.docker.internal:3000 REPO=repo-name
+./shannon start -u http://host.docker.internal:3000 -r repo-name
 ```
+
+### Credential Precedence
+
+**Local mode** resolves credentials from:
+
+1. **Environment variables** — `export ANTHROPIC_API_KEY=...`
+2. **`.env` file** — `./.env`
+
+**npx mode** uses TOML instead of `.env`:
+
+1. **Environment variables** — `export ANTHROPIC_API_KEY=...`
+2. **`~/.shannon/config.toml`** — created by `npx @keygraph/shannon setup`
+
+Environment variables always win, so you can override saved config for a single session without editing files. In non-interactive environments (CI/CD), skip `setup` and export variables directly.
 
 ### Configuration (Optional)
 
@@ -413,7 +460,7 @@ ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 2. Run Shannon as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+./shannon start -u https://example.com -r repo-name
 ```
 
 Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
@@ -422,7 +469,11 @@ Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summ
 
 Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) instead of using an Anthropic API key.
 
-#### Quick Setup
+#### Quick Setup (npx — Interactive)
+
+Run `npx @keygraph/shannon setup` and select **Google Vertex AI**. The wizard will prompt for your region, project ID, and service account key file (with filesystem autocomplete), then securely copy the key to `~/.shannon/google-sa-key.json` and save the configuration.
+
+#### Quick Setup (Manual)
 
 1. Create a service account with the `roles/aiplatform.user` role in the [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts), then download a JSON key file.
 
@@ -430,7 +481,7 @@ Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) ins
 
 ```bash
 mkdir -p ./credentials
-cp /path/to/your-sa-key.json ./credentials/gcp-sa-key.json
+cp /path/to/your-sa-key.json ./credentials/google-sa-key.json
 ```
 
 3. Add your GCP configuration to `.env`:
@@ -439,7 +490,7 @@ cp /path/to/your-sa-key.json ./credentials/gcp-sa-key.json
 CLAUDE_CODE_USE_VERTEX=1
 CLOUD_ML_REGION=us-east5
 ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
-GOOGLE_APPLICATION_CREDENTIALS=./credentials/gcp-sa-key.json
+GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-sa-key.json
 
 # Set models with Vertex AI model IDs
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
@@ -450,7 +501,7 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 4. Run Shannon as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+./shannon start -u https://example.com -r repo-name
 ```
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
@@ -502,10 +553,10 @@ OPENROUTER_API_KEY=sk-or-...
 ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 ```
 
-2. Run with `ROUTER=true`:
+2. Run with `--router`:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name ROUTER=true
+./shannon start -u https://example.com -r repo-name --router
 ```
 
 #### Experimental Models
@@ -521,12 +572,13 @@ This feature is experimental and unsupported. Output quality depends heavily on 
 
 ### Output and Results
 
-All results are saved to `./audit-logs/{hostname}_{sessionId}/` by default. Use `--output <path>` to specify a custom directory.
+All results are saved to the workspaces directory: `./workspaces/` (local mode) or `~/.shannon/workspaces/` (npx mode). Use `-o <path>` to copy deliverables to a custom output directory after the run completes.
 
 Output structure:
 ```
-audit-logs/{hostname}_{sessionId}/
+workspaces/{hostname}_{sessionId}/
 ├── session.json          # Metrics and session data
+├── workflow.log          # Human-readable workflow log
 ├── agents/               # Per-agent execution logs
 ├── prompts/              # Prompt snapshots for reproducibility
 └── deliverables/
@@ -600,55 +652,70 @@ Shannon Lite scored **96.15% (100/104 exploits)** on a hint-free, source-aware v
 
 ## 🏗️ Architecture
 
-Shannon uses a multi-agent architecture that combines white-box source code analysis with dynamic exploitation across four phases:
+Shannon uses a multi-agent architecture that combines white-box source code analysis with dynamic exploitation across five phases:
 
 ```
-                    ┌──────────────────────┐
-                    │    Reconnaissance    │
-                    └──────────┬───────────┘
-                               │
-                               ▼
-                    ┌──────────┴───────────┐
-                    │          │           │
-                    ▼          ▼           ▼
-        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-        │ Vuln Analysis   │ │ Vuln Analysis   │ │      ...        │
-        │  (Injection)    │ │     (XSS)       │ │                 │
-        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
-                  │                   │                   │
-                  ▼                   ▼                   ▼
-        ┌─────────────────┐ ┌─────────────────┐ ┌─────────────────┐
-        │  Exploitation   │ │  Exploitation   │ │      ...        │
-        │  (Injection)    │ │     (XSS)       │ │                 │
-        └─────────┬───────┘ └─────────┬───────┘ └─────────┬───────┘
-                  │                   │                   │
-                  └─────────┬─────────┴───────────────────┘
-                            │
-                            ▼
-                    ┌──────────────────────┐
-                    │      Reporting       │
-                    └──────────────────────┘
+        ┌──────────────────────┐
+        │   Pre-Reconnaissance │
+        │  (nmap, subfinder,   │
+        │  whatweb, code scan) │
+        └──────────┬───────────┘
+                   │
+                   ▼
+        ┌──────────────────────┐
+        │   Reconnaissance     │
+        │  (attack surface     │
+        │   mapping)           │
+        └──────────┬───────────┘
+                   │
+                   ▼
+        ┌──────────┴───────────┐
+        │          │           │
+        ▼          ▼           ▼
+  ┌───────────┐ ┌───────────┐ ┌───────────┐
+  │ Vuln      │ │ Vuln      │ │   ...     │
+  │(Injection)│ │  (XSS)    │ │           │
+  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+        │              │             │
+        ▼              ▼             ▼
+  ┌───────────┐ ┌───────────┐ ┌───────────┐
+  │ Exploit   │ │ Exploit   │ │   ...     │
+  │(Injection)│ │  (XSS)    │ │           │
+  └─────┬─────┘ └─────┬─────┘ └─────┬─────┘
+        │              │             │
+        └──────┬───────┴─────────────┘
+               │
+               ▼
+        ┌──────────────────────┐
+        │      Reporting       │
+        └──────────────────────┘
 ```
 
 ### Architectural Overview
 
-Shannon uses Anthropic's Claude Agent SDK as its reasoning engine within a multi-agent architecture. The system combines white-box source code analysis with black-box dynamic exploitation, managed by an orchestrator across four phases. The architecture is designed for minimal false positives through a "no exploit, no report" policy.
+Shannon uses Anthropic's Claude Agent SDK as its reasoning engine within a multi-agent architecture. The system combines white-box source code analysis with black-box dynamic exploitation, managed by an orchestrator across five phases. The architecture is designed for minimal false positives through a "no exploit, no report" policy.
+
+Each scan runs in its own ephemeral Docker container (`docker run --rm`) with a per-invocation Temporal task queue, enabling concurrent scans with different target repositories.
 
 ---
 
-#### **Phase 1: Reconnaissance**
+#### **Phase 1: Pre-Reconnaissance**
 
-The first phase builds a comprehensive map of the application's attack surface. Shannon analyzes the source code and integrates with tools like Nmap and Subfinder to understand the tech stack and infrastructure. Simultaneously, it performs live application exploration via browser automation to correlate code-level insights with real-world behavior, producing a detailed map of all entry points, API endpoints, and authentication mechanisms for the next phase.
+External scanning using nmap, subfinder, and whatweb to fingerprint the target's infrastructure and tech stack. Simultaneously performs source code analysis to identify the application framework, entry points, and potential attack surface from the codebase.
 
-#### **Phase 2: Vulnerability Analysis**
+#### **Phase 2: Reconnaissance**
 
-To maximize efficiency, this phase operates in parallel. Using the reconnaissance data, specialized agents for each OWASP category hunt for potential flaws in parallel. For vulnerabilities like Injection and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
+Builds a comprehensive attack surface map from the pre-recon findings. Shannon performs live application exploration via browser automation to correlate code-level insights with real-world behavior, producing a detailed map of all entry points, API endpoints, and authentication mechanisms.
 
-#### **Phase 3: Exploitation**
+#### **Phase 3: Vulnerability Analysis**
+
+To maximize efficiency, this phase operates in parallel with 5 concurrent agents. Using the reconnaissance data, specialized agents for each OWASP category (injection, XSS, auth, authz, SSRF) hunt for potential flaws in parallel. For vulnerabilities like Injection and SSRF, agents perform a structured data flow analysis, tracing user input to dangerous sinks. This phase produces a key deliverable: a list of **hypothesized exploitable paths** that are passed on for validation.
+
+#### **Phase 4: Exploitation**
 
 Continuing the parallel workflow to maintain speed, this phase is dedicated entirely to turning hypotheses into proof. Dedicated exploit agents receive the hypothesized paths and attempt to execute real-world attacks using browser automation, command-line tools, and custom scripts. This phase enforces a strict **"No Exploit, No Report"** policy: if a hypothesis cannot be successfully exploited to demonstrate impact, it is discarded as a false positive.
 
-#### **Phase 4: Reporting**
+#### **Phase 5: Reporting**
 
 The final phase compiles all validated findings into a professional, actionable report. An agent consolidates the reconnaissance data and the successful exploit evidence, cleaning up any noise or hallucinated artifacts. Only verified vulnerabilities are included, complete with **reproducible, copy-and-paste Proof-of-Concepts**, delivering a final pentest-grade report focused exclusively on proven risks.
 

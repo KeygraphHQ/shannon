@@ -82,8 +82,8 @@ export class AuditSession {
     // Initialize metrics tracker (loads or creates session.json)
     await this.metricsTracker.initialize(workflowId);
 
-    // Initialize workflow logger
-    await this.workflowLogger.initialize();
+    // Initialize workflow logger with actual Temporal workflow ID
+    await this.workflowLogger.initialize(workflowId);
 
     this.initialized = true;
   }

@@ -25,7 +25,7 @@ const __dirname = path.dirname(__filename);
 
 // Get Shannon repository root
 const SHANNON_ROOT = path.resolve(__dirname, '..', '..');
-const AUDIT_LOGS_DIR = path.join(SHANNON_ROOT, 'audit-logs');
+const WORKSPACES_DIR = path.join(SHANNON_ROOT, 'workspaces');
 
 /**
  * Extract and sanitize hostname from URL for use in identifiers
@@ -44,11 +44,11 @@ export function generateSessionIdentifier(sessionMetadata: SessionMetadata): str
 
 /**
  * Generate path to audit log directory for a session
- * Uses custom outputPath if provided, otherwise defaults to AUDIT_LOGS_DIR
+ * Uses custom outputPath if provided, otherwise defaults to WORKSPACES_DIR
  */
 export function generateAuditPath(sessionMetadata: SessionMetadata): string {
   const sessionIdentifier = generateSessionIdentifier(sessionMetadata);
-  const baseDir = sessionMetadata.outputPath || AUDIT_LOGS_DIR;
+  const baseDir = sessionMetadata.outputPath || WORKSPACES_DIR;
   return path.join(baseDir, sessionIdentifier);
 }
 
@@ -92,7 +92,7 @@ export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): strin
 
 /**
  * Initialize audit directory structure for a session
- * Creates: audit-logs/{sessionId}/, agents/, prompts/, deliverables/
+ * Creates: workspaces/{sessionId}/, agents/, prompts/, deliverables/
  */
 export async function initializeAuditStructure(sessionMetadata: SessionMetadata): Promise<void> {
   const auditPath = generateAuditPath(sessionMetadata);
@@ -107,7 +107,7 @@ export async function initializeAuditStructure(sessionMetadata: SessionMetadata)
 }
 
 /**
- * Copy deliverable files from repo to audit-logs for self-contained audit trail.
+ * Copy deliverable files from repo to workspaces for self-contained audit trail.
  * No-ops if source directory doesn't exist. Idempotent and parallel-safe.
  */
 export async function copyDeliverablesToAudit(
