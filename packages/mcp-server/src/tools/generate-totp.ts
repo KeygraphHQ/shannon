@@ -48,13 +48,14 @@ function generateHOTP(secret: string, counter: number, digits: number = 6): stri
   hmac.update(counterBuffer);
   const hash = hmac.digest();
 
-  // Dynamic truncation
-  const offset = hash[hash.length - 1]! & 0x0f;
+  // Dynamic truncation (SHA-1 always produces 20 bytes)
+  const lastByte = hash[hash.length - 1] ?? 0;
+  const offset = lastByte & 0x0f;
   const code =
-    ((hash[offset]! & 0x7f) << 24) |
-    ((hash[offset + 1]! & 0xff) << 16) |
-    ((hash[offset + 2]! & 0xff) << 8) |
-    (hash[offset + 3]! & 0xff);
+    (((hash[offset] ?? 0) & 0x7f) << 24) |
+    (((hash[offset + 1] ?? 0) & 0xff) << 16) |
+    (((hash[offset + 2] ?? 0) & 0xff) << 8) |
+    ((hash[offset + 3] ?? 0) & 0xff);
 
   // Generate digits
   const otp = (code % 10 ** digits).toString().padStart(digits, '0');

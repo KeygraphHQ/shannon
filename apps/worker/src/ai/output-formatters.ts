@@ -89,14 +89,14 @@ function summarizeTodoUpdate(input: ToolCallInput | undefined): string | null {
   const inProgress = todos.filter((t) => t.status === 'in_progress');
 
   // Show recently completed tasks
-  if (completed.length > 0) {
-    const recent = completed[completed.length - 1]!;
+  const recent = completed.at(-1);
+  if (recent) {
     return `✅ ${recent.content}`;
   }
 
   // Show current in-progress task
-  if (inProgress.length > 0) {
-    const current = inProgress[0]!;
+  const current = inProgress.at(0);
+  if (current) {
     return `🔄 ${current.content}`;
   }
 

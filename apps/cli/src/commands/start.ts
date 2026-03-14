@@ -65,11 +65,8 @@ export function start(args: StartArgs): void {
   const containerName = `shannon-worker-${suffix}`;
 
   // 8. Generate workspace name if not provided
-  let workspace = args.workspace;
-  if (!workspace) {
-    const hostname = new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-');
-    workspace = `${hostname}_shannon-${Date.now()}`;
-  }
+  const workspace =
+    args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 9. Resolve credentials
   const credentialsDir = getCredentialsDir();
@@ -142,7 +139,7 @@ export function start(args: StartArgs): void {
 
         // Clear waiting line and show info
         process.stdout.write('\r\x1b[K');
-        printInfo(args, useRouter, workspace!, workflowId, repo.hostPath, workspacesDir);
+        printInfo(args, useRouter, workspace, workflowId, repo.hostPath, workspacesDir);
         return;
       }
     } catch {

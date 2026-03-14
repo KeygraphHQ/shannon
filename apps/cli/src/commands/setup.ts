@@ -219,9 +219,9 @@ async function setupRouter(): Promise<ShannonConfig> {
 
   const router: ShannonConfig['router'] = { default: defaultModel };
   if (routerProvider === 'openai') {
-    router!.openai_key = apiKey;
+    router.openai_key = apiKey;
   } else {
-    router!.openrouter_key = apiKey;
+    router.openrouter_key = apiKey;
   }
 
   return { router };

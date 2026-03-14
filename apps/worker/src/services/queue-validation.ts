@@ -243,7 +243,7 @@ const validateQueueContent = async (
 
     return Object.freeze({
       ...pathsWithExistence,
-      queueData: queueValidation.data!,
+      queueData: queueValidation.data as QueueData,
     });
   } catch (readError) {
     return {

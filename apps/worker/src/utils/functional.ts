@@ -10,7 +10,7 @@
  * Generic functional composition patterns for async operations.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+// biome-ignore lint/suspicious/noExplicitAny: pipeline functions need flexible typing for composition
 type PipelineFunction = (x: any) => any | Promise<any>;
 
 /**

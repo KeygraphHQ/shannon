@@ -336,6 +336,7 @@ export class MetricsTracker {
 
     // Calculate metrics per phase
     const phaseMetrics: Record<string, PhaseMetrics> = {};
+    // biome-ignore lint/style/noNonNullAssertion: called from recalculateAggregations which guards this.data
     const totalDuration = this.data!.metrics.total_duration_ms;
 
     for (const [phaseName, agentList] of Object.entries(phases)) {

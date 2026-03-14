@@ -88,7 +88,10 @@ function buildMcpServers(
       // NOTE: Explicit allowlist — the Playwright MCP subprocess must not inherit
       // secrets (API keys, AWS tokens) from the parent process.
       const MCP_ENV_ALLOWLIST = [
-        'PATH', 'HOME', 'NODE_PATH', 'DISPLAY',
+        'PATH',
+        'HOME',
+        'NODE_PATH',
+        'DISPLAY',
         'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH',
       ] as const;
 
@@ -98,8 +101,9 @@ function buildMcpServers(
       };
 
       for (const key of MCP_ENV_ALLOWLIST) {
-        if (process.env[key]) {
-          envVars[key] = process.env[key]!;
+        const val = process.env[key];
+        if (val) {
+          envVars[key] = val;
         }
       }
 
@@ -252,8 +256,9 @@ export async function runClaudePrompt(
     'ANTHROPIC_LARGE_MODEL',
   ];
   for (const name of passthroughVars) {
-    if (process.env[name]) {
-      sdkEnv[name] = process.env[name]!;
+    const val = process.env[name];
+    if (val) {
+      sdkEnv[name] = val;
     }
   }
 

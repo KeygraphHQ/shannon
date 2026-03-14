@@ -37,7 +37,7 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
     const getSection = (content: string, sectionName: string): string => {
       const regex = new RegExp(`<!-- BEGIN:${sectionName} -->([\\s\\S]*?)<!-- END:${sectionName} -->`, 'g');
       const match = regex.exec(content);
-      return match ? match[1]!.trim() : '';
+      return match?.[1]?.trim() ?? '';
     };
 
     // 2. Extract sections based on login type
@@ -101,14 +101,13 @@ async function processIncludes(content: string, baseDir: string): Promise<string
 
   const replacements: IncludeReplacement[] = await Promise.all(
     Array.from(content.matchAll(includeRegex)).map(async (match) => {
-      const includePath = path.resolve(baseDir, match[1]!);
+      const rawPath = match[1] ?? '';
+      const includePath = path.resolve(baseDir, rawPath);
       if (!includePath.startsWith(resolvedBase + path.sep) && includePath !== resolvedBase) {
-        throw new PentestError(
-          `Path traversal detected in @include(): ${match[1]}`,
-          'prompt',
-          false,
-          { includePath, baseDir: resolvedBase },
-        );
+        throw new PentestError(`Path traversal detected in @include(): ${rawPath}`, 'prompt', false, {
+          includePath,
+          baseDir: resolvedBase,
+        });
       }
       const sharedContent = await fs.readFile(includePath, 'utf8');
       return {
