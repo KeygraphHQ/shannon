@@ -75,42 +75,39 @@ async function setupAnthropic(): Promise<ShannonConfig> {
 }
 
 async function setupBedrock(): Promise<ShannonConfig> {
-  const results = await p.group({
-    region: () =>
-      p.text({
-        message: 'AWS Region',
-        placeholder: 'us-east-1',
-        validate: required('AWS Region is required'),
-      }),
-    token: () =>
-      p.password({
-        message: 'AWS Bearer Token',
-        validate: required('Bearer token is required'),
-      }),
-    small: () =>
-      p.text({
-        message: 'Small model ID',
-        placeholder: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
-        validate: required('Small model ID is required'),
-      }),
-    medium: () =>
-      p.text({
-        message: 'Medium model ID',
-        placeholder: 'us.anthropic.claude-sonnet-4-6',
-        validate: required('Medium model ID is required'),
-      }),
-    large: () =>
-      p.text({
-        message: 'Large model ID',
-        placeholder: 'us.anthropic.claude-opus-4-6',
-        validate: required('Large model ID is required'),
-      }),
+  const region = await p.text({
+    message: 'AWS Region',
+    placeholder: 'us-east-1',
+    validate: required('AWS Region is required'),
   });
-  if (p.isCancel(results)) return cancelAndExit();
+  if (p.isCancel(region)) return cancelAndExit();
+
+  const token = await promptSecret('Enter your AWS Bearer Token');
+
+  const small = await p.text({
+    message: 'Small model ID',
+    placeholder: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+    validate: required('Small model ID is required'),
+  });
+  if (p.isCancel(small)) return cancelAndExit();
+
+  const medium = await p.text({
+    message: 'Medium model ID',
+    placeholder: 'us.anthropic.claude-sonnet-4-6',
+    validate: required('Medium model ID is required'),
+  });
+  if (p.isCancel(medium)) return cancelAndExit();
+
+  const large = await p.text({
+    message: 'Large model ID',
+    placeholder: 'us.anthropic.claude-opus-4-6',
+    validate: required('Large model ID is required'),
+  });
+  if (p.isCancel(large)) return cancelAndExit();
 
   return {
-    bedrock: { use: true, region: results.region, token: results.token },
-    models: { small: results.small, medium: results.medium, large: results.large },
+    bedrock: { use: true, region, token },
+    models: { small, medium, large },
   };
 }
 
