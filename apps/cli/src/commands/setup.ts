@@ -65,13 +65,52 @@ async function setupAnthropic(): Promise<ShannonConfig> {
   });
   if (p.isCancel(authMethod)) return cancelAndExit();
 
+  const config: ShannonConfig = {};
+
   if (authMethod === 'oauth') {
     const token = await promptSecret('Enter your OAuth token');
-    return { anthropic: { oauth_token: token } };
+    config.anthropic = { oauth_token: token };
+  } else {
+    const apiKey = await promptSecret('Enter your Anthropic API key');
+    config.anthropic = { api_key: apiKey };
   }
 
-  const apiKey = await promptSecret('Enter your Anthropic API key');
-  return { anthropic: { api_key: apiKey } };
+  const customizeModels = await p.confirm({
+    message:
+      'Do you want to change the default models?\n' +
+      '    Small  - claude-haiku-4-5-20251001\n' +
+      '    Medium - claude-sonnet-4-6\n' +
+      '    Large  - claude-opus-4-6',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    const small = await p.text({
+      message: 'Small model ID',
+      initialValue: 'claude-haiku-4-5-20251001',
+      validate: required('Small model ID is required'),
+    });
+    if (p.isCancel(small)) return cancelAndExit();
+
+    const medium = await p.text({
+      message: 'Medium model ID',
+      initialValue: 'claude-sonnet-4-6',
+      validate: required('Medium model ID is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+
+    const large = await p.text({
+      message: 'Large model ID',
+      initialValue: 'claude-opus-4-6',
+      validate: required('Large model ID is required'),
+    });
+    if (p.isCancel(large)) return cancelAndExit();
+
+    config.models = { small, medium, large };
+  }
+
+  return config;
 }
 
 async function setupBedrock(): Promise<ShannonConfig> {
