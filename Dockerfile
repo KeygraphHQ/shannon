@@ -51,7 +51,7 @@ RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/what
 RUN pip3 install --no-cache-dir schemathesis
 
 # Install pnpm
-RUN npm install -g pnpm@10
+RUN npm install -g pnpm@10.12.1
 
 # Build Node.js application in builder to avoid QEMU emulation failures in CI
 WORKDIR /app
