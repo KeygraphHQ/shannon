@@ -1,4 +1,6 @@
-                    GNU AFFERO GENERAL PUBLIC LICENSE
+ANTHROPIC_SMALL_MODEL=...
+ANTHROPIC_MEDIUM_MODEL=...
+ANTHROPIC_LARGE_MODEL=...                    GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
  Copyright (C) 2007 Free Software Foundation, Inc. <https://fsf.org/>
