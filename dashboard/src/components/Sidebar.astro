@@ -1,0 +1,87 @@
+---
+interface Props {
+  activePage?: string;
+  runningCount?: number;
+  failedCount?: number;
+}
+
+const { activePage = 'workflows', runningCount = 0, failedCount = 0 } = Astro.props;
+---
+
+<aside class="sidebar">
+    <div class="sidebar-brand">
+        <div class="sidebar-brand-icon">🛡</div>
+        <span class="sidebar-brand-text">Shannon</span>
+        <span class="sidebar-brand-badge">local</span>
+    </div>
+
+    <nav class="sidebar-nav">
+        <!-- Main Navigation -->
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">Navigation</div>
+            <a href="/" class:list={["sidebar-link", { active: activePage === 'workflows' }]}>
+                <span class="sidebar-link-icon">⚡</span>
+                Workflows
+            </a>
+            <a href="/schedules" class:list={["sidebar-link", { active: activePage === 'schedules' }]}>
+                <span class="sidebar-link-icon">📅</span>
+                Schedules
+            </a>
+            <a href="/archive" class:list={["sidebar-link", { active: activePage === 'archive' }]}>
+                <span class="sidebar-link-icon">📦</span>
+                Archive
+            </a>
+        </div>
+
+        <!-- Views -->
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">Saved Views</div>
+            <a href="/?view=all" class:list={["sidebar-link", { active: activePage === 'all' }]}>
+                <span class="sidebar-link-icon">◎</span>
+                All Workflows
+            </a>
+            {runningCount > 0 && (
+                <a href="/?status=running" class:list={["sidebar-link", { active: activePage === 'running' }]}>
+                    <span class="sidebar-link-icon">◉</span>
+                    Running
+                    <span class="sidebar-link-badge info">{runningCount}</span>
+                </a>
+            )}
+            {failedCount > 0 && (
+                <a href="/?status=failed" class:list={["sidebar-link", { active: activePage === 'failed' }]}>
+                    <span class="sidebar-link-icon">✗</span>
+                    Failed
+                    <span class="sidebar-link-badge error">{failedCount}</span>
+                </a>
+            )}
+            <a href="/?period=today" class:list={["sidebar-link", { active: activePage === 'today' }]}>
+                <span class="sidebar-link-icon">◔</span>
+                Today
+            </a>
+            <a href="/?period=hour" class:list={["sidebar-link", { active: activePage === 'hour' }]}>
+                <span class="sidebar-link-icon">◕</span>
+                Last Hour
+            </a>
+        </div>
+
+        <!-- Resources -->
+        <div class="sidebar-section">
+            <div class="sidebar-section-label">Resources</div>
+            <a href="/docs" class="sidebar-link">
+                <span class="sidebar-link-icon">📄</span>
+                Docs
+            </a>
+            <a href="http://localhost:8233" class="sidebar-link" target="_blank">
+                <span class="sidebar-link-icon">🔗</span>
+                Temporal UI
+            </a>
+        </div>
+    </nav>
+
+    <div class="sidebar-footer">
+        <div class="sidebar-footer-link">
+            <span class="sidebar-link-icon">💜</span>
+            <span>Shannon v0.1</span>
+        </div>
+    </div>
+</aside>

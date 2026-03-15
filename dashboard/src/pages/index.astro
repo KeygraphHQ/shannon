@@ -1,0 +1,274 @@
+---
+import Base from '../layouts/Base.astro';
+import Sidebar from '../components/Sidebar.astro';
+import { listWorkflowsWithProgress, type WorkflowInfo } from '../lib/temporal.js';
+
+// ── Data fetching ──────────────────────────────────────────────────────────────
+// Fetch live data from Temporal. Falls back to empty state if Temporal is down.
+
+interface WorkflowRow {
+    id: string;
+    runId: string;
+    status: string;
+    type: string;
+    target: string;
+    start: string;
+    end: string | null;
+    phase: string | null;
+    agent: string | null;
+    completedAgents: number;
+    totalAgents: number;
+    costUsd: number;
+}
+
+let workflows: WorkflowRow[] = [];
+let temporalError: string | null = null;
+
+try {
+    const raw = await listWorkflowsWithProgress();
+
+    workflows = raw.map((wf: WorkflowInfo): WorkflowRow => ({
+        id: wf.workflowId,
+        runId: wf.runId,
+        status: wf.status,
+        type: wf.type,
+        target: wf.progress?.workflowId?.split('_shannon')[0]?.replace(/_/g, '.') || wf.workflowId.split('_shannon')[0]?.replace(/_/g, '.') || '—',
+        start: wf.startTime,
+        end: wf.closeTime,
+        phase: wf.progress?.currentPhase || null,
+        agent: wf.progress?.currentAgent || null,
+        completedAgents: wf.progress?.completedAgents?.length || 0,
+        totalAgents: 13,
+        costUsd: wf.progress?.summary?.totalCostUsd || 0,
+    }));
+} catch (err) {
+    temporalError = err instanceof Error ? err.message : 'Failed to connect to Temporal';
+}
+
+const runningCount = workflows.filter(w => w.status === 'running').length;
+const failedCount = workflows.filter(w => w.status === 'failed').length;
+const completedCount = workflows.filter(w => w.status === 'completed').length;
+const totalCost = workflows.reduce((sum, w) => sum + w.costUsd, 0);
+const now = new Date();
+const dateStr = now.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+function formatTime(iso: string | null) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+}
+
+function getElapsed(start: string, end: string | null) {
+    const s = new Date(start).getTime();
+    const e = end ? new Date(end).getTime() : Date.now();
+    const ms = e - s;
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+function truncateId(id: string) {
+    if (id.length <= 38) return id;
+    return id.slice(0, 35) + '…';
+}
+---
+
+<Base title="Workflows — Shannon Dashboard">
+    <div class="app-shell">
+        <Sidebar activePage="workflows" runningCount={runningCount} failedCount={failedCount} />
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-breadcrumb">
+                    <span style="color: var(--text-dim);">default</span>
+                    <span class="topbar-breadcrumb-sep">/</span>
+                    <span style="color: var(--white); font-weight: 600;">Workflows</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <button class="btn-icon" title="Refresh" id="refreshBtn">↻</button>
+                <button class="btn-icon" title="Settings">⚙</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="page-container">
+                <!-- Page Header -->
+                <div class="page-header">
+                    <div class="page-header-left">
+                        <div>
+                            <h1 class="page-title">
+                                {workflows.length} <span class="gradient-text">Workflows</span>
+                            </h1>
+                            <p class="page-subtitle">
+                                {dateStr} · last refreshed just now
+                                {temporalError && <span style="color: var(--warning); margin-left: 0.5rem;">⚠ {temporalError}</span>}
+                            </p>
+                        </div>
+                        <div class="page-header-stats">
+                            {runningCount > 0 && <span class="status-pill running"><span class="status-dot pulse"></span> {runningCount} Running</span>}
+                            {failedCount > 0 && <span class="status-pill failed"><span class="status-dot"></span> {failedCount} Failed</span>}
+                            {completedCount > 0 && <span class="status-pill completed"><span class="status-dot"></span> {completedCount} Completed</span>}
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary">
+                            <span>⚡</span> Start Workflow
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Stats Overview Cards -->
+                <div class="stats-row">
+                    <div class="stat-card purple" data-glow>
+                        <div class="stat-card-label">Total Workflows</div>
+                        <div class="stat-card-value">{workflows.length}</div>
+                        <div class="stat-card-meta">all time</div>
+                    </div>
+                    <div class="stat-card blue" data-glow>
+                        <div class="stat-card-label">Running</div>
+                        <div class="stat-card-value">{runningCount}</div>
+                        <div class="stat-card-meta">active now</div>
+                    </div>
+                    <div class="stat-card red" data-glow>
+                        <div class="stat-card-label">Failed</div>
+                        <div class="stat-card-value">{failedCount}</div>
+                        <div class="stat-card-meta">need attention</div>
+                    </div>
+                    <div class="stat-card green" data-glow>
+                        <div class="stat-card-label">Total Cost</div>
+                        <div class="stat-card-value">${totalCost.toFixed(2)}</div>
+                        <div class="stat-card-meta">across all runs</div>
+                    </div>
+                </div>
+
+                <!-- Toolbar / Search & Filter -->
+                <div class="toolbar">
+                    <div class="toolbar-search">
+                        <span class="toolbar-search-icon">🔍</span>
+                        <input type="text" placeholder="Search workflows by ID, target, or type..." id="searchInput" />
+                    </div>
+                    <div class="toolbar-divider"></div>
+                    <button class="btn btn-ghost">
+                        <span>☰</span> Filter
+                    </button>
+                    <button class="btn btn-ghost">
+                        <span>↕</span> Sort
+                    </button>
+                </div>
+
+                <!-- Workflow Data Table -->
+                <div class="table-container">
+                    <table class="data-table" id="workflowTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 36px; padding-left: 0.75rem;">
+                                    <input type="checkbox" class="row-checkbox" id="selectAll" />
+                                </th>
+                                <th>Status</th>
+                                <th class="sorted">Workflow ID ↓</th>
+                                <th>Target</th>
+                                <th>Phase</th>
+                                <th>Progress</th>
+                                <th>Cost</th>
+                                <th>Duration</th>
+                                <th>Started</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {workflows.map((wf) => (
+                                <tr data-workflow-id={wf.id} data-target={wf.target}>
+                                    <td style="padding-left: 0.75rem;">
+                                        <input type="checkbox" class="row-checkbox" />
+                                    </td>
+                                    <td>
+                                        <span class={`status-pill ${wf.status}`}>
+                                            <span class={`status-dot ${wf.status === 'running' ? 'pulse' : ''}`}></span>
+                                            {wf.status === 'running' ? 'Running' : wf.status === 'failed' ? 'Failed' : 'Completed'}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <a href={`/workflow/${wf.runId}`} class="cell-id" title={wf.id}>{truncateId(wf.id)}</a>
+                                    </td>
+                                    <td class="cell-type">{wf.target}</td>
+                                    <td>
+                                        <span style="color: var(--text-muted); font-size: 0.78rem;">
+                                            {wf.phase || '—'}
+                                        </span>
+                                    </td>
+                                    <td>
+                                        <div style="display: flex; align-items: center; gap: 0.5rem; min-width: 120px;">
+                                            <div class="progress-bar" style="flex: 1; max-width: 80px;">
+                                                <div class="progress-bar-fill" style={`width: ${(wf.completedAgents / wf.totalAgents) * 100}%`}></div>
+                                            </div>
+                                            <span class="cell-duration">{wf.completedAgents}/{wf.totalAgents}</span>
+                                        </div>
+                                    </td>
+                                    <td class="cell-cost">{wf.costUsd > 0 ? `$${wf.costUsd.toFixed(2)}` : '—'}</td>
+                                    <td class="cell-duration">{getElapsed(wf.start, wf.end)}</td>
+                                    <td class="cell-time">{formatTime(wf.start)}</td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+
+                    <div class="table-footer">
+                        <div class="table-footer-left">
+                            <span>Showing</span>
+                            <select>
+                                <option>20</option>
+                                <option>50</option>
+                                <option selected>100</option>
+                            </select>
+                            <span>per page</span>
+                        </div>
+                        <div class="pagination">
+                            <button class="pagination-btn" disabled>←</button>
+                            <span class="pagination-info">1–{workflows.length} of {workflows.length}</span>
+                            <button class="pagination-btn" disabled>→</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Interactive scripts -->
+    <script is:inline>
+        // Glow effect on cards
+        document.querySelectorAll('[data-glow]').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                card.style.setProperty('--glow-x', (e.clientX - rect.left) + 'px');
+                card.style.setProperty('--glow-y', (e.clientY - rect.top) + 'px');
+            });
+        });
+
+        // Refresh button
+        document.getElementById('refreshBtn')?.addEventListener('click', () => {
+            window.location.reload();
+        });
+
+        // Search filter
+        document.getElementById('searchInput')?.addEventListener('input', (e) => {
+            const query = e.target.value.toLowerCase();
+            document.querySelectorAll('#workflowTable tbody tr').forEach(row => {
+                const id = row.dataset.workflowId?.toLowerCase() || '';
+                const target = row.dataset.target?.toLowerCase() || '';
+                const match = !query || id.includes(query) || target.includes(query);
+                row.style.display = match ? '' : 'none';
+            });
+        });
+
+        // Select all checkbox
+        document.getElementById('selectAll')?.addEventListener('change', (e) => {
+            const checked = e.target.checked;
+            document.querySelectorAll('#workflowTable tbody .row-checkbox').forEach(cb => {
+                cb.checked = checked;
+            });
+        });
+    </script>
+</Base>

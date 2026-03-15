@@ -50,6 +50,21 @@ services:
     security_opt:
       - seccomp:unconfined
 
+  # Shannon Dashboard — custom web UI replacing Temporal's built-in UI
+  dashboard:
+    build:
+      context: ./dashboard
+    ports:
+      - "127.0.0.1:4321:4321"   # Dashboard UI
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+      - AUDIT_LOGS_DIR=/app/audit-logs
+    depends_on:
+      temporal:
+        condition: service_healthy
+    volumes:
+      - ./audit-logs:/app/audit-logs:ro
+
   # Optional: claude-code-router for multi-model support
   # Start with: ROUTER=true ./shannon start ...
   router:
