@@ -1,0 +1,120 @@
+---
+import Base from '../layouts/Base.astro';
+import Sidebar from '../components/Sidebar.astro';
+---
+
+<Base title="Schedules — Shannon Dashboard">
+    <div class="app-shell">
+        <Sidebar activePage="schedules" />
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-breadcrumb">
+                    <span style="color: var(--text-dim);">default</span>
+                    <span class="topbar-breadcrumb-sep">/</span>
+                    <span style="color: var(--white); font-weight: 600;">Schedules</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <button class="btn-icon" title="Refresh" onclick="location.reload()">↻</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="page-container">
+                <div class="page-header">
+                    <div class="page-header-left">
+                        <div>
+                            <h1 class="page-title">
+                                <span class="gradient-text">Schedules</span>
+                            </h1>
+                            <p class="page-subtitle">Manage recurring workflow schedules</p>
+                        </div>
+                    </div>
+                    <div>
+                        <button class="btn btn-primary">
+                            <span>+</span> Create Schedule
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Empty state -->
+                <div class="table-container">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📅</div>
+                        <h3>No schedules configured</h3>
+                        <p>
+                            Schedules let you run pentest workflows on a recurring basis.
+                            Create one to automate your security audits.
+                        </p>
+                        <button class="btn btn-secondary" style="margin-top: 0.5rem;">
+                            <span>📖</span> View Documentation
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Info cards -->
+                <div class="info-grid" style="margin-top: 1.5rem;">
+                    <div class="info-card">
+                        <div class="info-card-icon">⏰</div>
+                        <h4>Cron-based Schedules</h4>
+                        <p>Use cron expressions to define when workflows run. Supports standard cron syntax with second-level precision.</p>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-icon">🔁</div>
+                        <h4>Interval Schedules</h4>
+                        <p>Run workflows at fixed intervals — every hour, daily, or weekly. Shannon handles retries and overlap policies.</p>
+                    </div>
+                    <div class="info-card">
+                        <div class="info-card-icon">📊</div>
+                        <h4>Execution History</h4>
+                        <p>Track every scheduled run with full audit trails. See cost trends and catch regressions early.</p>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+</Base>
+
+<style>
+    .info-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1rem;
+    }
+
+    .info-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 1.5rem;
+        transition: all 0.2s ease;
+    }
+
+    .info-card:hover {
+        border-color: var(--border-hover);
+        transform: translateY(-1px);
+    }
+
+    .info-card-icon {
+        font-size: 1.5rem;
+        margin-bottom: 0.75rem;
+    }
+
+    .info-card h4 {
+        font-size: 0.9rem;
+        font-weight: 600;
+        color: var(--white);
+        margin-bottom: 0.5rem;
+    }
+
+    .info-card p {
+        font-size: 0.8rem;
+        color: var(--text-dim);
+        line-height: 1.5;
+    }
+
+    @media (max-width: 900px) {
+        .info-grid { grid-template-columns: 1fr; }
+    }
+</style>

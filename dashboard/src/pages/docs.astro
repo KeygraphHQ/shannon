@@ -1,0 +1,190 @@
+---
+import Base from '../layouts/Base.astro';
+import Sidebar from '../components/Sidebar.astro';
+---
+
+<Base title="Docs — Shannon Dashboard">
+    <div class="app-shell">
+        <Sidebar activePage="docs" />
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-breadcrumb">
+                    <span style="color: var(--text-dim);">default</span>
+                    <span class="topbar-breadcrumb-sep">/</span>
+                    <span style="color: var(--white); font-weight: 600;">Documentation</span>
+                </div>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="page-container docs-page">
+                <div class="page-header" style="margin-bottom: 2rem;">
+                    <div>
+                        <h1 class="page-title">
+                            <span class="gradient-text">Documentation</span>
+                        </h1>
+                        <p class="page-subtitle">Quick reference for Shannon workflows and dashboard</p>
+                    </div>
+                </div>
+
+                <div class="docs-grid">
+                    <!-- Getting Started -->
+                    <section class="docs-section">
+                        <h2>Getting Started</h2>
+                        <div class="docs-card">
+                            <h3>Starting a Workflow</h3>
+                            <p>Launch a pentest workflow from the CLI:</p>
+                            <pre><code>./shannon start --target https://example.com \
+  --config configs/default.yml</code></pre>
+                        </div>
+                        <div class="docs-card">
+                            <h3>Resuming a Failed Run</h3>
+                            <p>If a workflow fails partway through, resume it:</p>
+                            <pre><code>./shannon resume --workflow-id &lt;id&gt;</code></pre>
+                            <p>Shannon picks up from the last successful agent checkpoint.</p>
+                        </div>
+                        <div class="docs-card">
+                            <h3>Viewing Results</h3>
+                            <p>Audit logs are written to <code>audit-logs/</code> with session data, agent transcripts, and findings.</p>
+                        </div>
+                    </section>
+
+                    <!-- Architecture -->
+                    <section class="docs-section">
+                        <h2>Architecture</h2>
+                        <div class="docs-card">
+                            <h3>Pipeline Phases</h3>
+                            <p>Each workflow runs through these phases:</p>
+                            <ol>
+                                <li><strong>Recon</strong> — Target enumeration, tech stack detection</li>
+                                <li><strong>Analysis</strong> — Vulnerability identification across attack surfaces</li>
+                                <li><strong>Exploitation</strong> — Proof-of-concept validation</li>
+                                <li><strong>Reporting</strong> — Structured findings with severity ratings</li>
+                            </ol>
+                        </div>
+                        <div class="docs-card">
+                            <h3>Agent System</h3>
+                            <p>Shannon uses 13 specialized agents, each powered by Claude. Agents run in isolated Docker containers with controlled tooling.</p>
+                        </div>
+                        <div class="docs-card">
+                            <h3>Temporal Backend</h3>
+                            <p>Workflows are orchestrated via <a href="https://temporal.io" target="_blank">Temporal</a>, providing durable execution, automatic retries, and full observability.</p>
+                            <p style="margin-top: 0.5rem;">The built-in Temporal UI is available at <a href="http://localhost:8233" target="_blank">localhost:8233</a> as a fallback.</p>
+                        </div>
+                    </section>
+
+                    <!-- Dashboard -->
+                    <section class="docs-section">
+                        <h2>Dashboard</h2>
+                        <div class="docs-card">
+                            <h3>API Endpoints</h3>
+                            <p>The dashboard exposes JSON APIs for programmatic access:</p>
+                            <ul>
+                                <li><code>GET /api/workflows</code> — Live workflow data from Temporal</li>
+                                <li><code>GET /api/workflows?status=running</code> — Filter by status</li>
+                                <li><code>GET /api/workspaces</code> — Historical session data from audit logs</li>
+                            </ul>
+                        </div>
+                        <div class="docs-card">
+                            <h3>Docker Compose</h3>
+                            <p>The dashboard runs as part of the Docker Compose stack:</p>
+                            <pre><code>docker compose up              # all services
+docker compose up dashboard    # dashboard only</code></pre>
+                            <p>Available at <a href="http://localhost:4321">localhost:4321</a></p>
+                        </div>
+                    </section>
+                </div>
+            </div>
+        </main>
+    </div>
+</Base>
+
+<style>
+    .docs-page {
+        max-width: 960px;
+    }
+
+    .docs-grid {
+        display: flex;
+        flex-direction: column;
+        gap: 2rem;
+    }
+
+    .docs-section h2 {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        color: var(--text-faint);
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        padding-bottom: 0.5rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .docs-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 1.25rem 1.5rem;
+        margin-bottom: 0.75rem;
+        transition: border-color 0.2s;
+    }
+
+    .docs-card:hover {
+        border-color: var(--border-hover);
+    }
+
+    .docs-card h3 {
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--white);
+        margin-bottom: 0.5rem;
+    }
+
+    .docs-card p {
+        font-size: 0.84rem;
+        color: var(--text-muted);
+        line-height: 1.6;
+        margin-bottom: 0.5rem;
+    }
+
+    .docs-card p:last-child {
+        margin-bottom: 0;
+    }
+
+    .docs-card pre {
+        background: rgba(0, 0, 0, 0.3);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 0.75rem 1rem;
+        margin: 0.5rem 0;
+        overflow-x: auto;
+    }
+
+    .docs-card code {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--purple-light);
+    }
+
+    .docs-card pre code {
+        color: var(--text);
+    }
+
+    .docs-card ol,
+    .docs-card ul {
+        padding-left: 1.25rem;
+        margin: 0.5rem 0;
+    }
+
+    .docs-card li {
+        font-size: 0.84rem;
+        color: var(--text-muted);
+        line-height: 1.7;
+    }
+
+    .docs-card li strong {
+        color: var(--white);
+    }
+</style>

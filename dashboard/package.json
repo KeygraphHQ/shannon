@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@astrojs/node": "^10.0.1",
+    "@playwright/test": "^1.58.2",
     "@temporalio/client": "^1.15.0",
     "astro": "^6.0.4"
   }

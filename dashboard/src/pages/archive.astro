@@ -1,0 +1,176 @@
+---
+import Base from '../layouts/Base.astro';
+import Sidebar from '../components/Sidebar.astro';
+import { listWorkspaces, type WorkspaceInfo } from '../lib/audit-logs.js';
+
+// Fetch workspace data from audit-logs
+let workspaces: WorkspaceInfo[] = [];
+let loadError: string | null = null;
+
+try {
+    workspaces = await listWorkspaces();
+} catch (err) {
+    loadError = err instanceof Error ? err.message : 'Failed to load audit logs';
+}
+
+const completedCount = workspaces.filter(w => w.status === 'completed').length;
+const failedCount = workspaces.filter(w => w.status === 'failed').length;
+const totalCost = workspaces.reduce((sum, w) => sum + w.costUsd, 0);
+
+function formatDuration(ms: number) {
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) return `${hours}h ${minutes % 60}m`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+function formatDate(d: Date) {
+    return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function formatTime(d: Date) {
+    return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+---
+
+<Base title="Archive — Shannon Dashboard">
+    <div class="app-shell">
+        <Sidebar activePage="archive" />
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-breadcrumb">
+                    <span style="color: var(--text-dim);">default</span>
+                    <span class="topbar-breadcrumb-sep">/</span>
+                    <span style="color: var(--white); font-weight: 600;">Archive</span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <button class="btn-icon" title="Refresh" onclick="location.reload()">↻</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="page-container">
+                <div class="page-header">
+                    <div class="page-header-left">
+                        <div>
+                            <h1 class="page-title">
+                                {workspaces.length} <span class="gradient-text">Sessions</span>
+                            </h1>
+                            <p class="page-subtitle">
+                                Historical audit log data
+                                {loadError && <span style="color: var(--warning); margin-left: 0.5rem;">⚠ {loadError}</span>}
+                            </p>
+                        </div>
+                        <div class="page-header-stats">
+                            {completedCount > 0 && <span class="status-pill completed"><span class="status-dot"></span> {completedCount} Completed</span>}
+                            {failedCount > 0 && <span class="status-pill failed"><span class="status-dot"></span> {failedCount} Failed</span>}
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Stats -->
+                <div class="stats-row">
+                    <div class="stat-card purple" data-glow>
+                        <div class="stat-card-label">Total Sessions</div>
+                        <div class="stat-card-value">{workspaces.length}</div>
+                        <div class="stat-card-meta">from audit logs</div>
+                    </div>
+                    <div class="stat-card green" data-glow>
+                        <div class="stat-card-label">Completed</div>
+                        <div class="stat-card-value">{completedCount}</div>
+                        <div class="stat-card-meta">successful runs</div>
+                    </div>
+                    <div class="stat-card red" data-glow>
+                        <div class="stat-card-label">Failed</div>
+                        <div class="stat-card-value">{failedCount}</div>
+                        <div class="stat-card-meta">needs review</div>
+                    </div>
+                    <div class="stat-card blue" data-glow>
+                        <div class="stat-card-label">Total Cost</div>
+                        <div class="stat-card-value">${totalCost.toFixed(2)}</div>
+                        <div class="stat-card-meta">all sessions</div>
+                    </div>
+                </div>
+
+                {workspaces.length > 0 ? (
+                    <div class="table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Session</th>
+                                    <th>Target URL</th>
+                                    <th>Cost</th>
+                                    <th>Duration</th>
+                                    <th>Resumes</th>
+                                    <th>Date</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {workspaces.map((ws) => (
+                                    <tr>
+                                        <td>
+                                            <span class={`status-pill ${ws.status === 'completed' ? 'completed' : ws.status === 'failed' ? 'failed' : 'running'}`}>
+                                                <span class={`status-dot ${ws.status === 'in-progress' ? 'pulse' : ''}`}></span>
+                                                {ws.status === 'completed' ? 'Done' : ws.status === 'failed' ? 'Failed' : 'Running'}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <span class="cell-id" title={ws.name}>
+                                                {ws.name.length > 40 ? ws.name.slice(0, 37) + '…' : ws.name}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            {ws.url ? (
+                                                <a href={ws.url} target="_blank" class="cell-type" style="color: var(--purple-light);">
+                                                    {new URL(ws.url).hostname}
+                                                </a>
+                                            ) : (
+                                                <span class="cell-type">—</span>
+                                            )}
+                                        </td>
+                                        <td class="cell-cost">{ws.costUsd > 0 ? `$${ws.costUsd.toFixed(2)}` : '—'}</td>
+                                        <td class="cell-duration">{formatDuration(ws.durationMs)}</td>
+                                        <td class="cell-duration">{ws.resumeAttempts > 0 ? ws.resumeAttempts : '—'}</td>
+                                        <td class="cell-time">{formatDate(ws.createdAt)} {formatTime(ws.createdAt)}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+
+                        <div class="table-footer">
+                            <div class="table-footer-left">
+                                <span>Showing {workspaces.length} sessions</span>
+                            </div>
+                        </div>
+                    </div>
+                ) : (
+                    <div class="table-container">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📦</div>
+                            <h3>No archived sessions</h3>
+                            <p>
+                                Completed workflow sessions with their audit logs will appear here.
+                                Run a pentest workflow to generate session data.
+                            </p>
+                        </div>
+                    </div>
+                )}
+            </div>
+        </main>
+    </div>
+
+    <script is:inline>
+        document.querySelectorAll('[data-glow]').forEach(card => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                card.style.setProperty('--glow-x', (e.clientX - rect.left) + 'px');
+                card.style.setProperty('--glow-y', (e.clientY - rect.top) + 'px');
+            });
+        });
+    </script>
+</Base>

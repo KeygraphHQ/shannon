@@ -1,0 +1,957 @@
+---
+import Base from '../../layouts/Base.astro';
+import Sidebar from '../../components/Sidebar.astro';
+import { getTemporalClient, getWorkflowProgress, type PipelineProgress } from '../../lib/temporal.js';
+
+const { runId } = Astro.params;
+
+interface WorkflowDetail {
+    workflowId: string;
+    runId: string;
+    status: string;
+    type: string;
+    taskQueue: string;
+    startTime: string;
+    closeTime: string | null;
+    executionTime: string | null;
+    historyLength: number;
+    historySize: number;
+    memo: Record<string, unknown>;
+    searchAttributes: Record<string, unknown>;
+    parentExecution: { workflowId: string; runId: string } | null;
+    input: unknown;
+    result: unknown;
+}
+
+interface HistoryEvent {
+    eventId: number;
+    eventType: string;
+    eventTime: string | null;
+    details: Record<string, unknown>;
+}
+
+let wf: WorkflowDetail | null = null;
+let progress: PipelineProgress | null = null;
+let events: HistoryEvent[] = [];
+let loadError: string | null = null;
+
+try {
+    const client = await getTemporalClient();
+
+    // Find workflow by runId
+    let workflowId: string | null = null;
+    for await (const w of client.workflow.list({ query: `RunId = "${runId}"` })) {
+        workflowId = w.workflowId;
+        break;
+    }
+
+    if (workflowId) {
+        const handle = client.workflow.getHandle(workflowId, runId);
+        const desc = await handle.describe();
+
+        wf = {
+            workflowId: desc.workflowId,
+            runId: desc.runId,
+            status: desc.status.name.toLowerCase(),
+            type: desc.type,
+            taskQueue: desc.taskQueue,
+            startTime: desc.startTime?.toISOString() || '',
+            closeTime: desc.closeTime?.toISOString() || null,
+            executionTime: desc.executionTime?.toISOString() || null,
+            historyLength: desc.historyLength,
+            historySize: 0,
+            memo: (desc.memo as Record<string, unknown>) || {},
+            searchAttributes: {},
+            parentExecution: desc.parentExecution || null,
+            input: null,
+            result: null,
+        };
+
+        // Get progress for running workflows
+        if (wf.status === 'running') {
+            try {
+                progress = await handle.query<PipelineProgress>('getProgress');
+            } catch { /* query unavailable */ }
+        }
+
+        // Fetch result for completed workflows
+        if (wf.status === 'completed') {
+            try {
+                wf.result = await handle.result();
+            } catch { /* no result */ }
+        }
+
+        // Fetch history events
+        try {
+            const history = await handle.fetchHistory();
+            const rawEvents = history?.events || [];
+            wf.historySize = rawEvents.length;
+
+            for (const ev of rawEvents) {
+                const eventType = ev.eventType || 'UNKNOWN';
+                // Simplify the event type name
+                const typeName = String(eventType)
+                    .replace('EVENT_TYPE_', '')
+                    .replace(/_/g, ' ')
+                    .toLowerCase()
+                    .replace(/\b\w/g, (c: string) => c.toUpperCase());
+
+                // Extract input from WorkflowExecutionStarted
+                if (String(eventType).includes('WORKFLOW_EXECUTION_STARTED')) {
+                    const attrs = ev.workflowExecutionStartedEventAttributes;
+                    if (attrs?.input?.payloads) {
+                        try {
+                            const payload = attrs.input.payloads[0];
+                            if (payload?.data) {
+                                const decoded = Buffer.from(payload.data).toString('utf-8');
+                                wf.input = JSON.parse(decoded);
+                            }
+                        } catch { /* can't decode */ }
+                    }
+                }
+
+                events.push({
+                    eventId: Number(ev.eventId || 0),
+                    eventType: typeName,
+                    eventTime: ev.eventTime
+                        ? new Date(Number(ev.eventTime.seconds) * 1000 + Number(ev.eventTime.nanos || 0) / 1e6).toISOString()
+                        : null,
+                    details: {},
+                });
+            }
+        } catch { /* history unavailable */ }
+    }
+} catch (err) {
+    loadError = err instanceof Error ? err.message : 'Failed to load workflow';
+}
+
+// Helpers
+function formatDateTime(iso: string | null) {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('en-US', {
+        month: 'short', day: 'numeric', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
+    });
+}
+
+function getElapsed(start: string, end: string | null) {
+    const s = new Date(start).getTime();
+    const e = end ? new Date(end).getTime() : Date.now();
+    const ms = e - s;
+    const seconds = Math.floor(ms / 1000);
+    const minutes = Math.floor(seconds / 60);
+    const hours = Math.floor(minutes / 60);
+    if (hours > 0) return `${hours}h ${minutes % 60}m ${seconds % 60}s`;
+    if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+    return `${seconds}s`;
+}
+
+function formatEventTime(iso: string | null) {
+    if (!iso) return '';
+    return new Date(iso).toLocaleTimeString('en-US', {
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        fractionalSecondDigits: 2, hour12: false,
+    });
+}
+
+const agents = progress?.agentMetrics ? Object.values(progress.agentMetrics) : [];
+
+// Categorize events for the timeline
+function getEventCategory(type: string): string {
+    const t = type.toLowerCase();
+    if (t.includes('started') || t.includes('initiated')) return 'start';
+    if (t.includes('completed') || t.includes('succeeded')) return 'success';
+    if (t.includes('failed') || t.includes('timed out') || t.includes('canceled')) return 'error';
+    if (t.includes('scheduled') || t.includes('fired')) return 'scheduled';
+    if (t.includes('activity')) return 'activity';
+    return 'default';
+}
+---
+
+<Base title={`${wf?.workflowId || 'Workflow'} — Shannon`}>
+    <div class="app-shell">
+        <Sidebar activePage="workflows" />
+
+        <header class="topbar">
+            <div class="topbar-left">
+                <div class="topbar-breadcrumb">
+                    <a href="/">Workflows</a>
+                    <span class="topbar-breadcrumb-sep">/</span>
+                    <span style="color: var(--white); font-weight: 600; font-family: var(--font-mono); font-size: 0.8rem;">
+                        {wf?.workflowId || runId?.slice(0, 12) + '…'}
+                    </span>
+                </div>
+            </div>
+            <div class="topbar-right">
+                <button class="btn-icon" title="Refresh" onclick="location.reload()">↻</button>
+            </div>
+        </header>
+
+        <main class="main-content">
+            <div class="wf-detail-container">
+                {loadError && (
+                    <div class="banner banner-error">⚠ {loadError}</div>
+                )}
+
+                {!wf ? (
+                    <div class="table-container" style="margin: 2rem;">
+                        <div class="empty-state">
+                            <div class="empty-state-icon">🔍</div>
+                            <h3>Workflow not found</h3>
+                            <p>No workflow with run ID <code>{runId}</code></p>
+                            <a href="/" class="btn btn-secondary" style="margin-top: 1rem;">← Back</a>
+                        </div>
+                    </div>
+                ) : (
+                    <div>
+                        {/* ── Workflow Header ─────────────────────────── */}
+                        <div class="wf-header">
+                            <div class="wf-header-top">
+                                <div style="display: flex; align-items: center; gap: 0.75rem;">
+                                    <a href="/" class="wf-back">← Back to Workflows</a>
+                                </div>
+                                <div class="wf-header-actions">
+                                    {wf.status === 'running' && (
+                                        <button class="btn btn-danger">Request Cancellation</button>
+                                    )}
+                                    <button class="btn btn-secondary">More Actions ▾</button>
+                                </div>
+                            </div>
+
+                            <div class="wf-header-title">
+                                <span class={`status-pill ${wf.status}`}>
+                                    <span class={`status-dot ${wf.status === 'running' ? 'pulse' : ''}`}></span>
+                                    {wf.status.charAt(0).toUpperCase() + wf.status.slice(1)}
+                                </span>
+                                <h1>{wf.workflowId}</h1>
+                            </div>
+
+                            {/* Info row like Temporal */}
+                            <div class="wf-info-row">
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">Start</span>
+                                    <span class="wf-info-value">{formatDateTime(wf.startTime)}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">End</span>
+                                    <span class="wf-info-value">{formatDateTime(wf.closeTime)}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">Duration</span>
+                                    <span class="wf-info-value">{getElapsed(wf.startTime, wf.closeTime)}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">Run ID</span>
+                                    <span class="wf-info-value mono copyable" data-copy={wf.runId}>
+                                        {wf.runId}
+                                        <button class="copy-btn" title="Copy">📋</button>
+                                    </span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">Workflow Type</span>
+                                    <span class="wf-info-value link">{wf.type}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">Task Queue</span>
+                                    <span class="wf-info-value link">{wf.taskQueue}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">History Events</span>
+                                    <span class="wf-info-value">{wf.historySize}</span>
+                                </div>
+                                <div class="wf-info-item">
+                                    <span class="wf-info-label">State Transitions</span>
+                                    <span class="wf-info-value">{wf.historyLength}</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ── Tab Navigation ─────────────────────────── */}
+                        <div class="wf-tabs">
+                            <button class="wf-tab active" data-tab="history">
+                                History <span class="wf-tab-badge">{wf.historySize}</span>
+                            </button>
+                            {progress && (
+                                <button class="wf-tab" data-tab="progress">
+                                    Progress <span class="wf-tab-badge">{agents.length}</span>
+                                </button>
+                            )}
+                            <button class="wf-tab" data-tab="input">Input / Result</button>
+                            <button class="wf-tab" data-tab="query">Queries</button>
+                            <button class="wf-tab" data-tab="memo">Memo</button>
+                        </div>
+
+                        {/* ── Tab: History ─────────────────────────── */}
+                        <div class="wf-tab-content active" id="tab-history">
+                            <div class="history-toolbar">
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <span style="font-size: 0.78rem; color: var(--text-dim);">
+                                        {events.length} events
+                                    </span>
+                                </div>
+                                <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                    <button class="btn btn-ghost btn-sm" id="toggleCompact">Compact</button>
+                                    <button class="btn btn-ghost btn-sm" id="toggleJson">JSON</button>
+                                </div>
+                            </div>
+
+                            <div class="history-timeline">
+                                {events.map((ev) => (
+                                    <div class={`history-event ${getEventCategory(ev.eventType)}`} data-event-id={ev.eventId}>
+                                        <div class="history-event-marker">
+                                            <div class={`history-event-dot ${getEventCategory(ev.eventType)}`}></div>
+                                            {ev.eventId < events.length && <div class="history-event-line"></div>}
+                                        </div>
+                                        <div class="history-event-content">
+                                            <div class="history-event-header">
+                                                <span class="history-event-id">#{ev.eventId}</span>
+                                                <span class="history-event-type">{ev.eventType}</span>
+                                                <span class="history-event-time">{formatEventTime(ev.eventTime)}</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {events.length === 0 && (
+                                <div class="empty-state" style="padding: 3rem;">
+                                    <div class="empty-state-icon">📜</div>
+                                    <h3>No history events</h3>
+                                    <p>History events will appear here as the workflow executes.</p>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* ── Tab: Progress (Agent Metrics) ─────────── */}
+                        {progress && (
+                            <div class="wf-tab-content" id="tab-progress">
+                                {/* Progress bar */}
+                                <div class="progress-card">
+                                    <div class="progress-card-header">
+                                        <span>Pipeline Progress</span>
+                                        <span class="mono" style="color: var(--text-muted);">
+                                            {progress.completedAgents?.length || 0} / 13 agents
+                                        </span>
+                                    </div>
+                                    <div class="progress-bar" style="height: 8px; margin: 0.75rem 0;">
+                                        <div class="progress-bar-fill" style={`width: ${((progress.completedAgents?.length || 0) / 13) * 100}%`}></div>
+                                    </div>
+                                    <div style="display: flex; gap: 1.5rem; font-size: 0.8rem;">
+                                        {progress.currentPhase && (
+                                            <span style="color: var(--text-dim);">
+                                                Phase: <strong style="color: var(--info);">{progress.currentPhase}</strong>
+                                            </span>
+                                        )}
+                                        {progress.currentAgent && (
+                                            <span style="color: var(--text-dim);">
+                                                Agent: <strong style="color: var(--info);">{progress.currentAgent}</strong>
+                                            </span>
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Agent table */}
+                                {agents.length > 0 && (
+                                    <div class="table-container" style="margin-top: 1rem;">
+                                        <table class="data-table">
+                                            <thead>
+                                                <tr>
+                                                    <th>Status</th>
+                                                    <th>Agent</th>
+                                                    <th>Model</th>
+                                                    <th>Turns</th>
+                                                    <th>Cost</th>
+                                                    <th>Duration</th>
+                                                    <th>Error</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                {agents.map((a) => (
+                                                    <tr>
+                                                        <td>
+                                                            <span class={`status-pill ${a.success ? 'completed' : 'failed'}`}>
+                                                                <span class="status-dot"></span>
+                                                                {a.success ? 'Done' : 'Failed'}
+                                                            </span>
+                                                        </td>
+                                                        <td style="font-weight: 600; color: var(--white);">{a.agentName}</td>
+                                                        <td class="cell-type">{a.model}</td>
+                                                        <td class="cell-duration">{a.turns}</td>
+                                                        <td class="cell-cost">${a.costUsd.toFixed(3)}</td>
+                                                        <td class="cell-duration">{Math.round(a.durationMs / 1000)}s</td>
+                                                        <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.75rem; color: var(--error);">
+                                                            {a.error || '—'}
+                                                        </td>
+                                                    </tr>
+                                                ))}
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                )}
+
+                                {/* Summary */}
+                                {progress.summary && (
+                                    <div class="summary-grid">
+                                        <div class="summary-item">
+                                            <span class="summary-label">Total Cost</span>
+                                            <span class="summary-value">${progress.summary.totalCostUsd.toFixed(2)}</span>
+                                        </div>
+                                        <div class="summary-item">
+                                            <span class="summary-label">Total Duration</span>
+                                            <span class="summary-value">{Math.round(progress.summary.totalDurationMs / 1000)}s</span>
+                                        </div>
+                                        <div class="summary-item">
+                                            <span class="summary-label">Total Turns</span>
+                                            <span class="summary-value">{progress.summary.totalTurns}</span>
+                                        </div>
+                                        <div class="summary-item">
+                                            <span class="summary-label">Agent Count</span>
+                                            <span class="summary-value">{progress.summary.agentCount}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* ── Tab: Input / Result ─────────────────────── */}
+                        <div class="wf-tab-content" id="tab-input">
+                            <div class="json-section">
+                                <h3>Input</h3>
+                                <pre class="json-viewer"><code>{wf.input ? JSON.stringify(wf.input, null, 2) : '(no input captured)'}</code></pre>
+                            </div>
+                            <div class="json-section">
+                                <h3>Result</h3>
+                                <pre class="json-viewer"><code>{wf.result ? JSON.stringify(wf.result, null, 2) : wf.status === 'running' ? '(workflow still running)' : '(no result)'}</code></pre>
+                            </div>
+                        </div>
+
+                        {/* ── Tab: Queries ─────────────────────────── */}
+                        <div class="wf-tab-content" id="tab-query">
+                            <div class="query-panel">
+                                <div class="query-form">
+                                    <div>
+                                        <label class="query-label">Query Type</label>
+                                        <select class="query-select" id="queryType">
+                                            <option value="getProgress">getProgress</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="query-label">Query Arg</label>
+                                        <textarea class="query-input" id="queryArg" rows="3" placeholder="(only single JSON payload supported)"></textarea>
+                                    </div>
+                                    <button class="btn btn-primary" id="runQueryBtn" data-workflow-id={wf.workflowId} data-run-id={wf.runId}>
+                                        Run Query
+                                    </button>
+                                </div>
+                                <div class="query-result">
+                                    <h3>Result</h3>
+                                    <pre class="json-viewer" id="queryResult"><code>Run a query to see results</code></pre>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* ── Tab: Memo ─────────────────────────── */}
+                        <div class="wf-tab-content" id="tab-memo">
+                            <div class="json-section">
+                                <h3>Memo</h3>
+                                <pre class="json-viewer"><code>{Object.keys(wf.memo || {}).length > 0 ? JSON.stringify(wf.memo, null, 2) : '(no memo set)'}</code></pre>
+                            </div>
+                        </div>
+
+                        {/* Error for failed workflows */}
+                        {progress?.error && (
+                            <div class="error-card">
+                                <h3>Error</h3>
+                                <pre class="error-pre">{progress.error}</pre>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </div>
+        </main>
+    </div>
+
+    {/* Tab switching + Query runner */}
+    <script is:inline>
+        // Tab switching
+        document.querySelectorAll('.wf-tab').forEach(tab => {
+            tab.addEventListener('click', () => {
+                document.querySelectorAll('.wf-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.wf-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                const target = tab.dataset.tab;
+                document.getElementById('tab-' + target)?.classList.add('active');
+            });
+        });
+
+        // Copy button
+        document.querySelectorAll('.copyable').forEach(el => {
+            el.querySelector('.copy-btn')?.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const text = el.dataset.copy || el.textContent;
+                navigator.clipboard.writeText(text).then(() => {
+                    const btn = el.querySelector('.copy-btn');
+                    if (btn) { btn.textContent = '✓'; setTimeout(() => btn.textContent = '📋', 1500); }
+                });
+            });
+        });
+
+        // Query runner
+        document.getElementById('runQueryBtn')?.addEventListener('click', async () => {
+            const btn = document.getElementById('runQueryBtn');
+            const wfId = btn.dataset.workflowId;
+            const resultEl = document.querySelector('#queryResult code');
+            resultEl.textContent = 'Running query...';
+
+            try {
+                const res = await fetch('/api/workflow/' + btn.dataset.runId);
+                const data = await res.json();
+                if (data.progress) {
+                    resultEl.textContent = JSON.stringify(data.progress, null, 2);
+                } else {
+                    resultEl.textContent = JSON.stringify(data, null, 2);
+                }
+            } catch (err) {
+                resultEl.textContent = 'Error: ' + err.message;
+            }
+        });
+    </script>
+</Base>
+
+<style is:global>
+    .wf-detail-container {
+        max-width: 1200px;
+        padding: 0;
+    }
+
+    /* ── Header ────────────────────────────── */
+    .wf-header {
+        padding: 1.25rem 2rem;
+        border-bottom: 1px solid var(--border);
+    }
+
+    .wf-header-top {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .wf-back {
+        font-size: 0.82rem;
+        color: var(--text-muted);
+    }
+
+    .wf-back:hover {
+        color: var(--white);
+    }
+
+    .wf-header-actions {
+        display: flex;
+        gap: 0.5rem;
+    }
+
+    .wf-header-title {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 1.25rem;
+    }
+
+    .wf-header-title h1 {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--white);
+        letter-spacing: -0.02em;
+        word-break: break-all;
+    }
+
+    .wf-info-row {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 0.75rem 2rem;
+    }
+
+    .wf-info-item {
+        display: flex;
+        flex-direction: column;
+        gap: 0.15rem;
+    }
+
+    .wf-info-label {
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--text-faint);
+        font-weight: 600;
+    }
+
+    .wf-info-value {
+        font-size: 0.82rem;
+        color: var(--text);
+        display: flex;
+        align-items: center;
+        gap: 0.35rem;
+    }
+
+    .wf-info-value.mono {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        word-break: break-all;
+    }
+
+    .wf-info-value.link {
+        color: var(--purple-light);
+    }
+
+    .copy-btn {
+        background: none;
+        border: none;
+        cursor: pointer;
+        font-size: 0.7rem;
+        opacity: 0.4;
+        transition: opacity 0.15s;
+        padding: 0;
+    }
+
+    .copy-btn:hover {
+        opacity: 1;
+    }
+
+    /* ── Tabs ────────────────────────────── */
+    .wf-tabs {
+        display: flex;
+        gap: 0;
+        border-bottom: 1px solid var(--border);
+        padding: 0 2rem;
+        background: rgba(255, 255, 255, 0.01);
+        overflow-x: auto;
+    }
+
+    .wf-tab {
+        padding: 0.75rem 1rem;
+        font-size: 0.82rem;
+        font-weight: 500;
+        color: var(--text-dim);
+        background: none;
+        border: none;
+        border-bottom: 2px solid transparent;
+        cursor: pointer;
+        transition: all 0.15s;
+        white-space: nowrap;
+        font-family: var(--font);
+        display: flex;
+        align-items: center;
+        gap: 0.4rem;
+    }
+
+    .wf-tab:hover {
+        color: var(--text);
+    }
+
+    .wf-tab.active {
+        color: var(--white);
+        border-bottom-color: var(--purple);
+    }
+
+    .wf-tab-badge {
+        font-size: 0.68rem;
+        font-weight: 600;
+        background: var(--purple-subtle);
+        color: var(--purple-light);
+        padding: 0.1rem 0.4rem;
+        border-radius: var(--radius-full);
+        min-width: 18px;
+        text-align: center;
+    }
+
+    .wf-tab-content {
+        display: none;
+        padding: 1.5rem 2rem;
+    }
+
+    .wf-tab-content.active {
+        display: block;
+    }
+
+    /* ── History Timeline ────────────────── */
+    .history-toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+    }
+
+    .btn-sm {
+        font-size: 0.72rem;
+        padding: 0.25rem 0.6rem;
+    }
+
+    .history-timeline {
+        position: relative;
+    }
+
+    .history-event {
+        display: flex;
+        gap: 0.75rem;
+        min-height: 32px;
+    }
+
+    .history-event-marker {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        width: 16px;
+        flex-shrink: 0;
+    }
+
+    .history-event-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--text-faint);
+        margin-top: 6px;
+        flex-shrink: 0;
+        z-index: 1;
+    }
+
+    .history-event-dot.start { background: var(--info); }
+    .history-event-dot.success { background: var(--success); }
+    .history-event-dot.error { background: var(--error); }
+    .history-event-dot.scheduled { background: var(--warning); }
+    .history-event-dot.activity { background: var(--purple-light); }
+
+    .history-event-line {
+        width: 1px;
+        flex: 1;
+        background: var(--border);
+        min-height: 16px;
+    }
+
+    .history-event-content {
+        flex: 1;
+        padding-bottom: 0.5rem;
+    }
+
+    .history-event-header {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.8rem;
+    }
+
+    .history-event-id {
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--text-faint);
+        min-width: 28px;
+    }
+
+    .history-event-type {
+        color: var(--text);
+        font-weight: 500;
+    }
+
+    .history-event-time {
+        margin-left: auto;
+        font-family: var(--font-mono);
+        font-size: 0.72rem;
+        color: var(--text-faint);
+    }
+
+    /* ── Progress Card ────────────────── */
+    .progress-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        padding: 1.25rem 1.5rem;
+    }
+
+    .progress-card-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--white);
+    }
+
+    .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        background: var(--border);
+        border: 1px solid var(--border);
+        border-radius: var(--radius-lg);
+        overflow: hidden;
+        margin-top: 1rem;
+    }
+
+    .summary-item {
+        background: var(--bg-card);
+        padding: 1rem 1.25rem;
+        text-align: center;
+    }
+
+    .summary-label {
+        display: block;
+        font-size: 0.65rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-faint);
+        font-weight: 600;
+        margin-bottom: 0.35rem;
+    }
+
+    .summary-value {
+        font-size: 1.25rem;
+        font-weight: 700;
+        color: var(--white);
+        font-family: var(--font-mono);
+    }
+
+    /* ── JSON Viewer ────────────────── */
+    .json-section {
+        margin-bottom: 1.5rem;
+    }
+
+    .json-section h3 {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-faint);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .json-viewer {
+        background: rgba(0, 0, 0, 0.25);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        padding: 1rem 1.25rem;
+        overflow-x: auto;
+        max-height: 400px;
+        overflow-y: auto;
+    }
+
+    .json-viewer code {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        color: var(--text);
+        line-height: 1.6;
+        white-space: pre;
+    }
+
+    /* ── Query Panel ────────────────── */
+    .query-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+    }
+
+    .query-form {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+    }
+
+    .query-label {
+        display: block;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        margin-bottom: 0.35rem;
+    }
+
+    .query-select,
+    .query-input {
+        width: 100%;
+        padding: 0.5rem 0.75rem;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        color: var(--text);
+        font-size: 0.82rem;
+        font-family: var(--font);
+        outline: none;
+        transition: border-color 0.2s;
+    }
+
+    .query-select:focus,
+    .query-input:focus {
+        border-color: var(--border-active);
+    }
+
+    .query-input {
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        resize: vertical;
+    }
+
+    .query-result h3 {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--text-faint);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    /* ── Buttons ────────────────── */
+    .btn-danger {
+        background: var(--error-bg);
+        color: var(--error);
+        border: 1px solid var(--error-border);
+    }
+
+    .btn-danger:hover {
+        background: rgba(248, 113, 113, 0.15);
+    }
+
+    /* ── Error Card ────────────────── */
+    .error-card {
+        margin: 1.5rem 2rem;
+    }
+
+    .error-card h3 {
+        font-size: 0.7rem;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        color: var(--error);
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+    }
+
+    .error-pre {
+        background: rgba(248, 113, 113, 0.05);
+        border: 1px solid var(--error-border);
+        border-radius: var(--radius);
+        padding: 1rem;
+        color: var(--error);
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        white-space: pre-wrap;
+        word-break: break-all;
+        line-height: 1.5;
+    }
+
+    .banner {
+        padding: 0.75rem 1rem;
+        font-size: 0.85rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .banner-error {
+        background: var(--error-bg);
+        border-bottom: 1px solid var(--error-border);
+        color: var(--error);
+    }
+
+    @media (max-width: 900px) {
+        .wf-info-row { grid-template-columns: repeat(2, 1fr); }
+        .query-panel { grid-template-columns: 1fr; }
+        .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+</style>
