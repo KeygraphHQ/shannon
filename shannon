@@ -48,6 +48,7 @@ Usage:
 
 Options for 'start':
   REPO=<name>            Folder name under ./repos/ (e.g. REPO=repo-name)
+  TARGET=<type>          Target type: web (default), cli, or api
   CONFIG=<path>          Configuration file (YAML)
   OUTPUT=<path>          Output directory for reports (default: ./audit-logs/)
   WORKSPACE=<name>       Named workspace (auto-resumes if exists, creates if new)
@@ -59,9 +60,10 @@ Options for 'stop':
 
 Examples:
   ./shannon start URL=https://example.com REPO=repo-name
+  ./shannon start URL=https://example.com REPO=repo-name TARGET=cli
+  ./shannon start URL=https://api.example.com REPO=repo-name TARGET=api
   ./shannon start URL=https://example.com REPO=repo-name WORKSPACE=q1-audit
   ./shannon start URL=https://example.com REPO=repo-name CONFIG=./config.yaml
-  ./shannon start URL=https://example.com REPO=repo-name OUTPUT=./my-reports
   ./shannon workspaces
   ./shannon logs ID=example.com_shannon-1234567890
   ./shannon stop CLEAN=true
@@ -84,6 +86,7 @@ parse_args() {
       REBUILD=*) REBUILD="${arg#REBUILD=}" ;;
       ROUTER=*) ROUTER="${arg#ROUTER=}" ;;
       WORKSPACE=*) WORKSPACE="${arg#WORKSPACE=}" ;;
+      TARGET=*) TARGET="${arg#TARGET=}" ;;
     esac
   done
 }
@@ -271,6 +274,7 @@ cmd_start() {
 
   [ "$PIPELINE_TESTING" = "true" ] && ARGS="$ARGS --pipeline-testing"
   [ -n "$WORKSPACE" ] && ARGS="$ARGS --workspace $WORKSPACE"
+  [ -n "$TARGET" ] && ARGS="$ARGS --target $TARGET"
 
   # Run the client to submit workflow
   docker compose -f "$COMPOSE_FILE" $COMPOSE_OVERRIDE exec -T worker \

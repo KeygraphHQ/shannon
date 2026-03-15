@@ -23,7 +23,7 @@ import { classifyErrorForTemporal, PentestError } from '../services/error-handli
 import { ErrorCode } from '../types/errors.js';
 import { getOrCreateContainer, getContainer, removeContainer } from '../services/container.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
-import type { VulnType, ExploitationDecision } from '../services/queue-validation.js';
+import type { ExploitationDecision } from '../services/queue-validation.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
@@ -59,6 +59,7 @@ export interface ActivityInput {
   pipelineTestingMode?: boolean;
   workflowId: string;
   sessionId: string;
+  targetType?: string;
 }
 
 /**
@@ -249,6 +250,16 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
 }
 
 /**
+ * Generic agent activity runner for CLI/API agents.
+ *
+ * Used by the workflow to dispatch CLI and API agents dynamically
+ * without needing individual wrapper functions for each.
+ */
+export async function runGenericAgent(input: ActivityInput, agentName: string): Promise<AgentMetrics> {
+  return runAgentActivity(agentName as AgentName, input);
+}
+
+/**
  * Preflight validation activity.
  *
  * Runs cheap checks before any agent execution:
@@ -354,7 +365,7 @@ export async function injectReportMetadataActivity(input: ActivityInput): Promis
  */
 export async function checkExploitationQueue(
   input: ActivityInput,
-  vulnType: VulnType
+  vulnType: string
 ): Promise<ExploitationDecision> {
   const { repoPath, workflowId } = input;
   const logger = createActivityLogger();

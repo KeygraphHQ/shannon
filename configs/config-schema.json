@@ -5,9 +5,14 @@
   "description": "Schema for YAML configuration files used in the penetration testing agent",
   "type": "object",
   "properties": {
+    "target_type": {
+      "type": "string",
+      "enum": ["web", "cli", "api"],
+      "description": "Target type: 'web' for browser-based apps, 'cli' for CLI/TUI apps, 'api' for API services. Defaults to 'web'."
+    },
     "authentication": {
       "type": "object",
-      "description": "Authentication configuration for the target application",
+      "description": "Authentication configuration for the target application (web targets)",
       "properties": {
         "login_type": {
           "type": "string",
@@ -78,6 +83,97 @@
       "required": ["login_type", "login_url", "credentials", "success_condition"],
       "additionalProperties": false
     },
+    "cli_target": {
+      "type": "object",
+      "description": "CLI/TUI target configuration (required when target_type is 'cli')",
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 500,
+          "description": "The CLI command or binary to test (e.g., 'my-cli', './bin/tool')"
+        },
+        "working_directory": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Working directory for CLI execution"
+        },
+        "env_vars": {
+          "type": "object",
+          "description": "Environment variables to set during execution",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "subcommands": {
+          "type": "array",
+          "description": "Subcommands to focus testing on",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "maxItems": 50
+        },
+        "accepts_stdin": {
+          "type": "boolean",
+          "description": "Whether the CLI accepts stdin input"
+        },
+        "ai_powered": {
+          "type": "boolean",
+          "description": "Whether the CLI is AI-powered (enables prompt injection testing)"
+        },
+        "config_files": {
+          "type": "array",
+          "description": "Config files the CLI reads (for config injection testing)",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500
+          },
+          "maxItems": 20
+        }
+      },
+      "required": ["command"],
+      "additionalProperties": false
+    },
+    "api_target": {
+      "type": "object",
+      "description": "API target configuration (for target_type 'api')",
+      "properties": {
+        "base_url": {
+          "type": "string",
+          "format": "uri",
+          "description": "Base URL for the API"
+        },
+        "auth_method": {
+          "type": "string",
+          "enum": ["bearer", "api_key", "oauth2", "basic", "none"],
+          "description": "API authentication method"
+        },
+        "auth_token": {
+          "type": "string",
+          "maxLength": 2000,
+          "description": "API key or token for authenticated testing"
+        },
+        "auth_header": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Header name for API key (default: Authorization)"
+        },
+        "openapi_spec": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Path to OpenAPI/Swagger spec file for endpoint discovery"
+        },
+        "graphql_endpoint": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "GraphQL endpoint path (enables GraphQL-specific testing)"
+        }
+      },
+      "additionalProperties": false
+    },
     "pipeline": {
       "type": "object",
       "description": "Pipeline execution settings for retry behavior and concurrency",
@@ -127,7 +223,10 @@
   "anyOf": [
     {"required": ["authentication"]},
     {"required": ["rules"]},
-    {"required": ["authentication", "rules"]}
+    {"required": ["authentication", "rules"]},
+    {"required": ["target_type"]},
+    {"required": ["cli_target"]},
+    {"required": ["api_target"]}
   ],
   "additionalProperties": false,
   "$defs": {
@@ -143,14 +242,14 @@
         },
         "type": {
           "type": "string",
-          "enum": ["path", "subdomain", "domain", "method", "header", "parameter"],
-          "description": "Type of rule (what aspect of requests to match against)"
+          "enum": ["path", "subdomain", "domain", "method", "header", "parameter", "command", "argument", "endpoint"],
+          "description": "Type of rule (what aspect of requests/commands to match against)"
         },
         "url_path": {
           "type": "string",
           "minLength": 1,
           "maxLength": 1000,
-          "description": "URL path pattern or value to match"
+          "description": "URL path pattern, command pattern, or value to match"
         }
       },
       "required": ["description", "type", "url_path"],

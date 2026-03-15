@@ -1,0 +1,9 @@
+**API SECURITY SCOPE:** Only report vulnerabilities exploitable via the API endpoints at {{WEB_URL}}. Analyze both the source code (white-box) and runtime API behavior. Focus on:
+- OWASP API Security Top 10 vulnerabilities
+- Broken Object Level Authorization (BOLA/IDOR)
+- Broken Authentication and session management
+- Excessive Data Exposure in API responses
+- Mass Assignment / parameter pollution
+- Rate limiting and resource consumption
+- Server-Side Request Forgery (SSRF) via API parameters
+- Injection vulnerabilities in API parameters (SQL, NoSQL, command)

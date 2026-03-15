@@ -16,6 +16,8 @@ import type {
   Rule,
   Authentication,
   DistributedConfig,
+  CliTarget,
+  ApiTarget,
 } from './types/config.js';
 
 // Handle ESM/CJS interop for ajv-formats using require
@@ -301,9 +303,9 @@ const validateConfig = (config: Config): void => {
 
   performSecurityValidation(config);
 
-  if (!config.rules && !config.authentication) {
+  if (!config.rules && !config.authentication && !config.cli_target && !config.api_target) {
     console.warn(
-      '⚠️  Configuration file contains no rules or authentication. The pentest will run without any scoping restrictions or login capabilities.'
+      '⚠️  Configuration file contains no rules, authentication, or target config. The pentest will run without any scoping restrictions.'
     );
   } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
     console.warn(
@@ -487,6 +489,12 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
         );
       }
       break;
+
+    case 'command':
+    case 'argument':
+    case 'endpoint':
+      // These types accept free-form values (command names, argument flags, API paths)
+      break;
   }
 };
 
@@ -541,6 +549,31 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
+    cliTarget: config?.cli_target ? sanitizeCliTarget(config.cli_target) : null,
+    apiTarget: config?.api_target ? sanitizeApiTarget(config.api_target) : null,
+  };
+};
+
+const sanitizeCliTarget = (cli: CliTarget): CliTarget => {
+  return {
+    command: cli.command.trim(),
+    ...(cli.working_directory && { working_directory: cli.working_directory.trim() }),
+    ...(cli.env_vars && { env_vars: cli.env_vars }),
+    ...(cli.subcommands && { subcommands: cli.subcommands.map((s) => s.trim()) }),
+    ...(cli.accepts_stdin !== undefined && { accepts_stdin: cli.accepts_stdin }),
+    ...(cli.ai_powered !== undefined && { ai_powered: cli.ai_powered }),
+    ...(cli.config_files && { config_files: cli.config_files.map((f) => f.trim()) }),
+  };
+};
+
+const sanitizeApiTarget = (api: ApiTarget): ApiTarget => {
+  return {
+    base_url: api.base_url.trim(),
+    ...(api.auth_method !== undefined && { auth_method: api.auth_method.trim() as NonNullable<ApiTarget['auth_method']> }),
+    ...(api.auth_token !== undefined && { auth_token: api.auth_token.trim() }),
+    ...(api.auth_header !== undefined && { auth_header: api.auth_header.trim() }),
+    ...(api.openapi_spec !== undefined && { openapi_spec: api.openapi_spec.trim() }),
+    ...(api.graphql_endpoint !== undefined && { graphql_endpoint: api.graphql_endpoint.trim() }),
   };
 };
 

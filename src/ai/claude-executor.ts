@@ -13,7 +13,7 @@ import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { Timer } from '../utils/metrics.js';
 import { formatTimestamp } from '../utils/formatting.js';
-import { AGENT_VALIDATORS, MCP_AGENT_MAPPING } from '../session-manager.js';
+import { AGENT_VALIDATORS, MCP_AGENT_MAPPING, CLI_AGENT_PROMPTS } from '../session-manager.js';
 import { AuditSession } from '../audit/index.js';
 import { createShannonHelperServer } from '../../mcp-server/dist/index.js';
 import { AGENTS } from '../session-manager.js';
@@ -69,8 +69,16 @@ function buildMcpServers(
   };
 
   // 2. Look up the agent's Playwright MCP mapping
+  // CLI agents don't use Playwright — they interact with CLIs via Bash tool
   if (agentName) {
     const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
+    const isCliAgent = (CLI_AGENT_PROMPTS as readonly string[]).includes(promptTemplate);
+
+    if (isCliAgent) {
+      logger.info(`CLI agent ${agentName} — skipping Playwright MCP (uses Bash tool)`);
+      return mcpServers;
+    }
+
     const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
 
     if (playwrightMcpName) {

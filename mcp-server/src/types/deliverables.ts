@@ -18,7 +18,7 @@ export enum DeliverableType {
   // Recon agent
   RECON = 'RECON',
 
-  // Vulnerability analysis agents
+  // === Web Vulnerability Analysis Agents ===
   INJECTION_ANALYSIS = 'INJECTION_ANALYSIS',
   INJECTION_QUEUE = 'INJECTION_QUEUE',
 
@@ -34,12 +34,36 @@ export enum DeliverableType {
   SSRF_ANALYSIS = 'SSRF_ANALYSIS',
   SSRF_QUEUE = 'SSRF_QUEUE',
 
-  // Exploitation agents
+  // === Web Exploitation Agents ===
   INJECTION_EVIDENCE = 'INJECTION_EVIDENCE',
   XSS_EVIDENCE = 'XSS_EVIDENCE',
   AUTH_EVIDENCE = 'AUTH_EVIDENCE',
   AUTHZ_EVIDENCE = 'AUTHZ_EVIDENCE',
   SSRF_EVIDENCE = 'SSRF_EVIDENCE',
+
+  // === CLI Vulnerability Analysis Agents ===
+  CLI_INJECTION_ANALYSIS = 'CLI_INJECTION_ANALYSIS',
+  CLI_PROMPT_INJECTION_ANALYSIS = 'CLI_PROMPT_INJECTION_ANALYSIS',
+  CLI_INPUT_VALIDATION_ANALYSIS = 'CLI_INPUT_VALIDATION_ANALYSIS',
+  CLI_AUTH_ANALYSIS = 'CLI_AUTH_ANALYSIS',
+  CLI_PRIVESC_ANALYSIS = 'CLI_PRIVESC_ANALYSIS',
+
+  // === CLI Exploitation Agents ===
+  CLI_INJECTION_EVIDENCE = 'CLI_INJECTION_EVIDENCE',
+  CLI_PROMPT_INJECTION_EVIDENCE = 'CLI_PROMPT_INJECTION_EVIDENCE',
+  CLI_INPUT_VALIDATION_EVIDENCE = 'CLI_INPUT_VALIDATION_EVIDENCE',
+  CLI_AUTH_EVIDENCE = 'CLI_AUTH_EVIDENCE',
+  CLI_PRIVESC_EVIDENCE = 'CLI_PRIVESC_EVIDENCE',
+
+  // === API Vulnerability Analysis Agents ===
+  API_AUTH_ANALYSIS = 'API_AUTH_ANALYSIS',
+  API_BOLA_ANALYSIS = 'API_BOLA_ANALYSIS',
+  API_INPUT_VALIDATION_ANALYSIS = 'API_INPUT_VALIDATION_ANALYSIS',
+
+  // === API Exploitation Agents ===
+  API_AUTH_EVIDENCE = 'API_AUTH_EVIDENCE',
+  API_BOLA_EVIDENCE = 'API_BOLA_EVIDENCE',
+  API_INPUT_VALIDATION_EVIDENCE = 'API_INPUT_VALIDATION_EVIDENCE',
 }
 
 /**
@@ -47,8 +71,11 @@ export enum DeliverableType {
  * Must match tools/save_deliverable.js exactly
  */
 export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
+  // Shared
   [DeliverableType.CODE_ANALYSIS]: 'code_analysis_deliverable.md',
   [DeliverableType.RECON]: 'recon_deliverable.md',
+
+  // Web
   [DeliverableType.INJECTION_ANALYSIS]: 'injection_analysis_deliverable.md',
   [DeliverableType.INJECTION_QUEUE]: 'injection_exploitation_queue.json',
   [DeliverableType.XSS_ANALYSIS]: 'xss_analysis_deliverable.md',
@@ -64,6 +91,26 @@ export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.AUTH_EVIDENCE]: 'auth_exploitation_evidence.md',
   [DeliverableType.AUTHZ_EVIDENCE]: 'authz_exploitation_evidence.md',
   [DeliverableType.SSRF_EVIDENCE]: 'ssrf_exploitation_evidence.md',
+
+  // CLI
+  [DeliverableType.CLI_INJECTION_ANALYSIS]: 'cli_injection_analysis_deliverable.md',
+  [DeliverableType.CLI_PROMPT_INJECTION_ANALYSIS]: 'cli_prompt_injection_analysis_deliverable.md',
+  [DeliverableType.CLI_INPUT_VALIDATION_ANALYSIS]: 'cli_input_validation_analysis_deliverable.md',
+  [DeliverableType.CLI_AUTH_ANALYSIS]: 'cli_auth_analysis_deliverable.md',
+  [DeliverableType.CLI_PRIVESC_ANALYSIS]: 'cli_privesc_analysis_deliverable.md',
+  [DeliverableType.CLI_INJECTION_EVIDENCE]: 'cli_injection_exploitation_evidence.md',
+  [DeliverableType.CLI_PROMPT_INJECTION_EVIDENCE]: 'cli_prompt_injection_exploitation_evidence.md',
+  [DeliverableType.CLI_INPUT_VALIDATION_EVIDENCE]: 'cli_input_validation_exploitation_evidence.md',
+  [DeliverableType.CLI_AUTH_EVIDENCE]: 'cli_auth_exploitation_evidence.md',
+  [DeliverableType.CLI_PRIVESC_EVIDENCE]: 'cli_privesc_exploitation_evidence.md',
+
+  // API
+  [DeliverableType.API_AUTH_ANALYSIS]: 'api_auth_analysis_deliverable.md',
+  [DeliverableType.API_BOLA_ANALYSIS]: 'api_bola_analysis_deliverable.md',
+  [DeliverableType.API_INPUT_VALIDATION_ANALYSIS]: 'api_input_validation_analysis_deliverable.md',
+  [DeliverableType.API_AUTH_EVIDENCE]: 'api_auth_exploitation_evidence.md',
+  [DeliverableType.API_BOLA_EVIDENCE]: 'api_bola_exploitation_evidence.md',
+  [DeliverableType.API_INPUT_VALIDATION_EVIDENCE]: 'api_input_validation_exploitation_evidence.md',
 };
 
 /**

@@ -41,8 +41,8 @@ import {
   type AgentMetrics,
   type ResumeState,
 } from './shared.js';
-import type { AgentName, VulnType } from '../types/agents.js';
-import { ALL_AGENTS } from '../types/agents.js';
+import type { AgentName, TargetType } from '../types/agents.js';
+import { getAgentsForTarget } from '../types/agents.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { formatWorkflowError } from './workflow-errors.js';
 
@@ -146,6 +146,9 @@ export async function pentestPipelineWorkflow(
 
   const a = selectActivityProxy(input);
 
+  const targetType: TargetType = input.targetType || 'web';
+  const targetAgents = getAgentsForTarget(targetType);
+
   const state: PipelineState = {
     status: 'running',
     currentPhase: null,
@@ -180,6 +183,7 @@ export async function pentestPipelineWorkflow(
     ...(input.pipelineTestingMode !== undefined && {
       pipelineTestingMode: input.pipelineTestingMode,
     }),
+    ...(input.targetType !== undefined && { targetType: input.targetType }),
   };
 
   let resumeState: ResumeState | null = null;
@@ -193,7 +197,7 @@ export async function pentestPipelineWorkflow(
     );
 
     // 2. Restore git workspace and clean up incomplete deliverables
-    const incompleteAgents = ALL_AGENTS.filter(
+    const incompleteAgents = targetAgents.filter(
       (agentName) => !resumeState!.completedAgents.includes(agentName)
     ) as AgentName[];
 
@@ -204,8 +208,8 @@ export async function pentestPipelineWorkflow(
     );
 
     // 3. Short-circuit if all agents already completed
-    if (resumeState.completedAgents.length === ALL_AGENTS.length) {
-      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+    if (resumeState.completedAgents.length === targetAgents.length) {
+      log.info(`All ${targetAgents.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
       state.completedAgents = [...resumeState.completedAgents];
       state.summary = computeSummary(state);
@@ -247,51 +251,134 @@ export async function pentestPipelineWorkflow(
     }
   }
 
-  // Build pipeline configs for the 5 vuln→exploit pairs
+  // Build pipeline configs for vuln→exploit pairs based on target type.
+  // Each target type has different vulnerability categories to analyze.
   function buildPipelineConfigs(): Array<{
-    vulnType: VulnType;
+    vulnType: string;
     vulnAgent: string;
     exploitAgent: string;
     runVuln: () => Promise<AgentMetrics>;
     runExploit: () => Promise<AgentMetrics>;
   }> {
-    return [
-      {
-        vulnType: 'injection',
-        vulnAgent: 'injection-vuln',
-        exploitAgent: 'injection-exploit',
-        runVuln: () => a.runInjectionVulnAgent(activityInput),
-        runExploit: () => a.runInjectionExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'xss',
-        vulnAgent: 'xss-vuln',
-        exploitAgent: 'xss-exploit',
-        runVuln: () => a.runXssVulnAgent(activityInput),
-        runExploit: () => a.runXssExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'auth',
-        vulnAgent: 'auth-vuln',
-        exploitAgent: 'auth-exploit',
-        runVuln: () => a.runAuthVulnAgent(activityInput),
-        runExploit: () => a.runAuthExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'ssrf',
-        vulnAgent: 'ssrf-vuln',
-        exploitAgent: 'ssrf-exploit',
-        runVuln: () => a.runSsrfVulnAgent(activityInput),
-        runExploit: () => a.runSsrfExploitAgent(activityInput),
-      },
-      {
-        vulnType: 'authz',
-        vulnAgent: 'authz-vuln',
-        exploitAgent: 'authz-exploit',
-        runVuln: () => a.runAuthzVulnAgent(activityInput),
-        runExploit: () => a.runAuthzExploitAgent(activityInput),
-      },
-    ];
+    switch (targetType) {
+      case 'cli':
+        return [
+          {
+            vulnType: 'cli-injection',
+            vulnAgent: 'cli-injection-vuln',
+            exploitAgent: 'cli-injection-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'cli-injection-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'cli-injection-exploit'),
+          },
+          {
+            vulnType: 'cli-prompt-injection',
+            vulnAgent: 'cli-prompt-injection-vuln',
+            exploitAgent: 'cli-prompt-injection-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'cli-prompt-injection-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'cli-prompt-injection-exploit'),
+          },
+          {
+            vulnType: 'cli-input-validation',
+            vulnAgent: 'cli-input-validation-vuln',
+            exploitAgent: 'cli-input-validation-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'cli-input-validation-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'cli-input-validation-exploit'),
+          },
+          {
+            vulnType: 'cli-auth',
+            vulnAgent: 'cli-auth-vuln',
+            exploitAgent: 'cli-auth-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'cli-auth-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'cli-auth-exploit'),
+          },
+          {
+            vulnType: 'cli-privesc',
+            vulnAgent: 'cli-privesc-vuln',
+            exploitAgent: 'cli-privesc-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'cli-privesc-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'cli-privesc-exploit'),
+          },
+        ];
+
+      case 'api':
+        return [
+          {
+            vulnType: 'injection',
+            vulnAgent: 'injection-vuln',
+            exploitAgent: 'injection-exploit',
+            runVuln: () => a.runInjectionVulnAgent(activityInput),
+            runExploit: () => a.runInjectionExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'api-auth',
+            vulnAgent: 'api-auth-vuln',
+            exploitAgent: 'api-auth-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'api-auth-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'api-auth-exploit'),
+          },
+          {
+            vulnType: 'api-bola',
+            vulnAgent: 'api-bola-vuln',
+            exploitAgent: 'api-bola-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'api-bola-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'api-bola-exploit'),
+          },
+          {
+            vulnType: 'ssrf',
+            vulnAgent: 'ssrf-vuln',
+            exploitAgent: 'ssrf-exploit',
+            runVuln: () => a.runSsrfVulnAgent(activityInput),
+            runExploit: () => a.runSsrfExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'api-input-validation',
+            vulnAgent: 'api-input-validation-vuln',
+            exploitAgent: 'api-input-validation-exploit',
+            runVuln: () => a.runGenericAgent(activityInput, 'api-input-validation-vuln'),
+            runExploit: () => a.runGenericAgent(activityInput, 'api-input-validation-exploit'),
+          },
+        ];
+
+      case 'web':
+      default:
+        return [
+          {
+            vulnType: 'injection',
+            vulnAgent: 'injection-vuln',
+            exploitAgent: 'injection-exploit',
+            runVuln: () => a.runInjectionVulnAgent(activityInput),
+            runExploit: () => a.runInjectionExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'xss',
+            vulnAgent: 'xss-vuln',
+            exploitAgent: 'xss-exploit',
+            runVuln: () => a.runXssVulnAgent(activityInput),
+            runExploit: () => a.runXssExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'auth',
+            vulnAgent: 'auth-vuln',
+            exploitAgent: 'auth-exploit',
+            runVuln: () => a.runAuthVulnAgent(activityInput),
+            runExploit: () => a.runAuthExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'ssrf',
+            vulnAgent: 'ssrf-vuln',
+            exploitAgent: 'ssrf-exploit',
+            runVuln: () => a.runSsrfVulnAgent(activityInput),
+            runExploit: () => a.runSsrfExploitAgent(activityInput),
+          },
+          {
+            vulnType: 'authz',
+            vulnAgent: 'authz-vuln',
+            exploitAgent: 'authz-exploit',
+            runVuln: () => a.runAuthzVulnAgent(activityInput),
+            runExploit: () => a.runAuthzExploitAgent(activityInput),
+          },
+        ];
+    }
   }
 
   // Aggregate results from settled pipeline promises into workflow state
@@ -387,7 +474,7 @@ export async function pentestPipelineWorkflow(
 
     // Closure over shouldSkip and activityInput by design (Temporal replay safety)
     async function runVulnExploitPipeline(
-      vulnType: VulnType,
+      vulnType: string,
       runVulnAgent: () => Promise<AgentMetrics>,
       runExploitAgent: () => Promise<AgentMetrics>
     ): Promise<VulnExploitPipelineResult> {

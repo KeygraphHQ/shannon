@@ -1,0 +1,35 @@
+# Example API target configuration
+# Use this when testing REST/GraphQL API services
+
+target_type: api
+
+api_target:
+  base_url: "https://api.example.com"
+  auth_method: bearer                  # Options: bearer, api_key, oauth2, basic, none
+  auth_token: "your-api-token-here"
+  auth_header: "Authorization"         # Default header for auth
+  openapi_spec: "./openapi.yaml"       # Optional: OpenAPI spec for endpoint discovery
+  # graphql_endpoint: "/graphql"       # Uncomment for GraphQL APIs
+
+rules:
+  avoid:
+    - description: "Do not test the health check endpoint"
+      type: endpoint
+      url_path: "/health"
+
+    - description: "Skip webhook delivery endpoints"
+      type: endpoint
+      url_path: "/api/webhooks/deliver"
+
+  focus:
+    - description: "Focus on user management API"
+      type: endpoint
+      url_path: "/api/v2/users/*"
+
+    - description: "Test payment processing endpoints"
+      type: endpoint
+      url_path: "/api/v2/payments/*"
+
+# Pipeline settings (optional)
+# pipeline:
+#   max_concurrent_pipelines: 3

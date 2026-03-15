@@ -14,6 +14,8 @@ interface PromptVariables {
   webUrl: string;
   repoPath: string;
   MCP_SERVER?: string;
+  /** CLI command for CLI target prompts */
+  CLI_COMMAND?: string;
 }
 
 interface IncludeReplacement {
@@ -158,7 +160,8 @@ async function interpolateVariables(
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
-      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1');
+      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1')
+      .replace(/{{CLI_COMMAND}}/g, variables.CLI_COMMAND || variables.webUrl);
 
     if (config) {
       // Handle rules section - if both are empty, use cleaner messaging
@@ -240,13 +243,21 @@ export async function loadPrompt(
       );
     }
 
-    // 2. Assign MCP server based on agent name
+    // 2. Assign MCP server based on agent name and populate CLI variables
     const enhancedVariables: PromptVariables = { ...variables };
+
+    // Populate CLI_COMMAND from config if available
+    if (config?.cliTarget?.command) {
+      enhancedVariables.CLI_COMMAND = config.cliTarget.command;
+    }
 
     const mcpServer = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING];
     if (mcpServer) {
       enhancedVariables.MCP_SERVER = mcpServer;
       logger.info(`Assigned ${promptName} -> ${enhancedVariables.MCP_SERVER}`);
+    } else if (promptName.startsWith('vuln-cli-') || promptName.startsWith('exploit-cli-')) {
+      // CLI agents don't use Playwright MCP — they use Bash tool + shannon-helper
+      logger.info(`CLI agent ${promptName} does not use Playwright MCP`);
     } else {
       enhancedVariables.MCP_SERVER = 'playwright-agent1';
       logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.MCP_SERVER}`);

@@ -1,0 +1,2 @@
+CLI Target: {{CLI_COMMAND}}
+Repository: {{REPO_PATH}}

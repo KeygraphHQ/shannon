@@ -34,6 +34,7 @@ import { readJson, fileExists } from '../utils/file-io.js';
 import path from 'path';
 import { parseConfig } from '../config-parser.js';
 import type { PipelineConfig } from '../types/config.js';
+import type { TargetType } from '../types/agents.js';
 // Import types only - these don't pull in workflow runtime code
 import type { PipelineInput, PipelineState, PipelineProgress } from './shared.js';
 
@@ -128,6 +129,7 @@ function showUsage(): void {
   console.log('Options:');
   console.log('  --config <path>       Configuration file path');
   console.log('  --output <path>       Output directory for audit logs');
+  console.log('  --target <type>       Target type: web (default), cli, or api');
   console.log('  --pipeline-testing    Use minimal prompts for fast testing');
   console.log('  --workspace <name>    Resume from existing workspace');
   console.log(
@@ -153,6 +155,7 @@ interface CliArgs {
   customWorkflowId?: string;
   waitForCompletion: boolean;
   resumeFromWorkspace?: string;
+  targetType?: string;
 }
 
 function parseCliArgs(argv: string[]): CliArgs {
@@ -170,6 +173,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   let customWorkflowId: string | undefined;
   let waitForCompletion = false;
   let resumeFromWorkspace: string | undefined;
+  let targetType: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -199,6 +203,17 @@ function parseCliArgs(argv: string[]): CliArgs {
       }
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
+    } else if (arg === '--target') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        const validTargets = ['web', 'cli', 'api'];
+        if (!validTargets.includes(nextArg)) {
+          console.error(`Error: Invalid target type "${nextArg}". Must be one of: ${validTargets.join(', ')}`);
+          process.exit(1);
+        }
+        targetType = nextArg;
+        i++;
+      }
     } else if (arg === '--workspace') {
       const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
@@ -229,6 +244,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     ...(displayOutputPath && { displayOutputPath }),
     ...(customWorkflowId && { customWorkflowId }),
     ...(resumeFromWorkspace && { resumeFromWorkspace }),
+    ...(targetType && { targetType }),
   };
 }
 
@@ -344,6 +360,7 @@ function buildPipelineInput(
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
     ...(Object.keys(pipelineConfig).length > 0 && { pipelineConfig }),
+    ...(args.targetType && { targetType: args.targetType as TargetType }),
   };
 }
 
@@ -363,6 +380,9 @@ function displayWorkflowInfo(args: CliArgs, workspace: WorkspaceResolution): voi
   }
   if (args.displayOutputPath) {
     console.log(`  Output:     ${args.displayOutputPath}`);
+  }
+  if (args.targetType) {
+    console.log(`  Target:     ${args.targetType.toUpperCase()}`);
   }
   if (args.pipelineTestingMode) {
     console.log(`  Mode:       Pipeline Testing`);

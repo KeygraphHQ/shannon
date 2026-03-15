@@ -3,6 +3,7 @@ import { defineQuery } from '@temporalio/workflow';
 export type { AgentMetrics } from '../types/metrics.js';
 import type { AgentMetrics } from '../types/metrics.js';
 import type { PipelineConfig } from '../types/config.js';
+import type { TargetType } from '../types/agents.js';
 
 export interface PipelineInput {
   webUrl: string;
@@ -15,6 +16,7 @@ export interface PipelineInput {
   sessionId?: string; // Workspace directory name (distinct from workflowId for named workspaces)
   resumeFromWorkspace?: string; // Workspace name to resume from
   terminatedWorkflows?: string[]; // Workflows terminated during resume
+  targetType?: TargetType; // Target type (web, cli, api). Defaults to 'web'.
 }
 
 export interface ResumeState {

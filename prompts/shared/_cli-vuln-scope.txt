@@ -1,0 +1,8 @@
+**CLI/TUI APPLICATION SCOPE:** Only report vulnerabilities exploitable via the CLI interface of {{CLI_COMMAND}}. Analyze both the source code (white-box) and the runtime behavior of the CLI. Focus on:
+- Command-line argument parsing and injection
+- Standard input (stdin) handling and injection
+- Environment variable manipulation
+- Configuration file parsing vulnerabilities
+- Subcommand routing and privilege boundaries
+- File path handling and traversal
+- Signal handling and race conditions

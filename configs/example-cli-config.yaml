@@ -1,0 +1,43 @@
+# Example CLI/TUI target configuration
+# Use this when testing command-line applications
+
+target_type: cli
+
+cli_target:
+  command: "my-cli"                    # The CLI binary to test
+  working_directory: "/app"            # Optional: working directory
+  subcommands:                         # Subcommands to focus testing on
+    - "deploy"
+    - "config"
+    - "auth"
+  accepts_stdin: true                  # CLI accepts piped input
+  ai_powered: true                     # Enable prompt injection testing
+  config_files:                        # Config files the CLI reads
+    - "~/.my-cli/config.yaml"
+    - ".my-cli.json"
+  env_vars:                            # Environment variables for testing
+    MY_CLI_DEBUG: "true"
+
+rules:
+  avoid:
+    - description: "Do not test the uninstall command"
+      type: command
+      url_path: "uninstall"
+
+    - description: "Skip destructive database operations"
+      type: command
+      url_path: "db:drop"
+
+  focus:
+    - description: "Focus on the deploy subcommand (handles user input)"
+      type: command
+      url_path: "deploy"
+
+    - description: "Test the config import feature (reads external files)"
+      type: argument
+      url_path: "--config-file"
+
+# Pipeline settings (optional)
+# pipeline:
+#   retry_preset: subscription
+#   max_concurrent_pipelines: 3
