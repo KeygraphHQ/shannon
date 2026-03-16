@@ -24,7 +24,7 @@ export interface Rules {
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
 
 export interface SuccessCondition {
-  type: 'url' | 'cookie' | 'element' | 'redirect';
+  type: 'url_contains' | 'element_present' | 'url_equals_exactly' | 'text_contains';
   value: string;
 }
 
@@ -38,7 +38,7 @@ export interface Authentication {
   login_type: LoginType;
   login_url: string;
   credentials: Credentials;
-  login_flow: string[];
+  login_flow?: string[];
   success_condition: SuccessCondition;
 }
 
