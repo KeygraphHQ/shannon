@@ -9,7 +9,7 @@ on:
         type: string
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: rollback-latest-${{ github.event.inputs.version }}
@@ -17,7 +17,7 @@ concurrency:
 
 jobs:
   rollback:
-    name: Roll back npm and Docker latest
+    name: Roll back npm, Docker, and GitHub release latest
     runs-on: ubuntu-latest
     environment: release-rollback
 
@@ -105,6 +105,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ROLLBACK_TOKEN }}
         run: npm dist-tag add "@keygraph/shannon@${{ steps.target.outputs.version }}" latest
 
+      - name: Mark GitHub release as latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ steps.target.outputs.version }}" --latest
+
       - name: Show final npm dist-tags
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_ROLLBACK_TOKEN }}
@@ -121,4 +126,5 @@ jobs:
             echo "- Target version: \`${{ steps.target.outputs.version }}\`"
             echo "- npm package: \`@keygraph/shannon\`"
             echo "- Docker image: \`keygraph/shannon\`"
+            echo "- GitHub release: \`v${{ steps.target.outputs.version }}\` marked as latest"
           } >> "$GITHUB_STEP_SUMMARY"
