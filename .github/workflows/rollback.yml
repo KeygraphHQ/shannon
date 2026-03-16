@@ -69,7 +69,7 @@ jobs:
 
       - name: Show current npm dist-tags
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_ROLLBACK_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm dist-tag ls @keygraph/shannon
 
       - name: Set up Docker Buildx
@@ -78,7 +78,7 @@ jobs:
       - name: Log in to Docker Hub
         uses: docker/login-action@v4
         with:
-          username: ${{ vars.DOCKERHUB_USERNAME }}
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Verify Docker image tag exists
@@ -102,7 +102,7 @@ jobs:
 
       - name: Move npm latest
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_ROLLBACK_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm dist-tag add "@keygraph/shannon@${{ steps.target.outputs.version }}" latest
 
       - name: Mark GitHub release as latest
@@ -112,7 +112,7 @@ jobs:
 
       - name: Show final npm dist-tags
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_ROLLBACK_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm dist-tag ls @keygraph/shannon
 
       - name: Verify Docker latest now points to target
