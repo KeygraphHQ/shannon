@@ -79,12 +79,15 @@ function loadTOML(): TOMLConfig | null {
   const configPath = getConfigFile();
   if (!fs.existsSync(configPath)) return null;
 
-  // Config contains secrets — refuse to read if group or others have any access
-  const mode = fs.statSync(configPath).mode;
-  if (mode & 0o077) {
-    const actual = (mode & 0o777).toString(8).padStart(3, '0');
-    console.error(`\nInsecure permissions (${actual}) on ${configPath}. Run: chmod 600 ${configPath}\n`);
-    process.exit(1);
+  // Config contains secrets — refuse to read if group or others have any access.
+  // Skip on Windows where POSIX permissions are not supported.
+  if (process.platform !== 'win32') {
+    const mode = fs.statSync(configPath).mode;
+    if (mode & 0o077) {
+      const actual = (mode & 0o777).toString(8).padStart(3, '0');
+      console.error(`\nInsecure permissions (${actual}) on ${configPath}. Run: chmod 600 ${configPath}\n`);
+      process.exit(1);
+    }
   }
 
   try {
