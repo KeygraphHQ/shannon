@@ -131,11 +131,10 @@ export function start(args: StartArgs): void {
         clearInterval(pollInterval);
         started = true;
 
-        // Extract workflow ID
-        const match = /^Workflow ID: (.+)$/m.exec(content);
-        if (match?.[1]) {
-          workflowId = match[1];
-        }
+        // Extract workflow ID (use latest resumed workflow ID, or original for fresh scans)
+        const resumeMatches = [...content.matchAll(/^New Workflow ID:\s+(.+)$/gm)];
+        const originalMatch = /^Workflow ID: (.+)$/m.exec(content);
+        workflowId = resumeMatches.at(-1)?.[1] ?? originalMatch?.[1] ?? '';
 
         // Clear waiting line and show info
         process.stdout.write('\r\x1b[K');
