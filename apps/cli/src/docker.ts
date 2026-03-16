@@ -263,7 +263,10 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   }
 
   // Prevent MSYS/Git Bash from converting Unix paths (e.g. /repos/my-repo) to Windows paths
-  return spawn('docker', args, { stdio: 'pipe', ...(os.platform() === 'win32' && { env: { ...process.env, MSYS_NO_PATHCONV: '1' } }) });
+  return spawn('docker', args, {
+    stdio: 'pipe',
+    ...(os.platform() === 'win32' && { env: { ...process.env, MSYS_NO_PATHCONV: '1' } }),
+  });
 }
 
 /**
