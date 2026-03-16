@@ -31,27 +31,30 @@ type UnlockFunction = () => void;
  * }
  * ```
  */
-// Promise-based mutex with queue semantics - safe for parallel agents on same session
+// Promise-based mutex with chained queue semantics - safe for parallel agents on same session
 export class SessionMutex {
-  // Map of sessionId -> Promise (represents active lock)
+  // Map of sessionId -> Promise (tail of the FIFO queue)
   private locks: Map<string, Promise<void>> = new Map();
 
-  // Wait for existing lock, then acquire. Queue ensures FIFO ordering.
+  // Chain onto the queue tail, then wait for predecessor to release. Guarantees FIFO ordering.
   async lock(sessionId: string): Promise<UnlockFunction> {
-    if (this.locks.has(sessionId)) {
-      // Wait for existing lock to be released
-      await this.locks.get(sessionId);
-    }
+    // 1. Capture the current tail of the queue
+    const prev = this.locks.get(sessionId) ?? Promise.resolve();
 
-    // Create new lock promise
+    // 2. Create our lock and immediately become the new tail
     let resolve: () => void;
     const promise = new Promise<void>((r) => (resolve = r));
     this.locks.set(sessionId, promise);
 
-    // Return unlock function
+    // 3. Wait for predecessor to release
+    await prev;
+
+    // 4. Return unlock that releases the next waiter in the chain
     return () => {
-      this.locks.delete(sessionId);
-      resolve?.();
+      if (this.locks.get(sessionId) === promise) {
+        this.locks.delete(sessionId);
+      }
+      resolve();
     };
   }
 }
