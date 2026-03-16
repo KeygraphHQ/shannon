@@ -56,22 +56,26 @@ jobs:
             echo "should_release=false" >> "$GITHUB_OUTPUT"
           fi
 
-  publish:
-    name: Publish Docker and npm
+  build-docker:
+    name: Build Docker (${{ matrix.platform }})
     needs: preflight
     if: needs.preflight.outputs.should_release == 'true'
-    runs-on: ubuntu-latest
     environment: release-publish
     permissions:
       contents: read
-      id-token: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v6
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -82,24 +86,78 @@ jobs:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push Docker image
+      - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
-          push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: ${{ matrix.platform }}
           provenance: mode=max
           sbom: true
-          tags: |
-            keygraph/shannon:${{ needs.preflight.outputs.version }}
-            keygraph/shannon:latest
+          outputs: type=image,name=keygraph/shannon,push-by-digest=true,name-canonical=true,push=true
+
+      - name: Export digest
+        run: |
+          mkdir -p /tmp/digests
+          digest="${{ steps.build.outputs.digest }}"
+          touch "/tmp/digests/${digest#sha256:}"
+
+      - name: Upload digest
+        uses: actions/upload-artifact@v6
+        with:
+          name: digests-${{ matrix.platform == 'linux/amd64' && 'amd64' || 'arm64' }}
+          path: /tmp/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  merge-docker:
+    name: Push Docker manifests
+    needs: [preflight, build-docker]
+    runs-on: ubuntu-latest
+    environment: release-publish
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      digest: ${{ steps.inspect.outputs.digest }}
+
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@v6
+        with:
+          path: /tmp/digests
+          pattern: digests-*
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Create manifest list and push
+        working-directory: /tmp/digests
+        run: |
+          docker buildx imagetools create \
+            --tag "keygraph/shannon:${{ needs.preflight.outputs.version }}" \
+            --tag "keygraph/shannon:latest" \
+            $(printf 'keygraph/shannon@sha256:%s ' *)
+
+      - name: Inspect image
+        id: inspect
+        run: |
+          docker buildx imagetools inspect "keygraph/shannon:${{ needs.preflight.outputs.version }}"
+          DIGEST="sha256:$(docker buildx imagetools inspect --raw "keygraph/shannon:${{ needs.preflight.outputs.version }}" | sha256sum | cut -d' ' -f1)"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
       - name: Install cosign
         uses: sigstore/cosign-installer@v4.1.0
 
       - name: Sign Docker image
-        run: cosign sign --yes keygraph/shannon@${{ steps.build.outputs.digest }}
+        run: cosign sign --yes "keygraph/shannon@${{ steps.inspect.outputs.digest }}"
 
       - name: Verify Docker image signature
         run: |
@@ -107,7 +165,19 @@ jobs:
           cosign verify \
             --certificate-oidc-issuer https://token.actions.githubusercontent.com \
             --certificate-identity https://github.com/${{ github.repository }}/.github/workflows/release.yml@${{ github.ref }} \
-            keygraph/shannon@${{ steps.build.outputs.digest }}
+            "keygraph/shannon@${{ steps.inspect.outputs.digest }}"
+
+  publish-npm:
+    name: Publish npm
+    needs: [preflight, merge-docker]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
 
       - name: Install pnpm
         uses: pnpm/action-setup@v4
@@ -142,7 +212,7 @@ jobs:
 
   release:
     name: Create GitHub release
-    needs: [preflight, publish]
+    needs: [preflight, publish-npm]
     runs-on: ubuntu-latest
     permissions:
       contents: write
