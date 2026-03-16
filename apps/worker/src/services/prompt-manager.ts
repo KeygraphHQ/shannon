@@ -123,6 +123,25 @@ async function processIncludes(content: string, baseDir: string): Promise<string
   return content;
 }
 
+function buildAuthContext(config: DistributedConfig | null): string {
+  if (!config?.authentication) {
+    return 'No authentication configured - unauthenticated testing only';
+  }
+
+  const auth = config.authentication;
+  const lines = [
+    `- Login type: ${auth.login_type.toUpperCase()}`,
+    `- Username: ${auth.credentials.username}`,
+    `- Login URL: ${auth.login_url}`,
+  ];
+
+  if (auth.credentials?.totp_secret) {
+    lines.push('- MFA: TOTP enabled');
+  }
+
+  return lines.join('\n');
+}
+
 // Pure function: Variable interpolation
 async function interpolateVariables(
   template: string,
@@ -147,7 +166,8 @@ async function interpolateVariables(
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
-      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1');
+      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1')
+      .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config));
 
     if (config) {
       // Handle rules section - if both are empty, use cleaner messaging
