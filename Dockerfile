@@ -123,9 +123,14 @@ RUN gem install addressable
 COPY --from=builder /usr/lib/python3.*/site-packages /usr/lib/python3.12/site-packages
 COPY --from=builder /usr/bin/schemathesis /usr/bin/
 
-# Create non-root user for security
+# Create non-root user
 RUN addgroup -g 1001 pentest && \
     adduser -u 1001 -G pentest -s /bin/bash -D pentest
+
+# System-level git config (survives UID remapping in entrypoint)
+RUN git config --system user.email "agent@localhost" && \
+    git config --system user.name "Pentest Agent" && \
+    git config --system --add safe.directory '*'
 
 # Set working directory
 WORKDIR /app
@@ -148,8 +153,8 @@ RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/workspaces && \
     chmod 777 /tmp/.npm && \
     chown -R pentest:pentest /app
 
-# Switch to non-root user
-USER pentest
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Set environment variables
 ENV NODE_ENV=production
@@ -162,9 +167,5 @@ ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache
 ENV XDG_CONFIG_HOME=/tmp/.config
 
-# Configure Git identity and trust all directories
-RUN git config --global user.email "agent@localhost" && \
-    git config --global user.name "Pentest Agent" && \
-    git config --global --add safe.directory '*'
-
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "apps/worker/dist/temporal/worker.js"]

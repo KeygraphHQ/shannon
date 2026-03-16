@@ -3,6 +3,7 @@
  */
 
 import { execFileSync } from 'node:child_process';
+import os from 'node:os';
 import { getWorkerImage } from '../docker.js';
 import { getWorkspacesDir } from '../home.js';
 
@@ -24,7 +25,7 @@ export function workspaces(version: string): void {
         'node',
         'apps/worker/dist/temporal/workspaces.js',
       ],
-      { stdio: 'inherit' },
+      { stdio: 'inherit', ...(os.platform() === 'win32' && { env: { ...process.env, MSYS_NO_PATHCONV: '1' } }) },
     );
   } catch {
     console.error('ERROR: Failed to list workspaces. Is the Docker image available?');
