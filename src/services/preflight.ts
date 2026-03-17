@@ -160,10 +160,35 @@ function classifySdkError(
 async function validateCredentials(
   logger: ActivityLogger
 ): Promise<Result<void, PentestError>> {
-  // 1. Router mode — can't validate provider keys, just warn
+  // 1. Custom base URL — validate endpoint is reachable via SDK query
   if (process.env.ANTHROPIC_BASE_URL) {
-    logger.warn('Router mode detected — skipping API credential validation');
-    return ok(undefined);
+    const baseUrl = process.env.ANTHROPIC_BASE_URL;
+    logger.info(`Validating custom base URL: ${baseUrl}`);
+
+    try {
+      for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
+        if (message.type === 'assistant' && message.error) {
+          return classifySdkError(message.error, `custom endpoint (${baseUrl})`);
+        }
+        if (message.type === 'result') {
+          break;
+        }
+      }
+
+      logger.info('Custom base URL OK');
+      return ok(undefined);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return err(
+        new PentestError(
+          `Custom base URL unreachable: ${baseUrl} — ${message}`,
+          'network',
+          false,
+          { baseUrl },
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
   }
 
   // 2. Bedrock mode — validate required AWS credentials are present
