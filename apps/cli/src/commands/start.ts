@@ -26,7 +26,7 @@ export interface StartArgs {
   version: string;
 }
 
-export function start(args: StartArgs): void {
+export async function start(args: StartArgs): Promise<void> {
   // 1. Initialize state directories and load env
   initHome();
   loadEnv();
@@ -57,7 +57,7 @@ export function start(args: StartArgs): void {
 
   // 6. Ensure image (auto-build in dev, pull in npx) and start infra
   ensureImage(args.version);
-  ensureInfra(useRouter);
+  await ensureInfra(useRouter);
 
   // 7. Generate unique task queue and container name
   const suffix = randomSuffix();

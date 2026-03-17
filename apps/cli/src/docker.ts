@@ -9,6 +9,7 @@ import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { getMode } from './mode.js';
 
@@ -78,7 +79,7 @@ function isRouterReady(): boolean {
  * Ensure Temporal (and optionally router) are running via compose.
  * If Temporal is already up but router is needed and missing, starts router only.
  */
-export function ensureInfra(useRouter: boolean): void {
+export async function ensureInfra(useRouter: boolean): Promise<void> {
   const temporalReady = isTemporalReady();
   const routerNeeded = useRouter && !isRouterReady();
 
@@ -110,7 +111,7 @@ export function ensureInfra(useRouter: boolean): void {
         console.error('Timeout waiting for Temporal');
         process.exit(1);
       }
-      execFileSync('sleep', ['2']);
+      await sleep(2000);
     }
   }
 
@@ -122,7 +123,7 @@ export function ensureInfra(useRouter: boolean): void {
         console.log('Router is ready!');
         return;
       }
-      execFileSync('sleep', ['2']);
+      await sleep(2000);
     }
     console.error('Timeout waiting for router');
     process.exit(1);

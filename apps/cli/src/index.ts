@@ -186,7 +186,7 @@ const command = args[0];
 switch (command) {
   case 'start': {
     const parsed = parseStartArgs(args.slice(1));
-    start({ ...parsed, version: getVersion() });
+    await start({ ...parsed, version: getVersion() });
     break;
   }
   case 'stop':
