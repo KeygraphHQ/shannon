@@ -126,6 +126,7 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - [Configuration (Optional)](#configuration-optional)
   - [AWS Bedrock](#aws-bedrock)
   - [Google Vertex AI](#google-vertex-ai)
+  - [Custom Base URL](#custom-base-url)
   - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
@@ -453,6 +454,33 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
+
+### Custom Base URL
+
+Shannon supports pointing the SDK at any Anthropic-compatible endpoint (proxies, gateways, etc.) via `ANTHROPIC_BASE_URL`.
+
+#### Quick Setup
+
+1. Add your endpoint and auth token to `.env`:
+
+```bash
+ANTHROPIC_BASE_URL=https://your-proxy.example.com
+ANTHROPIC_AUTH_TOKEN=your-auth-token
+```
+
+2. Optionally override model tiers (defaults are used if not set):
+
+```bash
+ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
+ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+```
+
+3. Run Shannon as usual:
+
+```bash
+./shannon start URL=https://example.com REPO=repo-name
+```
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 

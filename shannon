@@ -142,9 +142,12 @@ cmd_start() {
     exit 1
   fi
 
-  # Check for API key (Bedrock and router modes can bypass this)
+  # Check for API key (Bedrock, Vertex, router, and custom base URL modes can bypass this)
   if [ -z "$ANTHROPIC_API_KEY" ] && [ -z "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
-    if [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
+    if [ -n "$ANTHROPIC_BASE_URL" ] && [ -n "$ANTHROPIC_AUTH_TOKEN" ]; then
+      # Custom base URL mode — use auth token as API key for SDK initialization
+      echo "Using custom base URL: $ANTHROPIC_BASE_URL"
+    elif [ "$CLAUDE_CODE_USE_BEDROCK" = "1" ]; then
       # Bedrock mode — validate required AWS credentials
       MISSING=""
       [ -z "$AWS_REGION" ] && MISSING="$MISSING AWS_REGION"
