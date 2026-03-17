@@ -103,15 +103,26 @@ export async function start(args: StartArgs): Promise<void> {
     ...(args.pipelineTesting && { pipelineTesting: true }),
   });
 
-  // 14. Wait for workflow.log to appear, then display info
-  const workflowLog = path.join(workspacesDir, workspace, 'workflow.log');
-
+  // 14. Wait for workflow to register, then display info
   proc.on('error', (err) => {
     console.error(`Failed to start worker: ${err.message}`);
     process.exit(1);
   });
 
-  // Poll for workflow.log header
+  // Detect whether this is a fresh workspace or a resume by checking session.json existence
+  const sessionJson = path.join(workspacesDir, workspace, 'session.json');
+  const isResume = fs.existsSync(sessionJson);
+  let initialResumeCount = 0;
+  if (isResume) {
+    try {
+      const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
+      initialResumeCount = session.session?.resumeAttempts?.length ?? 0;
+    } catch {
+      // Corrupted file — worker will handle validation
+    }
+  }
+
+  // Poll for workflow to register in session.json
   process.stdout.write('Waiting for workflow to start...');
   let workflowId = '';
   let started = false;
@@ -126,15 +137,20 @@ export async function start(args: StartArgs): Promise<void> {
     }
 
     try {
-      const content = fs.readFileSync(workflowLog, 'utf-8');
-      if (content.includes('====')) {
+      const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
+      const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
+
+      // Fresh: session.json appears with originalWorkflowId. Resume: new resumeAttempts entry.
+      const ready = isResume
+        ? resumeAttempts.length > initialResumeCount
+        : !!session.session?.originalWorkflowId;
+
+      if (ready) {
         clearInterval(pollInterval);
         started = true;
 
-        // Extract workflow ID (use latest resumed workflow ID, or original for fresh scans)
-        const resumeMatches = [...content.matchAll(/^New Workflow ID:\s+(.+)$/gm)];
-        const originalMatch = /^Workflow ID: (.+)$/m.exec(content);
-        workflowId = resumeMatches.at(-1)?.[1] ?? originalMatch?.[1] ?? '';
+        // Latest workflow ID: last resume attempt, or originalWorkflowId for fresh scans
+        workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
 
         // Clear waiting line and show info
         process.stdout.write('\r\x1b[K');
