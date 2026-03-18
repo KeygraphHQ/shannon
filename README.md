@@ -247,7 +247,6 @@ shannon workspaces
 
 # Image management
 shannon build --no-cache             # local only — rebuild worker image
-shannon update                       # npx only — pull latest image from Docker Hub
 ```
 
 ### Workspaces and Resuming

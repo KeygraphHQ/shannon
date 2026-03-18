@@ -293,22 +293,6 @@ export function stopInfra(clean: boolean): void {
 }
 
 /**
- * Pull the worker image matching the current CLI version.
- */
-export function pullImage(version: string): void {
-  const image = getWorkerImage(version);
-  console.log(`Pulling ${image}...`);
-  try {
-    execFileSync('docker', ['pull', image], { stdio: 'inherit' });
-  } catch {
-    console.error(`\nERROR: Failed to pull ${image}`);
-    console.error('Check https://hub.docker.com/r/keygraph/shannon for available tags.');
-    process.exit(1);
-  }
-  pruneOldImages(version);
-}
-
-/**
  * Remove old keygraph/shannon images that don't match the current version.
  */
 function pruneOldImages(currentVersion: string): void {

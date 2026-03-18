@@ -19,7 +19,6 @@ import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
-import { update } from './commands/update.js';
 import { workspaces } from './commands/workspaces.js';
 import { getMode } from './mode.js';
 import { displaySplash } from './splash.js';
@@ -58,7 +57,6 @@ Usage:${
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
       : `
-  ${prefix} update                                       Pull latest image
   ${prefix} uninstall                                    Remove ~/.shannon/ and all data`
   }
   ${prefix} info                                         Show splash screen
@@ -217,9 +215,6 @@ switch (command) {
     break;
   case 'build':
     build(args.includes('--no-cache'));
-    break;
-  case 'update':
-    update(getVersion());
     break;
   case 'uninstall':
     if (getMode() === 'local') {
