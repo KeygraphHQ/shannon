@@ -68,7 +68,7 @@ Shannon is developed by [Keygraph](https://keygraph.io) and available in two edi
 > **This repository contains Shannon Lite,** the core autonomous AI pentesting framework. **Shannon Pro** is Keygraph's all-in-one AppSec platform, combining SAST, SCA, secrets scanning, business logic security testing, and autonomous AI pentesting in a single correlated workflow. Every finding is validated with a working proof-of-concept exploit.
 
 > [!IMPORTANT]
-> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.  
+> **White-box only.** Shannon Lite is designed for **white-box (source-available)** application security testing.
 > It expects access to your application's source code and repository layout.
 
 ### Shannon Pro: Architecture Overview
@@ -395,7 +395,7 @@ pipeline:
 
 Shannon also supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) instead of using an Anthropic API key.
 
-#### Quick Setup
+#### Quick Setup (Bedrock API key)
 
 1. Add your AWS credentials to `.env`:
 
@@ -416,7 +416,60 @@ ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 ./shannon start URL=https://example.com REPO=repo-name
 ```
 
-Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
+Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region, or to an [application inference profile ARN](https://docs.aws.amazon.com/bedrock/latest/userguide/applications.html) if you are using Bedrock applications.
+
+#### Using AWS SSO / IAM credentials (no Bedrock API key)
+
+Some organizations prefer to use AWS IAM Identity Center (SSO) or short-lived STS credentials instead of Bedrock API keys. Shannon forwards standard AWS credential environment variables through to Claude Code, so you can:
+
+**Option A: Manual Setup**
+
+1. Log in with AWS SSO and obtain temporary credentials:
+
+```bash
+aws sso login --profile <your-profile-name>
+aws configure export-credentials --profile <your-profile-name> --format env
+```
+
+2. Export those credentials into your shell before running Shannon:
+
+```bash
+CLAUDE_CODE_USE_BEDROCK=1
+AWS_REGION=us-west-2
+
+# Point model tiers at your Bedrock model or application inference profile ARN
+ANTHROPIC_SMALL_MODEL=arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/your-profile
+ANTHROPIC_MEDIUM_MODEL=arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/your-profile
+ANTHROPIC_LARGE_MODEL=arn:aws:bedrock:us-west-2:123456789012:application-inference-profile/your-profile
+
+# Short-lived AWS credentials from SSO / STS
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_SESSION_TOKEN=...
+AWS_DEFAULT_REGION=us-west-2
+```
+
+**Option B: Automated Script (Recommended)**
+
+Use the provided helper script to automatically fetch and export AWS credentials via SSO into your current shell:
+
+```bash
+# Source the script to load temporary credentials into your shell
+# (must use 'source', not './script.sh')
+source ./scripts/bedrock-sso-login.sh <your-profile-name>
+
+# The script will:
+# 1. Log in with AWS SSO (if not already cached)
+# 2. Export temporary credentials into your current shell
+# 3. Display confirmation message
+
+# Now run Shannon as usual (credentials are already in your shell)
+./shannon start URL=https://example.com REPO=repo-name
+```
+
+**Note:** The script must be **sourced** (not executed) so that the exported AWS credentials (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`, `AWS_DEFAULT_REGION`) remain in your current shell session. If no profile name is provided, it fallback to default profile.
+
+Claude Code will then authenticate to Bedrock using these IAM credentials while still respecting the model IDs you configured for each tier.
 
 ### Google Vertex AI
 
@@ -732,7 +785,7 @@ Book a free 15-min session for hands-on help with bugs, deployments, or config q
 
 💬 [Join our Discord](https://discord.gg/cmctpMBXwE) to ask questions, share feedback, and connect with other Shannon users.
 
-**Contributing:** At this time, we're not accepting external code contributions (PRs).  
+**Contributing:** At this time, we're not accepting external code contributions (PRs).
 Issues are welcome for bug reports and feature requests.
 
 - 🐛 **Report bugs** via [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)

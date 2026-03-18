@@ -193,7 +193,7 @@ async function validateCredentials(
 
   // 2. Bedrock mode — validate required AWS credentials are present
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
-    const required = ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
+    const required = ['AWS_REGION', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
     const missing = required.filter(v => !process.env[v]);
     if (missing.length > 0) {
       return err(
@@ -206,7 +206,21 @@ async function validateCredentials(
         )
       );
     }
-    logger.info('Bedrock credentials OK');
+    // Require either a Bedrock API key or SSO/IAM credentials
+    const hasBearerToken = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+    const hasIamCreds = !!process.env.AWS_ACCESS_KEY_ID && !!process.env.AWS_SECRET_ACCESS_KEY;
+    if (!hasBearerToken && !hasIamCreds) {
+      return err(
+        new PentestError(
+          'Bedrock mode requires either AWS_BEARER_TOKEN_BEDROCK (API key) or AWS_ACCESS_KEY_ID + AWS_SECRET_ACCESS_KEY + AWS_SESSION_TOKEN (SSO/IAM). For SSO: source ./scripts/bedrock-sso-login.sh <profile-name>',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED
+        )
+      );
+    }
+    logger.info(`Bedrock credentials OK (${hasBearerToken ? 'API key' : 'IAM/SSO'})`);
     return ok(undefined);
   }
 
