@@ -13,7 +13,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'bedrock' | 'vertex' | 'router';
+type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex' | 'router';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -23,6 +23,7 @@ export async function setup(): Promise<void> {
     message: 'Select your AI provider',
     options: [
       { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
+      { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
       { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
       { value: 'router' as const, label: 'Router', hint: 'experimental' },
@@ -44,6 +45,8 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
   switch (provider) {
     case 'anthropic':
       return setupAnthropic();
+    case 'custom_base_url':
+      return setupCustomBaseUrl();
     case 'bedrock':
       return setupBedrock();
     case 'vertex':
@@ -74,6 +77,66 @@ async function setupAnthropic(): Promise<ShannonConfig> {
     const apiKey = await promptSecret('Enter your Anthropic API key');
     config.anthropic = { api_key: apiKey };
   }
+
+  const customizeModels = await p.confirm({
+    message:
+      'Do you want to change the default models?\n' +
+      '    Small  - claude-haiku-4-5-20251001\n' +
+      '    Medium - claude-sonnet-4-6\n' +
+      '    Large  - claude-opus-4-6',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    const small = await p.text({
+      message: 'Small model ID',
+      initialValue: 'claude-haiku-4-5-20251001',
+      validate: required('Small model ID is required'),
+    });
+    if (p.isCancel(small)) return cancelAndExit();
+
+    const medium = await p.text({
+      message: 'Medium model ID',
+      initialValue: 'claude-sonnet-4-6',
+      validate: required('Medium model ID is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+
+    const large = await p.text({
+      message: 'Large model ID',
+      initialValue: 'claude-opus-4-6',
+      validate: required('Large model ID is required'),
+    });
+    if (p.isCancel(large)) return cancelAndExit();
+
+    config.models = { small, medium, large };
+  }
+
+  return config;
+}
+
+async function setupCustomBaseUrl(): Promise<ShannonConfig> {
+  const baseUrl = await p.text({
+    message: 'Endpoint URL',
+    placeholder: 'https://your-proxy.example.com',
+    validate: (value) => {
+      if (!value) return 'Endpoint URL is required';
+      try {
+        new URL(value);
+      } catch {
+        return 'Must be a valid URL';
+      }
+      return undefined;
+    },
+  });
+  if (p.isCancel(baseUrl)) return cancelAndExit();
+
+  const authToken = await promptSecret('Enter the auth token for the custom endpoint');
+
+  const config: ShannonConfig = {
+    custom_base_url: { base_url: baseUrl, auth_token: authToken },
+  };
 
   const customizeModels = await p.confirm({
     message:

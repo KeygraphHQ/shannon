@@ -196,8 +196,8 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
           'network',
           false,
           { baseUrl },
-          ErrorCode.AUTH_FAILED
-        )
+          ErrorCode.AUTH_FAILED,
+        ),
       );
     }
   }

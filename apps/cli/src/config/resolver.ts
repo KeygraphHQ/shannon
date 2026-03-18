@@ -40,6 +40,10 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_VERTEX_PROJECT_ID', toml: 'vertex.project_id', type: 'string' },
   { env: 'GOOGLE_APPLICATION_CREDENTIALS', toml: 'vertex.key_path', type: 'string' },
 
+  // Custom Base URL
+  { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
+  { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
+
   // Router
   { env: 'ROUTER_DEFAULT', toml: 'router.default', type: 'string' },
   { env: 'OPENAI_API_KEY', toml: 'router.openai_key', type: 'string' },
@@ -132,6 +136,15 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
         errors.push('[anthropic] requires either api_key or oauth_token');
       }
       break;
+
+    case 'custom_base_url': {
+      const required = ['base_url', 'auth_token'];
+      const missing = required.filter((k) => !keys.includes(k));
+      if (missing.length > 0) {
+        errors.push(`[custom_base_url] missing required keys: ${missing.join(', ')}`);
+      }
+      break;
+    }
 
     case 'bedrock': {
       const required = ['use', 'region', 'token'];
@@ -229,7 +242,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'bedrock', 'vertex', 'router'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex', 'router'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

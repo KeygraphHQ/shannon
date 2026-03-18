@@ -64,7 +64,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'bedrock' | 'vertex' | 'router';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'router';
 }
 
 /** Check if router credentials are present in the environment. */
@@ -72,11 +72,17 @@ export function isRouterConfigured(): boolean {
   return !!(process.env.ROUTER_DEFAULT && (process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY));
 }
 
+/** Check if a custom Anthropic-compatible base URL is configured. */
+function isCustomBaseUrlConfigured(): boolean {
+  return !!(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN);
+}
+
 /** Detect which providers are configured via environment variables. */
 function detectProviders(): string[] {
   const providers: string[] = [];
   if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
+  if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
   if (process.env.CLAUDE_CODE_USE_VERTEX === '1') providers.push('Google Vertex');
   if (isRouterConfigured()) providers.push('Router');
@@ -102,6 +108,11 @@ export function validateCredentials(): CredentialValidation {
   }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return { valid: true, mode: 'oauth' };
+  }
+  if (isCustomBaseUrlConfigured()) {
+    // Set auth token as API key so the SDK can initialize
+    process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
+    return { valid: true, mode: 'custom-base-url' };
   }
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
     const missing: string[] = [];
