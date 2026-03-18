@@ -118,17 +118,17 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 - [Product Line](#-product-line)
 - [Setup & Usage Instructions](#-setup--usage-instructions)
   - [Prerequisites](#prerequisites)
-  - [Quick Start (npx)](#quick-start-npx--no-clone-required)
-  - [Quick Start (Clone & Build)](#quick-start-clone--build)
-  - [Monitoring Progress](#monitoring-progress)
-  - [Stopping Shannon](#stopping-shannon)
-  - [Usage Examples](#usage-examples)
+  - [Quick Start (Recommended: npx)](#quick-start-recommended-npx)
+  - [Clone and Build](#clone-and-build)
+  - [Prepare Your Repository](#prepare-your-repository)
+  - [Common Commands](#common-commands)
   - [Workspaces and Resuming](#workspaces-and-resuming)
-  - [Configuration (Optional)](#configuration-optional)
+  - [Credentials and Configuration](#credentials-and-configuration)
   - [AWS Bedrock](#aws-bedrock)
   - [Google Vertex AI](#google-vertex-ai)
   - [Custom Base URL](#custom-base-url)
-  - [[EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)](#experimental---unsupported-router-mode-alternative-providers)
+  - [Router Mode](#experimental---unsupported-router-mode-alternative-providers)
+  - [Platform-Specific Instructions](#platform-specific-instructions)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#-sample-reports)
 - [Benchmark](#-benchmark)
@@ -146,7 +146,8 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 ### Prerequisites
 
 - **Docker** - Container runtime ([Install Docker](https://docs.docker.com/get-docker/))
-- **Node.js 18+** - Required for npx mode ([Install Node.js](https://nodejs.org/))
+- **Node.js 18+** - Required for `npx` usage ([Install Node.js](https://nodejs.org/))
+- **pnpm** - Required for Clone and Build mode ([Install pnpm](https://pnpm.io/installation))
 - **AI Provider Credentials** (choose one):
   - **Anthropic API key** (recommended) - Get from [Anthropic Console](https://console.anthropic.com)
   - **Claude Code OAuth token**
@@ -154,13 +155,13 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
-### Quick Start (npx — no clone required)
+### Quick Start (Recommended: npx)
 
 ```bash
 # 1. Configure credentials (interactive wizard — one-time setup)
 npx @keygraph/shannon setup
 
-# Or export env vars directly (non-interactive / CI)
+# Or export env vars directly
 export ANTHROPIC_API_KEY=your-api-key
 
 # 2. Run a pentest
@@ -169,7 +170,9 @@ npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
 
 Shannon will pull the worker image from Docker Hub, start the infrastructure, and launch an ephemeral worker container for the scan.
 
-### Quick Start (Clone & Build)
+### Clone and Build
+
+Use this if you want to run Shannon from a local clone, modify Shannon itself, or keep the worker image built locally.
 
 ```bash
 # 1. Clone Shannon
@@ -188,73 +191,129 @@ EOF
 export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKEN
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
 
-# 3. Build and run a pentest
-./shannon build
-./shannon start -u https://your-app.com -r your-repo
+# 3. Install dependencies and build
+pnpm install
+pnpm build
+
+# 4. Run a pentest
+./shannon start -u https://your-app.com -r /path/to/your-repo
 ```
 
 Shannon will build the worker image locally, start the infrastructure, and launch an ephemeral worker container for the scan.
 
-> [!TIP]
-> **Command shorthand:** All examples below use bare `shannon`. Replace with `./shannon` (local) or `npx @keygraph/shannon` (npx) based on your setup.
+### Prepare Your Repository
 
-### Monitoring Progress
+Shannon can scan any repository on your machine. Pass an absolute or relative path with `-r`.
+
+Examples:
 
 ```bash
-# Tail workflow logs
-shannon logs <workspace>
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo
+```
 
-# Show running workers
-shannon status
+<details>
+<summary>Clone and Build command equivalents</summary>
 
-# Open the Temporal Web UI for detailed monitoring
+```bash
+./shannon start -u https://example.com -r ./relative/path
+```
+
+</details>
+
+### Common Commands
+
+#### Monitoring Progress
+
+```bash
+npx @keygraph/shannon logs <workspace>
+npx @keygraph/shannon status
+```
+
+Open the Temporal Web UI for detailed monitoring:
+
+```bash
 open http://localhost:8233
 ```
 
-### Stopping Shannon
+<details>
+<summary>Clone and Build command equivalents</summary>
 
 ```bash
-# Stop all containers (preserves workflow data)
-shannon stop
-
-# Full cleanup — removes Temporal volumes (confirms first)
-shannon stop --clean
-
-# Remove ~/.shannon/ and all data (npx only, confirms first)
-shannon uninstall
+./shannon logs <workspace>
+./shannon status
 ```
 
-### Usage Examples
+</details>
+
+#### Stopping Shannon
+
+```bash
+npx @keygraph/shannon stop
+npx @keygraph/shannon stop --clean
+npx @keygraph/shannon uninstall
+```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+./shannon stop
+./shannon stop --clean
+```
+
+</details>
+
+#### Usage Examples
 
 ```bash
 # Basic pentest
-shannon start -u https://example.com -r repo-name
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo
 
 # With a configuration file
-shannon start -u https://example.com -r repo-name -c ./configs/my-config.yaml
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
 
 # Custom output directory
-shannon start -u https://example.com -r repo-name -o ./my-reports
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -o ./my-reports
 
 # Named workspace
-shannon start -u https://example.com -r repo-name -w q1-audit
-
-# Any repo path (not just ./repos/)
-shannon start -u https://example.com -r /path/to/repo
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 
 # List all workspaces
-shannon workspaces
-
-# Image management
-shannon build --no-cache             # local only — rebuild worker image
+npx @keygraph/shannon workspaces
 ```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+# Basic pentest
+./shannon start -u https://example.com -r /path/to/repo
+
+# With a configuration file
+./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
+
+# Custom output directory
+./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
+
+# Named workspace
+./shannon start -u https://example.com -r /path/to/repo -w q1-audit
+
+# List all workspaces
+./shannon workspaces
+
+# Rebuild worker image
+./shannon build --no-cache
+```
+
+</details>
 
 ### Workspaces and Resuming
 
 Shannon supports **workspaces** that allow you to resume interrupted or failed runs without re-running completed agents.
 
 **How it works:**
-- Every run creates a workspace (auto-named by default, e.g. `example-com_shannon-1771007534808`)
+
+- Every run creates a workspace (auto-named by default, for example `example-com_shannon-1771007534808`)
 - Workspaces are stored in `./workspaces/` (local mode) or `~/.shannon/workspaces/` (npx mode)
 - Use `-w <name>` to give your run a custom name for easier reference
 - To resume any run, pass its workspace name via `-w` — Shannon detects which agents completed successfully and picks up where it left off
@@ -262,137 +321,62 @@ Shannon supports **workspaces** that allow you to resume interrupted or failed r
 
 ```bash
 # Start with a named workspace
-shannon start -u https://example.com -r repo-name -w my-audit
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w my-audit
 
 # Resume the same workspace (skips completed agents)
-shannon start -u https://example.com -r repo-name -w my-audit
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w my-audit
 
 # Resume an auto-named workspace from a previous run
-shannon start -u https://example.com -r repo-name -w example-com_shannon-1771007534808
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
 
 # List all workspaces and their status
-shannon workspaces
+npx @keygraph/shannon workspaces
 ```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+./shannon start -u https://example.com -r /path/to/repo -w my-audit
+./shannon start -u https://example.com -r /path/to/repo -w my-audit
+./shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
+./shannon workspaces
+```
+
+</details>
 
 > [!NOTE]
 > The `URL` must match the original workspace URL when resuming. Shannon will reject mismatched URLs to prevent cross-target contamination.
 
-### Prepare Your Repository
+### Credentials and Configuration
 
-Shannon can scan any repository on your machine. Pass a path with `-r`:
-- **Any path**: `-r /path/to/repo` or `-r ./relative/path` — used as-is
-- **Bare name** (local mode only): `-r my-repo` resolves to `./repos/my-repo`
-
-To use the `./repos/` convention, clone your repo there:
-
-```bash
-git clone https://github.com/your-org/your-repo.git ./repos/your-repo
-```
-
-**For monorepos:**
-
-```bash
-git clone https://github.com/your-org/your-monorepo.git ./repos/your-monorepo
-```
-
-**For multi-repository applications** (e.g., separate frontend/backend):
-
-```bash
-mkdir ./repos/your-app
-cd ./repos/your-app
-git clone https://github.com/your-org/frontend.git
-git clone https://github.com/your-org/backend.git
-git clone https://github.com/your-org/api.git
-```
-
-### Platform-Specific Instructions
-
-**For Windows:**
-
-*Native (Git Bash):*
-
-Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed.
-
-*WSL2 (Recommended):*
-
-**Step 1: Ensure WSL 2**
-
-```powershell
-wsl --install
-wsl --set-default-version 2
-
-# Check installed distros
-wsl --list --verbose
-
-# If you don't have a distro, install one (Ubuntu 24.04 recommended)
-wsl --list --online
-wsl --install Ubuntu-24.04
-
-# If your distro shows VERSION 1, convert it to WSL 2:
-wsl --set-version <distro-name> 2
-```
-
-See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) for reference.
-
-**Step 2: Install Docker Desktop on Windows** and enable **WSL2 backend** under *Settings > General > Use the WSL 2 based engine*.
-
-**Step 3: Clone and run Shannon inside WSL.** Type `wsl -d <distro-name>` in PowerShell or CMD and press Enter to open a WSL terminal.
-
-```bash
-# Inside WSL terminal
-git clone https://github.com/KeygraphHQ/shannon.git
-cd shannon
-cp .env.example .env  # Edit with your API key
-shannon start -u https://your-app.com -r your-repo
-```
-
-To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
-
-Windows Defender may flag exploit code in reports as false positives; see [Antivirus False Positives](#6-windows-antivirus-false-positives) below.
-
-**For Linux (Native Docker):**
-
-You may need to run commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
-
-**For macOS:**
-
-Works out of the box with Docker Desktop installed.
-
-**Testing Local Applications:**
-
-Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
-
-```bash
-shannon start -u http://host.docker.internal:3000 -r repo-name
-```
-
-### Credential Precedence
+#### Credential Precedence
 
 **Local mode** resolves credentials from:
 
-1. **Environment variables** — `export ANTHROPIC_API_KEY=...`
-2. **`.env` file** — `./.env`
+1. **Environment variables** - `export ANTHROPIC_API_KEY=...`
+2. **`.env` file** - `./.env`
 
 **npx mode** uses TOML instead of `.env`:
 
-1. **Environment variables** — `export ANTHROPIC_API_KEY=...`
-2. **`~/.shannon/config.toml`** — created by `shannon setup`
+1. **Environment variables** - `export ANTHROPIC_API_KEY=...`
+2. **`~/.shannon/config.toml`** - created by `npx @keygraph/shannon setup`
 
-Environment variables always win, so you can override saved config for a single session without editing files. In non-interactive environments (CI/CD), skip `setup` and export variables directly.
+Environment variables always win, so you can override saved config for a single session without editing files.
 
-### Configuration (Optional)
+#### Configuration (Optional)
 
-While you can run without a config file, creating one enables authenticated testing and customized analysis. Place your configuration files inside the `./configs/` directory — this folder is mounted into the Docker container automatically.
+While you can run without a config file, creating one enables authenticated testing and customized analysis. Pass any configuration file path with `-c`.
 
-#### Create Configuration File
+##### Create Configuration File
 
 Copy and modify the example configuration:
 
 ```bash
-cp configs/example-config.yaml configs/my-app-config.yaml
+cp configs/example-config.yaml ./my-app-config.yaml
 ```
 
-#### Basic Configuration Structure
+##### Basic Configuration Structure
 
 ```yaml
 authentication:
@@ -424,6 +408,21 @@ rules:
       url_path: "/api"
 ```
 
+Run with:
+
+```bash
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c ./my-app-config.yaml
+```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+./shannon start -u https://example.com -r /path/to/repo -c ./my-app-config.yaml
+```
+
+</details>
+
 #### TOTP Setup for 2FA
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
@@ -446,24 +445,32 @@ Shannon also supports [Amazon Bedrock](https://aws.amazon.com/bedrock/) instead 
 
 #### Quick Setup
 
-1. Add your AWS credentials to `.env`:
+Run `npx @keygraph/shannon setup` and select **AWS Bedrock**. The wizard will prompt for your region, bearer token, and model IDs.
+
+Or export env vars directly:
+
+```bash
+export CLAUDE_CODE_USE_BEDROCK=1
+export AWS_REGION=us-east-1
+export AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
+export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+```
+
+<details>
+<summary>Clone and Build: add to .env instead</summary>
 
 ```bash
 CLAUDE_CODE_USE_BEDROCK=1
 AWS_REGION=us-east-1
 AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
-
-# Set models with Bedrock-specific IDs for your region
 ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 ```
 
-2. Run Shannon as usual:
-
-```bash
-shannon start -u https://example.com -r repo-name
-```
+</details>
 
 Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
 
@@ -471,40 +478,38 @@ Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summ
 
 Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) instead of using an Anthropic API key.
 
-#### Quick Setup (npx — Interactive)
+Create a service account with the `roles/aiplatform.user` role in the [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts), then download a JSON key file.
 
-Run `shannon setup` and select **Google Vertex AI**. The wizard will prompt for your region, project ID, and service account key file (with filesystem autocomplete), then securely copy the key to `~/.shannon/google-sa-key.json` and save the configuration.
+#### Quick Setup
 
-#### Quick Setup (Manual)
+Run `npx @keygraph/shannon setup` and select **Google Vertex AI**. The wizard will prompt for your region, project ID, service account key file path, and model IDs. The key file is securely copied to `~/.shannon/google-sa-key.json`.
 
-1. Create a service account with the `roles/aiplatform.user` role in the [GCP Console](https://console.cloud.google.com/iam-admin/serviceaccounts), then download a JSON key file.
-
-2. Place the key file in the `./credentials/` directory:
+Or export env vars directly:
 
 ```bash
-mkdir -p ./credentials
-cp /path/to/your-sa-key.json ./credentials/google-sa-key.json
+export CLAUDE_CODE_USE_VERTEX=1
+export CLOUD_ML_REGION=us-east5
+export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
+export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-sa-key.json
+export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
+export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
-3. Add your GCP configuration to `.env`:
+<details>
+<summary>Clone and Build: add to .env instead</summary>
 
 ```bash
 CLAUDE_CODE_USE_VERTEX=1
 CLOUD_ML_REGION=us-east5
 ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
 GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-sa-key.json
-
-# Set models with Vertex AI model IDs
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
-4. Run Shannon as usual:
-
-```bash
-shannon start -u https://example.com -r repo-name
-```
+</details>
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
 
@@ -512,54 +517,69 @@ Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us
 
 Shannon supports pointing the SDK at any Anthropic-compatible endpoint (proxies, gateways, etc.) via `ANTHROPIC_BASE_URL`.
 
-#### Quick Setup
+Run `npx @keygraph/shannon setup` and select **Custom Base URL**. The wizard will prompt for your endpoint URL, auth token, and optionally let you override the default model tiers.
 
-1. Add your endpoint and auth token to `.env`:
+Or export env vars directly:
+
+```bash
+export ANTHROPIC_BASE_URL=https://your-proxy.example.com
+export ANTHROPIC_AUTH_TOKEN=your-auth-token
+
+# Optionally override model tiers (defaults are used if not set)
+export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
+export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+```
+
+<details>
+<summary>Clone and Build: add to .env instead</summary>
 
 ```bash
 ANTHROPIC_BASE_URL=https://your-proxy.example.com
 ANTHROPIC_AUTH_TOKEN=your-auth-token
-```
-
-2. Optionally override model tiers (defaults are used if not set):
-
-```bash
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
-3. Run Shannon as usual:
-
-```bash
-shannon start -u https://example.com -r repo-name
-```
+</details>
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
 
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
 
-* **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3–family models
+- **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3-family models
 
 #### Quick Setup
 
-1. Add your provider API key to `.env`:
+Run `npx @keygraph/shannon setup` and select **Router**. The wizard will prompt you to choose a provider (OpenAI or OpenRouter), enter your API key, and select a default model.
+
+Or export env vars directly:
 
 ```bash
-# Choose one provider:
+export OPENAI_API_KEY=sk-...          # or OPENROUTER_API_KEY=sk-or-...
+export ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+```
+
+```bash
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo --router
+```
+
+<details>
+<summary>Clone and Build: add to .env and run with --router</summary>
+
+```bash
 OPENAI_API_KEY=sk-...
 # OR
 OPENROUTER_API_KEY=sk-or-...
-
-# Set default model:
-ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+ROUTER_DEFAULT=openai,gpt-5.2
 ```
-
-2. Run with `--router`:
 
 ```bash
-shannon start -u https://example.com -r repo-name --router
+./shannon start -u https://example.com -r /path/to/repo --router
 ```
+
+</details>
 
 #### Experimental Models
 
@@ -572,12 +592,94 @@ shannon start -u https://example.com -r repo-name --router
 
 This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
 
+### Platform-Specific Instructions
+
+**For Windows:**
+
+*Native (Git Bash):*
+
+Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed. Both `npx @keygraph/shannon` and local clone mode are supported.
+
+*WSL2 (Recommended):*
+
+**Step 1: Ensure WSL 2**
+
+```powershell
+wsl --install
+wsl --set-default-version 2
+
+# Check installed distros
+wsl --list --verbose
+
+# If you don't have a distro, install one (Ubuntu 24.04 recommended)
+wsl --list --online
+wsl --install Ubuntu-24.04
+
+# If your distro shows VERSION 1, convert it to WSL 2:
+wsl --set-version <distro-name> 2
+```
+
+See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-commands) for reference.
+
+**Step 2: Install Docker Desktop on Windows** and enable **WSL2 backend** under *Settings > General > Use the WSL 2 based engine*.
+
+**Step 3: Run Shannon inside WSL** using either flow.
+
+**npx inside WSL:**
+
+```bash
+npx @keygraph/shannon setup
+npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
+```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+git clone https://github.com/KeygraphHQ/shannon.git
+cd shannon
+cp .env.example .env  # Edit with your API key
+./shannon start -u https://your-app.com -r /path/to/your-repo
+```
+
+</details>
+
+To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
+
+Windows Defender may flag exploit code in reports as false positives; see [Antivirus False Positives](#6-windows-antivirus-false-positives) below.
+
+**For Linux (Native Docker):**
+
+You may need to run commands with `sudo` depending on your Docker setup. If you encounter permission issues with output files, ensure your user has access to the Docker socket.
+
+**For macOS:**
+
+Works out of the box with Docker Desktop installed.
+
+**Testing Local Applications:**
+
+Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
+
+```bash
+npx @keygraph/shannon start -u http://host.docker.internal:3000 -r /path/to/repo
+```
+
+<details>
+<summary>Clone and Build command equivalents</summary>
+
+```bash
+./shannon start -u http://host.docker.internal:3000 -r /path/to/repo
+```
+
+</details>
+
 ### Output and Results
 
 All results are saved to the workspaces directory: `./workspaces/` (local mode) or `~/.shannon/workspaces/` (npx mode). Use `-o <path>` to copy deliverables to a custom output directory after the run completes.
 
 Output structure:
-```
+
+```text
 workspaces/{hostname}_{sessionId}/
 ├── session.json          # Metrics and session data
 ├── workflow.log          # Human-readable workflow log
