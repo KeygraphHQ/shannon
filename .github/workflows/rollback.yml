@@ -31,11 +31,12 @@ jobs:
       - name: Validate target version
         id: target
         shell: bash
+        env:
+          RAW_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
 
-          VERSION="${{ inputs.version }}"
-          VERSION="${VERSION#v}"
+          VERSION="${RAW_VERSION#v}"
 
           case "$VERSION" in
             ''|*[!0-9.]*)
