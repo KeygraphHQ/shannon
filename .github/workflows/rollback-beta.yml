@@ -1,0 +1,71 @@
+name: Rollback (Beta)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Beta version to roll back to (example: 1.0.0-beta.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rollback-beta-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back npm beta dist-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate target version
+        id: target
+        shell: bash
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${RAW_VERSION#v}"
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
+            echo "Version must be in format X.Y.Z-beta.N (e.g. 1.0.0-beta.2)"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify npm package version exists
+        run: npm view "@keygraph/shannon@${{ steps.target.outputs.version }}" version
+
+      - name: Show current npm dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @keygraph/shannon
+
+      - name: Move npm beta tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag add "@keygraph/shannon@${{ steps.target.outputs.version }}" beta
+
+      - name: Show final npm dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @keygraph/shannon
+
+      - name: Write summary
+        run: |
+          {
+            echo "## Rollback beta"
+            echo ""
+            echo "- Target version: \`${{ steps.target.outputs.version }}\`"
+            echo "- npm package: \`@keygraph/shannon\` (beta tag moved)"
+          } >> "$GITHUB_STEP_SUMMARY"
