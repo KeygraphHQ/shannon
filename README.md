@@ -1,5 +1,5 @@
 >[!NOTE]
-> **[📢 New: Claude models on AWS Bedrock and Google Vertex AI now supported. →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
+> **[📢 New: Shannon is now available via `npx @keygraph/shannon`. →](https://github.com/KeygraphHQ/shannon/discussions/categories/announcements)**
 
 <div align="center">
 
