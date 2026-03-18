@@ -41,7 +41,7 @@ import {
 } from './git-manager.js';
 import { AuditSession } from '../audit/index.js';
 import type { AgentEndResult } from '../types/audit.js';
-import type { AgentName } from '../types/agents.js';
+import type { AgentName, AgentDefinition } from '../types/agents.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import type { AgentMetrics } from '../types/metrics.js';
 
@@ -94,9 +94,11 @@ export class AgentExecutionService {
     agentName: AgentName,
     input: AgentExecutionInput,
     auditSession: AuditSession,
-    logger: ActivityLogger
+    logger: ActivityLogger,
+    agentDef?: AgentDefinition
   ): Promise<Result<AgentEndResult, PentestError>> {
     const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const def = agentDef ?? AGENTS[agentName];
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -106,7 +108,7 @@ export class AgentExecutionService {
     const distributedConfig = configResult.value;
 
     // 2. Load prompt
-    const promptTemplate = AGENTS[agentName].promptTemplate;
+    const promptTemplate = def.promptTemplate;
     let prompt: string;
     try {
       prompt = await loadPrompt(
@@ -157,7 +159,7 @@ export class AgentExecutionService {
       agentName,
       auditSession,
       logger,
-      AGENTS[agentName].modelTier
+      def.modelTier
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -199,7 +201,7 @@ export class AgentExecutionService {
         errorCode: ErrorCode.OUTPUT_VALIDATION_FAILED,
         category: 'validation',
         retryable: true,
-        context: { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+        context: { agentName, deliverableFilename: def.deliverableFilename },
       });
     }
 
@@ -267,9 +269,10 @@ export class AgentExecutionService {
     agentName: AgentName,
     input: AgentExecutionInput,
     auditSession: AuditSession,
-    logger: ActivityLogger
+    logger: ActivityLogger,
+    agentDef?: AgentDefinition
   ): Promise<AgentEndResult> {
-    const result = await this.execute(agentName, input, auditSession, logger);
+    const result = await this.execute(agentName, input, auditSession, logger, agentDef);
     if (isErr(result)) {
       throw result.error;
     }
