@@ -195,14 +195,17 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
 
 Shannon will build the worker image locally, start the infrastructure, and launch an ephemeral worker container for the scan.
 
+> [!TIP]
+> **Command shorthand:** All examples below use bare `shannon`. Replace with `./shannon` (local) or `npx @keygraph/shannon` (npx) based on your setup.
+
 ### Monitoring Progress
 
 ```bash
 # Tail workflow logs
-./shannon logs <workspace>
+shannon logs <workspace>
 
 # Show running workers
-./shannon status
+shannon status
 
 # Open the Temporal Web UI for detailed monitoring
 open http://localhost:8233
@@ -212,39 +215,39 @@ open http://localhost:8233
 
 ```bash
 # Stop all containers (preserves workflow data)
-./shannon stop
+shannon stop
 
 # Full cleanup — removes Temporal volumes (confirms first)
-./shannon stop --clean
+shannon stop --clean
 
-# npx mode: remove ~/.shannon/ and all data (confirms first)
-npx @keygraph/shannon uninstall
+# Remove ~/.shannon/ and all data (npx only, confirms first)
+shannon uninstall
 ```
 
 ### Usage Examples
 
 ```bash
 # Basic pentest
-./shannon start -u https://example.com -r repo-name
+shannon start -u https://example.com -r repo-name
 
 # With a configuration file
-./shannon start -u https://example.com -r repo-name -c ./configs/my-config.yaml
+shannon start -u https://example.com -r repo-name -c ./configs/my-config.yaml
 
 # Custom output directory
-./shannon start -u https://example.com -r repo-name -o ./my-reports
+shannon start -u https://example.com -r repo-name -o ./my-reports
 
 # Named workspace
-./shannon start -u https://example.com -r repo-name -w q1-audit
+shannon start -u https://example.com -r repo-name -w q1-audit
 
 # Any repo path (not just ./repos/)
-./shannon start -u https://example.com -r /path/to/repo
+shannon start -u https://example.com -r /path/to/repo
 
 # List all workspaces
-./shannon workspaces
+shannon workspaces
 
 # Image management
-./shannon build --no-cache          # Local mode: rebuild worker image
-npx @keygraph/shannon update              # npx mode: pull latest image from Docker Hub
+shannon build --no-cache             # local only — rebuild worker image
+shannon update                       # npx only — pull latest image from Docker Hub
 ```
 
 ### Workspaces and Resuming
@@ -260,16 +263,16 @@ Shannon supports **workspaces** that allow you to resume interrupted or failed r
 
 ```bash
 # Start with a named workspace
-./shannon start -u https://example.com -r repo-name -w my-audit
+shannon start -u https://example.com -r repo-name -w my-audit
 
 # Resume the same workspace (skips completed agents)
-./shannon start -u https://example.com -r repo-name -w my-audit
+shannon start -u https://example.com -r repo-name -w my-audit
 
 # Resume an auto-named workspace from a previous run
-./shannon start -u https://example.com -r repo-name -w example-com_shannon-1771007534808
+shannon start -u https://example.com -r repo-name -w example-com_shannon-1771007534808
 
 # List all workspaces and their status
-./shannon workspaces
+shannon workspaces
 ```
 
 > [!NOTE]
@@ -341,7 +344,7 @@ See [WSL basic commands](https://learn.microsoft.com/en-us/windows/wsl/basic-com
 git clone https://github.com/KeygraphHQ/shannon.git
 cd shannon
 cp .env.example .env  # Edit with your API key
-./shannon start -u https://your-app.com -r your-repo
+shannon start -u https://your-app.com -r your-repo
 ```
 
 To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
@@ -361,7 +364,7 @@ Works out of the box with Docker Desktop installed.
 Docker containers cannot reach `localhost` on your host machine. Use `host.docker.internal` in place of `localhost`:
 
 ```bash
-./shannon start -u http://host.docker.internal:3000 -r repo-name
+shannon start -u http://host.docker.internal:3000 -r repo-name
 ```
 
 ### Credential Precedence
@@ -374,7 +377,7 @@ Docker containers cannot reach `localhost` on your host machine. Use `host.docke
 **npx mode** uses TOML instead of `.env`:
 
 1. **Environment variables** — `export ANTHROPIC_API_KEY=...`
-2. **`~/.shannon/config.toml`** — created by `npx @keygraph/shannon setup`
+2. **`~/.shannon/config.toml`** — created by `shannon setup`
 
 Environment variables always win, so you can override saved config for a single session without editing files. In non-interactive environments (CI/CD), skip `setup` and export variables directly.
 
@@ -460,7 +463,7 @@ ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
 2. Run Shannon as usual:
 
 ```bash
-./shannon start -u https://example.com -r repo-name
+shannon start -u https://example.com -r repo-name
 ```
 
 Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
@@ -471,7 +474,7 @@ Shannon also supports [Google Vertex AI](https://cloud.google.com/vertex-ai) ins
 
 #### Quick Setup (npx — Interactive)
 
-Run `npx @keygraph/shannon setup` and select **Google Vertex AI**. The wizard will prompt for your region, project ID, and service account key file (with filesystem autocomplete), then securely copy the key to `~/.shannon/google-sa-key.json` and save the configuration.
+Run `shannon setup` and select **Google Vertex AI**. The wizard will prompt for your region, project ID, and service account key file (with filesystem autocomplete), then securely copy the key to `~/.shannon/google-sa-key.json` and save the configuration.
 
 #### Quick Setup (Manual)
 
@@ -501,7 +504,7 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 4. Run Shannon as usual:
 
 ```bash
-./shannon start -u https://example.com -r repo-name
+shannon start -u https://example.com -r repo-name
 ```
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us-east5`. Some models may not be available on global endpoints — see the [Vertex AI Model Garden](https://console.cloud.google.com/vertex-ai/model-garden) for region availability.
@@ -530,7 +533,7 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 3. Run Shannon as usual:
 
 ```bash
-./shannon start URL=https://example.com REPO=repo-name
+shannon start -u https://example.com -r repo-name
 ```
 
 ### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
@@ -556,7 +559,7 @@ ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
 2. Run with `--router`:
 
 ```bash
-./shannon start -u https://example.com -r repo-name --router
+shannon start -u https://example.com -r repo-name --router
 ```
 
 #### Experimental Models
