@@ -19,8 +19,6 @@ jobs:
   rollback:
     name: Roll back npm, Docker, and GitHub release latest
     runs-on: ubuntu-latest
-    environment: release-rollback
-
     steps:
       - name: Checkout tags
         uses: actions/checkout@v6

@@ -60,7 +60,6 @@ jobs:
     name: Build Docker (${{ matrix.platform }})
     needs: preflight
     if: needs.preflight.outputs.should_release == 'true'
-    environment: release-publish
     permissions:
       contents: read
     strategy:
@@ -202,6 +201,8 @@ jobs:
 
       - name: Publish npm package
         working-directory: apps/cli
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if npm view "@keygraph/shannon@${{ needs.preflight.outputs.version }}" version 2>/dev/null; then
             echo "Version already published, skipping"
