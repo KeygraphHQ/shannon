@@ -1,2 +1,5 @@
 Rules to Avoid:
 {{RULES_AVOID}}
+
+Rules to Focus:
+{{RULES_FOCUS}}
