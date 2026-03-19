@@ -129,7 +129,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 
 - **Create To Dos:**
     For each item listed under **`deliverables/recon_deliverable.md` → section 8 "Horizontal"*, use the TodoWrite tool to create a task entry.
-    
+
 - **Process:**
     - Start at the identified endpoint.
     - Trace backwards through code until you either encounter:
@@ -161,7 +161,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 
 - **Create To Dos:**
     For each item listed under **`deliverables/recon_deliverable.md` →  section 8 "Vertical"**, use the TodoWrite tool to create a task entry.
-    
+
 - **Process:**
     - Start at the identified endpoint.
     - Trace backwards until you either encounter:
@@ -187,7 +187,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 
 - **Create To Dos:**
     For each item listed under **`deliverables/recon_deliverable.md` → section 8 "Context"**, use the TodoWrite tool to create a task entry.
-    
+
 - **Process:**
     - Start at the endpoint that represents a step in a workflow.
     - Walk **forward** through the intended flow, checking at each step that later actions validate the prior state.
@@ -288,9 +288,9 @@ Your report MUST use the following structure precisely:
 
 ## 1. Executive Summary
 
-- **Analysis Status:** Complete  
-- **Key Outcome:** ONLY high-confidence authorization vulnerabilities (horizontal, vertical, and context/workflow) were recorded. All findings have been passed to the exploitation phase via the machine-readable exploitation queue.  
-- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and architectural intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.  
+- **Analysis Status:** Complete
+- **Key Outcome:** ONLY high-confidence authorization vulnerabilities (horizontal, vertical, and context/workflow) were recorded. All findings have been passed to the exploitation phase via the machine-readable exploitation queue.
+- **Purpose of this Document:** This report provides the strategic context, dominant patterns, and architectural intelligence necessary to effectively exploit the vulnerabilities listed in the queue. It is intended to be read alongside the JSON deliverable.
 
 ## 2. Dominant Vulnerability Patterns
 
@@ -303,23 +303,23 @@ etc...
 
 ## 3. Strategic Intelligence for Exploitation
 examples:
-- **Session Management Architecture:**  
-  - Sessions use JWT tokens stored in cookies with `httpOnly` flag  
-  - User ID is extracted from token but not consistently validated against resource ownership  
-  - **Critical Finding:** The application trusts the user ID from the token without additional checks  
+- **Session Management Architecture:**
+  - Sessions use JWT tokens stored in cookies with `httpOnly` flag
+  - User ID is extracted from token but not consistently validated against resource ownership
+  - **Critical Finding:** The application trusts the user ID from the token without additional checks
 
-- **Role/Permission Model:**  
-  - Three roles identified: `user`, `moderator`, `admin`  
-  - Role is stored in JWT token and database  
-  - **Critical Finding:** Role checks are inconsistently applied; many admin routes only check for authentication  
+- **Role/Permission Model:**
+  - Three roles identified: `user`, `moderator`, `admin`
+  - Role is stored in JWT token and database
+  - **Critical Finding:** Role checks are inconsistently applied; many admin routes only check for authentication
 
-- **Resource Access Patterns:**  
-  - Most endpoints use path parameters for resource IDs (e.g., `/api/users/{id}`)  
-  - **Critical Finding:** ID parameters are directly passed to database queries without ownership validation  
+- **Resource Access Patterns:**
+  - Most endpoints use path parameters for resource IDs (e.g., `/api/users/{id}`)
+  - **Critical Finding:** ID parameters are directly passed to database queries without ownership validation
 
-- **Workflow Implementation:**  
-  - Multi-step processes use status fields in database  
-  - **Critical Finding:** Status transitions don't verify prior state completion  
+- **Workflow Implementation:**
+  - Multi-step processes use status fields in database
+  - **Critical Finding:** Status transitions don't verify prior state completion
 
 ## 4. Vectors Analyzed and Confirmed Secure
 
@@ -332,11 +332,11 @@ These authorization checks were traced and confirmed to have robust, properly-pl
 | `GET /api/users/me` | controllers/user.js:89 | Uses session user ID, no parameter manipulation possible | SAFE |
 
 ## 5. Analysis Constraints and Blind Spots
-examples: 
-- **Untraced Microservice Calls:**  
+examples:
+- **Untraced Microservice Calls:**
   Some endpoints make calls to internal microservices. Authorization checks within these services could not be analyzed without their source code.
 
-- **Dynamic Permission System:**  
+- **Dynamic Permission System:**
   The application appears to have a dynamic permission system loaded from database. Runtime permission checks could not be fully validated through static analysis.
 
 ---

@@ -9,7 +9,7 @@ Technical leadership (CTOs, CISOs, Engineering VPs) who need both technical accu
 </audience>
 
 <objective>
-The orchestrator has already concatenated all specialist reports into `comprehensive_security_assessment_report.md`. 
+The orchestrator has already concatenated all specialist reports into `comprehensive_security_assessment_report.md`.
 Your task is to:
 1. Read this existing concatenated report
 2. Add Executive Summary (vulnerability overview) and Network Reconnaissance (security-relevant scan findings) sections at the top
