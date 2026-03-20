@@ -25,7 +25,7 @@ export interface ValidationResult {
  */
 export function validateQueueJson(content: string): ValidationResult {
   try {
-    const parsed = JSON.parse(content) as unknown;
+    const parsed = JSON.parse(content, (key, value) => key === '__proto__' || key === 'constructor' ? undefined : value) as unknown;
 
     // Type guard for the parsed result
     if (typeof parsed !== 'object' || parsed === null) {
