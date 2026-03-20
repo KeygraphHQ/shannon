@@ -38,7 +38,7 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@49933ea5288caeca8642195b5c3ad3664e5088c2 # v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org

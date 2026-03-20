@@ -1,6 +1,6 @@
 services:
   temporal:
-    image: temporalio/temporal:latest
+    image: temporalio/temporal:1.26.2
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
       - "127.0.0.1:7233:7233"   # gRPC
@@ -46,9 +46,15 @@ services:
       - ./credentials:/app/credentials:ro
       - ./repos:/repos
       - ${BENCHMARKS_BASE:-.}:/benchmarks
-    shm_size: 2gb
-    security_opt:
-      - seccomp:unconfined
+    shm_size: 512mb
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 8G
+        reservations:
+          cpus: '1'
+          memory: 2G
 
   # Optional: claude-code-router for multi-model support
   # Start with: ROUTER=true ./shannon start ...

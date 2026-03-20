@@ -11,8 +11,9 @@
  * Ported from tools/save_deliverable.js (lines 117-130).
  */
 
-import { writeFileSync, mkdirSync } from 'fs';
-import { join } from 'path';
+import { writeFileSync, mkdirSync, renameSync, unlinkSync } from 'fs';
+import { join, dirname } from 'path';
+import { randomBytes } from 'crypto';
 
 /**
  * Save deliverable file to deliverables/ directory
@@ -32,8 +33,16 @@ export function saveDeliverableFile(targetDir: string, filename: string, content
     throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
   }
 
-  // Write file (atomic write - single operation)
-  writeFileSync(filepath, content, 'utf8');
+  // Atomic write: write to temp file then rename
+  const tempPath = join(deliverablesDir, `.tmp-${randomBytes(8).toString('hex')}`);
+  try {
+    writeFileSync(tempPath, content, { encoding: 'utf8', mode: 0o644 });
+    renameSync(tempPath, filepath);
+  } catch (err) {
+    // Clean up temp file on failure
+    try { unlinkSync(tempPath); } catch { /* ignore */ }
+    throw err;
+  }
 
   return filepath;
 }

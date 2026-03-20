@@ -1,10 +1,10 @@
 {
   "HOST": "0.0.0.0",
-  "APIKEY": "shannon-router-key",
+  "APIKEY": "$SHANNON_ROUTER_APIKEY",
   "LOG": true,
-  "LOG_LEVEL": "info",
+  "LOG_LEVEL": "warn",
   "NON_INTERACTIVE_MODE": true,
-  "API_TIMEOUT_MS": 600000,
+  "API_TIMEOUT_MS": 60000,
   "Providers": [
     {
       "name": "openai",

@@ -5,9 +5,9 @@ authentication:
   login_type: form  # Options: 'form' or 'sso'
   login_url: "https://example.com/login"
   credentials:
-    username: "testuser"
-    password: "testpassword"
-    totp_secret: "JBSWY3DPEHPK3PXP"  # Optional TOTP secret for 2FA
+    username: "CHANGE_ME_USERNAME"      # REQUIRED: Replace with your actual username
+    password: "CHANGE_ME_PASSWORD"      # REQUIRED: Replace with your actual password
+    totp_secret: "CHANGE_ME_SECRET"     # Optional: Replace with your base32 TOTP secret for 2FA
   
   # Natural language instructions for login flow
   login_flow:

@@ -55,9 +55,16 @@ export async function atomicWrite(filePath: string, data: object | string): Prom
 /**
  * Read and parse JSON file
  */
+export function safeJsonParse<T = unknown>(text: string): T {
+  return JSON.parse(text, (key, value) => {
+    if (key === '__proto__' || key === 'constructor') return undefined;
+    return value;
+  }) as T;
+}
+
 export async function readJson<T = unknown>(filePath: string): Promise<T> {
   const content = await fs.readFile(filePath, 'utf8');
-  return JSON.parse(content) as T;
+  return safeJsonParse<T>(content);
 }
 
 /**

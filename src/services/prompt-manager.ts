@@ -21,6 +21,21 @@ interface IncludeReplacement {
   content: string;
 }
 
+/**
+ * Sanitize user-provided values before prompt interpolation to prevent prompt injection.
+ * Strips characters that could break out of template context.
+ */
+function sanitizeForPrompt(value: string): string {
+  return value
+    .replace(/[<>]/g, '')           // Remove XML/HTML tag chars
+    .replace(/<!--[\s\S]*?-->/g, '') // Remove HTML comments
+    .replace(/\{\{/g, '')           // Remove template delimiters
+    .replace(/\}\}/g, '')
+    .replace(/\n/g, ' ')            // Flatten to single line
+    .trim()
+    .slice(0, 256);                 // Limit length
+}
+
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
   try {
@@ -67,13 +82,14 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
 
     if (authentication.credentials) {
       if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+        userInstructions = userInstructions.replace(/\$username/g, sanitizeForPrompt(authentication.credentials.username));
       }
       if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
+        userInstructions = userInstructions.replace(/\$password/g, sanitizeForPrompt(authentication.credentials.password));
       }
       if (authentication.credentials.totp_secret) {
-        userInstructions = userInstructions.replace(/\$totp/g, `generated TOTP code using secret "${authentication.credentials.totp_secret}"`);
+        const sanitizedSecret = sanitizeForPrompt(authentication.credentials.totp_secret);
+        userInstructions = userInstructions.replace(/\$totp/g, `generated TOTP code using secret "${sanitizedSecret}"`);
       }
     }
 
@@ -81,7 +97,7 @@ async function buildLoginInstructions(authentication: Authentication, logger: Ac
 
     // 5. Replace TOTP secret placeholder if present in template
     if (authentication.credentials?.totp_secret) {
-      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, sanitizeForPrompt(authentication.credentials.totp_secret));
     }
 
     return loginInstructions;
