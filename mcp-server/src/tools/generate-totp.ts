@@ -26,6 +26,7 @@ export const GenerateTotpInputSchema = z.object({
   secret: z
     .string()
     .min(1)
+    .max(256, 'Secret too long')
     .regex(/^[A-Z2-7]+$/i, 'Must be base32-encoded')
     .describe('Base32-encoded TOTP secret'),
 });

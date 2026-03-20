@@ -3,7 +3,7 @@
 # Uses Chainguard Wolfi for minimal attack surface and supply chain security
 
 # Builder stage - Install tools and dependencies
-FROM cgr.dev/chainguard/wolfi-base:latest AS builder
+FROM cgr.dev/chainguard/wolfi-base:20250319 AS builder
 
 # Install system dependencies available in Wolfi
 RUN apk update && apk add --no-cache \
@@ -38,7 +38,7 @@ ENV CGO_ENABLED=1
 RUN mkdir -p $GOPATH/bin
 
 # Install Go-based security tools
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.6.8
 # Install WhatWeb from GitHub (Ruby-based tool)
 RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/whatweb && \
     chmod +x /opt/whatweb/whatweb && \
@@ -51,7 +51,7 @@ RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/what
 RUN pip3 install --no-cache-dir schemathesis
 
 # Runtime stage - Minimal production image
-FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
+FROM cgr.dev/chainguard/wolfi-base:20250319 AS runtime
 
 # Install only runtime dependencies
 USER root
@@ -132,10 +132,10 @@ RUN npm install -g @anthropic-ai/claude-code
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/configs && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
-    chmod 777 /app && \
-    chmod 777 /tmp/.cache && \
-    chmod 777 /tmp/.config && \
-    chmod 777 /tmp/.npm && \
+    chmod 750 /app && \
+    chmod 750 /tmp/.cache && \
+    chmod 750 /tmp/.config && \
+    chmod 750 /tmp/.npm && \
     chown -R pentest:pentest /app
 
 # Switch to non-root user
@@ -155,7 +155,7 @@ ENV XDG_CONFIG_HOME=/tmp/.config
 # Configure Git identity and trust all directories
 RUN git config --global user.email "agent@localhost" && \
     git config --global user.name "Pentest Agent" && \
-    git config --global --add safe.directory '*'
+    git config --global --add safe.directory /app && git config --global --add safe.directory /repos
 
 # Set entrypoint
 ENTRYPOINT ["node", "dist/shannon.js"]

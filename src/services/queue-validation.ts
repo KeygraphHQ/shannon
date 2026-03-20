@@ -204,7 +204,7 @@ const validateExistenceRules = (
 // Pure function to validate queue structure
 const validateQueueStructure = (content: string): QueueValidationResult => {
   try {
-    const parsed = JSON.parse(content) as unknown;
+    const parsed = JSON.parse(content, (key, value) => key === '__proto__' || key === 'constructor' ? undefined : value) as unknown;
     const isValid =
       typeof parsed === 'object' &&
       parsed !== null &&

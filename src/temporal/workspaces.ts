@@ -84,7 +84,7 @@ async function listWorkspaces(): Promise<void> {
     const sessionPath = path.join(auditDir, entry, 'session.json');
     try {
       const content = await fs.readFile(sessionPath, 'utf8');
-      const data = JSON.parse(content) as SessionJson;
+      const data = JSON.parse(content, (key, value) => key === '__proto__' || key === 'constructor' ? undefined : value) as SessionJson;
 
       workspaces.push({
         name: entry,

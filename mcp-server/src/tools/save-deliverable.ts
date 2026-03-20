@@ -40,8 +40,21 @@ export type SaveDeliverableInput = z.infer<typeof SaveDeliverableInputSchema>;
  * Prevents path traversal attacks (e.g., ../../../etc/passwd).
  */
 function isPathContained(basePath: string, targetPath: string): boolean {
-  const resolvedBase = path.resolve(basePath);
-  const resolvedTarget = path.resolve(targetPath);
+  let resolvedBase: string;
+  let resolvedTarget: string;
+  try {
+    resolvedBase = fs.realpathSync(path.resolve(basePath));
+  } catch {
+    resolvedBase = path.resolve(basePath);
+  }
+  try {
+    // For new files, resolve the parent directory through symlinks
+    const parentDir = path.dirname(path.resolve(targetPath));
+    const parentReal = fs.realpathSync(parentDir);
+    resolvedTarget = path.join(parentReal, path.basename(targetPath));
+  } catch {
+    resolvedTarget = path.resolve(targetPath);
+  }
   return resolvedTarget === resolvedBase || resolvedTarget.startsWith(resolvedBase + path.sep);
 }
 

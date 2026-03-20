@@ -270,14 +270,18 @@ export async function runClaudePrompt(
     model: resolveModel(modelTier),
     maxTurns: 10_000,
     cwd: sourceDir,
-    permissionMode: 'bypassPermissions' as const,
-    allowDangerouslySkipPermissions: true,
+    permissionMode: 'allowedTools' as const,
+    allowedTools: [
+      'Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep',
+      'mcp__shannon-helper__save_deliverable',
+      'mcp__shannon-helper__generate_totp',
+    ],
     mcpServers,
     env: sdkEnv,
   };
 
   if (!execContext.useCleanOutput) {
-    logger.info(`SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=BYPASS`);
+    logger.info(`SDK Options: maxTurns=${options.maxTurns}, cwd=${sourceDir}, permissions=ALLOWLIST`);
   }
 
   let turnCount = 0;
