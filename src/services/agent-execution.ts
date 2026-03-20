@@ -44,6 +44,8 @@ import type { AgentEndResult } from '../types/audit.js';
 import type { AgentName } from '../types/agents.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import type { AgentMetrics } from '../types/metrics.js';
+import type { OptimizationManager } from './optimization-manager.js';
+import type { OptimizationConfig } from '../types/config.js';
 
 /**
  * Input for agent execution.
@@ -54,6 +56,8 @@ export interface AgentExecutionInput {
   configPath?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
+  optimizationConfig?: OptimizationConfig | undefined;
+  optimizationManager?: OptimizationManager | undefined;
 }
 
 interface FailAgentOpts {
@@ -96,7 +100,15 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const {
+      webUrl,
+      repoPath,
+      configPath,
+      pipelineTestingMode = false,
+      attemptNumber,
+      optimizationConfig,
+      optimizationManager,
+    } = input;
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -104,6 +116,30 @@ export class AgentExecutionService {
       return configResult;
     }
     const distributedConfig = configResult.value;
+
+    // 1.5. Get optimization results if optimization is enabled
+    let optimizedModelTier: string | undefined;
+    if (optimizationManager && optimizationConfig) {
+      try {
+        const optResult = await optimizationManager.getFilesToAnalyze(agentName);
+        if (optResult.recommendedModelTier) {
+          optimizedModelTier = optResult.recommendedModelTier;
+          logger.info(
+            `Optimization: Using ${optimizedModelTier} model for ${agentName} ` +
+            `(${optResult.filesToAnalyze.length} files, ${optResult.scanMode} scan)`
+          );
+          if (optResult.cacheStats) {
+            logger.info(
+              `Cache stats: ${optResult.cacheStats.hits} hits, ` +
+              `${optResult.cacheStats.misses} misses ` +
+              `(hit rate: ${(optResult.cacheStats.hitRate * 100).toFixed(1)}%)`
+            );
+          }
+        }
+      } catch (error) {
+        logger.warn(`Optimization failed, using defaults: ${error}`);
+      }
+    }
 
     // 2. Load prompt
     const promptTemplate = AGENTS[agentName].promptTemplate;
@@ -148,7 +184,8 @@ export class AgentExecutionService {
     // 4. Start audit logging
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
-    // 5. Execute agent
+    // 5. Execute agent (use optimized model tier if available)
+    const modelTier = (optimizedModelTier as typeof AGENTS[agentName].modelTier) || AGENTS[agentName].modelTier;
     const result: ClaudePromptResult = await runClaudePrompt(
       prompt,
       repoPath,
@@ -157,7 +194,7 @@ export class AgentExecutionService {
       agentName,
       auditSession,
       logger,
-      AGENTS[agentName].modelTier
+      modelTier
     );
 
     // 6. Spending cap check - defense-in-depth
