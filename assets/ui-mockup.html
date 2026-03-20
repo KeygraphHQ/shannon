@@ -1,0 +1,1582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SHANNON // AI Pentest Agent</title>
+  <style>
+    /* ===== Base Reset & Fonts ===== */
+    @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --neon-cyan:    #00f5ff;
+      --neon-magenta: #ff00ff;
+      --neon-green:   #00ff88;
+      --neon-orange:  #ff6600;
+      --neon-yellow:  #ffee00;
+      --neon-red:     #ff2244;
+      --bg-deep:      #020810;
+      --bg-panel:     #060d1a;
+      --bg-surface:   #0a1628;
+      --border-dim:   #1a2a4a;
+      --text-dim:     #4a6a8a;
+      --text-mid:     #7aaccc;
+      --text-bright:  #c8e8ff;
+      --grid-color:   rgba(0, 245, 255, 0.04);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg-deep);
+      color: var(--text-bright);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 13px;
+      overflow: hidden;
+    }
+
+    /* ===== Animated grid background ===== */
+    body::before {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background-image:
+        linear-gradient(var(--grid-color) 1px, transparent 1px),
+        linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+      background-size: 40px 40px;
+      animation: gridScroll 20s linear infinite;
+      pointer-events: none;
+    }
+
+    @keyframes gridScroll {
+      0%   { background-position: 0 0; }
+      100% { background-position: 40px 40px; }
+    }
+
+    body::after {
+      content: '';
+      position: fixed; inset: 0; z-index: 0;
+      background: radial-gradient(ellipse at 50% 0%, rgba(0,245,255,0.06) 0%, transparent 60%);
+      pointer-events: none;
+    }
+
+    /* ===== Layout ===== */
+    .app {
+      position: relative; z-index: 1;
+      display: grid;
+      height: 100vh;
+      grid-template-rows: 52px 1fr 38px;
+      grid-template-columns: 260px 1fr 300px;
+      grid-template-areas:
+        "header  header  header"
+        "sidebar main    right"
+        "footer  footer  footer";
+      gap: 1px;
+      background: var(--border-dim);
+    }
+
+    /* ===== Panels ===== */
+    .panel {
+      background: var(--bg-panel);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .panel-header {
+      display: flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
+      background: rgba(0,245,255,0.04);
+      border-bottom: 1px solid var(--border-dim);
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      color: var(--neon-cyan);
+    }
+
+    .panel-header .dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: var(--neon-cyan);
+      box-shadow: 0 0 6px var(--neon-cyan);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    /* ===== Header ===== */
+    header {
+      grid-area: header;
+      background: var(--bg-panel);
+      border-bottom: 1px solid var(--border-dim);
+      display: flex; align-items: center;
+      padding: 0 20px;
+      gap: 24px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    header::before {
+      content: '';
+      position: absolute; bottom: 0; left: 0; right: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+      animation: scanline 3s ease-in-out infinite;
+    }
+
+    @keyframes scanline {
+      0%, 100% { opacity: 0.3; }
+      50% { opacity: 1; }
+    }
+
+    .logo {
+      font-family: 'Orbitron', monospace;
+      font-size: 22px;
+      font-weight: 900;
+      letter-spacing: 6px;
+      color: var(--neon-cyan);
+      text-shadow: 0 0 20px var(--neon-cyan), 0 0 40px var(--neon-cyan);
+      flex-shrink: 0;
+    }
+
+    .logo span {
+      color: var(--neon-magenta);
+      text-shadow: 0 0 20px var(--neon-magenta), 0 0 40px var(--neon-magenta);
+    }
+
+    .header-status {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .status-badge {
+      padding: 3px 10px;
+      border-radius: 2px;
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 2px;
+    }
+
+    .status-badge.active {
+      background: rgba(0,255,136,0.15);
+      border: 1px solid var(--neon-green);
+      color: var(--neon-green);
+      text-shadow: 0 0 8px var(--neon-green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    .status-badge.idle {
+      background: rgba(74,106,138,0.2);
+      border: 1px solid var(--text-dim);
+      color: var(--text-dim);
+    }
+
+    .header-target {
+      flex: 1;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 11px;
+    }
+
+    .header-target label {
+      color: var(--text-dim);
+      font-size: 9px;
+      letter-spacing: 1px;
+    }
+
+    .header-target .target-url {
+      color: var(--neon-orange);
+      text-shadow: 0 0 8px rgba(255,102,0,0.5);
+    }
+
+    .header-meta {
+      display: flex; gap: 20px; margin-left: auto;
+      font-size: 10px; color: var(--text-dim);
+    }
+
+    .header-meta span { color: var(--text-mid); }
+
+    /* ===== Control Buttons ===== */
+    .controls {
+      display: flex; align-items: center; gap: 8px;
+    }
+
+    .btn {
+      padding: 6px 14px;
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 2px;
+      transition: all 0.15s;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .btn::after {
+      content: '';
+      position: absolute; inset: 0;
+      background: rgba(255,255,255,0.05);
+      opacity: 0;
+      transition: opacity 0.15s;
+    }
+
+    .btn:hover::after { opacity: 1; }
+
+    .btn-primary {
+      background: rgba(0,245,255,0.12);
+      border: 1px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      text-shadow: 0 0 8px var(--neon-cyan);
+      box-shadow: 0 0 12px rgba(0,245,255,0.15);
+    }
+
+    .btn-primary:hover {
+      background: rgba(0,245,255,0.22);
+      box-shadow: 0 0 20px rgba(0,245,255,0.3);
+    }
+
+    .btn-danger {
+      background: rgba(255,34,68,0.12);
+      border: 1px solid var(--neon-red);
+      color: var(--neon-red);
+      text-shadow: 0 0 8px var(--neon-red);
+    }
+
+    .btn-danger:hover {
+      background: rgba(255,34,68,0.22);
+      box-shadow: 0 0 16px rgba(255,34,68,0.3);
+    }
+
+    .btn-warn {
+      background: rgba(255,238,0,0.1);
+      border: 1px solid var(--neon-yellow);
+      color: var(--neon-yellow);
+    }
+
+    .btn-warn:hover {
+      background: rgba(255,238,0,0.18);
+      box-shadow: 0 0 16px rgba(255,238,0,0.25);
+    }
+
+    .btn-purple {
+      background: rgba(255,0,255,0.1);
+      border: 1px solid var(--neon-magenta);
+      color: var(--neon-magenta);
+    }
+
+    .btn-purple:hover {
+      background: rgba(255,0,255,0.2);
+      box-shadow: 0 0 16px rgba(255,0,255,0.3);
+    }
+
+    .btn-green {
+      background: rgba(0,255,136,0.1);
+      border: 1px solid var(--neon-green);
+      color: var(--neon-green);
+    }
+
+    .btn-green:hover {
+      background: rgba(0,255,136,0.2);
+      box-shadow: 0 0 16px rgba(0,255,136,0.3);
+    }
+
+    /* ===== Sidebar — Agent pipeline ===== */
+    .sidebar {
+      grid-area: sidebar;
+      background: var(--bg-panel);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .agent-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 0;
+    }
+
+    .agent-list::-webkit-scrollbar { width: 4px; }
+    .agent-list::-webkit-scrollbar-track { background: transparent; }
+    .agent-list::-webkit-scrollbar-thumb { background: var(--border-dim); }
+
+    .phase-label {
+      padding: 8px 14px 4px;
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      border-top: 1px solid var(--border-dim);
+    }
+
+    .phase-label:first-child { border-top: none; }
+
+    .agent-item {
+      display: flex; align-items: center;
+      padding: 7px 14px;
+      gap: 10px;
+      cursor: default;
+      transition: background 0.15s;
+      border-left: 2px solid transparent;
+    }
+
+    .agent-item:hover { background: rgba(255,255,255,0.02); }
+
+    .agent-item.completed { border-left-color: var(--neon-green); }
+    .agent-item.active    { border-left-color: var(--neon-cyan); background: rgba(0,245,255,0.04); }
+    .agent-item.failed    { border-left-color: var(--neon-red); }
+    .agent-item.pending   { border-left-color: transparent; }
+
+    .agent-icon {
+      width: 24px; height: 24px;
+      border-radius: 3px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
+
+    .agent-item.completed .agent-icon { background: rgba(0,255,136,0.15); color: var(--neon-green); }
+    .agent-item.active    .agent-icon { background: rgba(0,245,255,0.15); color: var(--neon-cyan); animation: pulse 1.5s ease-in-out infinite; }
+    .agent-item.failed    .agent-icon { background: rgba(255,34,68,0.15);  color: var(--neon-red); }
+    .agent-item.pending   .agent-icon { background: rgba(255,255,255,0.04); color: var(--text-dim); }
+
+    .agent-info { flex: 1; min-width: 0; }
+
+    .agent-name {
+      font-size: 11px;
+      color: var(--text-bright);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .agent-item.active .agent-name { color: var(--neon-cyan); text-shadow: 0 0 6px rgba(0,245,255,0.4); }
+    .agent-item.completed .agent-name { color: var(--text-mid); }
+
+    .agent-sub {
+      font-size: 9px;
+      color: var(--text-dim);
+      margin-top: 1px;
+    }
+
+    .agent-item.active .agent-sub { color: rgba(0,245,255,0.6); }
+
+    .agent-progress-bar {
+      height: 2px;
+      background: var(--border-dim);
+      border-radius: 1px;
+      margin-top: 4px;
+      overflow: hidden;
+    }
+
+    .agent-progress-fill {
+      height: 100%;
+      border-radius: 1px;
+      background: var(--neon-cyan);
+      box-shadow: 0 0 4px var(--neon-cyan);
+      transition: width 0.5s ease;
+    }
+
+    .agent-item.completed .agent-progress-fill { background: var(--neon-green); box-shadow: 0 0 4px var(--neon-green); width: 100%; }
+
+    /* ===== Main area — diagnostics + chat ===== */
+    .main {
+      grid-area: main;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Diagnostics gauges row */
+    .diagnostics-row {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 1px;
+      background: var(--border-dim);
+      border-bottom: 1px solid var(--border-dim);
+      flex-shrink: 0;
+    }
+
+    .gauge-panel {
+      background: var(--bg-panel);
+      padding: 10px 14px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .gauge-panel::before {
+      content: '';
+      position: absolute; top: 0; left: 0; right: 0;
+      height: 1px;
+      opacity: 0.6;
+    }
+
+    .gauge-panel.cyan::before   { background: var(--neon-cyan); }
+    .gauge-panel.magenta::before { background: var(--neon-magenta); }
+    .gauge-panel.green::before  { background: var(--neon-green); }
+    .gauge-panel.orange::before { background: var(--neon-orange); }
+
+    .gauge-label {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 2px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    .gauge-value {
+      font-family: 'Orbitron', monospace;
+      font-size: 24px;
+      font-weight: 900;
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+
+    .gauge-panel.cyan   .gauge-value { color: var(--neon-cyan);    text-shadow: 0 0 12px var(--neon-cyan); }
+    .gauge-panel.magenta .gauge-value { color: var(--neon-magenta); text-shadow: 0 0 12px var(--neon-magenta); }
+    .gauge-panel.green  .gauge-value { color: var(--neon-green);   text-shadow: 0 0 12px var(--neon-green); }
+    .gauge-panel.orange .gauge-value { color: var(--neon-orange);  text-shadow: 0 0 12px var(--neon-orange); }
+
+    .gauge-sub {
+      font-size: 9px;
+      color: var(--text-dim);
+    }
+
+    .gauge-bar {
+      height: 3px;
+      background: rgba(255,255,255,0.06);
+      border-radius: 2px;
+      margin-top: 6px;
+      overflow: hidden;
+    }
+
+    .gauge-bar-fill {
+      height: 100%;
+      border-radius: 2px;
+      transition: width 0.8s ease;
+    }
+
+    .gauge-panel.cyan   .gauge-bar-fill { background: var(--neon-cyan);    box-shadow: 0 0 6px var(--neon-cyan); }
+    .gauge-panel.magenta .gauge-bar-fill { background: var(--neon-magenta); box-shadow: 0 0 6px var(--neon-magenta); }
+    .gauge-panel.green  .gauge-bar-fill { background: var(--neon-green);   box-shadow: 0 0 6px var(--neon-green); }
+    .gauge-panel.orange .gauge-bar-fill { background: var(--neon-orange);  box-shadow: 0 0 6px var(--neon-orange); }
+
+    /* Sparkline canvas */
+    .sparkline-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1px;
+      background: var(--border-dim);
+      border-bottom: 1px solid var(--border-dim);
+      flex-shrink: 0;
+      height: 90px;
+    }
+
+    .sparkline-panel {
+      background: var(--bg-panel);
+      padding: 8px 12px;
+      position: relative;
+    }
+
+    .sparkline-panel canvas {
+      width: 100%;
+      height: 56px;
+      display: block;
+    }
+
+    .sparkline-title {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 1.5px;
+      color: var(--text-dim);
+      margin-bottom: 4px;
+    }
+
+    /* Chat area */
+    .chat-area {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .chat-messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .chat-messages::-webkit-scrollbar { width: 4px; }
+    .chat-messages::-webkit-scrollbar-track { background: transparent; }
+    .chat-messages::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 2px; }
+
+    .msg {
+      display: flex;
+      gap: 10px;
+      max-width: 92%;
+    }
+
+    .msg.user { align-self: flex-end; flex-direction: row-reverse; }
+    .msg.system { align-self: center; }
+
+    .msg-avatar {
+      width: 28px; height: 28px;
+      border-radius: 3px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+      font-family: 'Orbitron', monospace;
+      font-weight: 700;
+    }
+
+    .msg.agent  .msg-avatar { background: rgba(0,245,255,0.15);  border: 1px solid var(--neon-cyan);    color: var(--neon-cyan); }
+    .msg.user   .msg-avatar { background: rgba(255,0,255,0.15);  border: 1px solid var(--neon-magenta); color: var(--neon-magenta); }
+    .msg.system .msg-avatar { display: none; }
+
+    .msg-content { flex: 1; }
+
+    .msg-header {
+      display: flex; align-items: center; gap: 8px;
+      margin-bottom: 4px;
+    }
+
+    .msg-name {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .msg.agent  .msg-name { color: var(--neon-cyan); }
+    .msg.user   .msg-name { color: var(--neon-magenta); }
+
+    .msg-time { font-size: 9px; color: var(--text-dim); }
+
+    .msg-body {
+      padding: 10px 12px;
+      border-radius: 3px;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .msg.agent  .msg-body { background: rgba(0,245,255,0.05);  border: 1px solid rgba(0,245,255,0.15);  color: var(--text-bright); }
+    .msg.user   .msg-body { background: rgba(255,0,255,0.05);  border: 1px solid rgba(255,0,255,0.15);  color: var(--text-bright); }
+    .msg.system .msg-body { background: rgba(255,238,0,0.05);  border: 1px solid rgba(255,238,0,0.15);  color: var(--neon-yellow); font-size: 10px; letter-spacing: 1px; padding: 6px 12px; }
+
+    .msg-body code {
+      background: rgba(0,0,0,0.4);
+      padding: 1px 5px;
+      border-radius: 2px;
+      color: var(--neon-orange);
+      font-size: 11px;
+    }
+
+    .typing-indicator {
+      display: flex; align-items: center; gap: 4px;
+      padding: 8px 12px;
+      background: rgba(0,245,255,0.05);
+      border: 1px solid rgba(0,245,255,0.15);
+      border-radius: 3px;
+      width: fit-content;
+    }
+
+    .typing-dot {
+      width: 5px; height: 5px;
+      border-radius: 50%;
+      background: var(--neon-cyan);
+      animation: typingPulse 1.2s ease-in-out infinite;
+    }
+
+    .typing-dot:nth-child(2) { animation-delay: 0.2s; }
+    .typing-dot:nth-child(3) { animation-delay: 0.4s; }
+
+    @keyframes typingPulse {
+      0%, 100% { opacity: 0.2; transform: scale(0.8); }
+      50%       { opacity: 1;   transform: scale(1.1); box-shadow: 0 0 4px var(--neon-cyan); }
+    }
+
+    /* Chat input */
+    .chat-input-area {
+      padding: 10px 12px;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-dim);
+      display: flex;
+      gap: 8px;
+      align-items: flex-end;
+    }
+
+    .chat-input-wrapper {
+      flex: 1;
+      position: relative;
+    }
+
+    .chat-input {
+      width: 100%;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-dim);
+      border-radius: 3px;
+      padding: 8px 12px;
+      color: var(--text-bright);
+      font-family: 'Share Tech Mono', monospace;
+      font-size: 12px;
+      resize: none;
+      min-height: 38px;
+      max-height: 120px;
+      transition: border-color 0.15s;
+      outline: none;
+    }
+
+    .chat-input:focus {
+      border-color: var(--neon-cyan);
+      box-shadow: 0 0 0 1px rgba(0,245,255,0.15);
+    }
+
+    .chat-input::placeholder { color: var(--text-dim); }
+
+    .chat-send-btn {
+      background: rgba(0,245,255,0.12);
+      border: 1px solid var(--neon-cyan);
+      color: var(--neon-cyan);
+      font-family: 'Orbitron', monospace;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 0 16px;
+      height: 38px;
+      cursor: pointer;
+      border-radius: 3px;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+
+    .chat-send-btn:hover {
+      background: rgba(0,245,255,0.22);
+      box-shadow: 0 0 12px rgba(0,245,255,0.3);
+    }
+
+    /* ===== Right panel ===== */
+    .right-panel {
+      grid-area: right;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Network activity */
+    .net-activity {
+      flex-shrink: 0;
+    }
+
+    .net-item {
+      display: flex; align-items: center; gap: 8px;
+      padding: 5px 12px;
+      border-bottom: 1px solid rgba(26,42,74,0.4);
+      font-size: 10px;
+    }
+
+    .net-method {
+      font-family: 'Orbitron', monospace;
+      font-size: 8px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .net-method.GET  { background: rgba(0,245,255,0.15);  color: var(--neon-cyan);    border: 1px solid rgba(0,245,255,0.3); }
+    .net-method.POST { background: rgba(0,255,136,0.15);  color: var(--neon-green);   border: 1px solid rgba(0,255,136,0.3); }
+    .net-method.PUT  { background: rgba(255,238,0,0.1);   color: var(--neon-yellow);  border: 1px solid rgba(255,238,0,0.3); }
+    .net-method.SCAN { background: rgba(255,0,255,0.15);  color: var(--neon-magenta); border: 1px solid rgba(255,0,255,0.3); }
+    .net-method.FUZZ { background: rgba(255,102,0,0.15);  color: var(--neon-orange);  border: 1px solid rgba(255,102,0,0.3); }
+
+    .net-url {
+      flex: 1;
+      color: var(--text-mid);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-size: 10px;
+    }
+
+    .net-status {
+      font-family: 'Orbitron', monospace;
+      font-size: 9px;
+      flex-shrink: 0;
+    }
+
+    .net-status.ok  { color: var(--neon-green); }
+    .net-status.err { color: var(--neon-red); }
+    .net-status.rdr { color: var(--neon-yellow); }
+
+    /* Vulnerabilities found */
+    .vuln-list {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .vuln-list::-webkit-scrollbar { width: 4px; }
+    .vuln-list::-webkit-scrollbar-thumb { background: var(--border-dim); }
+
+    .vuln-item {
+      padding: 8px 12px;
+      border-bottom: 1px solid rgba(26,42,74,0.4);
+      cursor: default;
+      transition: background 0.1s;
+    }
+
+    .vuln-item:hover { background: rgba(255,255,255,0.02); }
+
+    .vuln-header {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 3px;
+    }
+
+    .severity-badge {
+      font-family: 'Orbitron', monospace;
+      font-size: 7px;
+      font-weight: 700;
+      letter-spacing: 1px;
+      padding: 1px 5px;
+      border-radius: 2px;
+      flex-shrink: 0;
+    }
+
+    .severity-badge.critical { background: rgba(255,34,68,0.2);   border: 1px solid var(--neon-red);     color: var(--neon-red); }
+    .severity-badge.high     { background: rgba(255,102,0,0.2);   border: 1px solid var(--neon-orange);  color: var(--neon-orange); }
+    .severity-badge.medium   { background: rgba(255,238,0,0.15);  border: 1px solid var(--neon-yellow);  color: var(--neon-yellow); }
+    .severity-badge.low      { background: rgba(0,255,136,0.12);  border: 1px solid var(--neon-green);   color: var(--neon-green); }
+
+    .vuln-name {
+      font-size: 11px;
+      color: var(--text-bright);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .vuln-meta {
+      font-size: 9px;
+      color: var(--text-dim);
+    }
+
+    /* ===== Footer ===== */
+    footer {
+      grid-area: footer;
+      background: var(--bg-panel);
+      border-top: 1px solid var(--border-dim);
+      display: flex; align-items: center;
+      padding: 0 14px;
+      gap: 24px;
+      font-size: 10px;
+      color: var(--text-dim);
+    }
+
+    .footer-item {
+      display: flex; align-items: center; gap: 6px;
+    }
+
+    .footer-item .label {
+      color: var(--text-dim);
+      font-size: 9px;
+      letter-spacing: 1px;
+    }
+
+    .footer-item .value { color: var(--text-mid); }
+    .footer-item .value.ok  { color: var(--neon-green); }
+    .footer-item .value.warn { color: var(--neon-yellow); }
+    .footer-item .value.err  { color: var(--neon-red); }
+
+    .footer-right {
+      margin-left: auto;
+      display: flex; gap: 20px;
+    }
+
+    /* ===== Utility animations ===== */
+    @keyframes pulse {
+      0%, 100% { opacity: 0.7; }
+      50%       { opacity: 1; }
+    }
+
+    @keyframes glitch {
+      0%, 90%, 100% { transform: translate(0); }
+      92%           { transform: translate(-2px, 0); }
+      94%           { transform: translate(2px, 0); }
+      96%           { transform: translate(-1px, 0); }
+    }
+
+    .glitch { animation: glitch 4s ease-in-out infinite; }
+
+    /* Scan line overlay */
+    .scanlines {
+      position: fixed; inset: 0; z-index: 999;
+      pointer-events: none;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0,0,0,0.03) 2px,
+        rgba(0,0,0,0.03) 4px
+      );
+    }
+
+    /* Corner decorations */
+    .corner-tl, .corner-tr, .corner-bl, .corner-br {
+      position: absolute;
+      width: 12px; height: 12px;
+      pointer-events: none;
+    }
+
+    .corner-tl { top: 4px; left: 4px; border-top: 1px solid var(--neon-cyan); border-left: 1px solid var(--neon-cyan); }
+    .corner-tr { top: 4px; right: 4px; border-top: 1px solid var(--neon-cyan); border-right: 1px solid var(--neon-cyan); }
+    .corner-bl { bottom: 4px; left: 4px; border-bottom: 1px solid var(--neon-cyan); border-left: 1px solid var(--neon-cyan); }
+    .corner-br { bottom: 4px; right: 4px; border-bottom: 1px solid var(--neon-cyan); border-right: 1px solid var(--neon-cyan); }
+
+    .progress-ring {
+      display: inline-flex; align-items: center; justify-content: center;
+      position: relative;
+    }
+
+    .progress-ring svg { transform: rotate(-90deg); }
+
+    .progress-ring .track { fill: none; stroke: rgba(255,255,255,0.06); }
+    .progress-ring .fill  { fill: none; stroke-linecap: round; stroke-dasharray: 138; transition: stroke-dashoffset 0.8s ease; }
+
+    .ring-label {
+      position: absolute;
+      font-family: 'Orbitron', monospace;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    /* Token counter flash */
+    @keyframes counterFlash {
+      0%   { color: var(--neon-yellow); text-shadow: 0 0 8px var(--neon-yellow); }
+      100% { color: var(--text-mid); text-shadow: none; }
+    }
+
+    .flash { animation: counterFlash 0.6s ease-out forwards; }
+  </style>
+</head>
+<body>
+<div class="scanlines"></div>
+
+<div class="app">
+
+  <!-- ===== HEADER ===== -->
+  <header>
+    <div class="logo glitch">SHA<span>NN</span>ON</div>
+
+    <div class="header-status">
+      <div class="status-badge active">LIVE</div>
+      <span>v2.4.1</span>
+    </div>
+
+    <div class="header-target" style="margin-left: 16px;">
+      <label>TARGET</label>
+      <span class="target-url">https://app.acme-corp.internal</span>
+    </div>
+
+    <!-- Control buttons -->
+    <div class="controls" style="margin-left: 20px;">
+      <button class="btn btn-primary">▶ START</button>
+      <button class="btn btn-warn">⏸ PAUSE</button>
+      <button class="btn btn-danger">■ STOP</button>
+      <button class="btn btn-purple">⟳ RESUME</button>
+      <button class="btn btn-green">↓ REPORT</button>
+      <button class="btn btn-primary" style="border-color:var(--neon-orange);color:var(--neon-orange);">⚙ CONFIG</button>
+    </div>
+
+    <div class="header-meta">
+      <span><span style="color:var(--text-dim)">PHASE</span> <span style="color:var(--neon-cyan)">VULN ANALYSIS</span></span>
+      <span><span style="color:var(--text-dim)">ELAPSED</span> <span id="elapsed" style="color:var(--neon-yellow)">00:14:32</span></span>
+      <span><span style="color:var(--text-dim)">TOKENS</span> <span id="tokens" style="color:var(--text-mid)">284,712</span></span>
+    </div>
+
+    <div class="corner-tl"></div>
+    <div class="corner-tr"></div>
+    <div class="corner-bl"></div>
+    <div class="corner-br"></div>
+  </header>
+
+  <!-- ===== SIDEBAR — Agent Pipeline ===== -->
+  <aside class="sidebar panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      PIPELINE
+    </div>
+
+    <div class="agent-list">
+
+      <div class="phase-label">Phase 1 — Pre-Recon</div>
+
+      <div class="agent-item completed">
+        <div class="agent-icon">✓</div>
+        <div class="agent-info">
+          <div class="agent-name">Pre-Recon</div>
+          <div class="agent-sub">nmap · subfinder · whatweb</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="phase-label">Phase 2 — Recon</div>
+
+      <div class="agent-item completed">
+        <div class="agent-icon">✓</div>
+        <div class="agent-info">
+          <div class="agent-name">Recon</div>
+          <div class="agent-sub">Attack surface mapping</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="phase-label">Phase 3 — Vulnerability Analysis</div>
+
+      <div class="agent-item completed">
+        <div class="agent-icon">✓</div>
+        <div class="agent-info">
+          <div class="agent-name">Injection Vuln</div>
+          <div class="agent-sub">SQLi, CMDi, LDAPi</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" style="width:100%"></div></div>
+        </div>
+      </div>
+
+      <div class="agent-item active">
+        <div class="agent-icon">⚡</div>
+        <div class="agent-info">
+          <div class="agent-name">XSS Vuln</div>
+          <div class="agent-sub" id="xss-sub">Scanning… 47 endpoints</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" id="xss-prog" style="width:62%"></div></div>
+        </div>
+      </div>
+
+      <div class="agent-item active">
+        <div class="agent-icon">⚡</div>
+        <div class="agent-info">
+          <div class="agent-name">Auth Vuln</div>
+          <div class="agent-sub" id="auth-sub">Testing login flows</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" id="auth-prog" style="width:38%"></div></div>
+        </div>
+      </div>
+
+      <div class="agent-item active">
+        <div class="agent-icon">⚡</div>
+        <div class="agent-info">
+          <div class="agent-name">SSRF Vuln</div>
+          <div class="agent-sub">Probing internal routes</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" id="ssrf-prog" style="width:55%"></div></div>
+        </div>
+      </div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">AuthZ Vuln</div>
+          <div class="agent-sub">Waiting for slot…</div>
+          <div class="agent-progress-bar"><div class="agent-progress-fill" style="width:0%"></div></div>
+        </div>
+      </div>
+
+      <div class="phase-label">Phase 4 — Exploitation</div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">Injection Exploit</div>
+          <div class="agent-sub">Pending vuln results</div>
+        </div>
+      </div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">XSS Exploit</div>
+          <div class="agent-sub">Pending vuln results</div>
+        </div>
+      </div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">Auth Exploit</div>
+          <div class="agent-sub">Pending vuln results</div>
+        </div>
+      </div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">SSRF Exploit</div>
+          <div class="agent-sub">Pending vuln results</div>
+        </div>
+      </div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">AuthZ Exploit</div>
+          <div class="agent-sub">Pending vuln results</div>
+        </div>
+      </div>
+
+      <div class="phase-label">Phase 5 — Report</div>
+
+      <div class="agent-item pending">
+        <div class="agent-icon">○</div>
+        <div class="agent-info">
+          <div class="agent-name">Report</div>
+          <div class="agent-sub">Executive summary</div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Mini ring gauges for parallel slots -->
+    <div style="padding: 10px 14px; border-top: 1px solid var(--border-dim); display:flex; gap:12px; align-items:center;">
+      <div style="font-family:'Orbitron',monospace;font-size:8px;letter-spacing:1px;color:var(--text-dim);">SLOTS</div>
+      <div class="progress-ring" title="Slot 1 — Active">
+        <svg width="32" height="32" viewBox="0 0 44 44">
+          <circle class="track" cx="22" cy="22" r="18" stroke-width="4"/>
+          <circle class="fill" cx="22" cy="22" r="18" stroke-width="4" stroke="var(--neon-cyan)" stroke-dashoffset="0"/>
+        </svg>
+        <span class="ring-label" style="color:var(--neon-cyan);font-size:8px;">1</span>
+      </div>
+      <div class="progress-ring" title="Slot 2 — Active">
+        <svg width="32" height="32" viewBox="0 0 44 44">
+          <circle class="track" cx="22" cy="22" r="18" stroke-width="4"/>
+          <circle class="fill" cx="22" cy="22" r="18" stroke-width="4" stroke="var(--neon-cyan)" stroke-dashoffset="34"/>
+        </svg>
+        <span class="ring-label" style="color:var(--neon-cyan);font-size:8px;">2</span>
+      </div>
+      <div class="progress-ring" title="Slot 3 — Active">
+        <svg width="32" height="32" viewBox="0 0 44 44">
+          <circle class="track" cx="22" cy="22" r="18" stroke-width="4"/>
+          <circle class="fill" cx="22" cy="22" r="18" stroke-width="4" stroke="var(--neon-cyan)" stroke-dashoffset="62"/>
+        </svg>
+        <span class="ring-label" style="color:var(--neon-cyan);font-size:8px;">3</span>
+      </div>
+      <div class="progress-ring" title="Slot 4 — Idle">
+        <svg width="32" height="32" viewBox="0 0 44 44">
+          <circle class="track" cx="22" cy="22" r="18" stroke-width="4"/>
+          <circle class="fill" cx="22" cy="22" r="18" stroke-width="4" stroke="var(--text-dim)" stroke-dashoffset="138"/>
+        </svg>
+        <span class="ring-label" style="color:var(--text-dim);font-size:8px;">4</span>
+      </div>
+      <div class="progress-ring" title="Slot 5 — Idle">
+        <svg width="32" height="32" viewBox="0 0 44 44">
+          <circle class="track" cx="22" cy="22" r="18" stroke-width="4"/>
+          <circle class="fill" cx="22" cy="22" r="18" stroke-width="4" stroke="var(--text-dim)" stroke-dashoffset="138"/>
+        </svg>
+        <span class="ring-label" style="color:var(--text-dim);font-size:8px;">5</span>
+      </div>
+    </div>
+  </aside>
+
+  <!-- ===== MAIN ===== -->
+  <main class="main panel">
+
+    <!-- Gauges -->
+    <div class="diagnostics-row">
+
+      <div class="gauge-panel cyan">
+        <div class="gauge-label">Requests / min</div>
+        <div class="gauge-value" id="rpm">248</div>
+        <div class="gauge-sub">↑ 12% vs last min</div>
+        <div class="gauge-bar"><div class="gauge-bar-fill" id="rpm-bar" style="width:62%"></div></div>
+      </div>
+
+      <div class="gauge-panel magenta">
+        <div class="gauge-label">Vulns Found</div>
+        <div class="gauge-value" id="vulns">7</div>
+        <div class="gauge-sub">3 critical · 2 high · 2 med</div>
+        <div class="gauge-bar"><div class="gauge-bar-fill" id="vuln-bar" style="width:35%"></div></div>
+      </div>
+
+      <div class="gauge-panel green">
+        <div class="gauge-label">Agents Active</div>
+        <div class="gauge-value" id="active-agents">3 / 5</div>
+        <div class="gauge-sub">2 slots available</div>
+        <div class="gauge-bar"><div class="gauge-bar-fill" id="agents-bar" style="width:60%"></div></div>
+      </div>
+
+      <div class="gauge-panel orange">
+        <div class="gauge-label">Coverage</div>
+        <div class="gauge-value" id="coverage">41%</div>
+        <div class="gauge-sub">247 / 603 endpoints</div>
+        <div class="gauge-bar"><div class="gauge-bar-fill" id="cov-bar" style="width:41%"></div></div>
+      </div>
+
+    </div>
+
+    <!-- Sparklines -->
+    <div class="sparkline-row">
+      <div class="sparkline-panel">
+        <div class="sparkline-title">REQUEST RATE // LIVE</div>
+        <canvas id="sparkline-req" height="56"></canvas>
+      </div>
+      <div class="sparkline-panel">
+        <div class="sparkline-title">RESPONSE TIME (ms) // LIVE</div>
+        <canvas id="sparkline-resp" height="56"></canvas>
+      </div>
+    </div>
+
+    <!-- Chat -->
+    <div class="chat-area">
+      <div class="panel-header">
+        <div class="dot"></div>
+        OPERATOR INTERFACE
+        <span style="margin-left:auto;font-size:9px;color:var(--text-dim)">← scroll to history</span>
+      </div>
+
+      <div class="chat-messages" id="chat-messages">
+
+        <div class="msg system">
+          <div class="msg-body">■ SESSION INITIALIZED — WORKSPACE: acme-corp-audit-001 — TEMPORAL READY</div>
+        </div>
+
+        <div class="msg agent">
+          <div class="msg-avatar">SH</div>
+          <div class="msg-content">
+            <div class="msg-header">
+              <span class="msg-name">SHANNON</span>
+              <span class="msg-time">14:18:02</span>
+            </div>
+            <div class="msg-body">
+              Pre-recon complete. Discovered <code>3 subdomains</code>, <code>2 open ports</code> (80, 443), stack identified as <strong>Node.js + Express</strong> behind nginx reverse proxy. Moving to attack surface mapping.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg user">
+          <div class="msg-avatar">OP</div>
+          <div class="msg-content">
+            <div class="msg-header">
+              <span class="msg-name">OPERATOR</span>
+              <span class="msg-time">14:19:45</span>
+            </div>
+            <div class="msg-body">
+              Focus specifically on the <code>/api/v2/</code> endpoints. The auth module was recently rewritten.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg agent">
+          <div class="msg-avatar">SH</div>
+          <div class="msg-content">
+            <div class="msg-header">
+              <span class="msg-name">SHANNON</span>
+              <span class="msg-time">14:19:47</span>
+            </div>
+            <div class="msg-body">
+              Acknowledged. Prioritizing <code>/api/v2/</code> routes in vuln analysis phase. Auth-vuln agent will target the rewritten auth module first. I've flagged a potential <strong>IDOR</strong> pattern in <code>/api/v2/users/:id</code> — auth-vuln is probing now.
+            </div>
+          </div>
+        </div>
+
+        <div class="msg system">
+          <div class="msg-body">■ VULN FOUND — CRITICAL — SQL Injection @ /api/v2/search?q= — injection-vuln agent</div>
+        </div>
+
+        <div class="msg agent">
+          <div class="msg-avatar">SH</div>
+          <div class="msg-content">
+            <div class="msg-header">
+              <span class="msg-name">SHANNON</span>
+              <span class="msg-time">14:28:11</span>
+            </div>
+            <div class="msg-body">
+              Critical SQL injection confirmed at <code>GET /api/v2/search?q=</code>. The <code>q</code> parameter is directly interpolated into a raw SQL query — no parameterization. Payload: <code>' OR 1=1--</code> returns full user table. Deliverable saved. Exploitation agent queued pending your approval.
+            </div>
+          </div>
+        </div>
+
+        <!-- Typing indicator -->
+        <div class="msg agent" id="typing-msg">
+          <div class="msg-avatar">SH</div>
+          <div class="msg-content">
+            <div class="msg-header">
+              <span class="msg-name">SHANNON</span>
+              <span class="msg-time" id="typing-time">14:32:44</span>
+            </div>
+            <div class="typing-indicator">
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+              <div class="typing-dot"></div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="chat-input-area">
+        <div class="chat-input-wrapper">
+          <textarea class="chat-input" placeholder="Send instructions to Shannon… (Shift+Enter for newline)" rows="1"></textarea>
+        </div>
+        <button class="chat-send-btn">SEND ▶</button>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ===== RIGHT PANEL ===== -->
+  <aside class="right-panel panel">
+
+    <!-- Network Activity -->
+    <div class="net-activity">
+      <div class="panel-header">
+        <div class="dot" style="background:var(--neon-orange);box-shadow:0 0 6px var(--neon-orange)"></div>
+        <span style="color:var(--neon-orange)">TARGET TRAFFIC</span>
+      </div>
+      <div id="net-feed">
+        <div class="net-item">
+          <span class="net-method GET">GET</span>
+          <span class="net-url">/api/v2/users/profile</span>
+          <span class="net-status ok">200</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method POST">POST</span>
+          <span class="net-url">/api/v2/auth/login</span>
+          <span class="net-status err">401</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method FUZZ">FUZZ</span>
+          <span class="net-url">/api/v2/search?q='+OR+1=1--</span>
+          <span class="net-status err">500</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method GET">GET</span>
+          <span class="net-url">/api/v2/products/48291</span>
+          <span class="net-status rdr">302</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method SCAN">SCAN</span>
+          <span class="net-url">subfinder:acme-corp.internal</span>
+          <span class="net-status ok">OK</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method POST">POST</span>
+          <span class="net-url">/api/v2/admin/users</span>
+          <span class="net-status err">403</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method FUZZ">FUZZ</span>
+          <span class="net-url">/api/v2/users/../../etc/passwd</span>
+          <span class="net-status err">400</span>
+        </div>
+        <div class="net-item">
+          <span class="net-method GET">GET</span>
+          <span class="net-url">/api/v2/dashboard/stats</span>
+          <span class="net-status ok">200</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Vulnerabilities panel -->
+    <div class="panel-header" style="border-top: 1px solid var(--border-dim);">
+      <div class="dot" style="background:var(--neon-red);box-shadow:0 0 6px var(--neon-red)"></div>
+      <span style="color:var(--neon-red)">VULNERABILITIES</span>
+      <span style="margin-left:auto;font-family:'Orbitron',monospace;font-size:9px;color:var(--neon-red)">7 FOUND</span>
+    </div>
+
+    <div class="vuln-list" id="vuln-list">
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge critical">CRIT</span>
+          <span class="vuln-name">SQL Injection</span>
+        </div>
+        <div class="vuln-meta">GET /api/v2/search · injection-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge critical">CRIT</span>
+          <span class="vuln-name">Broken Auth — JWT alg:none</span>
+        </div>
+        <div class="vuln-meta">POST /api/v2/auth/token · auth-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge high">HIGH</span>
+          <span class="vuln-name">Stored XSS</span>
+        </div>
+        <div class="vuln-meta">POST /api/v2/comments · xss-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge high">HIGH</span>
+          <span class="vuln-name">IDOR — User Object Access</span>
+        </div>
+        <div class="vuln-meta">GET /api/v2/users/:id · auth-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge medium">MED</span>
+          <span class="vuln-name">SSRF — Internal Metadata</span>
+        </div>
+        <div class="vuln-meta">POST /api/v2/webhooks · ssrf-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge medium">MED</span>
+          <span class="vuln-name">Reflected XSS</span>
+        </div>
+        <div class="vuln-meta">GET /search?term= · xss-vuln</div>
+      </div>
+
+      <div class="vuln-item">
+        <div class="vuln-header">
+          <span class="severity-badge low">LOW</span>
+          <span class="vuln-name">Missing HSTS Header</span>
+        </div>
+        <div class="vuln-meta">All endpoints · pre-recon</div>
+      </div>
+
+    </div>
+
+    <!-- Quick action buttons -->
+    <div style="padding: 10px 12px; border-top: 1px solid var(--border-dim); display:flex; flex-wrap:wrap; gap:6px;">
+      <button class="btn btn-primary" style="font-size:8px;padding:5px 10px;">⊕ NEW SCAN</button>
+      <button class="btn btn-purple" style="font-size:8px;padding:5px 10px;">⊛ WORKSPACES</button>
+      <button class="btn btn-green"  style="font-size:8px;padding:5px 10px;">⊡ DELIVERABLES</button>
+      <button class="btn btn-warn"   style="font-size:8px;padding:5px 10px;">⌾ TEMPORAL UI</button>
+      <button class="btn btn-danger" style="font-size:8px;padding:5px 10px;">✕ KILL AGENT</button>
+    </div>
+
+  </aside>
+
+  <!-- ===== FOOTER ===== -->
+  <footer>
+    <div class="footer-item">
+      <span class="label">TEMPORAL</span>
+      <span class="value ok">● CONNECTED</span>
+    </div>
+    <div class="footer-item">
+      <span class="label">WORKER</span>
+      <span class="value ok">● HEALTHY</span>
+    </div>
+    <div class="footer-item">
+      <span class="label">CLAUDE SDK</span>
+      <span class="value ok">● claude-sonnet-4-6</span>
+    </div>
+    <div class="footer-item">
+      <span class="label">DOCKER</span>
+      <span class="value ok">● RUNNING</span>
+    </div>
+    <div class="footer-item">
+      <span class="label">MCP TOOLS</span>
+      <span class="value">playwright · totp · save_deliverable</span>
+    </div>
+    <div class="footer-right">
+      <div class="footer-item">
+        <span class="label">REPO</span>
+        <span class="value">acme-corp</span>
+      </div>
+      <div class="footer-item">
+        <span class="label">WORKSPACE</span>
+        <span class="value">acme-corp-audit-001</span>
+      </div>
+      <div class="footer-item">
+        <span class="label">WORKFLOW ID</span>
+        <span class="value" style="color:var(--text-dim)">pentest-2026-03-04-a8f2</span>
+      </div>
+    </div>
+  </footer>
+
+</div>
+
+<script>
+  // ===== Sparkline renderer =====
+  function drawSparkline(canvasId, data, color, fillColor) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const dpr = window.devicePixelRatio || 1;
+    const rect = canvas.getBoundingClientRect();
+    canvas.width  = rect.width  * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.scale(dpr, dpr);
+
+    const W = rect.width;
+    const H = rect.height;
+    const pad = 2;
+    const max = Math.max(...data) * 1.1;
+    const min = Math.min(...data) * 0.9;
+    const range = max - min || 1;
+
+    const x = (i) => pad + (i / (data.length - 1)) * (W - pad * 2);
+    const y = (v) => H - pad - ((v - min) / range) * (H - pad * 2);
+
+    // Fill
+    ctx.beginPath();
+    ctx.moveTo(x(0), H);
+    data.forEach((v, i) => ctx.lineTo(x(i), y(v)));
+    ctx.lineTo(x(data.length - 1), H);
+    ctx.closePath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    data.forEach((v, i) => {
+      if (i === 0) ctx.moveTo(x(i), y(v));
+      else ctx.lineTo(x(i), y(v));
+    });
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+
+    // Last point glow
+    const lx = x(data.length - 1);
+    const ly = y(data[data.length - 1]);
+    ctx.beginPath();
+    ctx.arc(lx, ly, 3, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.shadowColor = color;
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  // ===== Live simulation data =====
+  const reqData  = Array.from({length: 60}, (_, i) => 180 + Math.sin(i * 0.3) * 60 + Math.random() * 30);
+  const respData = Array.from({length: 60}, (_, i) => 120 + Math.cos(i * 0.2) * 40 + Math.random() * 25);
+
+  function renderSparklines() {
+    drawSparkline('sparkline-req',  reqData,  '#00f5ff', 'rgba(0,245,255,0.08)');
+    drawSparkline('sparkline-resp', respData, '#ff00ff', 'rgba(255,0,255,0.08)');
+  }
+
+  renderSparklines();
+  window.addEventListener('resize', renderSparklines);
+
+  // ===== Live data ticker =====
+  let elapsed = 14 * 60 + 32;
+  let tokens = 284712;
+  let rpm = 248;
+  let coverage = 41;
+  let xssProgress = 62;
+  let authProgress = 38;
+  let ssrfProgress = 55;
+
+  setInterval(() => {
+    // Elapsed time
+    elapsed++;
+    const m = String(Math.floor(elapsed / 60)).padStart(2, '0');
+    const s = String(elapsed % 60).padStart(2, '0');
+    document.getElementById('elapsed').textContent = `00:${m}:${s}`;
+
+    // Tokens
+    tokens += Math.floor(Math.random() * 300 + 100);
+    const tokEl = document.getElementById('tokens');
+    tokEl.textContent = tokens.toLocaleString();
+    tokEl.classList.remove('flash');
+    void tokEl.offsetWidth;
+    tokEl.classList.add('flash');
+
+    // RPM
+    rpm = Math.max(180, Math.min(400, rpm + (Math.random() - 0.45) * 20));
+    document.getElementById('rpm').textContent = Math.round(rpm);
+    document.getElementById('rpm-bar').style.width = Math.round((rpm / 400) * 100) + '%';
+
+    // Coverage
+    coverage = Math.min(100, coverage + (Math.random() > 0.7 ? 1 : 0));
+    document.getElementById('coverage').textContent = coverage + '%';
+    document.getElementById('cov-bar').style.width = coverage + '%';
+
+    // Agent progress bars
+    xssProgress  = Math.min(100, xssProgress  + (Math.random() > 0.5 ? Math.random() * 2 : 0));
+    authProgress = Math.min(100, authProgress + (Math.random() > 0.5 ? Math.random() * 1.5 : 0));
+    ssrfProgress = Math.min(100, ssrfProgress + (Math.random() > 0.5 ? Math.random() * 1.8 : 0));
+    document.getElementById('xss-prog').style.width  = xssProgress  + '%';
+    document.getElementById('auth-prog').style.width = authProgress + '%';
+    document.getElementById('ssrf-prog').style.width = ssrfProgress + '%';
+
+    // Sparklines
+    reqData.shift();
+    reqData.push(180 + Math.sin(Date.now() / 3000) * 60 + Math.random() * 30);
+    respData.shift();
+    respData.push(120 + Math.cos(Date.now() / 4000) * 40 + Math.random() * 25);
+    renderSparklines();
+
+    // Rolling network feed
+    const methods = ['GET','POST','FUZZ','SCAN','PUT'];
+    const paths = [
+      '/api/v2/users/7821', '/api/v2/auth/refresh', '/api/v2/products/list',
+      '/api/v2/orders/99', '/api/v2/admin/roles', '/api/v2/search?q=test',
+      '/.well-known/security.txt', '/api/v2/webhooks/callback',
+    ];
+    const statuses = [{c:'ok',v:'200'},{c:'ok',v:'201'},{c:'err',v:'401'},{c:'err',v:'500'},{c:'rdr',v:'302'},{c:'err',v:'403'}];
+    const m2 = methods[Math.floor(Math.random() * methods.length)];
+    const path = paths[Math.floor(Math.random() * paths.length)];
+    const stat = statuses[Math.floor(Math.random() * statuses.length)];
+    const feed = document.getElementById('net-feed');
+    const item = document.createElement('div');
+    item.className = 'net-item';
+    item.style.opacity = '0';
+    item.style.transition = 'opacity 0.3s';
+    item.innerHTML = `<span class="net-method ${m2}">${m2}</span><span class="net-url">${path}</span><span class="net-status ${stat.c}">${stat.v}</span>`;
+    feed.insertBefore(item, feed.firstChild);
+    requestAnimationFrame(() => { item.style.opacity = '1'; });
+    if (feed.children.length > 10) feed.removeChild(feed.lastChild);
+
+  }, 1000);
+
+  // ===== Update typing indicator time =====
+  setInterval(() => {
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const ss = String(now.getSeconds()).padStart(2,'0');
+    const el = document.getElementById('typing-time');
+    if (el) el.textContent = `${hh}:${mm}:${ss}`;
+  }, 1000);
+
+  // ===== Chat input — auto-resize =====
+  const chatInput = document.querySelector('.chat-input');
+  chatInput.addEventListener('input', () => {
+    chatInput.style.height = 'auto';
+    chatInput.style.height = Math.min(chatInput.scrollHeight, 120) + 'px';
+  });
+
+  // ===== Send button — demo =====
+  document.querySelector('.chat-send-btn').addEventListener('click', () => {
+    const val = chatInput.value.trim();
+    if (!val) return;
+    const msgs = document.getElementById('chat-messages');
+    const now = new Date();
+    const t = `${String(now.getHours()).padStart(2,'0')}:${String(now.getMinutes()).padStart(2,'0')}:${String(now.getSeconds()).padStart(2,'0')}`;
+    const div = document.createElement('div');
+    div.className = 'msg user';
+    div.innerHTML = `<div class="msg-avatar">OP</div><div class="msg-content"><div class="msg-header"><span class="msg-name">OPERATOR</span><span class="msg-time">${t}</span></div><div class="msg-body">${val.replace(/</g,'&lt;')}</div></div>`;
+    // Insert before typing indicator
+    const typing = document.getElementById('typing-msg');
+    msgs.insertBefore(div, typing);
+    msgs.scrollTop = msgs.scrollHeight;
+    chatInput.value = '';
+    chatInput.style.height = 'auto';
+  });
+
+  chatInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      document.querySelector('.chat-send-btn').click();
+    }
+  });
+</script>
+</body>
+</html>
