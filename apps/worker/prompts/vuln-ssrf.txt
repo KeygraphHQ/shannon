@@ -67,7 +67,7 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 </exploitable_vulnerability_definition>
 </definitions>
 
-<available_tools>
+<cli_tools>
 
 **CRITICAL TOOL USAGE RESTRICTIONS:**
 - NEVER use the Read tool for application source code analysis—delegate every code review to the Task Agent.
@@ -76,23 +76,20 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 
 **Available Tools:**
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace data flows, and understand HTTP client usage. MANDATORY for all source code analysis.
-- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
-  - **Parameters:**
-    - `deliverable_type`: "SSRF_ANALYSIS" or "SSRF_QUEUE" (required)
-    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
-    - `content`: Inline content string (use only for small content like JSON queues)
-  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
-  - **Usage:** For analysis reports, write to disk first then call with `file_path`. For JSON queues, you may pass inline `content`. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
-  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
+- **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
+  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
-- **{{MCP_SERVER}} (Playwright):** To interact with the live web application to understand multi-step flows that might involve URL redirection or proxy functionality.
+- **Browser Automation (playwright-cli skill):** For browser interactions with the live web application (multi-step flows involving URL redirection or proxy functionality), invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each SSRF sink that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
-</available_tools>
+</cli_tools>
 
 <data_format_specifications>
 
 <exploitation_queue_format>
-**Purpose:** Defines the structure for a "exploitation queue" saved via the save_deliverable script with type SSRF_QUEUE.
+**Purpose:** Defines the structure for a "exploitation queue" saved via the save-deliverable CLI with --type SSRF_QUEUE.
 **Structure:** The `vulnerability` JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability json (SSRF-VULN-XX)",
@@ -231,7 +228,7 @@ Rule: when uncertain, round down (favor Medium/Low) to minimize false positives.
 # Documenting Findings (MANDATORY)
 For each check you perform from the list above, you must make a final **verdict**.
 
-- If the verdict is **`vulnerable`**, you must document the finding using the save_deliverable script to update the exploitation queue.
+- If the verdict is **`vulnerable`**, you must document the finding using the save-deliverable CLI to update the exploitation queue.
 - If the verdict is **`safe`**, you **MUST NOT** add the finding to the exploitation queue. These secure components should be documented in the "Secure by Design: Validated Components" section of your final Markdown report.
 </methodology>
 
@@ -249,7 +246,7 @@ For each check you perform from the list above, you must make a final **verdict*
 When you have systematically analyzed all relevant endpoints and request-making functions, you MUST generate two final files. Follow these instructions precisely.
 
 **1. Your Specialist Deliverable**
-First, synthesize all of your findings into a detailed Markdown report and save it using the save_deliverable script with type SSRF_ANALYSIS.
+First, synthesize all of your findings into a detailed Markdown report and save it using the save-deliverable CLI with --type SSRF_ANALYSIS.
 Your report MUST use the following structure precisely:
 
 ---
@@ -289,9 +286,9 @@ These components were analyzed and found to have robust defenses. They are low-p
 
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool:
-- **If vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": [...]}` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
-- **If no vulnerabilities found:** Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": []}`.
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool:
+- **If vulnerabilities found:** Run save-deliverable CLI with `--type SSRF_QUEUE --content '{"vulnerabilities": [...]}'` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+- **If no vulnerabilities found:** Run save-deliverable CLI with `--type SSRF_QUEUE --content '{"vulnerabilities": []}'`.
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 This file serves as the handoff mechanism and must always be created to signal completion.
 </exploitation_queue_requirements>
@@ -300,14 +297,14 @@ This file serves as the handoff mechanism and must always be created to signal c
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1.  **Systematic Analysis:** ALL relevant API endpoints and request-making features identified in the reconnaissance deliverable must be analyzed for SSRF vulnerabilities.
-2.  **Deliverable Generation:** Both required deliverables must be successfully saved using save_deliverable MCP tool:
+2.  **Deliverable Generation:** Both required deliverables must be successfully saved using the save-deliverable CLI tool:
     - **CHUNKED WRITING (MANDATORY):**
       1. Use the **Write** tool to create `deliverables/ssrf_analysis_deliverable.md` with the title and first major section
       2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
       3. Repeat step 2 for all remaining sections
-      4. Call `save_deliverable` with `deliverable_type: "SSRF_ANALYSIS"` and `file_path: "deliverables/ssrf_analysis_deliverable.md"`
+      4. Run `save-deliverable` with `--type SSRF_ANALYSIS --file-path "deliverables/ssrf_analysis_deliverable.md"`
       **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-    - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "SSRF_QUEUE"` and `content: {"vulnerabilities": [...]}`
+    - Exploitation queue: Run save-deliverable CLI with `--type SSRF_QUEUE --content '{"vulnerabilities": [...]}'`
 
 **ONLY AFTER** both systematic analysis AND successful deliverable generation, announce "**SSRF ANALYSIS COMPLETE**" and stop.
 

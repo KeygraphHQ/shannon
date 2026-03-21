@@ -7,13 +7,11 @@
 // Production Claude agent execution with retry, git checkpoints, and audit logging
 
 import { query } from '@anthropic-ai/claude-agent-sdk';
-import { createShannonHelperServer } from '@shannon/mcp-server';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../audit/index.js';
 import { isRetryableError, PentestError } from '../services/error-handling.js';
-import { AGENT_VALIDATORS, AGENTS, MCP_AGENT_MAPPING } from '../session-manager.js';
+import { AGENT_VALIDATORS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
-import type { AgentName } from '../types/index.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { Timer } from '../utils/metrics.js';
@@ -41,89 +39,6 @@ export interface ClaudePromptResult {
   errorType?: string | undefined;
   prompt?: string | undefined;
   retryable?: boolean | undefined;
-}
-
-interface StdioMcpServer {
-  type: 'stdio';
-  command: string;
-  args: string[];
-  env: Record<string, string>;
-}
-
-type McpServer = ReturnType<typeof createShannonHelperServer> | StdioMcpServer;
-
-// Configures MCP servers for agent execution, with Docker-specific Chromium handling
-function buildMcpServers(
-  sourceDir: string,
-  agentName: string | null,
-  logger: ActivityLogger,
-): Record<string, McpServer> {
-  // 1. Create the shannon-helper server (always present)
-  const shannonHelperServer = createShannonHelperServer(sourceDir);
-
-  const mcpServers: Record<string, McpServer> = {
-    'shannon-helper': shannonHelperServer,
-  };
-
-  // 2. Look up the agent's Playwright MCP mapping
-  if (agentName) {
-    const promptTemplate = AGENTS[agentName as AgentName].promptTemplate;
-    const playwrightMcpName = MCP_AGENT_MAPPING[promptTemplate as keyof typeof MCP_AGENT_MAPPING] || null;
-
-    if (playwrightMcpName) {
-      logger.info(`Assigned ${agentName} -> ${playwrightMcpName}`);
-
-      const userDataDir = `/tmp/${playwrightMcpName}`;
-
-      // 3. Configure Playwright MCP args with Docker/local browser handling
-      const isDocker = process.env.SHANNON_DOCKER === 'true';
-
-      const mcpArgs: string[] = ['@playwright/mcp@0.0.68', '--isolated', '--user-data-dir', userDataDir];
-
-      if (isDocker) {
-        mcpArgs.push('--executable-path', '/usr/bin/chromium-browser');
-        mcpArgs.push('--browser', 'chromium');
-      }
-
-      // NOTE: Explicit allowlist — the Playwright MCP subprocess must not inherit
-      // secrets (API keys, AWS tokens) from the parent process.
-      const MCP_ENV_ALLOWLIST = [
-        'PATH',
-        'HOME',
-        'NODE_PATH',
-        'DISPLAY',
-        'PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH',
-      ] as const;
-
-      const envVars: Record<string, string> = {
-        PLAYWRIGHT_HEADLESS: 'true',
-        ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
-      };
-
-      for (const key of MCP_ENV_ALLOWLIST) {
-        const val = process.env[key];
-        if (val) {
-          envVars[key] = val;
-        }
-      }
-
-      for (const [key, value] of Object.entries(process.env)) {
-        if (key.startsWith('XDG_') && value !== undefined) {
-          envVars[key] = value;
-        }
-      }
-
-      mcpServers[playwrightMcpName] = {
-        type: 'stdio' as const,
-        command: 'npx',
-        args: mcpArgs,
-        env: envVars,
-      };
-    }
-  }
-
-  // 4. Return configured servers
-  return mcpServers;
 }
 
 function outputLines(lines: string[]): void {
@@ -213,7 +128,7 @@ export async function runClaudePrompt(
   sourceDir: string,
   context: string = '',
   description: string = 'Claude analysis',
-  agentName: string | null = null,
+  _agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
@@ -232,10 +147,7 @@ export async function runClaudePrompt(
 
   logger.info(`Running Claude Code: ${description}...`);
 
-  // 3. Configure MCP servers
-  const mcpServers = buildMcpServers(sourceDir, agentName, logger);
-
-  // 4. Build env vars to pass to SDK subprocesses
+  // 3. Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
   };
@@ -254,6 +166,9 @@ export async function runClaudePrompt(
     'ANTHROPIC_SMALL_MODEL',
     'ANTHROPIC_MEDIUM_MODEL',
     'ANTHROPIC_LARGE_MODEL',
+    'HOME',
+    'PATH',
+    'PLAYWRIGHT_MCP_EXECUTABLE_PATH',
   ];
   for (const name of passthroughVars) {
     const val = process.env[name];
@@ -262,14 +177,14 @@ export async function runClaudePrompt(
     }
   }
 
-  // 5. Configure SDK options
+  // 4. Configure SDK options
   const options = {
     model: resolveModel(modelTier),
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
     allowDangerouslySkipPermissions: true,
-    mcpServers,
+    settingSources: ['user'] as ('user' | 'project' | 'local')[],
     env: sdkEnv,
   };
 

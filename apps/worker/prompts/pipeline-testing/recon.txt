@@ -1,1 +1,1 @@
-Use the save_deliverable MCP tool with `deliverable_type: "RECON"` and `content: "Reconnaissance analysis complete"`. Then say "Done".
+Run: `save-deliverable --type RECON --content 'Reconnaissance analysis complete'`. Then say "Done".

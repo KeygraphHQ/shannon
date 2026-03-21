@@ -260,22 +260,6 @@ export class WorkflowLogger {
           return String(p.url);
         }
         break;
-      case 'mcp__playwright__browser_navigate':
-        if (p.url) {
-          return String(p.url);
-        }
-        break;
-      case 'mcp__playwright__browser_click':
-        if (p.selector) {
-          return this.truncate(String(p.selector), 60);
-        }
-        break;
-      case 'mcp__playwright__browser_type':
-        if (p.selector) {
-          const text = p.text ? `: "${this.truncate(String(p.text), 30)}"` : '';
-          return `${this.truncate(String(p.selector), 40)}${text}`;
-        }
-        break;
     }
 
     // Default: show first string-valued param truncated

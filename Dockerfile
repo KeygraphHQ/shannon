@@ -60,15 +60,13 @@ WORKDIR /app
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc ./
 COPY apps/worker/package.json ./apps/worker/
 COPY apps/cli/package.json ./apps/cli/
-COPY packages/mcp-server/package.json ./packages/mcp-server/
 
 RUN pnpm install --frozen-lockfile
 
 COPY . .
 
-# Build mcp-server (dependency) then worker. CLI not needed in Docker
-RUN pnpm --filter @shannon/mcp-server run build && \
-    pnpm --filter @shannon/worker run build
+# Build worker. CLI not needed in Docker
+RUN pnpm --filter @shannon/worker run build
 
 RUN pnpm prune --prod
 
@@ -140,9 +138,18 @@ COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.ya
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
-COPY --from=builder /app/packages /app/packages
 
-RUN npm install -g @anthropic-ai/claude-code
+RUN npm install -g @anthropic-ai/claude-code @playwright/cli@latest
+RUN mkdir -p /tmp/.claude/skills && \
+    playwright-cli install --skills && \
+    cp -r .claude/skills/playwright-cli /tmp/.claude/skills/ && \
+    rm -rf .claude
+
+# Symlink CLI tools onto PATH
+RUN ln -s /app/apps/worker/dist/scripts/save-deliverable.js /usr/local/bin/save-deliverable && \
+    chmod +x /app/apps/worker/dist/scripts/save-deliverable.js && \
+    ln -s /app/apps/worker/dist/scripts/generate-totp.js /usr/local/bin/generate-totp && \
+    chmod +x /app/apps/worker/dist/scripts/generate-totp.js
 
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/workspaces && \
@@ -151,7 +158,7 @@ RUN mkdir -p /app/sessions /app/deliverables /app/repos /app/workspaces && \
     chmod 777 /tmp/.cache && \
     chmod 777 /tmp/.config && \
     chmod 777 /tmp/.npm && \
-    chown -R pentest:pentest /app
+    chown -R pentest:pentest /app /tmp/.claude
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
@@ -161,7 +168,7 @@ ENV NODE_ENV=production
 ENV PATH="/usr/local/bin:$PATH"
 ENV SHANNON_DOCKER=true
 ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
-ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ENV PLAYWRIGHT_MCP_EXECUTABLE_PATH=/usr/bin/chromium-browser
 ENV npm_config_cache=/tmp/.npm
 ENV HOME=/tmp
 ENV XDG_CACHE_HOME=/tmp/.cache

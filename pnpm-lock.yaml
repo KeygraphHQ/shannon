@@ -51,9 +51,6 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 'catalog:'
         version: 0.2.76(zod@4.3.6)
-      '@shannon/mcp-server':
-        specifier: workspace:*
-        version: link:../../packages/mcp-server
       '@temporalio/activity':
         specifier: ^1.11.0
         version: 1.15.0
@@ -85,15 +82,6 @@ importers:
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9
-
-  packages/mcp-server:
-    dependencies:
-      '@anthropic-ai/claude-agent-sdk':
-        specifier: 'catalog:'
-        version: 0.2.76(zod@4.3.6)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
 
 packages:
 

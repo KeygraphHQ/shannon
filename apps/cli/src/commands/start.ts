@@ -141,9 +141,7 @@ export async function start(args: StartArgs): Promise<void> {
       const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
 
       // Fresh: session.json appears with originalWorkflowId. Resume: new resumeAttempts entry.
-      const ready = isResume
-        ? resumeAttempts.length > initialResumeCount
-        : !!session.session?.originalWorkflowId;
+      const ready = isResume ? resumeAttempts.length > initialResumeCount : !!session.session?.originalWorkflowId;
 
       if (ready) {
         clearInterval(pollInterval);

@@ -7,10 +7,9 @@
 import { fs, path } from 'zx';
 import { validateQueueAndDeliverable } from './services/queue-validation.js';
 import type { ActivityLogger } from './types/activity-logger.js';
-import type { AgentDefinition, AgentName, AgentValidator, PlaywrightAgent, VulnType } from './types/index.js';
+import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
 
 // Agent definitions according to PRD
-// NOTE: deliverableFilename values must match mcp-server/src/types/deliverables.ts:DELIVERABLE_FILENAMES
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
   'pre-recon': {
     name: 'pre-recon',
@@ -149,35 +148,31 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
   };
 }
 
-// MCP agent mapping - assigns each agent to a specific Playwright instance to prevent conflicts
+// Playwright session mapping - assigns each agent to a specific session for browser isolation
 // Keys are promptTemplate values from AGENTS registry
-export const MCP_AGENT_MAPPING: Record<string, PlaywrightAgent> = Object.freeze({
-  // Phase 1: Pre-reconnaissance (actual prompt name is 'pre-recon-code')
-  // NOTE: Pre-recon is pure code analysis and doesn't use browser automation,
-  // but assigning MCP server anyway for consistency and future extensibility
-  'pre-recon-code': 'playwright-agent1',
+export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Object.freeze({
+  // Phase 1: Pre-reconnaissance
+  'pre-recon-code': 'agent1',
 
-  // Phase 2: Reconnaissance (actual prompt name is 'recon')
-  recon: 'playwright-agent2',
+  // Phase 2: Reconnaissance
+  recon: 'agent2',
 
   // Phase 3: Vulnerability Analysis (5 parallel agents)
-  'vuln-injection': 'playwright-agent1',
-  'vuln-xss': 'playwright-agent2',
-  'vuln-auth': 'playwright-agent3',
-  'vuln-ssrf': 'playwright-agent4',
-  'vuln-authz': 'playwright-agent5',
+  'vuln-injection': 'agent1',
+  'vuln-xss': 'agent2',
+  'vuln-auth': 'agent3',
+  'vuln-ssrf': 'agent4',
+  'vuln-authz': 'agent5',
 
   // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
-  'exploit-injection': 'playwright-agent1',
-  'exploit-xss': 'playwright-agent2',
-  'exploit-auth': 'playwright-agent3',
-  'exploit-ssrf': 'playwright-agent4',
-  'exploit-authz': 'playwright-agent5',
+  'exploit-injection': 'agent1',
+  'exploit-xss': 'agent2',
+  'exploit-auth': 'agent3',
+  'exploit-ssrf': 'agent4',
+  'exploit-authz': 'agent5',
 
-  // Phase 5: Reporting (actual prompt name is 'report-executive')
-  // NOTE: Report generation is typically text-based and doesn't use browser automation,
-  // but assigning MCP server anyway for potential screenshot inclusion or future needs
-  'report-executive': 'playwright-agent3',
+  // Phase 5: Reporting
+  'report-executive': 'agent3',
 });
 
 // Direct agent-to-validator mapping - much simpler than pattern matching

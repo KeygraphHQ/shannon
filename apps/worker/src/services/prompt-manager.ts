@@ -6,7 +6,7 @@
 
 import { fs, path } from 'zx';
 import { PROMPTS_DIR } from '../paths.js';
-import { MCP_AGENT_MAPPING } from '../session-manager.js';
+import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig } from '../types/config.js';
 import { handlePromptError, PentestError } from './error-handling.js';
@@ -14,7 +14,7 @@ import { handlePromptError, PentestError } from './error-handling.js';
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
-  MCP_SERVER?: string;
+  PLAYWRIGHT_SESSION?: string;
 }
 
 interface IncludeReplacement {
@@ -166,7 +166,7 @@ async function interpolateVariables(
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
-      .replace(/{{MCP_SERVER}}/g, variables.MCP_SERVER || 'playwright-agent1')
+      .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config));
 
     if (config) {
@@ -236,16 +236,16 @@ export async function loadPrompt(
       throw new PentestError(`Prompt file not found: ${promptPath}`, 'prompt', false, { promptName, promptPath });
     }
 
-    // 2. Assign MCP server based on agent name
+    // 2. Assign Playwright session based on agent name
     const enhancedVariables: PromptVariables = { ...variables };
 
-    const mcpServer = MCP_AGENT_MAPPING[promptName as keyof typeof MCP_AGENT_MAPPING];
-    if (mcpServer) {
-      enhancedVariables.MCP_SERVER = mcpServer;
-      logger.info(`Assigned ${promptName} -> ${enhancedVariables.MCP_SERVER}`);
+    const session = PLAYWRIGHT_SESSION_MAPPING[promptName as keyof typeof PLAYWRIGHT_SESSION_MAPPING];
+    if (session) {
+      enhancedVariables.PLAYWRIGHT_SESSION = session;
+      logger.info(`Assigned ${promptName} -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
     } else {
-      enhancedVariables.MCP_SERVER = 'playwright-agent1';
-      logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.MCP_SERVER}`);
+      enhancedVariables.PLAYWRIGHT_SESSION = 'agent1';
+      logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
     }
 
     // 3. Read template file

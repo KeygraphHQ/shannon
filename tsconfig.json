@@ -1,4 +1,4 @@
 {
   "files": [],
-  "references": [{ "path": "apps/worker" }, { "path": "apps/cli" }, { "path": "packages/mcp-server" }]
+  "references": [{ "path": "apps/worker" }, { "path": "apps/cli" }]
 }

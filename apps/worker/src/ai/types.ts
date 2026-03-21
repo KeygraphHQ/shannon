@@ -92,7 +92,6 @@ export interface SystemInitMessage {
   subtype: 'init';
   model?: string;
   permissionMode?: string;
-  mcp_servers?: Array<{ name: string; status: string }>;
 }
 
 export interface UserMessage {

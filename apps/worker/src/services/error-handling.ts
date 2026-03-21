@@ -63,7 +63,6 @@ const RETRYABLE_PATTERNS = [
   'service unavailable',
   'bad gateway',
   // Claude API errors
-  'mcp server',
   'model unavailable',
   'service temporarily unavailable',
   'api error',

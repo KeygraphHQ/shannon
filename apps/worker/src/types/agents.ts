@@ -34,12 +34,7 @@ export const ALL_AGENTS = [
  */
 export type AgentName = (typeof ALL_AGENTS)[number];
 
-export type PlaywrightAgent =
-  | 'playwright-agent1'
-  | 'playwright-agent2'
-  | 'playwright-agent3'
-  | 'playwright-agent4'
-  | 'playwright-agent5';
+export type PlaywrightSession = 'agent1' | 'agent2' | 'agent3' | 'agent4' | 'agent5';
 
 import type { ActivityLogger } from './activity-logger.js';
 
