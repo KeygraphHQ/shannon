@@ -192,7 +192,6 @@ export interface WorkerOptions {
   envFlags: string[];
   config?: { hostPath: string; containerPath: string };
   credentials?: string;
-  credentialsDir?: string;
   promptsDir?: string;
   outputDir?: string;
   workspace?: string;
@@ -231,10 +230,8 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     args.push('-v', `${opts.outputDir}:/app/output`);
   }
 
-  // Local mode: mount entire credentials directory. NPX mode: single file.
-  if (opts.credentialsDir) {
-    args.push('-v', `${opts.credentialsDir}:/app/credentials:ro`);
-  } else if (opts.credentials) {
+  // Mount credentials file to fixed container path
+  if (opts.credentials) {
     args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
   }
 

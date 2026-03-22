@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, isRouterConfigured, loadEnv, validateCredentials } from '../env.js';
-import { getCredentialsDir, getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
+import { getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { ensureDeliverables, resolveConfig, resolveRepo } from '../paths.js';
 import { displaySplash } from '../splash.js';
@@ -68,10 +68,13 @@ export async function start(args: StartArgs): Promise<void> {
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
-  // 9. Resolve credentials
-  const credentialsDir = getCredentialsDir();
+  // 9. Resolve credentials — mount single file to fixed container path
   const credentialsPath = getCredentialsPath();
-  const hasCredentials = !credentialsDir && fs.existsSync(credentialsPath);
+  const hasCredentials = fs.existsSync(credentialsPath);
+
+  if (hasCredentials) {
+    process.env.GOOGLE_APPLICATION_CREDENTIALS = '/app/credentials/google-sa-key.json';
+  }
 
   // 10. Resolve output directory
   const outputDir = args.output ? path.resolve(args.output) : undefined;
@@ -95,7 +98,6 @@ export async function start(args: StartArgs): Promise<void> {
     containerName,
     envFlags: buildEnvFlags(),
     ...(config && { config }),
-    ...(credentialsDir && { credentialsDir }),
     ...(hasCredentials && { credentials: credentialsPath }),
     ...(promptsDir && { promptsDir }),
     ...(outputDir && { outputDir }),

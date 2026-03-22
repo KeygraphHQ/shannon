@@ -37,19 +37,6 @@ export function getCredentialsPath(): string {
   return path.join(SHANNON_HOME, 'google-sa-key.json');
 }
 
-/**
- * In dev mode, return the credentials directory if it exists and has files.
- * In npx mode, there is no credentials directory (single file mount instead).
- */
-export function getCredentialsDir(): string | undefined {
-  if (getMode() !== 'local') return undefined;
-
-  const dir = path.resolve('credentials');
-  if (!fs.existsSync(dir)) return undefined;
-
-  const entries = fs.readdirSync(dir);
-  return entries.length > 0 ? dir : undefined;
-}
 
 /**
  * Initialize state directories.
