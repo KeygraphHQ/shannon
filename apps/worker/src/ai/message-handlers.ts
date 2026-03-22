@@ -308,10 +308,6 @@ export async function dispatchMessage(
         const actualModel = getActualModelName(initMsg.model);
         if (!execContext.useCleanOutput) {
           logger.info(`Model: ${actualModel}, Permission: ${initMsg.permissionMode}`);
-          if (initMsg.mcp_servers && initMsg.mcp_servers.length > 0) {
-            const mcpStatus = initMsg.mcp_servers.map((s) => `${s.name}(${s.status})`).join(', ');
-            logger.info(`MCP: ${mcpStatus}`);
-          }
         }
         // Return actual model for tracking in audit logs
         return { type: 'continue', model: actualModel };

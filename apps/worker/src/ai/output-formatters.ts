@@ -16,6 +16,7 @@ interface ToolCallInput {
   text?: string;
   action?: string;
   description?: string;
+  command?: string;
   todos?: Array<{
     status: string;
     content: string;
@@ -77,6 +78,80 @@ function extractDomain(url: string): string {
 }
 
 /**
+ * Format playwright-cli commands into clean progress indicators
+ */
+function formatBrowserAction(command: string): string | null {
+  // Extract subcommand after optional session flag (e.g., "playwright-cli -s=session1 navigate https://example.com")
+  const match = command.match(/playwright-cli\s+(?:-s=\S+\s+)?(\S+)(?:\s+(.*))?/);
+  if (!match) return null;
+
+  const subcommand = match[1];
+  const args = match[2] || '';
+
+  switch (subcommand) {
+    case 'open':
+    case 'goto': {
+      const domain = args.trim() ? extractDomain(args.trim()) : '';
+      return domain ? `🌐 Navigating to ${domain}` : '🌐 Opening browser';
+    }
+    case 'go-back':
+      return '⬅️ Going back';
+    case 'go-forward':
+      return '➡️ Going forward';
+    case 'reload':
+      return '🔄 Reloading page';
+    case 'click':
+    case 'dblclick':
+      return `🖱️ Clicking ${(args || 'element').slice(0, 25)}`;
+    case 'hover':
+      return `👆 Hovering over ${(args || 'element').slice(0, 20)}`;
+    case 'type':
+      return `⌨️ Typing ${(args || 'text').slice(0, 20)}`;
+    case 'press':
+    case 'keydown':
+    case 'keyup':
+      return `⌨️ Pressing ${args || 'key'}`;
+    case 'fill':
+      return `📝 Filling ${(args || 'field').slice(0, 25)}`;
+    case 'select':
+      return '📋 Selecting dropdown option';
+    case 'check':
+    case 'uncheck':
+      return `☑️ ${subcommand === 'check' ? 'Checking' : 'Unchecking'} ${(args || 'element').slice(0, 20)}`;
+    case 'upload':
+      return '📁 Uploading file';
+    case 'drag':
+      return '🖱️ Dragging element';
+    case 'snapshot':
+      return '📸 Taking page snapshot';
+    case 'screenshot':
+      return '📸 Taking screenshot';
+    case 'eval':
+    case 'run-code':
+      return '🔍 Running JavaScript analysis';
+    case 'console':
+      return '📜 Checking console logs';
+    case 'network':
+      return '🌐 Analyzing network traffic';
+    case 'tab-list':
+    case 'tab-new':
+    case 'tab-close':
+    case 'tab-select':
+      return `🗂️ ${subcommand.replace('tab-', '')} browser tab`;
+    case 'dialog-accept':
+      return '💬 Accepting dialog';
+    case 'dialog-dismiss':
+      return '💬 Dismissing dialog';
+    case 'pdf':
+      return '📄 Saving page as PDF';
+    case 'resize':
+      return `🖥️ Resizing browser ${args || ''}`.trim();
+    default:
+      return `🌐 Browser: ${subcommand}`;
+  }
+}
+
+/**
  * Summarize TodoWrite updates into clean progress indicators
  */
 function summarizeTodoUpdate(input: ToolCallInput | undefined): string | null {
@@ -101,104 +176,6 @@ function summarizeTodoUpdate(input: ToolCallInput | undefined): string | null {
   }
 
   return null;
-}
-
-/**
- * Format browser tool calls into clean progress indicators
- */
-function formatBrowserAction(toolCall: ToolCall): string {
-  const toolName = toolCall.name;
-  const input = toolCall.input || {};
-
-  // Core Browser Operations
-  if (toolName === 'mcp__playwright__browser_navigate') {
-    const url = input.url || '';
-    const domain = extractDomain(url);
-    return `🌐 Navigating to ${domain}`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_navigate_back') {
-    return `⬅️ Going back`;
-  }
-
-  // Page Interaction
-  if (toolName === 'mcp__playwright__browser_click') {
-    const element = input.element || 'element';
-    return `🖱️ Clicking ${element.slice(0, 25)}`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_hover') {
-    const element = input.element || 'element';
-    return `👆 Hovering over ${element.slice(0, 20)}`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_type') {
-    const element = input.element || 'field';
-    return `⌨️ Typing in ${element.slice(0, 20)}`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_press_key') {
-    const key = input.key || 'key';
-    return `⌨️ Pressing ${key}`;
-  }
-
-  // Form Handling
-  if (toolName === 'mcp__playwright__browser_fill_form') {
-    const fieldCount = input.fields?.length || 0;
-    return `📝 Filling ${fieldCount} form fields`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_select_option') {
-    return `📋 Selecting dropdown option`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_file_upload') {
-    return `📁 Uploading file`;
-  }
-
-  // Page Analysis
-  if (toolName === 'mcp__playwright__browser_snapshot') {
-    return `📸 Taking page snapshot`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_take_screenshot') {
-    return `📸 Taking screenshot`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_evaluate') {
-    return `🔍 Running JavaScript analysis`;
-  }
-
-  // Waiting & Monitoring
-  if (toolName === 'mcp__playwright__browser_wait_for') {
-    if (input.text) {
-      return `⏳ Waiting for "${input.text.slice(0, 20)}"`;
-    }
-    return `⏳ Waiting for page response`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_console_messages') {
-    return `📜 Checking console logs`;
-  }
-
-  if (toolName === 'mcp__playwright__browser_network_requests') {
-    return `🌐 Analyzing network traffic`;
-  }
-
-  // Tab Management
-  if (toolName === 'mcp__playwright__browser_tabs') {
-    const action = input.action || 'managing';
-    return `🗂️ ${action} browser tab`;
-  }
-
-  // Dialog Handling
-  if (toolName === 'mcp__playwright__browser_handle_dialog') {
-    return `💬 Handling browser dialog`;
-  }
-
-  // Fallback for any missed tools
-  const actionType = toolName.split('_').pop();
-  return `🌐 Browser: ${actionType}`;
 }
 
 /**
@@ -241,11 +218,14 @@ export function filterJsonToolCalls(content: string | null | undefined): string 
           continue;
         }
 
-        // Special handling for browser tool calls
-        if (toolCall.name.startsWith('mcp__playwright__browser_')) {
-          const browserAction = formatBrowserAction(toolCall);
-          if (browserAction) {
-            processedLines.push(browserAction);
+        // Special handling for browser tool calls (playwright-cli via Bash)
+        if (toolCall.name === 'Bash') {
+          const command = toolCall.input?.command || '';
+          if (command.includes('playwright-cli')) {
+            const browserAction = formatBrowserAction(command);
+            if (browserAction) {
+              processedLines.push(browserAction);
+            }
           }
         }
       } catch {

@@ -1,13 +1,12 @@
-Please complete these tasks using your MCP tools:
+Please complete these tasks using your CLI tools:
 
 1. Navigate to https://example.net and take a screenshot:
-   - Use {{MCP_SERVER}}__browser_navigate to go to https://example.net
-   - Use {{MCP_SERVER}}__browser_take_screenshot
+   - Invoke the `playwright-cli` skill to learn the available commands
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://example.net
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
 
 2. Save an analysis deliverable:
-   - Use save_deliverable with deliverable_type "AUTH_ANALYSIS"
-   - Content: "# Auth Analysis Report\n\nAnalysis complete. No authentication vulnerabilities identified."
+   - Run: `save-deliverable --type AUTH_ANALYSIS --content '# Auth Analysis Report\n\nAnalysis complete. No authentication vulnerabilities identified.'`
 
 3. Save a queue deliverable:
-   - Use save_deliverable with deliverable_type "AUTH_QUEUE"
-   - Content: {"vulnerabilities": []}
+   - Run: `save-deliverable --type AUTH_QUEUE --content '{"vulnerabilities": []}'`

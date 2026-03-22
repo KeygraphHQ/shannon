@@ -55,22 +55,19 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 **EXTERNAL ATTACKER CONTEXT:** Analyze from the perspective of an external attacker with NO internal network access, VPN access, or administrative privileges. Focus on vulnerabilities exploitable via public internet.
 </attacker_perspective>
 
-<available_tools>
+<cli_tools>
 Please use these tools for the following use cases:
 - Task tool: **MANDATORY for ALL source code analysis.** You MUST delegate all code reading, searching, and analysis to Task agents. DO NOT use Read, Glob, or Grep tools for source code.
-- {{MCP_SERVER}} (Playwright): To interact with the live web application at the target.
-  - **CRITICAL RULE:** For all browser interactions, you MUST use the {{MCP_SERVER}} (Playwright).
-- **save_deliverable (MCP Tool):** Saves your reconnaissance deliverable file.
-  - **Parameters:**
-    - `deliverable_type`: "RECON" (required)
-    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
-    - `content`: Inline content string (optional, use only for small content like JSON queues)
-  - **Returns:** `{ status: "success", filepath: "..." }` on success or `{ status: "error", message: "..." }` on failure
-  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
+- **Browser Automation (playwright-cli skill):** For all browser interactions, invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
+- **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
+  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.
-</available_tools>
+</cli_tools>
 
 <system_architecture>
 **PENTESTING WORKFLOW - YOUR POSITION:**
@@ -112,7 +109,7 @@ You must follow this methodical four-step process:
     - In your thoughts, create a preliminary list of known technologies, subdomains, open ports, and key code modules.
 
 2.  **Interactive Application Exploration:**
-    - Use `{{MCP_SERVER}}__browser_navigate` to navigate to the target.
+    - Invoke the `playwright-cli` skill, then use it with `-s={{PLAYWRIGHT_SESSION}}` to navigate to the target.
     - Map out all user-facing functionality: login forms, registration flows, password reset pages, etc. Document the multi-step processes.
     - Observe the network requests to identify primary API calls.
 
@@ -136,7 +133,7 @@ You must follow this methodical four-step process:
 </systematic_approach>
 
 <deliverable_instructions>
-When you have a complete understanding of the attack surface, you MUST synthesize all of your findings into a single, detailed Markdown report and save it using the save_deliverable script with type RECON.
+When you have a complete understanding of the attack surface, you MUST synthesize all of your findings into a single, detailed Markdown report and save it using the save-deliverable CLI with --type RECON.
 
 Your report MUST use the following structure precisely:
 
@@ -372,9 +369,9 @@ CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, 
    - Use the **Write** tool to create `deliverables/recon_deliverable.md` with the title and first major section
    - Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
    - Repeat for all remaining sections
-2. Call `save_deliverable` with `deliverable_type: "RECON"` and `file_path: "deliverables/recon_deliverable.md"`
+2. Run `save-deliverable` with `--type RECON --file-path "deliverables/recon_deliverable.md"`
 
-**WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `content` to save_deliverable — always use `file_path`.
+**WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `--content` to save-deliverable — always use `--file-path`.
 
 Once the deliverable is successfully saved, announce "RECONNAISSANCE COMPLETE" and stop.
 

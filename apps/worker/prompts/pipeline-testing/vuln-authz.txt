@@ -1,13 +1,12 @@
-Please complete these tasks using your MCP tools:
+Please complete these tasks using your CLI tools:
 
 1. Navigate to https://jsonplaceholder.typicode.com and take a screenshot:
-   - Use {{MCP_SERVER}}__browser_navigate to go to https://jsonplaceholder.typicode.com
-   - Use {{MCP_SERVER}}__browser_take_screenshot
+   - Invoke the `playwright-cli` skill to learn the available commands
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://jsonplaceholder.typicode.com
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
 
 2. Save an analysis deliverable:
-   - Use save_deliverable with deliverable_type "AUTHZ_ANALYSIS"
-   - Content: "# Authorization Analysis Report\n\nAnalysis complete. No authorization vulnerabilities identified."
+   - Run: `save-deliverable --type AUTHZ_ANALYSIS --content '# Authorization Analysis Report\n\nAnalysis complete. No authorization vulnerabilities identified.'`
 
 3. Save a queue deliverable:
-   - Use save_deliverable with deliverable_type "AUTHZ_QUEUE"
-   - Content: {"vulnerabilities": []}
+   - Run: `save-deliverable --type AUTHZ_QUEUE --content '{"vulnerabilities": []}'`

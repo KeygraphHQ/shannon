@@ -1,13 +1,12 @@
-Please complete these tasks using your MCP tools:
+Please complete these tasks using your CLI tools:
 
 1. Navigate to https://example.org and take a screenshot:
-   - Use {{MCP_SERVER}}__browser_navigate to go to https://example.org
-   - Use {{MCP_SERVER}}__browser_take_screenshot
+   - Invoke the `playwright-cli` skill to learn the available commands
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://example.org
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
 
 2. Save an analysis deliverable:
-   - Use save_deliverable with deliverable_type "XSS_ANALYSIS"
-   - Content: "# XSS Analysis Report\n\nAnalysis complete. No XSS vulnerabilities identified."
+   - Run: `save-deliverable --type XSS_ANALYSIS --content '# XSS Analysis Report\n\nAnalysis complete. No XSS vulnerabilities identified.'`
 
 3. Save a queue deliverable:
-   - Use save_deliverable with deliverable_type "XSS_QUEUE"
-   - Content: {"vulnerabilities": []}
+   - Run: `save-deliverable --type XSS_QUEUE --content '{"vulnerabilities": []}'`

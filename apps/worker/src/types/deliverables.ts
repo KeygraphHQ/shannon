@@ -8,7 +8,6 @@
  * Deliverable Type Definitions
  *
  * Maps deliverable types to their filenames and defines validation requirements.
- * Must match the exact mappings from tools/save_deliverable.js.
  */
 
 export enum DeliverableType {
@@ -44,7 +43,6 @@ export enum DeliverableType {
 
 /**
  * Hard-coded filename mappings from agent prompts
- * Must match tools/save_deliverable.js exactly
  */
 export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
   [DeliverableType.CODE_ANALYSIS]: 'code_analysis_deliverable.md',

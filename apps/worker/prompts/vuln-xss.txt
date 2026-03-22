@@ -68,7 +68,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 </exploitable_vulnerability_definition>
 </definitions>
 
-<available_tools>
+<cli_tools>
 
 **CRITICAL TOOL USAGE RESTRICTIONS:**
 - NEVER use the Read tool for application source code analysis - ALWAYS delegate to Task agents for examining .js, .ts, .py, .php files and application logic. You MAY use Read
@@ -79,23 +79,20 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 **Available Tools:**
 - **Task Agent (Code Analysis):** MANDATORY for all source code analysis and data flow tracing. Use this instead of Read tool for examining application code, models, controllers, and templates.
 - **Terminal (curl):** MANDATORY for testing HTTP-based XSS vectors and observing raw HTML responses. Use for reflected XSS testing and JSONP injection testing.
-- **{{MCP_SERVER}} (Playwright):** MANDATORY for testing DOM-based XSS and form submission vectors. Use for stored XSS testing and client-side payload execution verification.
+- **Browser Automation (playwright-cli skill):** MANDATORY for testing DOM-based XSS and form submission vectors. Invoke the `playwright-cli` skill to learn available commands. Use for stored XSS testing and client-side payload execution verification. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
-- **save_deliverable (MCP Tool):** Saves deliverable files with automatic validation.
-  - **Parameters:**
-    - `deliverable_type`: "XSS_ANALYSIS" or "XSS_QUEUE" (required)
-    - `file_path`: Path to the file you wrote to disk (preferred for large reports)
-    - `content`: Inline content string (use only for small content like JSON queues)
-  - **Returns:** `{ status: "success", filepath: "...", validated: true/false }` on success or `{ status: "error", message: "...", errorType: "...", retryable: true/false }` on failure
-  - **Usage:** For analysis reports, write to disk first then call with `file_path`. For JSON queues, you may pass inline `content`. Queue files must have `{"vulnerabilities": [...]}` structure and will be validated automatically.
-  - **WARNING:** Do NOT pass large reports as inline `content` — this will exceed output token limits and cause agent failure. Always use `file_path` for analysis reports.
+- **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
+  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
-</available_tools>
+</cli_tools>
 
 <data_format_specifications>
 
 <exploitation_queue_format>
-Purpose: Defines the structure for a "exploitation queue" saved via the save_deliverable script with type XSS_QUEUE.
+Purpose: Defines the structure for a "exploitation queue" saved via the save-deliverable CLI with --type XSS_QUEUE.
 Structure: The vulnerability JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability json (XSS-VULN-XX)",
@@ -180,7 +177,7 @@ This rulebook is used for the **Early Termination** check in Step 2.
 - Include both safe and vulnerable paths to demonstrate **full coverage**.  
 - Craft a minimal `witness_payload` that proves control over the render context.  
 - For every path analyzed, you must document the outcome. The location of the documentation depends on the verdict:
-		- If the verdict is 'vulnerable', you MUST use the save_deliverable script to save the finding to the exploitation queue, including complete source-to-sink information.
+		- If the verdict is 'vulnerable', you MUST use the save-deliverable CLI to save the finding to the exploitation queue, including complete source-to-sink information.
 		- If the verdict is 'safe', you MUST NOT add it to the exploitation queue. Instead, you will document these secure paths in the "Vectors Analyzed and Confirmed Secure" table of your final analysis report.
 - For vulnerable findings, craft a minimal witness_payload that proves control over the render context.
 
@@ -272,13 +269,13 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## Exploitation Queue (MANDATORY)
 
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save_deliverable MCP tool.
+Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool.
 
 - **If exploitable vulnerabilities found:**
-  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+  Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": [...]}'` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
 
 - **If no exploitable vulnerabilities found:**
-  Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": []}`
+  Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": []}'`
 
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 
@@ -289,14 +286,14 @@ This file is the mandatory handoff to the Exploitation phase.
 COMPLETION REQUIREMENTS (ALL must be satisfied):
 
 1. Systematic Analysis: ALL input vectors identified from the reconnaissance deliverable must be analyzed.
-2. Deliverable Generation: Both required deliverables must be successfully saved using save_deliverable MCP tool:
+2. Deliverable Generation: Both required deliverables must be successfully saved using the save-deliverable CLI tool:
    - **CHUNKED WRITING (MANDATORY):**
      1. Use the **Write** tool to create `deliverables/xss_analysis_deliverable.md` with the title and first major section
      2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
      3. Repeat step 2 for all remaining sections
-     4. Call `save_deliverable` with `deliverable_type: "XSS_ANALYSIS"` and `file_path: "deliverables/xss_analysis_deliverable.md"`
+     4. Run `save-deliverable` with `--type XSS_ANALYSIS --file-path "deliverables/xss_analysis_deliverable.md"`
      **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-   - Exploitation queue: Use `save_deliverable` MCP tool with `deliverable_type: "XSS_QUEUE"` and `content: {"vulnerabilities": [...]}`
+   - Exploitation queue: Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": [...]}'`
 
 ONLY AFTER both systematic analysis AND successful deliverable generation, announce "XSS ANALYSIS COMPLETE" and stop.
 

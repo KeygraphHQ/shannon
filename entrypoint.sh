@@ -12,7 +12,7 @@ if [ -n "$TARGET_UID" ] && [ "$TARGET_UID" != "$CURRENT_UID" ]; then
   addgroup -g "$TARGET_GID" pentest
   adduser -u "$TARGET_UID" -G pentest -s /bin/bash -D pentest
 
-  chown -R pentest:pentest /app/sessions /app/deliverables /app/workspaces
+  chown -R pentest:pentest /app/sessions /app/deliverables /app/workspaces /tmp/.claude
 fi
 
-exec su pentest -c "exec $*"
+exec su -m pentest -c "exec $*"
