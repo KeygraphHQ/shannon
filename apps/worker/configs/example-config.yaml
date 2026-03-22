@@ -1,6 +1,9 @@
 # Example configuration file for pentest-agent
 # Copy this file and modify it for your specific testing needs
 
+# Description of the target environment (optional, max 500 chars)
+description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
+
 authentication:
   login_type: form  # Options: 'form' or 'sso'
   login_url: "https://example.com/login"

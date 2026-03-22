@@ -46,6 +46,7 @@ export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   pipeline?: PipelineConfig;
+  description?: string;
 }
 
 export type RetryPreset = 'default' | 'subscription';
@@ -59,4 +60,5 @@ export interface DistributedConfig {
   avoid: Rule[];
   focus: Rule[];
   authentication: Authentication | null;
+  description: string;
 }

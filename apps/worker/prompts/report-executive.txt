@@ -21,6 +21,7 @@ IMPORTANT: You are MODIFYING an existing file, not creating a new one.
 
 <target>
 URL: {{WEB_URL}}
+{{DESCRIPTION}}
 </target>
 
 <context>

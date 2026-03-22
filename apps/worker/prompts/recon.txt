@@ -12,6 +12,7 @@ Your analysis must begin by reading and fully comprehending the initial intellig
 
 <target>
 URL: {{WEB_URL}}
+{{DESCRIPTION}}
 </target>
 
 <rules>

@@ -167,7 +167,8 @@ async function interpolateVariables(
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
       .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
-      .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config));
+      .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
+      .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
 
     if (config) {
       // Handle rules section - if both are empty, use cleaner messaging

@@ -19,7 +19,12 @@ Objective: Your task is to analyze the provided source code to generate a securi
 - Include specific examples from the code when discussing security concerns
 - At the end of your report, you MUST include a section listing all the critical file paths mentioned in your analysis.
 - **MANDATORY:** You MUST save your complete analysis report using the `save-deliverable` CLI tool with --type CODE_ANALYSIS.
+
+**GIT AWARENESS:**
+Read `.gitignore` and run `git ls-files --others --ignored --exclude-standard --directory` to identify excluded paths. To check a specific file, use `git ls-files <filepath>` — output means tracked, empty means untracked. Only flag tracked files as vulnerabilities. Untracked files relevant to security (e.g., secrets, credentials, sensitive configs) may be noted as informational.
 </critical>
+
+{{DESCRIPTION}}
 
 <system_architecture>
 **PENTESTING WORKFLOW - YOUR POSITION:**

@@ -379,6 +379,9 @@ cp configs/example-config.yaml ./my-app-config.yaml
 ##### Basic Configuration Structure
 
 ```yaml
+# Optional: describe your target environment (max 500 chars)
+description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
+
 authentication:
   login_type: form
   login_url: "https://your-app.com/login"

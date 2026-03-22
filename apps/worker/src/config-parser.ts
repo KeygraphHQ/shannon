@@ -294,9 +294,9 @@ const validateConfig = (config: Config): void => {
 
   performSecurityValidation(config);
 
-  if (!config.rules && !config.authentication) {
+  if (!config.rules && !config.authentication && !config.description) {
     console.warn(
-      '⚠️  Configuration file contains no rules or authentication. The pentest will run without any scoping restrictions or login capabilities.',
+      '⚠️  Configuration file contains no rules, authentication, or description. The pentest will run without any scoping restrictions or login capabilities.',
     );
   } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
     console.warn('⚠️  Configuration file contains no rules. The pentest will run without any scoping restrictions.');
@@ -369,6 +369,20 @@ const performSecurityValidation = (config: Config): void => {
     checkForDuplicates(config.rules.avoid || [], 'avoid');
     checkForDuplicates(config.rules.focus || [], 'focus');
     checkForConflicts(config.rules.avoid, config.rules.focus);
+  }
+
+  if (config.description) {
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(config.description)) {
+        throw new PentestError(
+          `description contains potentially dangerous pattern: ${pattern.source}`,
+          'config',
+          false,
+          { field: 'description', pattern: pattern.source },
+          ErrorCode.CONFIG_VALIDATION_FAILED,
+        );
+      }
+    }
   }
 };
 
@@ -527,11 +541,13 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const avoid = config?.rules?.avoid || [];
   const focus = config?.rules?.focus || [];
   const authentication = config?.authentication || null;
+  const description = config?.description?.trim() || '';
 
   return {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
+    description,
   };
 };
 

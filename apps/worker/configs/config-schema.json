@@ -122,9 +122,21 @@
       "type": "object",
       "description": "Deprecated: Use 'authentication' section instead",
       "deprecated": true
+    },
+    "description": {
+      "type": "string",
+      "description": "Description of the target environment, its deployment context, and any information that helps guide the security assessment",
+      "minLength": 1,
+      "maxLength": 500,
+      "pattern": "\\S"
     }
   },
-  "anyOf": [{ "required": ["authentication"] }, { "required": ["rules"] }, { "required": ["authentication", "rules"] }],
+  "anyOf": [
+    { "required": ["authentication"] },
+    { "required": ["rules"] },
+    { "required": ["authentication", "rules"] },
+    { "required": ["description"] }
+  ],
   "additionalProperties": false,
   "$defs": {
     "rule": {

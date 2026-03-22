@@ -37,7 +37,6 @@ export function getCredentialsPath(): string {
   return path.join(SHANNON_HOME, 'google-sa-key.json');
 }
 
-
 /**
  * Initialize state directories.
  * Local mode: creates ./workspaces/ and ./credentials/
