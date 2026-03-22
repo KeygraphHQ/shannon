@@ -239,7 +239,7 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push(...opts.envFlags);
 
   // Container settings
-  args.push('--shm-size', '2gb', '--ipc', 'host', '--security-opt', 'seccomp=unconfined');
+  args.push('--shm-size', '2gb', '--security-opt', 'seccomp=unconfined');
 
   // Image
   args.push(getWorkerImage(opts.version));
