@@ -172,7 +172,11 @@ CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 EOF
 
 # 3. Run a pentest
+# Using ./repos/ directory
 ./shannon start URL=https://your-app.com REPO=your-repo
+
+# Or point to any directory on your filesystem
+./shannon start URL=https://your-app.com REPO=/path/to/your-repo
 ```
 
 Shannon will build the containers, start the workflow, and return a workflow ID. The pentest runs in the background.
@@ -205,6 +209,9 @@ open http://localhost:8233
 ```bash
 # Basic pentest
 ./shannon start URL=https://example.com REPO=repo-name
+
+# Pentest with arbitrary repo path
+./shannon start URL=https://example.com REPO=/home/user/projects/my-app
 
 # With a configuration file
 ./shannon start URL=https://example.com REPO=repo-name CONFIG=./configs/my-config.yaml
@@ -248,10 +255,23 @@ Shannon supports **workspaces** that allow you to resume interrupted or failed r
 
 ### Prepare Your Repository
 
-Shannon expects target repositories to be placed under the `./repos/` directory at the project root. The `REPO` flag refers to a folder name inside `./repos/`. Copy the repository you want to scan into `./repos/`, or clone it directly there:
+Shannon can analyze a repository from any location on your host filesystem. Pass the path to your repo via the `REPO` flag:
+
+```bash
+# Point to a repo anywhere on your filesystem
+./shannon start URL=https://example.com REPO=/home/user/projects/my-app
+
+# Or use a relative path
+./shannon start URL=https://example.com REPO=../other-project/my-app
+```
+
+**Using the `./repos/` directory (optional):**
+
+You can also clone repos into the `./repos/` directory and reference them by folder name:
 
 ```bash
 git clone https://github.com/your-org/your-repo.git ./repos/your-repo
+./shannon start URL=https://example.com REPO=your-repo
 ```
 
 **For monorepos:**
