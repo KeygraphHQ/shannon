@@ -42,6 +42,7 @@ export enum ErrorCode {
 
   // Preflight validation errors
   REPO_NOT_FOUND = 'REPO_NOT_FOUND',
+  TARGET_UNREACHABLE = 'TARGET_UNREACHABLE',
   AUTH_FAILED = 'AUTH_FAILED',
   BILLING_ERROR = 'BILLING_ERROR',
 }
