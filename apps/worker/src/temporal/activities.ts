@@ -251,6 +251,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * 1. Repository path exists with .git
  * 2. Config file validates (if provided)
  * 3. Credential validation (API key, OAuth, or router mode)
+ * 4. Target URL reachable from the container
  *
  * NOT using runAgentActivity — preflight doesn't run an agent via the SDK.
  */
@@ -267,7 +268,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.repoPath, input.configPath, logger);
+    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger);
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);

@@ -15,9 +15,13 @@
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
  * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, Vertex AI, or router mode)
+ * 4. Target URL is reachable from the container (DNS + HTTP)
  */
 
+import { lookup } from 'node:dns/promises';
 import fs from 'node:fs/promises';
+import http from 'node:http';
+import https from 'node:https';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { resolveModel } from '../ai/models.js';
@@ -26,6 +30,12 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
 import { isRetryableError, PentestError } from './error-handling.js';
+
+const TARGET_URL_TIMEOUT_MS = 10_000;
+
+function isLoopbackAddress(address: string): boolean {
+  return address === '127.0.0.1' || address === '::1' || address === '0.0.0.0';
+}
 
 // === Repository Validation ===
 
@@ -325,6 +335,111 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   }
 }
 
+// === Target URL Validation ===
+
+/** HTTP HEAD with TLS verification disabled — we check reachability, not certificate validity. */
+function httpHead(url: string, timeoutMs: number): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const isHttps = parsed.protocol === 'https:';
+    const transport = isHttps ? https : http;
+
+    const req = transport.request(
+      url,
+      {
+        method: 'HEAD',
+        timeout: timeoutMs,
+        ...(isHttps && { rejectUnauthorized: false }),
+      },
+      (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      },
+    );
+
+    req.on('timeout', () => {
+      req.destroy();
+      reject(new Error(`Connection timed out after ${timeoutMs}ms`));
+    });
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+/** Check that the target URL is reachable from inside the container. */
+async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
+  logger.info('Checking target URL reachability...', { targetUrl });
+
+  // 1. Parse URL
+  let parsed: URL;
+  try {
+    parsed = new URL(targetUrl);
+  } catch {
+    return err(
+      new PentestError(
+        `Invalid target URL: ${targetUrl}`,
+        'config',
+        false,
+        { targetUrl },
+        ErrorCode.TARGET_UNREACHABLE,
+      ),
+    );
+  }
+
+  // 2. DNS lookup — detect loopback addresses early for a better hint
+  const hostname = parsed.hostname;
+  let resolvedAddress: string | undefined;
+  try {
+    const result = await lookup(hostname);
+    resolvedAddress = result.address;
+  } catch {
+    return err(
+      new PentestError(
+        `Target URL ${targetUrl} is not reachable. Verify the URL is correct and the site is up.`,
+        'network',
+        false,
+        { targetUrl, hostname },
+        ErrorCode.TARGET_UNREACHABLE,
+      ),
+    );
+  }
+
+  // 3. HTTP reachability check
+  try {
+    await httpHead(targetUrl, TARGET_URL_TIMEOUT_MS);
+
+    logger.info('Target URL OK');
+    return ok(undefined);
+  } catch (error) {
+    const isLoopback = isLoopbackAddress(resolvedAddress);
+    const detail = error instanceof Error ? error.message : String(error);
+
+    if (isLoopback) {
+      const suggestion = targetUrl.replace(hostname, 'host.docker.internal');
+      return err(
+        new PentestError(
+          `Target URL ${targetUrl} resolves to ${resolvedAddress} (loopback) and is not reachable. ` +
+            `For local services, use host.docker.internal instead of ${hostname} (e.g., ${suggestion})`,
+          'network',
+          false,
+          { targetUrl, resolvedAddress, hostname },
+          ErrorCode.TARGET_UNREACHABLE,
+        ),
+      );
+    }
+
+    return err(
+      new PentestError(
+        `Target URL ${targetUrl} is not reachable: ${detail}`,
+        'network',
+        false,
+        { targetUrl, resolvedAddress },
+        ErrorCode.TARGET_UNREACHABLE,
+      ),
+    );
+  }
+}
+
 // === Preflight Orchestrator ===
 
 /**
@@ -333,10 +448,12 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if configPath provided)
  * 3. Credentials validate (API key, OAuth, or router mode)
+ * 4. Target URL is reachable from the container
  *
  * Returns on first failure.
  */
 export async function runPreflightChecks(
+  targetUrl: string,
   repoPath: string,
   configPath: string | undefined,
   logger: ActivityLogger,
@@ -359,6 +476,12 @@ export async function runPreflightChecks(
   const credResult = await validateCredentials(logger);
   if (!credResult.ok) {
     return credResult;
+  }
+
+  // 4. Target URL reachability check (cheap — 1 HTTP round-trip)
+  const urlResult = await validateTargetUrl(targetUrl, logger);
+  if (!urlResult.ok) {
+    return urlResult;
   }
 
   logger.info('All preflight checks passed');
