@@ -14,15 +14,13 @@ It analyzes your source code, identifies attack vectors, and executes real explo
 
 ---
 
-<a href="https://github.com/KeygraphHQ/shannon/discussions/categories/announcements"><img src="./assets/announcements.png" height="40" alt="Announcements"></a>
 <a href="https://discord.gg/9ZqQPuhJB7"><img src="./assets/discord.png" height="40" alt="Join Discord"></a>
 <a href="https://keygraph.io/"><img src="./assets/Keygraph_Button.png" height="40" alt="Visit Keygraph.io"></a>
-<a href="https://www.linkedin.com/company/keygraph/"><img src="./assets/linkedin.png" height="40" alt="Follow Us on Linkedin"></a>
 
 ---
 </div>
 
-## 🎯 What is Shannon?
+## What is Shannon?
 
 Shannon is an AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source code analysis with live exploitation.
 
@@ -34,20 +32,13 @@ Thanks to tools like Claude Code and Cursor, your team ships code non-stop. But 
 
 Shannon closes that gap by providing on-demand, automated penetration testing that can run against every build or release.
 
-> [!NOTE]
-> **Shannon is part of the Keygraph Security and Compliance Platform**
->
-> Keygraph is an integrated security and compliance platform covering IAM, MDM, compliance automation (SOC 2, HIPAA), and application security. Shannon handles the AppSec layer. The broader platform automates evidence collection, audit readiness, and continuous compliance across multiple frameworks.
->
-> **[Learn more at keygraph.io](https://keygraph.io)**
-
-## 🎬 Shannon in Action
+## Shannon in Action
 
 Shannon identified 20+ vulnerabilities in OWASP Juice Shop, including authentication bypass and database exfiltration. [Full report →](sample-reports/shannon-report-juice-shop.md)
 
 ![Demo](assets/shannon-action.gif)
 
-## ✨ Features
+## Features
 
 - **Fully Autonomous Operation**: A single command launches the full pentest. Shannon handles 2FA/TOTP logins (including SSO), browser navigation, exploitation, and report generation without manual intervention.
 - **Reproducible Proof-of-Concept Exploits**: The final report contains only proven, exploitable findings with copy-and-paste PoCs. Vulnerabilities that cannot be exploited are not reported.
@@ -56,7 +47,7 @@ Shannon identified 20+ vulnerabilities in OWASP Juice Shop, including authentica
 - **Integrated Security Tooling**: Leverages Nmap, Subfinder, WhatWeb, and Schemathesis during reconnaissance and discovery phases.
 - **Parallel Processing**: Vulnerability analysis and exploitation phases run concurrently across all attack categories.
 
-## 📦 Product Line
+## Product Line
 
 Shannon is developed by [Keygraph](https://keygraph.io) and available in two editions:
 
@@ -110,13 +101,13 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
 
 [Full technical details →](./SHANNON-PRO.md)
 
-## 📑 Table of Contents
+## Table of Contents
 
-- [What is Shannon?](#-what-is-shannon)
-- [Shannon in Action](#-shannon-in-action)
-- [Features](#-features)
-- [Product Line](#-product-line)
-- [Setup & Usage Instructions](#-setup--usage-instructions)
+- [What is Shannon?](#what-is-shannon)
+- [Shannon in Action](#shannon-in-action)
+- [Features](#features)
+- [Product Line](#product-line)
+- [Setup & Usage Instructions](#setup--usage-instructions)
   - [Prerequisites](#prerequisites)
   - [Quick Start (Recommended: npx)](#quick-start-recommended-npx)
   - [Clone and Build](#clone-and-build)
@@ -130,18 +121,18 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - [Router Mode](#experimental---unsupported-router-mode-alternative-providers)
   - [Platform-Specific Instructions](#platform-specific-instructions)
   - [Output and Results](#output-and-results)
-- [Sample Reports](#-sample-reports)
-- [Benchmark](#-benchmark)
-- [Architecture](#️-architecture)
-- [Coverage and Roadmap](#-coverage-and-roadmap)
-- [Disclaimers](#️-disclaimers)
-- [License](#-license)
-- [Community & Support](#-community--support)
-- [Get in Touch](#-get-in-touch)
+- [Sample Reports](#sample-reports)
+- [Benchmark](#benchmark)
+- [Architecture](#architecture)
+- [Coverage and Roadmap](#coverage-and-roadmap)
+- [Disclaimers](#disclaimers)
+- [License](#license)
+- [Community & Support](#community--support)
+- [Get in Touch](#get-in-touch)
 
 ---
 
-## 🚀 Setup & Usage Instructions
+## Setup & Usage Instructions
 
 ### Prerequisites
 
@@ -154,6 +145,9 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - **AWS Bedrock** - Route through Amazon Bedrock with AWS credentials (see [AWS Bedrock](#aws-bedrock))
   - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
   - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
+
+> [!NOTE]
+> Docker is still required to use the `npx` workflow. Under the hood, the CLI pulls and runs a prebuilt Shannon worker image from Docker Hub, which is approximately 1 GB and contains Shannon plus all required dependencies.
 
 ### Quick Start (Recommended: npx)
 
@@ -694,11 +688,11 @@ workspaces/{hostname}_{sessionId}/
 
 ---
 
-## 📊 Sample Reports
+## Sample Reports
 
 Sample penetration test reports from industry-standard vulnerable applications:
 
-#### 🧃 **OWASP Juice Shop** • [GitHub](https://github.com/juice-shop/juice-shop)
+#### **OWASP Juice Shop** • [GitHub](https://github.com/juice-shop/juice-shop)
 
 *A notoriously insecure web application maintained by OWASP, designed to test a tool's ability to uncover a wide range of modern vulnerabilities.*
 
@@ -711,11 +705,11 @@ Sample penetration test reports from industry-standard vulnerable applications:
 - IDOR vulnerabilities enabling access to other users' data and shopping carts
 - SSRF enabling internal network reconnaissance
 
-📄 **[View Complete Report →](sample-reports/shannon-report-juice-shop.md)**
+[View Complete Report →](sample-reports/shannon-report-juice-shop.md)
 
 ---
 
-#### 🔗 **c{api}tal API** • [GitHub](https://github.com/Checkmarx/capital)
+#### **c{api}tal API** • [GitHub](https://github.com/Checkmarx/capital)
 
 *An intentionally vulnerable API from Checkmarx, designed to test a tool's ability to uncover the OWASP API Security Top 10.*
 
@@ -728,11 +722,11 @@ Sample penetration test reports from industry-standard vulnerable applications:
 - Privilege escalation via Mass Assignment in the user profile update function
 - Zero false positives for XSS (correctly confirmed robust XSS defenses)
 
-📄 **[View Complete Report →](sample-reports/shannon-report-capital-api.md)**
+[View Complete Report →](sample-reports/shannon-report-capital-api.md)
 
 ---
 
-#### 🚗 **OWASP crAPI** • [GitHub](https://github.com/OWASP/crAPI)
+#### **OWASP crAPI** • [GitHub](https://github.com/OWASP/crAPI)
 
 *A modern, intentionally vulnerable API from OWASP, designed to benchmark a tool's effectiveness against the OWASP API Security Top 10.*
 
@@ -745,19 +739,19 @@ Sample penetration test reports from industry-standard vulnerable applications:
 - SSRF attack forwarding internal authentication tokens to an external service
 - Zero false positives for XSS (correctly identified robust XSS defenses)
 
-📄 **[View Complete Report →](sample-reports/shannon-report-crapi.md)**
+[View Complete Report →](sample-reports/shannon-report-crapi.md)
 
 ---
 
-## 📈 Benchmark
+## Benchmark
 
 Shannon Lite scored **96.15% (100/104 exploits)** on a hint-free, source-aware variant of the XBOW security benchmark.
 
-**[Full results with detailed agent logs and per-challenge pentest reports →](./xben-benchmark-results/README.md)**
+**[Full results with detailed agent logs and per-challenge pentest reports →](https://github.com/KeygraphHQ/xbow-validation-benchmarks/blob/main/xben-benchmark-results/)**
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 Shannon uses a multi-agent architecture that combines white-box source code analysis with dynamic exploitation across five phases:
 
@@ -827,11 +821,11 @@ Continuing the parallel workflow to maintain speed, this phase is dedicated enti
 The final phase compiles all validated findings into a professional, actionable report. An agent consolidates the reconnaissance data and the successful exploit evidence, cleaning up any noise or hallucinated artifacts. Only verified vulnerabilities are included, complete with **reproducible, copy-and-paste Proof-of-Concepts**, delivering a final pentest-grade report focused exclusively on proven risks.
 
 
-## 📋 Coverage and Roadmap
+## Coverage and Roadmap
 
 For detailed information about Shannon's security testing coverage and development roadmap, see our [Coverage and Roadmap](./COVERAGE.md) documentation.
 
-## ⚠️ Disclaimers
+## Disclaimers
 
 ### Important Usage Guidelines & Disclaimers
 
@@ -842,7 +836,7 @@ Please review the following guidelines carefully before using Shannon (Lite). As
 This is not a passive scanner. The exploitation agents are designed to **actively execute attacks** to confirm vulnerabilities. This process can have mutative effects on the target application and its data.
 
 > [!WARNING]
-> **⚠️ DO NOT run Shannon on production environments.**
+> **DO NOT run Shannon on production environments.**
 >
 > - It is intended exclusively for use on sandboxed, staging, or local development environments where data integrity is not a concern.
 > - Potential mutative effects include, but are not limited to: creating new users, modifying or deleting data, compromising test accounts, and triggering unintended side effects from injection attacks.
@@ -884,7 +878,7 @@ Windows Defender may flag files in `xben-benchmark-results/` or `deliverables/` 
 Shannon Lite is designed for scanning repositories and applications you own or have explicit permission to test. Do not point it at untrusted or adversarial codebases. Like any AI-powered tool that reads source code, Shannon Lite is susceptible to prompt injection from content in the scanned repository.
 
 
-## 📜 License
+## License
 
 Shannon Lite is released under the [GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE).
 
@@ -895,32 +889,32 @@ Shannon is open source (AGPL v3). This license allows you to:
 The AGPL's sharing requirements primarily apply to organizations offering Shannon as a public or managed service (such as a SaaS platform). In those specific cases, any modifications made to the core software must be open-sourced.
 
 
-## 👥 Community & Support
+## Community & Support
 
 ### Community Resources
 
-📅 **1:1 Office Hours** — Thursdays, two time zones
+**1:1 Office Hours** — Thursdays, two time zones
 Book a free 15-min session for hands-on help with bugs, deployments, or config questions.
 → US/EU: 10:00 AM PT  |  Asia: 2:00 PM IST
 → [Book a slot](https://cal.com/george-flores-keygraph/shannon-community-office-hours)
 
-💬 [Join our Discord](https://discord.gg/cmctpMBXwE) to ask questions, share feedback, and connect with other Shannon users.
+[Join our Discord](https://discord.gg/cmctpMBXwE) to ask questions, share feedback, and connect with other Shannon users.
 
 **Contributing:** At this time, we're not accepting external code contributions (PRs).  
 Issues are welcome for bug reports and feature requests.
 
-- 🐛 **Report bugs** via [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)
-- 💡 **Suggest features** in [Discussions](https://github.com/KeygraphHQ/shannon/discussions)
+- **Report bugs** via [GitHub Issues](https://github.com/KeygraphHQ/shannon/issues)
+- **Suggest features** in [Discussions](https://github.com/KeygraphHQ/shannon/discussions)
 
 ### Stay Connected
 
-- 🐦 **Twitter**: [@KeygraphHQ](https://twitter.com/KeygraphHQ)
-- 💼 **LinkedIn**: [Keygraph](https://linkedin.com/company/keygraph)
-- 🌐 **Website**: [keygraph.io](https://keygraph.io)
+- **Twitter**: [@KeygraphHQ](https://twitter.com/KeygraphHQ)
+- **LinkedIn**: [Keygraph](https://linkedin.com/company/keygraph)
+- **Website**: [keygraph.io](https://keygraph.io)
 
 
 
-## 💬 Get in Touch
+## Get in Touch
 
 ### Shannon Pro
 
@@ -928,11 +922,11 @@ Shannon Pro is Keygraph's all-in-one AppSec platform. For organizations that nee
 
 <p align="center">
   <a href="https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header" target="_blank">
-    <img src="https://img.shields.io/badge/📋%20Shannon%20Pro%20Inquiry-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Shannon Pro Inquiry">
+    <img src="https://img.shields.io/badge/Shannon%20Pro%20Inquiry-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Shannon Pro Inquiry">
   </a>
 </p>
 
-📧 **Email**: [shannon@keygraph.io](mailto:shannon@keygraph.io)
+**Email**: [shannon@keygraph.io](mailto:shannon@keygraph.io)
 
 ---
 
