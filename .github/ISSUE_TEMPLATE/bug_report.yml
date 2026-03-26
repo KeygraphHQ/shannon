@@ -69,7 +69,7 @@ body:
 
         Issues without this information may be difficult to triage.
 
-        - Check the audit logs at: `./audit-logs/target_url_shannon-123/workflow.log`
+        - Check the logs at: `./workspaces/target_url_shannon-123/workflow.log`
           Use `grep` or search to identify errors.
           Paste the relevant error output below.
         - Temporal:

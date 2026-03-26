@@ -1,0 +1,12 @@
+Please complete these tasks using your CLI tools:
+
+1. Navigate to https://example.com and take a screenshot:
+   - Invoke the `playwright-cli` skill to learn the available commands
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://example.com
+   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
+
+2. Save an analysis deliverable:
+   - Run: `save-deliverable --type INJECTION_ANALYSIS --content '# Injection Analysis Report\n\nAnalysis complete. No injection vulnerabilities identified.'`
+
+3. Save a queue deliverable:
+   - Run: `save-deliverable --type INJECTION_QUEUE --content '{"vulnerabilities": []}'`

@@ -1,6 +1,11 @@
+networks:
+  default:
+    name: shannon-net
+
 services:
   temporal:
     image: temporalio/temporal:latest
+    container_name: shannon-temporal
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
       - "127.0.0.1:7233:7233"   # gRPC
@@ -14,46 +19,11 @@ services:
       retries: 10
       start_period: 30s
 
-  worker:
-    build: .
-    entrypoint: ["node", "dist/temporal/worker.js"]
-    environment:
-      - TEMPORAL_ADDRESS=temporal:7233
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
-      - ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-}  # Optional: route through claude-code-router
-      - ANTHROPIC_AUTH_TOKEN=${ANTHROPIC_AUTH_TOKEN:-}  # Auth token for router
-      - ROUTER_DEFAULT=${ROUTER_DEFAULT:-}  # Model name when using router (e.g., "gemini,gemini-2.5-pro")
-      - CLAUDE_CODE_OAUTH_TOKEN=${CLAUDE_CODE_OAUTH_TOKEN:-}
-      - CLAUDE_CODE_USE_BEDROCK=${CLAUDE_CODE_USE_BEDROCK:-}
-      - AWS_REGION=${AWS_REGION:-}
-      - AWS_BEARER_TOKEN_BEDROCK=${AWS_BEARER_TOKEN_BEDROCK:-}
-      - CLAUDE_CODE_USE_VERTEX=${CLAUDE_CODE_USE_VERTEX:-}
-      - CLOUD_ML_REGION=${CLOUD_ML_REGION:-}
-      - ANTHROPIC_VERTEX_PROJECT_ID=${ANTHROPIC_VERTEX_PROJECT_ID:-}
-      - GOOGLE_APPLICATION_CREDENTIALS=${GOOGLE_APPLICATION_CREDENTIALS:-}
-      - ANTHROPIC_SMALL_MODEL=${ANTHROPIC_SMALL_MODEL:-}
-      - ANTHROPIC_MEDIUM_MODEL=${ANTHROPIC_MEDIUM_MODEL:-}
-      - ANTHROPIC_LARGE_MODEL=${ANTHROPIC_LARGE_MODEL:-}
-      - CLAUDE_CODE_MAX_OUTPUT_TOKENS=${CLAUDE_CODE_MAX_OUTPUT_TOKENS:-64000}
-    depends_on:
-      temporal:
-        condition: service_healthy
-    volumes:
-      - ./configs:/app/configs
-      - ./prompts:/app/prompts
-      - ./audit-logs:/app/audit-logs
-      - ${OUTPUT_DIR:-./audit-logs}:/app/output
-      - ./credentials:/app/credentials:ro
-      - ./repos:/repos
-      - ${BENCHMARKS_BASE:-.}:/benchmarks
-    shm_size: 2gb
-    security_opt:
-      - seccomp:unconfined
-
   # Optional: claude-code-router for multi-model support
   # Start with: ROUTER=true ./shannon start ...
   router:
     image: node:20-slim
+    container_name: shannon-router
     profiles: ["router"]  # Only starts when explicitly requested
     command: >
       sh -c "apt-get update && apt-get install -y gettext-base &&
@@ -64,7 +34,7 @@ services:
     ports:
       - "127.0.0.1:3456:3456"
     volumes:
-      - ./configs/router-config.json:/config/router-config.json:ro
+      - ./apps/cli/infra/router-config.json:/config/router-config.json:ro
     environment:
       - HOST=0.0.0.0
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}

@@ -1,0 +1,129 @@
+name: Rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to move npm latest and Docker latest to (example: 1.4.2)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: rollback-latest-${{ github.event.inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  rollback:
+    name: Roll back npm, Docker, and GitHub release latest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout tags
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Fetch all tags
+        run: git fetch --force --tags
+
+      - name: Validate target version
+        id: target
+        shell: bash
+        env:
+          RAW_VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+
+          VERSION="${RAW_VERSION#v}"
+
+          case "$VERSION" in
+            ''|*[!0-9.]*)
+              echo "Invalid version: $VERSION"
+              exit 1
+              ;;
+          esac
+
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Version must be in semver format X.Y.Z"
+            exit 1
+          fi
+
+          if ! git rev-parse "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Git tag v$VERSION does not exist"
+            exit 1
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Node.js
+        uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6.3.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+
+      - name: Verify npm package version exists
+        run: npm view "@keygraph/shannon@${{ steps.target.outputs.version }}" version
+
+      - name: Show current npm dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @keygraph/shannon
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@b45d80f862d83dbcd57f89517bcf500b2ab88fb2 # v4.0.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify Docker image tag exists
+        run: docker buildx imagetools inspect "keygraph/shannon:${{ steps.target.outputs.version }}"
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@ba7bc0a3fef59531c69a25acd34668d6d3fe6f22 # v4.1.0
+
+      - name: Verify Docker image signature before rollback
+        run: |
+          cosign verify \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            --certificate-identity "https://github.com/${{ github.repository }}/.github/workflows/release.yml@refs/heads/main" \
+            "keygraph/shannon:${{ steps.target.outputs.version }}"
+
+      - name: Move Docker latest
+        run: |
+          docker buildx imagetools create \
+            --tag "keygraph/shannon:latest" \
+            "keygraph/shannon:${{ steps.target.outputs.version }}"
+
+      - name: Move npm latest
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag add "@keygraph/shannon@${{ steps.target.outputs.version }}" latest
+
+      - name: Mark GitHub release as latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "v${{ steps.target.outputs.version }}" --latest
+
+      - name: Show final npm dist-tags
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm dist-tag ls @keygraph/shannon
+
+      - name: Verify Docker latest now points to target
+        run: docker buildx imagetools inspect "keygraph/shannon:latest"
+
+      - name: Write summary
+        run: |
+          {
+            echo "## Rollback latest"
+            echo ""
+            echo "- Target version: \`${{ steps.target.outputs.version }}\`"
+            echo "- npm package: \`@keygraph/shannon\`"
+            echo "- Docker image: \`keygraph/shannon\`"
+            echo "- GitHub release: \`v${{ steps.target.outputs.version }}\` marked as latest"
+          } >> "$GITHUB_STEP_SUMMARY"

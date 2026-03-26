@@ -22,21 +22,21 @@ You are debugging an issue. Follow this structured approach to avoid spinning in
 **Session audit logs:**
 ```bash
 # Find most recent session
-ls -lt audit-logs/ | head -5
+ls -lt workspaces/ | head -5
 
 # Check session metrics and errors
-cat audit-logs/<session>/session.json | jq '.errors, .agentMetrics'
+cat workspaces/<session>/session.json | jq '.errors, .agentMetrics'
 
 # Check agent execution logs
-ls -lt audit-logs/<session>/agents/
-cat audit-logs/<session>/agents/<latest>.log
+ls -lt workspaces/<session>/agents/
+cat workspaces/<session>/agents/<latest>.log
 ```
 
 ## Step 3: Trace the Call Path
 
 For Shannon, trace through these layers:
 
-1. **Temporal Client** → `src/temporal/client.ts` - Workflow initiation
+1. **Worker + Client** → `src/temporal/worker.ts` - Combined worker + workflow submission
 2. **Workflow** → `src/temporal/workflows.ts` - Pipeline orchestration
 3. **Activities** → `src/temporal/activities.ts` - Thin wrappers: heartbeat, error classification
 4. **Container** → `src/services/container.ts` - Per-workflow DI
@@ -72,7 +72,7 @@ For Shannon, trace through these layers:
 npx playwright install chromium
 
 # Check MCP server startup (look for connection errors)
-grep -i "mcp\|playwright" audit-logs/<session>/agents/*.log
+grep -i "mcp\|playwright" workspaces/<session>/agents/*.log
 ```
 
 **Git State Issues:**
