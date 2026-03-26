@@ -48,9 +48,9 @@ jobs:
 
           npx semantic-release@25 --dry-run --no-ci 2>&1 | tee semantic-release.log
 
-          if grep -q "The next release version is" semantic-release.log; then
+          if grep -qi "the next release version is" semantic-release.log; then
             echo "should_release=true" >> "$GITHUB_OUTPUT"
-            VERSION=$(grep -oE "The next release version is [0-9]+\.[0-9]+\.[0-9]+" semantic-release.log | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
+            VERSION=$(grep -oiE "the next release version is [0-9]+\.[0-9]+\.[0-9]+" semantic-release.log | grep -oE "[0-9]+\.[0-9]+\.[0-9]+")
             echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           else
             echo "should_release=false" >> "$GITHUB_OUTPUT"
