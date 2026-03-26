@@ -38,17 +38,18 @@ ENV CGO_ENABLED=1
 RUN mkdir -p $GOPATH/bin
 
 # Install Go-based security tools
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-# Install WhatWeb from GitHub (Ruby-based tool)
-RUN git clone --depth 1 https://github.com/urbanadventurer/WhatWeb.git /opt/whatweb && \
+RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.13.0
+# Install WhatWeb from release tarball (Ruby-based tool)
+RUN curl -sL https://github.com/urbanadventurer/WhatWeb/archive/refs/tags/v0.6.3.tar.gz | tar xz -C /opt && \
+    mv /opt/WhatWeb-0.6.3 /opt/whatweb && \
     chmod +x /opt/whatweb/whatweb && \
-    gem install addressable && \
+    gem install addressable -v 2.8.9 && \
     echo '#!/bin/bash' > /usr/local/bin/whatweb && \
     echo 'cd /opt/whatweb && exec ./whatweb "$@"' >> /usr/local/bin/whatweb && \
     chmod +x /usr/local/bin/whatweb
 
 # Install Python-based tools
-RUN pip3 install --no-cache-dir schemathesis
+RUN pip3 install --no-cache-dir schemathesis==4.13.0
 
 # Install pnpm
 RUN npm install -g pnpm@10.12.1
@@ -115,7 +116,7 @@ COPY --from=builder /opt/whatweb /opt/whatweb
 COPY --from=builder /usr/local/bin/whatweb /usr/local/bin/whatweb
 
 # Install WhatWeb Ruby dependencies in runtime stage
-RUN gem install addressable
+RUN gem install addressable -v 2.8.9
 
 # Copy Python packages from builder
 COPY --from=builder /usr/lib/python3.*/site-packages /usr/lib/python3.12/site-packages
@@ -139,7 +140,7 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
 
-RUN npm install -g @anthropic-ai/claude-code @playwright/cli@latest
+RUN npm install -g @anthropic-ai/claude-code@2.1.84 @playwright/cli@0.1.1
 RUN mkdir -p /tmp/.claude/skills && \
     playwright-cli install --skills && \
     cp -r .claude/skills/playwright-cli /tmp/.claude/skills/ && \
