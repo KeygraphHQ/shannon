@@ -16,7 +16,7 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     displayName: 'Pre-recon agent',
     prerequisites: [],
     promptTemplate: 'pre-recon-code',
-    deliverableFilename: 'code_analysis_deliverable.md',
+    deliverableFilename: 'pre_recon_deliverable.md',
     modelTier: 'large',
   },
   recon: {
@@ -179,7 +179,7 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
   // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
   'pre-recon': async (sourceDir: string): Promise<boolean> => {
-    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'pre_recon_deliverable.md');
     return await fs.pathExists(codeAnalysisFile);
   },
 
