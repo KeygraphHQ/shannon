@@ -8,4 +8,4 @@ Please complete these tasks using your CLI tools:
 2. Save an analysis deliverable:
    - Run: `save-deliverable --type AUTH_ANALYSIS --content '# Auth Analysis Report\n\nAnalysis complete. No authentication vulnerabilities identified.'`
 
-As a final step, return an empty array for vulnerabilities using structured output as this is primarily for pipeline testing.
+As a final step, return an empty array for vulnerabilities.

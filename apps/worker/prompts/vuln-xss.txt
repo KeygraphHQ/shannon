@@ -269,7 +269,7 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 
 ## Exploitation Queue (MANDATORY)
 
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool.
+Regardless of whether vulnerabilities are found, you MUST produce the exploitation queue:
 
 - **If exploitable vulnerabilities found:**
   Your final response must be `{"vulnerabilities": [...]}` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.

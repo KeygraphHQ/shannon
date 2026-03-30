@@ -89,7 +89,7 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 <data_format_specifications>
 
 <exploitation_queue_format>
-**Purpose:** Defines the structure of the agent's final structured response.
+**Purpose:** Defines the format of the exploitation queue JSON.
 **Structure:** The `vulnerability` JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability json (SSRF-VULN-XX)",
@@ -228,7 +228,7 @@ Rule: when uncertain, round down (favor Medium/Low) to minimize false positives.
 # Documenting Findings (MANDATORY)
 For each check you perform from the list above, you must make a final **verdict**.
 
-- If the verdict is **`vulnerable`**, you must include the finding in your final structured response's exploitation queue.
+- If the verdict is **`vulnerable`**, you must include the finding in your exploitation queue.
 - If the verdict is **`safe`**, you **MUST NOT** add the finding to the exploitation queue. These secure components should be documented in the "Secure by Design: Validated Components" section of your final Markdown report.
 </methodology>
 
@@ -286,7 +286,7 @@ These components were analyzed and found to have robust defenses. They are low-p
 
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
-Regardless of whether vulnerabilities are found, you MUST produce the exploitation queue as structured output:
+Regardless of whether vulnerabilities are found, you MUST produce the exploitation queue:
 - **If vulnerabilities found:** Your final response must be the exploitation queue JSON `{"vulnerabilities": [...]}` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
 - **If no vulnerabilities found:** Your final response must be the exploitation queue JSON `{"vulnerabilities": []}`.
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
