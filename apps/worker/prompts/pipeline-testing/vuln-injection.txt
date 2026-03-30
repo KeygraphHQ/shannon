@@ -8,5 +8,4 @@ Please complete these tasks using your CLI tools:
 2. Save an analysis deliverable:
    - Run: `save-deliverable --type INJECTION_ANALYSIS --content '# Injection Analysis Report\n\nAnalysis complete. No injection vulnerabilities identified.'`
 
-3. Save a queue deliverable:
-   - Run: `save-deliverable --type INJECTION_QUEUE --content '{"vulnerabilities": []}'`
+3. Your final response must be exactly: {"vulnerabilities": []}

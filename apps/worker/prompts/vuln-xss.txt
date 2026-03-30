@@ -92,7 +92,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 <data_format_specifications>
 
 <exploitation_queue_format>
-Purpose: Defines the structure for a "exploitation queue" saved via the save-deliverable CLI with --type XSS_QUEUE.
+Purpose: Defines the structure of the agent's final structured response.
 Structure: The vulnerability JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability json (XSS-VULN-XX)",
@@ -177,7 +177,7 @@ This rulebook is used for the **Early Termination** check in Step 2.
 - Include both safe and vulnerable paths to demonstrate **full coverage**.  
 - Craft a minimal `witness_payload` that proves control over the render context.  
 - For every path analyzed, you must document the outcome. The location of the documentation depends on the verdict:
-		- If the verdict is 'vulnerable', you MUST use the save-deliverable CLI to save the finding to the exploitation queue, including complete source-to-sink information.
+		- If the verdict is 'vulnerable', you MUST include the finding in your final structured response's exploitation queue, including complete source-to-sink information.
 		- If the verdict is 'safe', you MUST NOT add it to the exploitation queue. Instead, you will document these secure paths in the "Vectors Analyzed and Confirmed Secure" table of your final analysis report.
 - For vulnerable findings, craft a minimal witness_payload that proves control over the render context.
 
@@ -272,10 +272,10 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool.
 
 - **If exploitable vulnerabilities found:**
-  Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": [...]}'` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+  Your final response must be `{"vulnerabilities": [...]}` with each exploitable XSS vulnerability (verdict: "vulnerable") following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
 
 - **If no exploitable vulnerabilities found:**
-  Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": []}'`
+  Your final response must be `{"vulnerabilities": []}`
 
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 
@@ -293,7 +293,7 @@ COMPLETION REQUIREMENTS (ALL must be satisfied):
      3. Repeat step 2 for all remaining sections
      4. Run `save-deliverable` with `--type XSS_ANALYSIS --file-path "deliverables/xss_analysis_deliverable.md"`
      **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-   - Exploitation queue: Run save-deliverable CLI with `--type XSS_QUEUE --content '{"vulnerabilities": [...]}'`
+   - Exploitation queue: Your final response must be the exploitation queue JSON matching the `exploitation_queue_format` schema
 
 ONLY AFTER both systematic analysis AND successful deliverable generation, announce "XSS ANALYSIS COMPLETE" and stop.
 

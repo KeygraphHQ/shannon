@@ -6,7 +6,7 @@
 
 // Production Claude agent execution with retry, git checkpoints, and audit logging
 
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { type JsonSchemaOutputFormat, query } from '@anthropic-ai/claude-agent-sdk';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../audit/index.js';
 import { isRetryableError, PentestError } from '../services/error-handling.js';
@@ -39,6 +39,7 @@ export interface ClaudePromptResult {
   errorType?: string | undefined;
   prompt?: string | undefined;
   retryable?: boolean | undefined;
+  structuredOutput?: unknown;
 }
 
 function outputLines(lines: string[]): void {
@@ -132,6 +133,7 @@ export async function runClaudePrompt(
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
+  outputFormat?: JsonSchemaOutputFormat,
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -186,6 +188,7 @@ export async function runClaudePrompt(
     allowDangerouslySkipPermissions: true,
     settingSources: ['user'] as ('user' | 'project' | 'local')[],
     env: sdkEnv,
+    ...(outputFormat && { outputFormat }),
   };
 
   if (!execContext.useCleanOutput) {
@@ -243,6 +246,9 @@ export async function runClaudePrompt(
       model,
       partialCost: totalCost,
       apiErrorDetected,
+      ...(messageLoopResult.structuredOutput !== undefined && {
+        structuredOutput: messageLoopResult.structuredOutput,
+      }),
     };
   } catch (error) {
     // 9. Handle errors — log, write error file, return failure
@@ -273,6 +279,7 @@ interface MessageLoopResult {
   apiErrorDetected: boolean;
   cost: number;
   model?: string | undefined;
+  structuredOutput?: unknown;
 }
 
 interface MessageLoopDeps {
@@ -297,6 +304,7 @@ async function processMessageStream(
   let apiErrorDetected = false;
   let cost = 0;
   let model: string | undefined;
+  let structuredOutput: unknown | undefined;
   let lastHeartbeat = Date.now();
 
   for await (const message of query({ prompt: fullPrompt, options })) {
@@ -327,6 +335,9 @@ async function processMessageStream(
     if (dispatchResult.type === 'complete') {
       result = dispatchResult.result;
       cost = dispatchResult.cost;
+      if (dispatchResult.structuredOutput !== undefined) {
+        structuredOutput = dispatchResult.structuredOutput;
+      }
       break;
     }
 
@@ -341,5 +352,12 @@ async function processMessageStream(
     }
   }
 
-  return { turnCount, result, apiErrorDetected, cost, model };
+  return {
+    turnCount,
+    result,
+    apiErrorDetected,
+    cost,
+    model,
+    ...(structuredOutput !== undefined && { structuredOutput }),
+  };
 }

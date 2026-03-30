@@ -93,7 +93,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 <data_format_specifications>
 
   <exploitation_queue_format>
-  **Purpose:** Defines the structure for a "exploitation queue" saved via the save-deliverable CLI with --type INJECTION_QUEUE.
+  **Purpose:** Defines the structure of the agent's final structured response — the exploitation queue JSON.
 
   **Structure:** The `vulnerability` JSON object MUST follow this exact format:
 		{
@@ -147,7 +147,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
     - Include a short rationale (e.g., "context mismatch: regex escape on ORDER BY keyword slot").
     - If concat occurred **after** sanitization, treat that sanitization as **non-effective** for this path.
   - **6) Append to findings list (consistent fields)**
-	  -  **If the verdict is `vulnerable`:** Use the Write tool to log the finding in `deliverables/injection_exploitation_queue.json`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access. Ensure all fields in the `exploitation_queue_format`, including a minimal `witness_payload`, are populated.
+	  -  **If the verdict is `vulnerable`:** Include the finding in your final structured response's exploitation queue. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access. Ensure all fields in the `exploitation_queue_format`, including a minimal `witness_payload`, are populated.
     - **If the verdict is `safe`:** DO NOT add the finding to the exploitation queue. These secure vectors must be documented later in the "Vectors Analyzed and Confirmed Secure" section of your final Markdown report (`deliverables/injection_analysis_deliverable.md`).
     - **If a single source is found to be vulnerable via multiple, distinct paths to different sinks, you must create a separate vulnerability entry in the exploitation queue for each unique vulnerable path.**
     - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
@@ -348,10 +348,10 @@ These input vectors were traced and confirmed to have robust, context-appropriat
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
 
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool:
+Regardless of whether vulnerabilities are found, you MUST produce the exploitation queue as your final structured response:
 
-- **If vulnerabilities found:** Run save-deliverable CLI with `--type INJECTION_QUEUE --content '{"vulnerabilities": [...]}'` with each exploitable injection vulnerability (verdict: "vulnerable") following the exploitation_queue_format
-- **If no vulnerabilities found:** Run save-deliverable CLI with `--type INJECTION_QUEUE --content '{"vulnerabilities": []}'`
+- **If vulnerabilities found:** Your final response will be automatically captured as the exploitation queue JSON — include each exploitable injection vulnerability (verdict: "vulnerable") following the exploitation_queue_format
+- **If no vulnerabilities found:** Your final response must be `{"vulnerabilities": []}`
 
 This file serves as the handoff mechanism to the Exploitation phase and must always be created to signal completion of your analysis.
 </exploitation_queue_requirements>
@@ -367,7 +367,7 @@ This file serves as the handoff mechanism to the Exploitation phase and must alw
      3. Repeat step 2 for all remaining sections
      4. Run `save-deliverable` with `--type INJECTION_ANALYSIS --file-path "deliverables/injection_analysis_deliverable.md"`
      **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-   - Exploitation queue: Run save-deliverable CLI with `--type INJECTION_QUEUE --content '{"vulnerabilities": [...]}'`
+   - Exploitation queue: Your final response must be the exploitation queue JSON matching the `exploitation_queue_format` schema
 
 **ONLY AFTER** both todo completion AND successful deliverable generation, announce "**INJECTION ANALYSIS COMPLETE**" and stop.
 

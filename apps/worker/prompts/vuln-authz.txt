@@ -93,7 +93,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 <data_format_specifications>
 
 <exploitation_queue_format>
-**Purpose:** Defines the structure for a "exploitation queue" saved via the save-deliverable CLI with --type AUTHZ_QUEUE.
+**Purpose:** Defines the structure of the agent's final structured response.
 **Structure:** The `vulnerability` JSON object MUST follow this exact format:
 	{
 		"ID": "unique ID for each vulnerability (e.g., AUTHZ-VULN-01)",
@@ -238,7 +238,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 
 For each analysis you perform from the lists above, you must make a final **verdict**:
 
-- If the verdict is **`vulnerable`**, you must document the finding using the save-deliverable CLI to update the exploitation queue.
+- If the verdict is **`vulnerable`**, you must include the finding in your final structured response's exploitation queue.
 - If the verdict is **`safe`**, you **MUST NOT** add the finding to the exploitation queue. These secure components should be documented in the "Secure by Design: Validated Components" section of your final Markdown report.
 </methodology>
 
@@ -342,9 +342,9 @@ examples:
 
 <exploitation_queue_requirements>
 **Exploitation Queue (MANDATORY)**
-Regardless of whether vulnerabilities are found, you MUST create the exploitation queue using the save-deliverable CLI tool:
-- **If vulnerabilities found:** Run save-deliverable CLI with `--type AUTHZ_QUEUE --content '{"vulnerabilities": [...]}'` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
-- **If no vulnerabilities found:** Run save-deliverable CLI with `--type AUTHZ_QUEUE --content '{"vulnerabilities": []}'`.
+Regardless of whether vulnerabilities are found, you MUST produce the exploitation queue as structured output:
+- **If vulnerabilities found:** Your final response must be the exploitation queue JSON `{"vulnerabilities": [...]}` with each confirmed hypothesis following the `exploitation_queue_format`. Set `externally_exploitable` to `true` ONLY if exploitable via public internet without internal access.
+- **If no vulnerabilities found:** Your final response must be the exploitation queue JSON `{"vulnerabilities": []}`.
 - **QUEUE INCLUSION CRITERIA:** ONLY include vulnerabilities where `externally_exploitable = true`. Exclude any vulnerability requiring internal network access, VPN, or direct server access.
 This file serves as the handoff mechanism and must always be created to signal completion.
 </exploitation_queue_requirements>
@@ -360,7 +360,7 @@ This file serves as the handoff mechanism and must always be created to signal c
      3. Repeat step 2 for all remaining sections
      4. Run `save-deliverable` with `--type AUTHZ_ANALYSIS --file-path "deliverables/authz_analysis_deliverable.md"`
      **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-   - Exploitation queue: Run save-deliverable CLI with `--type AUTHZ_QUEUE --content '{"vulnerabilities": [...]}'`
+   - Exploitation queue: Your final response must be the exploitation queue JSON matching the `exploitation_queue_format` schema
 
 **ONLY AFTER** both todo completion AND successful deliverable generation, announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
 

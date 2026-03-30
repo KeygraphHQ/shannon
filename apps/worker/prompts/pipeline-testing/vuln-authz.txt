@@ -8,5 +8,4 @@ Please complete these tasks using your CLI tools:
 2. Save an analysis deliverable:
    - Run: `save-deliverable --type AUTHZ_ANALYSIS --content '# Authorization Analysis Report\n\nAnalysis complete. No authorization vulnerabilities identified.'`
 
-3. Save a queue deliverable:
-   - Run: `save-deliverable --type AUTHZ_QUEUE --content '{"vulnerabilities": []}'`
+3. Your final response must be exactly: {"vulnerabilities": []}

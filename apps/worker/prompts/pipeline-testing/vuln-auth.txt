@@ -8,5 +8,4 @@ Please complete these tasks using your CLI tools:
 2. Save an analysis deliverable:
    - Run: `save-deliverable --type AUTH_ANALYSIS --content '# Auth Analysis Report\n\nAnalysis complete. No authentication vulnerabilities identified.'`
 
-3. Save a queue deliverable:
-   - Run: `save-deliverable --type AUTH_QUEUE --content '{"vulnerabilities": []}'`
+3. Your final response must be exactly: {"vulnerabilities": []}

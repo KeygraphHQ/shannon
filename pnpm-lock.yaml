@@ -75,6 +75,9 @@ importers:
       js-yaml:
         specifier: ^4.1.0
         version: 4.1.1
+      zod:
+        specifier: ^4.3.6
+        version: 4.3.6
       zx:
         specifier: ^8.0.0
         version: 8.8.5
