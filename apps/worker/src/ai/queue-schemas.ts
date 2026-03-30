@@ -14,7 +14,6 @@
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import type { AgentName } from '../types/agents.js';
-import { DELIVERABLE_FILENAMES, DeliverableType } from '../types/deliverables.js';
 
 // === Common Fields ===
 
@@ -107,11 +106,11 @@ const VULN_AGENT_OUTPUT_FORMAT: Partial<Record<AgentName, JsonSchemaOutputFormat
 };
 
 const VULN_AGENT_QUEUE_FILENAMES: Partial<Record<AgentName, string>> = {
-  'injection-vuln': DELIVERABLE_FILENAMES[DeliverableType.INJECTION_QUEUE],
-  'xss-vuln': DELIVERABLE_FILENAMES[DeliverableType.XSS_QUEUE],
-  'auth-vuln': DELIVERABLE_FILENAMES[DeliverableType.AUTH_QUEUE],
-  'ssrf-vuln': DELIVERABLE_FILENAMES[DeliverableType.SSRF_QUEUE],
-  'authz-vuln': DELIVERABLE_FILENAMES[DeliverableType.AUTHZ_QUEUE],
+  'injection-vuln': 'injection_exploitation_queue.json',
+  'xss-vuln': 'xss_exploitation_queue.json',
+  'auth-vuln': 'auth_exploitation_queue.json',
+  'ssrf-vuln': 'ssrf_exploitation_queue.json',
+  'authz-vuln': 'authz_exploitation_queue.json',
 };
 
 /** Returns the structured output format for a vuln agent, or undefined for non-vuln agents. */

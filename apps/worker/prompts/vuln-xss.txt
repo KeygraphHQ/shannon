@@ -82,10 +82,10 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 - **Browser Automation (playwright-cli skill):** MANDATORY for testing DOM-based XSS and form submission vectors. Invoke the `playwright-cli` skill to learn available commands. Use for stored XSS testing and client-side payload execution verification. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
 - **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
-  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
-  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<text>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"..."}` or `{"status":"error","message":"...","retryable":true}`
   - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
-  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
+
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </cli_tools>
 

@@ -78,10 +78,10 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 **Available Tools:**
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authentication logic paths, and understand session/credential handling. MANDATORY for all source code analysis.
 - **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
-  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
-  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<text>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"..."}` or `{"status":"error","message":"...","retryable":true}`
   - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
-  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
+
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **Browser Automation (playwright-cli skill):** For browser interactions with the live web application (multi-step flows like password reset or registration), invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each endpoint/flow that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.

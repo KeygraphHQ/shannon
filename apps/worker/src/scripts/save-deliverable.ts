@@ -9,17 +9,15 @@
 /**
  * save-deliverable CLI
  *
- * Standalone script to save deliverable files with validation.
- * Replaces the MCP save_deliverable tool.
+ * Standalone script to save deliverable files.
  *
  * Usage:
- *   node save-deliverable.js --type INJECTION_QUEUE --content '{"vulnerabilities": [...]}'
  *   node save-deliverable.js --type INJECTION_ANALYSIS --file-path deliverables/injection_analysis_deliverable.md
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { DELIVERABLE_FILENAMES, type DeliverableType, isQueueType } from '../types/deliverables.js';
+import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
 
 // === Argument Parsing ===
 
@@ -49,49 +47,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   }
 
   return args;
-}
-
-// === Queue Validation ===
-
-interface ValidationResult {
-  valid: boolean;
-  message?: string;
-}
-
-function validateQueueJson(content: string): ValidationResult {
-  try {
-    const parsed = JSON.parse(content) as unknown;
-
-    if (typeof parsed !== 'object' || parsed === null) {
-      return {
-        valid: false,
-        message: `Invalid queue structure: Expected an object. Got: ${typeof parsed}`,
-      };
-    }
-
-    const obj = parsed as Record<string, unknown>;
-
-    if (!('vulnerabilities' in obj)) {
-      return {
-        valid: false,
-        message: `Invalid queue structure: Missing 'vulnerabilities' property. Expected: {"vulnerabilities": [...]}`,
-      };
-    }
-
-    if (!Array.isArray(obj.vulnerabilities)) {
-      return {
-        valid: false,
-        message: `Invalid queue structure: 'vulnerabilities' must be an array. Expected: {"vulnerabilities": [...]}`,
-      };
-    }
-
-    return { valid: true };
-  } catch (error) {
-    return {
-      valid: false,
-      message: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
-    };
-  }
 }
 
 // === File Operations ===
@@ -165,22 +120,11 @@ function main(): void {
     process.exit(1);
   }
 
-  // 3. Validate queue types
-  let validated = false;
-  if (isQueueType(args.type)) {
-    const validation = validateQueueJson(content);
-    if (!validation.valid) {
-      console.log(JSON.stringify({ status: 'error', message: validation.message, retryable: true }));
-      process.exit(1);
-    }
-    validated = true;
-  }
-
-  // 4. Save the file
+  // 3. Save the file
   try {
     const targetDir = process.cwd();
     const filepath = saveDeliverableFile(targetDir, filename, content);
-    console.log(JSON.stringify({ status: 'success', filepath, validated }));
+    console.log(JSON.stringify({ status: 'success', filepath }));
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.log(JSON.stringify({ status: 'error', message: `Failed to save: ${msg}`, retryable: true }));
