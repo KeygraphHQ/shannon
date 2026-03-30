@@ -8,4 +8,4 @@ Please complete these tasks using your CLI tools:
 2. Save an analysis deliverable:
    - Run: `save-deliverable --type SSRF_ANALYSIS --content '# SSRF Analysis Report\n\nAnalysis complete. No SSRF vulnerabilities identified.'`
 
-3. Your final response must be exactly: {"vulnerabilities": []}
+As a final step, return an empty array for vulnerabilities using structured output as this is primarily for pipeline testing.

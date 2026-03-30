@@ -90,8 +90,10 @@ const AuthzQueueSchema = z.object({ vulnerabilities: z.array(AuthzVulnerability)
 
 // === Convert to JSON Schema for SDK ===
 
-function toOutputFormat(schema: z.ZodType): JsonSchemaOutputFormat {
-  return { type: 'json_schema', schema: z.toJSONSchema(schema) as Record<string, unknown> };
+// NOTE: The SDK's AJV validator expects draft-07. Zod defaults to draft-2020-12 which
+// causes the SDK to silently skip structured output.
+function toOutputFormat(zodSchema: z.ZodType): JsonSchemaOutputFormat {
+  return { type: 'json_schema', schema: z.toJSONSchema(zodSchema, { target: 'draft-07' }) as Record<string, unknown> };
 }
 
 // === Lookup Maps ===
