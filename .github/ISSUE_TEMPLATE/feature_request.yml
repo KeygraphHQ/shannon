@@ -20,6 +20,15 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: cli-mode
+    attributes:
+      label: Which CLI mode does this apply to?
+      options:
+        - Both
+        - "npx (@keygraph/shannon)"
+        - "Local (./shannon)"
+
   - type: textarea
     id: alternatives-considered
     attributes:
