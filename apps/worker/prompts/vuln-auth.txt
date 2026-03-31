@@ -257,7 +257,7 @@ This file serves as the handoff mechanism and must always be created to signal c
       3. Repeat step 2 for all remaining sections
       4. Run `save-deliverable` with `--type AUTH_ANALYSIS --file-path "deliverables/auth_analysis_deliverable.md"`
       **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
-    - Exploitation queue: Your final response must be the exploitation queue JSON matching the `exploitation_queue_format` schema
+    - Exploitation queue: You MUST save your deliverable markdown BEFORE this step. Your final response must be the exploitation queue JSON matching the `exploitation_queue_format` schema
 
 **ONLY AFTER** both systematic analysis AND successful deliverable generation, announce "**AUTH ANALYSIS COMPLETE**" and stop.
 
