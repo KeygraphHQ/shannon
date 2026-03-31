@@ -55,7 +55,7 @@ body:
       label: If applicable
       options:
         - label: I have included relevant error messages, stack traces, or failure details.
-        - label: I have checked the audit logs and pasted the relevant errors.
+        - label: I have checked the workspaces folder for logs and pasted the relevant errors.
         - label: I have inspected the failed Temporal workflow run and included the failure reason.
         - label: I have included clear steps to reproduce the issue.
         - label: I have redacted any sensitive information (tokens, URLs, repo names).
@@ -69,7 +69,9 @@ body:
 
         Issues without this information may be difficult to triage.
 
-        - Check the logs at: `./workspaces/target_url_shannon-123/workflow.log`
+        - Check the workflow log:
+            - **npx mode:** `~/.shannon/workspaces/<workspace>/workflow.log`
+            - **Local mode:** `./workspaces/<workspace>/workflow.log`
           Use `grep` or search to identify errors.
           Paste the relevant error output below.
         - Temporal:
@@ -83,13 +85,13 @@ body:
     id: debugging-details
     attributes:
       label: Debugging details
-      description: Paste any error messages, stack traces, or failure details from the audit logs or Temporal UI.
+      description: Paste any error messages, stack traces, or failure details from the workspace logs or Temporal UI.
 
   - type: textarea
     id: screenshots
     attributes:
       label: Screenshots
-      description: If applicable, add screenshots of the audit logs or Temporal failure details.
+      description: If applicable, add screenshots of the workspace logs or Temporal failure details.
 
   - type: markdown
     attributes:
@@ -99,40 +101,51 @@ body:
         Provide the following information (redact sensitive data such as repository names, URLs, and tokens):
 
   - type: dropdown
-    id: auth-method
+    id: cli-mode
     attributes:
-      label: Authentication method used
+      label: CLI mode
       options:
-        - CLAUDE_CODE_OAUTH_TOKEN
-        - ANTHROPIC_API_KEY
+        - "npx (@keygraph/shannon)"
+        - "Local (./shannon)"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Provider
+      options:
+        - "Anthropic (API key)"
+        - "Anthropic (OAuth token)"
+        - "Custom base URL (proxy/gateway)"
+        - "AWS Bedrock"
+        - "Google Vertex AI"
+        - "Router - OpenAI"
+        - "Router - OpenRouter"
     validations:
       required: true
 
   - type: input
     id: shannon-command
     attributes:
-      label: Full ./shannon command with all flags used (with redactions)
-
-  - type: dropdown
-    id: experimental-models
-    attributes:
-      label: Are you using any experimental models or providers other than default Anthropic models?
-      options:
-        - "No"
-        - "Yes"
+      label: Full command with all flags used (with redactions)
+      placeholder: "e.g. npx @keygraph/shannon start -u <url> -r my-repo  OR  ./shannon start -u <url> -r my-repo"
     validations:
       required: true
-
-  - type: input
-    id: experimental-model-details
-    attributes:
-      label: If Yes, which one (model/provider)?
 
   - type: input
     id: os-version
     attributes:
       label: "OS (with version)"
       placeholder: "e.g. macOS 26.2"
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: "Node.js version ('node -v')"
+      placeholder: "e.g. 22.12.0"
     validations:
       required: true
 
