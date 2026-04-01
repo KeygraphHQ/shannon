@@ -244,14 +244,15 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     const credentialsFile = path.join(awsDir, 'credentials');
     const ssoDir = path.join(awsDir, 'sso');
 
+    // NOTE: Container HOME=/tmp (set in Dockerfile), so AWS SDK looks in /tmp/.aws/
     if (fs.existsSync(configFile)) {
-      args.push('-v', `${configFile}:/root/.aws/config:ro`);
+      args.push('-v', `${configFile}:/tmp/.aws/config:ro`);
     }
     if (fs.existsSync(credentialsFile)) {
-      args.push('-v', `${credentialsFile}:/root/.aws/credentials:ro`);
+      args.push('-v', `${credentialsFile}:/tmp/.aws/credentials:ro`);
     }
     if (fs.existsSync(ssoDir)) {
-      args.push('-v', `${ssoDir}:/root/.aws/sso:ro`);
+      args.push('-v', `${ssoDir}:/tmp/.aws/sso:ro`);
     }
   }
 

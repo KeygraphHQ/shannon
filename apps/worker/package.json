@@ -10,6 +10,8 @@
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "catalog:",
+    "@aws-sdk/client-sso": "^3.1022.0",
+    "@aws-sdk/client-sso-oidc": "^3.1022.0",
     "@aws-sdk/credential-providers": "^3.1021.0",
     "@temporalio/activity": "^1.11.0",
     "@temporalio/client": "^1.11.0",
