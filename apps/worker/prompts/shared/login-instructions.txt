@@ -37,6 +37,37 @@ Execute the login flow based on the login_type specified in the configuration:
 4. Ensure all consent and authorization steps are explicitly handled
 <!-- END:SSO -->
 
+<!-- BEGIN:INTERACTIVE -->
+**Pre-authenticated session (interactive login):**
+Your browser session has been pre-authenticated via an interactive login. Before starting your analysis, restore the session state.
+
+1. Read the auth state file: `cat /app/workspaces/{{SESSION_ID}}/auth-state.json`
+2. Parse the JSON to extract `origins[].localStorage` entries and `cookies` entries.
+3. Navigate to {{WEB_URL}} using Playwright.
+4. For each entry in `origins[].localStorage`, execute via Playwright evaluate:
+   `localStorage.setItem('<name>', '<value>')`
+5. For each cookie where `httpOnly` is `false`, execute via Playwright evaluate:
+   `document.cookie = '<name>=<value>; path=<path>; domain=<domain>'`
+6. Reload the page.
+7. Verify authentication using the success condition below.
+
+**Success verification for interactive login:**
+- Success condition type: {{INTERACTIVE_SUCCESS_TYPE}}
+- Success condition value: {{INTERACTIVE_SUCCESS_VALUE}}
+
+**If authentication verification fails after injection:**
+- Re-read auth-state.json and retry the injection once
+- If still failing, the pre-authenticated session may have expired
+- Report the authentication failure and proceed with unauthenticated testing where possible
+
+**For API requests (curl, scripts) — use the FULL cookie header including httpOnly cookies:**
+Build a Cookie header from ALL cookies in auth-state.json:
+`curl -H "Cookie: <name1>=<value1>; <name2>=<value2>" <url>`
+
+If a localStorage entry value starts with "eyJ" (base64-encoded JSON, likely a JWT), also try:
+`curl -H "Authorization: Bearer <token_value>" <url>`
+<!-- END:INTERACTIVE -->
+
 <!-- BEGIN:VERIFICATION -->
 </authentication_execution>
 

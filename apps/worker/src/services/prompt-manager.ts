@@ -14,6 +14,7 @@ import { handlePromptError, PentestError } from './error-handling.js';
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  sessionId?: string;
   PLAYWRIGHT_SESSION?: string;
 }
 
@@ -53,36 +54,46 @@ async function buildLoginInstructions(
     const verificationSection = getSection(fullTemplate, 'VERIFICATION');
 
     // 3. Assemble instructions from sections (fallback to full template if markers missing)
-    if (!commonSection && !authSection && !verificationSection) {
+    if (loginType === 'INTERACTIVE') {
+      // Interactive login: use only the INTERACTIVE section (no common/verification — handled inline)
+      loginInstructions = authSection;
+
+      // Replace interactive-specific placeholders
+      loginInstructions = loginInstructions
+        .replace(/{{INTERACTIVE_SUCCESS_TYPE}}/g, authentication.success_condition.type)
+        .replace(/{{INTERACTIVE_SUCCESS_VALUE}}/g, authentication.success_condition.value);
+    } else if (!commonSection && !authSection && !verificationSection) {
       logger.warn('Section markers not found, using full login instructions template');
       loginInstructions = fullTemplate;
     } else {
       loginInstructions = [commonSection, authSection, verificationSection].filter((section) => section).join('\n\n');
     }
 
-    // 4. Interpolate login flow and credential placeholders
-    let userInstructions = (authentication.login_flow ?? []).join('\n');
+    // 4. Interpolate login flow and credential placeholders (skip for interactive — no credentials)
+    if (loginType !== 'INTERACTIVE') {
+      let userInstructions = (authentication.login_flow ?? []).join('\n');
 
-    if (authentication.credentials) {
-      if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+      if (authentication.credentials) {
+        if (authentication.credentials.username) {
+          userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+        }
+        if (authentication.credentials.password) {
+          userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
+        }
+        if (authentication.credentials.totp_secret) {
+          userInstructions = userInstructions.replace(
+            /\$totp/g,
+            `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
+          );
+        }
       }
-      if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
-      }
-      if (authentication.credentials.totp_secret) {
-        userInstructions = userInstructions.replace(
-          /\$totp/g,
-          `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
-        );
-      }
-    }
 
-    loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
+      loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
 
-    // 5. Replace TOTP secret placeholder if present in template
-    if (authentication.credentials?.totp_secret) {
-      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+      // 5. Replace TOTP secret placeholder if present in template
+      if (authentication.credentials?.totp_secret) {
+        loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+      }
     }
 
     return loginInstructions;
@@ -135,12 +146,16 @@ function buildAuthContext(config: DistributedConfig | null): string {
   const auth = config.authentication;
   const lines = [
     `- Login type: ${auth.login_type.toUpperCase()}`,
-    `- Username: ${auth.credentials.username}`,
     `- Login URL: ${auth.login_url}`,
   ];
 
-  if (auth.credentials?.totp_secret) {
-    lines.push('- MFA: TOTP enabled');
+  if (auth.login_type === 'interactive') {
+    lines.push('- Session: Pre-authenticated (interactive login)');
+  } else if (auth.credentials) {
+    lines.push(`- Username: ${auth.credentials.username}`);
+    if (auth.credentials.totp_secret) {
+      lines.push('- MFA: TOTP enabled');
+    }
   }
 
   return lines.join('\n');
@@ -171,6 +186,7 @@ async function interpolateVariables(
     let result = template
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
+      .replace(/{{SESSION_ID}}/g, variables.sessionId || '')
       .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
       .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
@@ -192,8 +208,14 @@ async function interpolateVariables(
       }
 
       // Extract and inject login instructions from config
-      if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
+      const needsLoginInstructions =
+        config.authentication?.login_type === 'interactive' || config.authentication?.login_flow;
+      if (needsLoginInstructions) {
+        const loginInstructions = await buildLoginInstructions(
+          config.authentication!,
+          logger,
+          promptsBaseDir,
+        );
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');

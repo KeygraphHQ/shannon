@@ -131,7 +131,7 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
  * 4. Error classification for Temporal retry
  */
 async function runAgentActivity(agentName: AgentName, input: ActivityInput): Promise<AgentMetrics> {
-  const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+  const { repoPath, configPath, pipelineTestingMode = false, workflowId, sessionId, webUrl } = input;
 
   // Skip guard: the checkpoint provider decides whether to run the agent.
   // The default NoOp provider always returns { skip: false }.
@@ -176,6 +176,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
         webUrl,
         repoPath,
         deliverablesPath,
+        sessionId,
         configPath,
         pipelineTestingMode,
         attemptNumber,
