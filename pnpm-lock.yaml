@@ -54,12 +54,6 @@ importers:
       '@anthropic-ai/claude-agent-sdk':
         specifier: 'catalog:'
         version: 0.2.76(zod@4.3.6)
-      '@aws-sdk/client-sso':
-        specifier: ^3.1022.0
-        version: 3.1022.0
-      '@aws-sdk/client-sso-oidc':
-        specifier: ^3.1022.0
-        version: 3.1022.0
       '@aws-sdk/credential-providers':
         specifier: ^3.1021.0
         version: 3.1021.0
@@ -121,14 +115,6 @@ packages:
 
   '@aws-sdk/client-cognito-identity@3.1021.0':
     resolution: {integrity: sha512-J3sT35ekSK7xdm7yhmc4XrMIuSZgd+kIEzSRVAHkmeS3JgOl0jPGc+p0mjXy5V8jR7COb46uvsvKBTImk31QOA==}
-    engines: {node: '>=20.0.0'}
-
-  '@aws-sdk/client-sso-oidc@3.1022.0':
-    resolution: {integrity: sha512-Et2yMABcAYE0oAPZeD0fGcByaws0SpNq8stCyiyot17axgjtCuc6sKen8iS7jzghZ84oexdl/xpOWqEiHK74fg==}
-    engines: {node: '>=20.0.0'}
-
-  '@aws-sdk/client-sso@3.1022.0':
-    resolution: {integrity: sha512-1C0xq4/GdMSFvX36DWLb/x5Ct1182kfo5jgT3Rbq+r6MfgvqQtL476L2g/ULSlzJG32i9JA+TPu2KDONnDhP9Q==}
     engines: {node: '>=20.0.0'}
 
   '@aws-sdk/core@3.973.26':
@@ -1707,93 +1693,6 @@ snapshots:
       '@aws-crypto/sha256-js': 5.2.0
       '@aws-sdk/core': 3.973.26
       '@aws-sdk/credential-provider-node': 3.972.29
-      '@aws-sdk/middleware-host-header': 3.972.8
-      '@aws-sdk/middleware-logger': 3.972.8
-      '@aws-sdk/middleware-recursion-detection': 3.972.9
-      '@aws-sdk/middleware-user-agent': 3.972.28
-      '@aws-sdk/region-config-resolver': 3.972.10
-      '@aws-sdk/types': 3.973.6
-      '@aws-sdk/util-endpoints': 3.996.5
-      '@aws-sdk/util-user-agent-browser': 3.972.8
-      '@aws-sdk/util-user-agent-node': 3.973.14
-      '@smithy/config-resolver': 4.4.13
-      '@smithy/core': 3.23.13
-      '@smithy/fetch-http-handler': 5.3.15
-      '@smithy/hash-node': 4.2.12
-      '@smithy/invalid-dependency': 4.2.12
-      '@smithy/middleware-content-length': 4.2.12
-      '@smithy/middleware-endpoint': 4.4.28
-      '@smithy/middleware-retry': 4.4.46
-      '@smithy/middleware-serde': 4.2.16
-      '@smithy/middleware-stack': 4.2.12
-      '@smithy/node-config-provider': 4.3.12
-      '@smithy/node-http-handler': 4.5.1
-      '@smithy/protocol-http': 5.3.12
-      '@smithy/smithy-client': 4.12.8
-      '@smithy/types': 4.13.1
-      '@smithy/url-parser': 4.2.12
-      '@smithy/util-base64': 4.3.2
-      '@smithy/util-body-length-browser': 4.2.2
-      '@smithy/util-body-length-node': 4.2.3
-      '@smithy/util-defaults-mode-browser': 4.3.44
-      '@smithy/util-defaults-mode-node': 4.2.48
-      '@smithy/util-endpoints': 3.3.3
-      '@smithy/util-middleware': 4.2.12
-      '@smithy/util-retry': 4.2.13
-      '@smithy/util-utf8': 4.2.2
-      tslib: 2.8.1
-    transitivePeerDependencies:
-      - aws-crt
-
-  '@aws-sdk/client-sso-oidc@3.1022.0':
-    dependencies:
-      '@aws-crypto/sha256-browser': 5.2.0
-      '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.973.26
-      '@aws-sdk/credential-provider-node': 3.972.29
-      '@aws-sdk/middleware-host-header': 3.972.8
-      '@aws-sdk/middleware-logger': 3.972.8
-      '@aws-sdk/middleware-recursion-detection': 3.972.9
-      '@aws-sdk/middleware-user-agent': 3.972.28
-      '@aws-sdk/region-config-resolver': 3.972.10
-      '@aws-sdk/types': 3.973.6
-      '@aws-sdk/util-endpoints': 3.996.5
-      '@aws-sdk/util-user-agent-browser': 3.972.8
-      '@aws-sdk/util-user-agent-node': 3.973.14
-      '@smithy/config-resolver': 4.4.13
-      '@smithy/core': 3.23.13
-      '@smithy/fetch-http-handler': 5.3.15
-      '@smithy/hash-node': 4.2.12
-      '@smithy/invalid-dependency': 4.2.12
-      '@smithy/middleware-content-length': 4.2.12
-      '@smithy/middleware-endpoint': 4.4.28
-      '@smithy/middleware-retry': 4.4.46
-      '@smithy/middleware-serde': 4.2.16
-      '@smithy/middleware-stack': 4.2.12
-      '@smithy/node-config-provider': 4.3.12
-      '@smithy/node-http-handler': 4.5.1
-      '@smithy/protocol-http': 5.3.12
-      '@smithy/smithy-client': 4.12.8
-      '@smithy/types': 4.13.1
-      '@smithy/url-parser': 4.2.12
-      '@smithy/util-base64': 4.3.2
-      '@smithy/util-body-length-browser': 4.2.2
-      '@smithy/util-body-length-node': 4.2.3
-      '@smithy/util-defaults-mode-browser': 4.3.44
-      '@smithy/util-defaults-mode-node': 4.2.48
-      '@smithy/util-endpoints': 3.3.3
-      '@smithy/util-middleware': 4.2.12
-      '@smithy/util-retry': 4.2.13
-      '@smithy/util-utf8': 4.2.2
-      tslib: 2.8.1
-    transitivePeerDependencies:
-      - aws-crt
-
-  '@aws-sdk/client-sso@3.1022.0':
-    dependencies:
-      '@aws-crypto/sha256-browser': 5.2.0
-      '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.973.26
       '@aws-sdk/middleware-host-header': 3.972.8
       '@aws-sdk/middleware-logger': 3.972.8
       '@aws-sdk/middleware-recursion-detection': 3.972.9

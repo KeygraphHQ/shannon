@@ -227,11 +227,11 @@ async function setupBedrock(): Promise<ShannonConfig> {
       return cancelAndExit();
     }
 
-    bedrockConfig = { use: true, auth_method: 'profile', region, profile };
+    bedrockConfig = { use: true, region, profile };
   } else {
     // 3b. Token path — collect bearer token
     const token = await promptSecret('Enter your AWS Bearer Token');
-    bedrockConfig = { use: true, auth_method: 'token', region, token };
+    bedrockConfig = { use: true, region, token };
   }
 
   // 4. Model tiers (same for both paths)

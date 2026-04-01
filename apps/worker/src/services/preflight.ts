@@ -218,6 +218,18 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     const isProfileMode = !!process.env.AWS_PROFILE;
     const isTokenMode = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
 
+    if (isProfileMode && isTokenMode) {
+      return err(
+        new PentestError(
+          'Set either AWS_PROFILE (profile auth) or AWS_BEARER_TOKEN_BEDROCK (token auth), not both',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+
     if (!isProfileMode && !isTokenMode) {
       return err(
         new PentestError(
@@ -230,10 +242,15 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
       );
     }
 
-    const required = ['AWS_REGION', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
-    if (isTokenMode) {
-      required.push('AWS_BEARER_TOKEN_BEDROCK');
-    }
+    const required = isTokenMode
+      ? [
+          'AWS_REGION',
+          'AWS_BEARER_TOKEN_BEDROCK',
+          'ANTHROPIC_SMALL_MODEL',
+          'ANTHROPIC_MEDIUM_MODEL',
+          'ANTHROPIC_LARGE_MODEL',
+        ]
+      : ['AWS_REGION', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
     const missing = required.filter((v) => !process.env[v]);
     if (missing.length > 0) {
       return err(

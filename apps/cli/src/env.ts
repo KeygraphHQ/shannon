@@ -122,6 +122,14 @@ export function validateCredentials(): CredentialValidation {
     const isProfileMode = !!process.env.AWS_PROFILE;
     const isTokenMode = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
 
+    if (isProfileMode && isTokenMode) {
+      return {
+        valid: false,
+        mode: 'bedrock',
+        error: 'Set either AWS_PROFILE (profile auth) or AWS_BEARER_TOKEN_BEDROCK (token auth), not both',
+      };
+    }
+
     if (!isProfileMode && !isTokenMode) {
       return {
         valid: false,
