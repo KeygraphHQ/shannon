@@ -5,6 +5,9 @@
  * NPX mode: fills gaps from ~/.shannon/config.toml (no .env).
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
@@ -19,6 +22,7 @@ const FORWARD_VARS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
   'AWS_BEARER_TOKEN_BEDROCK',
+  'AWS_PROFILE',
   'CLAUDE_CODE_USE_VERTEX',
   'CLOUD_ML_REGION',
   'ANTHROPIC_VERTEX_PROJECT_ID',
@@ -115,12 +119,30 @@ export function validateCredentials(): CredentialValidation {
     return { valid: true, mode: 'custom-base-url' };
   }
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
+    const isProfileMode = !!process.env.AWS_PROFILE;
+    const isTokenMode = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+
+    if (!isProfileMode && !isTokenMode) {
+      return {
+        valid: false,
+        mode: 'bedrock',
+        error: 'Bedrock mode requires either AWS_BEARER_TOKEN_BEDROCK (token auth) or AWS_PROFILE (profile auth)',
+      };
+    }
+
     const missing: string[] = [];
     if (!process.env.AWS_REGION) missing.push('AWS_REGION');
-    if (!process.env.AWS_BEARER_TOKEN_BEDROCK) missing.push('AWS_BEARER_TOKEN_BEDROCK');
     if (!process.env.ANTHROPIC_SMALL_MODEL) missing.push('ANTHROPIC_SMALL_MODEL');
     if (!process.env.ANTHROPIC_MEDIUM_MODEL) missing.push('ANTHROPIC_MEDIUM_MODEL');
     if (!process.env.ANTHROPIC_LARGE_MODEL) missing.push('ANTHROPIC_LARGE_MODEL');
+
+    if (isProfileMode) {
+      const awsConfigPath = path.join(os.homedir(), '.aws', 'config');
+      if (!fs.existsSync(awsConfigPath)) {
+        missing.push('~/.aws/config (file not found)');
+      }
+    }
+
     if (missing.length > 0) {
       return {
         valid: false,

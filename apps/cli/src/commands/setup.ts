@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
@@ -177,6 +178,17 @@ async function setupCustomBaseUrl(): Promise<ShannonConfig> {
 }
 
 async function setupBedrock(): Promise<ShannonConfig> {
+  // 1. Choose auth method
+  const authMethod = await p.select({
+    message: 'Authentication method',
+    options: [
+      { value: 'token' as const, label: 'Bearer Token', hint: 'static API key from AWS' },
+      { value: 'profile' as const, label: 'AWS Profile', hint: 'uses ~/.aws/ credentials (SSO, IAM, etc.)' },
+    ],
+  });
+  if (p.isCancel(authMethod)) return cancelAndExit();
+
+  // 2. Collect region (common to both paths)
   const region = await p.text({
     message: 'AWS Region',
     placeholder: 'us-east-1',
@@ -184,8 +196,45 @@ async function setupBedrock(): Promise<ShannonConfig> {
   });
   if (p.isCancel(region)) return cancelAndExit();
 
-  const token = await promptSecret('Enter your AWS Bearer Token');
+  let bedrockConfig: ShannonConfig['bedrock'];
 
+  if (authMethod === 'profile') {
+    // 3a. Profile path — collect profile name and validate
+    const profile = await p.text({
+      message: 'AWS Profile name',
+      placeholder: 'default',
+      initialValue: 'default',
+      validate: required('Profile name is required'),
+    });
+    if (p.isCancel(profile)) return cancelAndExit();
+
+    // Validate by attempting to resolve credentials
+    const spinner = p.spinner();
+    spinner.start(`Resolving credentials for profile "${profile}"...`);
+    try {
+      const provider = fromNodeProviderChain({ profile });
+      await provider();
+      spinner.stop(`Found credentials for profile "${profile}"`);
+    } catch (error) {
+      spinner.stop('Credential resolution failed');
+      const message = error instanceof Error ? error.message : String(error);
+      const isSsoExpiry = message.includes('SSO') || message.includes('sso') || message.includes('expired');
+      if (isSsoExpiry) {
+        p.log.error(`AWS SSO session expired. Run this first:\n  aws sso login --profile ${profile}`);
+      } else {
+        p.log.error(`Failed to resolve credentials for profile "${profile}": ${message}`);
+      }
+      return cancelAndExit();
+    }
+
+    bedrockConfig = { use: true, auth_method: 'profile', region, profile };
+  } else {
+    // 3b. Token path — collect bearer token
+    const token = await promptSecret('Enter your AWS Bearer Token');
+    bedrockConfig = { use: true, auth_method: 'token', region, token };
+  }
+
+  // 4. Model tiers (same for both paths)
   const small = await p.text({
     message: 'Small model ID',
     placeholder: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
@@ -208,7 +257,7 @@ async function setupBedrock(): Promise<ShannonConfig> {
   if (p.isCancel(large)) return cancelAndExit();
 
   return {
-    bedrock: { use: true, region, token },
+    bedrock: bedrockConfig,
     models: { small, medium, large },
   };
 }

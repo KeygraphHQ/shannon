@@ -161,6 +161,7 @@ export async function runClaudePrompt(
     'CLAUDE_CODE_USE_BEDROCK',
     'AWS_REGION',
     'AWS_BEARER_TOKEN_BEDROCK',
+    'AWS_PROFILE',
     'CLAUDE_CODE_USE_VERTEX',
     'CLOUD_ML_REGION',
     'ANTHROPIC_VERTEX_PROJECT_ID',

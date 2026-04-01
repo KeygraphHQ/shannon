@@ -24,6 +24,7 @@ import http from 'node:http';
 import https from 'node:https';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { fromNodeProviderChain } from '@aws-sdk/credential-providers';
 import { resolveModel } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -214,18 +215,30 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
 
   // 2. Bedrock mode — validate required AWS credentials are present
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
-    const required = [
-      'AWS_REGION',
-      'AWS_BEARER_TOKEN_BEDROCK',
-      'ANTHROPIC_SMALL_MODEL',
-      'ANTHROPIC_MEDIUM_MODEL',
-      'ANTHROPIC_LARGE_MODEL',
-    ];
+    const isProfileMode = !!process.env.AWS_PROFILE;
+    const isTokenMode = !!process.env.AWS_BEARER_TOKEN_BEDROCK;
+
+    if (!isProfileMode && !isTokenMode) {
+      return err(
+        new PentestError(
+          'Bedrock mode requires either AWS_BEARER_TOKEN_BEDROCK (token auth) or AWS_PROFILE (profile auth)',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+
+    const required = ['AWS_REGION', 'ANTHROPIC_SMALL_MODEL', 'ANTHROPIC_MEDIUM_MODEL', 'ANTHROPIC_LARGE_MODEL'];
+    if (isTokenMode) {
+      required.push('AWS_BEARER_TOKEN_BEDROCK');
+    }
     const missing = required.filter((v) => !process.env[v]);
     if (missing.length > 0) {
       return err(
         new PentestError(
-          `Bedrock mode requires the following env vars in .env: ${missing.join(', ')}`,
+          `Bedrock mode requires the following env vars: ${missing.join(', ')}`,
           'config',
           false,
           { missing },
@@ -233,7 +246,32 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
         ),
       );
     }
-    logger.info('Bedrock credentials OK');
+
+    // For profile mode, verify credentials can be resolved (catches expired SSO sessions)
+    if (isProfileMode) {
+      const profile = process.env.AWS_PROFILE as string;
+      try {
+        const provider = fromNodeProviderChain({ profile });
+        await provider();
+        logger.info(`Bedrock credentials OK (profile: ${profile})`);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const isSsoExpiry = message.includes('SSO') || message.includes('sso') || message.includes('expired');
+        const hint = isSsoExpiry ? `\nRun: aws sso login --profile ${profile}` : '';
+        return err(
+          new PentestError(
+            `Failed to resolve AWS credentials for profile "${profile}": ${message}${hint}`,
+            'config',
+            false,
+            { profile },
+            ErrorCode.AUTH_FAILED,
+          ),
+        );
+      }
+    } else {
+      logger.info('Bedrock credentials OK');
+    }
+
     return ok(undefined);
   }
 
