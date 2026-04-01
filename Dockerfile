@@ -52,7 +52,7 @@ RUN curl -sL https://github.com/urbanadventurer/WhatWeb/archive/refs/tags/v0.6.3
 RUN pip3 install --no-cache-dir schemathesis==4.13.0
 
 # Install pnpm
-RUN npm install -g pnpm@10.12.1
+RUN npm install -g pnpm@10.33.0
 
 # Build Node.js application in builder to avoid QEMU emulation failures in CI
 WORKDIR /app
@@ -69,7 +69,8 @@ COPY . .
 # Build worker. CLI not needed in Docker
 RUN pnpm --filter @shannon/worker run build
 
-RUN pnpm prune --prod
+# Production-only deps (pnpm recommends install --prod over prune in monorepos)
+RUN rm -rf node_modules apps/*/node_modules && pnpm install --frozen-lockfile --prod
 
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
