@@ -144,10 +144,7 @@ function buildAuthContext(config: DistributedConfig | null): string {
   }
 
   const auth = config.authentication;
-  const lines = [
-    `- Login type: ${auth.login_type.toUpperCase()}`,
-    `- Login URL: ${auth.login_url}`,
-  ];
+  const lines = [`- Login type: ${auth.login_type.toUpperCase()}`, `- Login URL: ${auth.login_url}`];
 
   if (auth.login_type === 'interactive') {
     lines.push('- Session: Pre-authenticated (interactive login)');

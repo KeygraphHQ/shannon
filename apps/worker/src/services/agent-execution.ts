@@ -111,7 +111,7 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath, sessionId },
+        { webUrl, repoPath, ...(sessionId !== undefined && { sessionId }) },
         distributedConfig,
         pipelineTestingMode,
         logger,
