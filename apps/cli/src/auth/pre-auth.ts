@@ -10,7 +10,9 @@
  *   npm install -g playwright && npx playwright install chromium
  */
 
+import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 
 export interface PreAuthOptions {
@@ -43,10 +45,30 @@ interface PlaywrightChromium {
   launch(opts: { headless: boolean }): Promise<PlaywrightBrowser>;
 }
 
+function resolvePlaywrightPath(): string {
+  // Try local node_modules first, then global
+  const localPath = path.resolve('node_modules', 'playwright');
+  if (fs.existsSync(localPath)) return localPath;
+
+  try {
+    const globalRoot = execFileSync('npm', ['root', '-g'], { encoding: 'utf-8' }).trim();
+    const globalPath = path.join(globalRoot, 'playwright');
+    if (fs.existsSync(globalPath)) return globalPath;
+  } catch {
+    // npm not available or failed
+  }
+
+  return 'playwright'; // Fallback to bare specifier
+}
+
 async function loadPlaywright(): Promise<PlaywrightChromium> {
   try {
-    // Dynamic import — playwright is an optional peer dependency, not bundled
-    const pw = await (Function('return import("playwright")')() as Promise<{ chromium: PlaywrightChromium }>);
+    // Use createRequire to resolve playwright from local or global node_modules.
+    // ESM dynamic import can't resolve bare directory paths, but require.resolve can.
+    const resolved = resolvePlaywrightPath();
+    const require = createRequire(import.meta.url);
+    const pw = require(resolved) as { chromium: PlaywrightChromium };
+    if (!pw.chromium) throw new Error('chromium not found in playwright module');
     return pw.chromium;
   } catch {
     console.error('\nERROR: Playwright is required for interactive authentication.');
