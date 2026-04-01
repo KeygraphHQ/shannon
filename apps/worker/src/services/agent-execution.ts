@@ -21,7 +21,9 @@
  * No Temporal dependencies - pure domain logic.
  */
 
+import { fs, path } from 'zx';
 import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
+import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -134,6 +136,7 @@ export class AgentExecutionService {
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
     // 5. Execute agent
+    const outputFormat = getOutputFormat(agentName);
     const result: ClaudePromptResult = await runClaudePrompt(
       prompt,
       repoPath,
@@ -143,6 +146,7 @@ export class AgentExecutionService {
       auditSession,
       logger,
       AGENTS[agentName].modelTier,
+      outputFormat,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -176,7 +180,17 @@ export class AgentExecutionService {
       });
     }
 
-    // 8. Validate output
+    // 8. Write structured output to disk (vuln agents only)
+    const queueFilename = getQueueFilename(agentName);
+    if (result.structuredOutput !== undefined && queueFilename) {
+      const deliverablesDir = path.join(repoPath, 'deliverables');
+      await fs.ensureDir(deliverablesDir);
+      const queuePath = path.join(deliverablesDir, queueFilename);
+      await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
+      logger.info(`Wrote structured output queue to ${queueFilename}`);
+    }
+
+    // 9. Validate output
     const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
     if (!validationPassed) {
       return this.failAgent(agentName, repoPath, auditSession, logger, {
@@ -191,7 +205,7 @@ export class AgentExecutionService {
       });
     }
 
-    // 9. Success - commit deliverables, then capture checkpoint hash
+    // 10. Success - commit deliverables, then capture checkpoint hash
     await commitGitSuccess(repoPath, agentName, logger);
     const commitHash = await getGitCommitHash(repoPath);
 

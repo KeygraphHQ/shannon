@@ -50,6 +50,7 @@ Thumbs.db
 # Keep apps/cli/package.json so pnpm workspaces resolve
 apps/cli/src/
 apps/cli/dist/
+apps/worker/dist/
 apps/cli/infra/
 apps/cli/tsconfig.json
 apps/cli/tsdown.config.ts

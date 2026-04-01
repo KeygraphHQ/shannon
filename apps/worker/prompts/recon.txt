@@ -61,10 +61,10 @@ Please use these tools for the following use cases:
 - Task tool: **MANDATORY for ALL source code analysis.** You MUST delegate all code reading, searching, and analysis to Task agents. DO NOT use Read, Glob, or Grep tools for source code.
 - **Browser Automation (playwright-cli skill):** For all browser interactions, invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
-  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
-  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<text>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"..."}` or `{"status":"error","message":"...","retryable":true}`
   - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
-  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
+
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.

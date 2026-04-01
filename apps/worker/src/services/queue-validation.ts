@@ -114,12 +114,12 @@ function getExistenceErrorMessage(existence: FileExistence): string {
   const { deliverableExists, queueExists } = existence;
 
   if (!deliverableExists && !queueExists) {
-    return 'Analysis failed: Neither deliverable nor queue file exists. Analysis agent must create both files.';
+    return 'Analysis failed: Neither deliverable nor queue file exists. Both are required.';
   }
   if (!queueExists) {
-    return 'Analysis incomplete: Deliverable exists but queue file missing. Analysis agent must create both files.';
+    return 'Analysis incomplete: Deliverable exists but queue file missing. Both are required.';
   }
-  return 'Analysis incomplete: Queue exists but deliverable file missing. Analysis agent must create both files.';
+  return 'Analysis incomplete: Queue exists but deliverable file missing. Both are required.';
 }
 
 // Pure function to create file paths

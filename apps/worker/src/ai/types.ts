@@ -34,6 +34,7 @@ export interface ResultData {
   subtype?: string;
   stop_reason?: string | null;
   permissionDenials: number;
+  structuredOutput?: unknown;
 }
 
 export interface ToolUseData {
@@ -69,6 +70,7 @@ export interface ResultMessage {
   subtype?: string;
   stop_reason?: string | null;
   permission_denials?: unknown[];
+  structured_output?: unknown;
 }
 
 export interface ToolUseMessage {

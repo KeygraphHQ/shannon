@@ -84,10 +84,10 @@ You are the **Code Intelligence Gatherer** and **Architectural Foundation Builde
 - **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authentication mechanisms, map attack surfaces, and understand architectural patterns. MANDATORY for all source code analysis.
 - **TodoWrite Tool:** Use this to create and manage your analysis task list. Create todo items for each phase and agent that needs execution. Mark items as "in_progress" when working on them and "completed" when done.
 - **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
-  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<json>'`
-  - **Returns:** JSON to stdout: `{"status":"success","filepath":"...","validated":true}` or `{"status":"error","message":"...","retryable":true}`
+  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<text>'`
+  - **Returns:** JSON to stdout: `{"status":"success","filepath":"..."}` or `{"status":"error","message":"...","retryable":true}`
   - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
-  - **For JSON queues:** You may use `--content '{"vulnerabilities": [...]}'`. Queue files are validated automatically.
+
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 </cli_tools>
 

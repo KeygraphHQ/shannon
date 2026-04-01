@@ -223,6 +223,10 @@ function handleResultMessage(message: ResultMessage): ResultData {
     }
   }
 
+  if (message.structured_output !== undefined) {
+    result.structuredOutput = message.structured_output;
+  }
+
   return result;
 }
 
@@ -259,7 +263,7 @@ function outputLines(lines: string[]): void {
 
 export type MessageDispatchAction =
   | { type: 'continue'; apiErrorDetected?: boolean | undefined; model?: string | undefined }
-  | { type: 'complete'; result: string | null; cost: number }
+  | { type: 'complete'; result: string | null; cost: number; structuredOutput?: unknown }
   | { type: 'throw'; error: Error };
 
 export interface MessageDispatchDeps {
@@ -338,7 +342,26 @@ export async function dispatchMessage(
     case 'result': {
       const resultData = handleResultMessage(message as ResultMessage);
       outputLines(formatResultOutput(resultData, !execContext.useCleanOutput));
-      return { type: 'complete', result: resultData.result, cost: resultData.cost };
+
+      if (resultData.subtype === 'error_max_structured_output_retries') {
+        return {
+          type: 'throw',
+          error: new PentestError(
+            'Structured output validation failed after max retries',
+            'validation',
+            true,
+            {},
+            ErrorCode.OUTPUT_VALIDATION_FAILED,
+          ),
+        };
+      }
+
+      return {
+        type: 'complete' as const,
+        result: resultData.result,
+        cost: resultData.cost,
+        ...(resultData.structuredOutput !== undefined && { structuredOutput: resultData.structuredOutput }),
+      };
     }
 
     default:
