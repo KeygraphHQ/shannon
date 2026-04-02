@@ -3,4 +3,4 @@ URL: {{WEB_URL}}
 Filesystem:
 - {{REPO_PATH}}/ (read only)
 - {{REPO_PATH}}/deliverables/ (read-write)
-- {{REPO_PATH}}/playground/ (read-write) - screenshots, scratch work, temporary scripts
+- {{REPO_PATH}}/playground/ (read-write) - screenshots, scripts, scratch work, etc.
