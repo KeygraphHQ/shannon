@@ -128,8 +128,8 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
 - Resolve conflicts and eliminate duplicates
 - Generate the final structured markdown report
 - **Schema Management**: Using schemas identified by the Entry Point Mapper Agent:
-  - Create the `outputs/schemas/` directory using mkdir -p
-  - Copy all discovered schema files to `outputs/schemas/` with descriptive names
+  - Create the `deliverables/schemas/` directory using mkdir -p
+  - Copy all discovered schema files to `deliverables/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
 - **CHUNKED WRITING (MANDATORY):**
   1. Use the **Write** tool to create `deliverables/code_analysis_deliverable.md` with the title and first major section
@@ -395,7 +395,7 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 
 2. **Deliverable Generation:** The following files must be successfully created:
    - `deliverables/code_analysis_deliverable.md` (via `save-deliverable` with `--file-path`, not inline `--content`)
-   - `outputs/schemas/` directory with all discovered schema files copied (if any schemas found)
+   - `deliverables/schemas/` directory with all discovered schema files copied (if any schemas found)
 
 3. **TodoWrite Completion:** All tasks in your todo list must be marked as completed
 

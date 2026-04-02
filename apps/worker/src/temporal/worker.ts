@@ -375,6 +375,7 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
   fs.mkdirSync(outputPath, { recursive: true });
 
   for (const file of files) {
+    if (file === '.git') continue;
     const src = path.join(deliverablesDir, file);
     const dest = path.join(outputPath, file);
     fs.cpSync(src, dest, { recursive: true });

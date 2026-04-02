@@ -194,7 +194,7 @@ export interface WorkerOptions {
   credentials?: string;
   promptsDir?: string;
   outputDir?: string;
-  workspace?: string;
+  workspace: string;
   pipelineTesting?: boolean;
 }
 
@@ -214,7 +214,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   // Volume mounts
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
-  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}`);
+  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
+
+  // Deliverables overlay: writable workspace dir shadows the :ro repo's deliverables/
+  const deliverablesMountSrc = path.join(opts.workspacesDir, opts.workspace, 'deliverables');
+  args.push('-v', `${deliverablesMountSrc}:${opts.repo.containerPath}/deliverables`);
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
@@ -253,9 +257,7 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   if (opts.outputDir) {
     args.push('--output', '/app/output');
   }
-  if (opts.workspace) {
-    args.push('--workspace', opts.workspace);
-  }
+  args.push('--workspace', opts.workspace);
   if (opts.pipelineTesting) {
     args.push('--pipeline-testing');
   }

@@ -44,6 +44,7 @@ import { loadPrompt } from './prompt-manager.js';
 export interface AgentExecutionInput {
   webUrl: string;
   repoPath: string;
+  deliverablesPath: string;
   configPath?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
@@ -89,7 +90,7 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const { webUrl, repoPath, deliverablesPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
 
     // 1. Load config (if provided)
     const configResult = await this.configLoader.loadOptional(configPath);
@@ -118,7 +119,7 @@ export class AgentExecutionService {
 
     // 3. Create git checkpoint before execution
     try {
-      await createGitCheckpoint(repoPath, agentName, attemptNumber, logger);
+      await createGitCheckpoint(deliverablesPath, agentName, attemptNumber, logger);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -126,7 +127,7 @@ export class AgentExecutionService {
           `Failed to create git checkpoint for ${agentName}: ${errorMessage}`,
           'filesystem',
           false,
-          { agentName, repoPath, originalError: errorMessage },
+          { agentName, deliverablesPath, originalError: errorMessage },
           ErrorCode.GIT_CHECKPOINT_FAILED,
         ),
       );
@@ -153,7 +154,7 @@ export class AgentExecutionService {
     if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
       const resultText = result.result || '';
       if (isSpendingCapBehavior(result.turns ?? 0, result.cost || 0, resultText)) {
-        return this.failAgent(agentName, repoPath, auditSession, logger, {
+        return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
           attemptNumber,
           result,
           rollbackReason: 'spending cap detected',
@@ -168,7 +169,7 @@ export class AgentExecutionService {
 
     // 7. Handle execution failure
     if (!result.success) {
-      return this.failAgent(agentName, repoPath, auditSession, logger, {
+      return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,
         rollbackReason: 'execution failure',
@@ -193,7 +194,7 @@ export class AgentExecutionService {
     // 9. Validate output
     const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
     if (!validationPassed) {
-      return this.failAgent(agentName, repoPath, auditSession, logger, {
+      return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,
         rollbackReason: 'validation failure',
@@ -206,8 +207,8 @@ export class AgentExecutionService {
     }
 
     // 10. Success - commit deliverables, then capture checkpoint hash
-    await commitGitSuccess(repoPath, agentName, logger);
-    const commitHash = await getGitCommitHash(repoPath);
+    await commitGitSuccess(deliverablesPath, agentName, logger);
+    const commitHash = await getGitCommitHash(deliverablesPath);
 
     const endResult: AgentEndResult = {
       attemptNumber,
@@ -224,12 +225,12 @@ export class AgentExecutionService {
 
   private async failAgent(
     agentName: AgentName,
-    repoPath: string,
+    deliverablesPath: string,
     auditSession: AuditSession,
     logger: ActivityLogger,
     opts: FailAgentOpts,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    await rollbackGitWorkspace(repoPath, opts.rollbackReason, logger);
+    await rollbackGitWorkspace(deliverablesPath, opts.rollbackReason, logger);
 
     const endResult: AgentEndResult = {
       attemptNumber: opts.attemptNumber,
