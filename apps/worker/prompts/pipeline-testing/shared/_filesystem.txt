@@ -1,0 +1,4 @@
+Filesystem:
+- Source code repository (read only)
+- `deliverables/` - Final reports and analysis output (read-write)
+- `playground/` - Scratch work (read-write)

@@ -1,1 +1,3 @@
+@include(shared/_filesystem.txt)
+
 Read `deliverables/comprehensive_security_assessment_report.md`, prepend "# Security Assessment Report\n\n**Target:** {{WEB_URL}}\n\n" to the content, and save it back. Say "Done".
