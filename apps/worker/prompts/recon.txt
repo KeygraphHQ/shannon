@@ -13,6 +13,11 @@ Your analysis must begin by reading and fully comprehending the initial intellig
 <target>
 URL: {{WEB_URL}}
 {{DESCRIPTION}}
+
+Filesystem:
+- Source code repository (read only)
+- `deliverables/` - Final reports and analysis output (read-write)
+- `playground/` - Scratch work (read-write)
 </target>
 
 <rules>

@@ -216,9 +216,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
   args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
 
-  // Deliverables overlay: writable workspace dir shadows the :ro repo's deliverables/
-  const deliverablesMountSrc = path.join(opts.workspacesDir, opts.workspace, 'deliverables');
-  args.push('-v', `${deliverablesMountSrc}:${opts.repo.containerPath}/deliverables`);
+  // Writable overlays: shadow specific paths inside the :ro repo with workspace-backed dirs
+  const workspacePath = path.join(opts.workspacesDir, opts.workspace);
+  args.push('-v', `${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/deliverables`);
+  args.push('-v', `${path.join(workspacePath, 'playground')}:${opts.repo.containerPath}/playground`);
+  args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.playwright-cli`);
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {

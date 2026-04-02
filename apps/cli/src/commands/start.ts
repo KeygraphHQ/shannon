@@ -67,10 +67,13 @@ export async function start(args: StartArgs): Promise<void> {
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
-  // 9. Create workspace deliverables directory (mounted over repo/deliverables inside container)
-  const workspaceDeliverables = path.join(workspacesDir, workspace, 'deliverables');
-  fs.mkdirSync(workspaceDeliverables, { recursive: true });
-  fs.chmodSync(workspaceDeliverables, 0o777);
+  // 9. Create writable overlay directories (mounted over :ro repo paths inside container)
+  const workspacePath = path.join(workspacesDir, workspace);
+  for (const dir of ['deliverables', 'playground', '.playwright-cli']) {
+    const dirPath = path.join(workspacePath, dir);
+    fs.mkdirSync(dirPath, { recursive: true });
+    fs.chmodSync(dirPath, 0o777);
+  }
 
   // 10. Resolve credentials — mount single file to fixed container path
   const credentialsPath = getCredentialsPath();

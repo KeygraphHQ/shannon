@@ -22,6 +22,11 @@ IMPORTANT: You are MODIFYING an existing file, not creating a new one.
 <target>
 URL: {{WEB_URL}}
 {{DESCRIPTION}}
+
+Filesystem:
+- Source code repository (read only)
+- `deliverables/` - Final reports and analysis output (read-write)
+- `playground/` - Scratch work (read-write)
 </target>
 
 <context>
