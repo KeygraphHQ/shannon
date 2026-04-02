@@ -1,4 +1,4 @@
 Filesystem:
-- Source code repository (read only)
-- `deliverables/` - Final reports and analysis output (read-write)
-- `playground/` - Scratch work (read-write)
+- {{REPO_PATH}}/ (read only)
+- {{REPO_PATH}}/deliverables/ (read-write)
+- {{REPO_PATH}}/playground/ (read-write) - screenshots, scratch work, temporary scripts
