@@ -72,7 +72,7 @@ async function writeErrorLog(
       },
       duration,
     };
-    const logPath = path.join(sourceDir, 'deliverables', 'error.log');
+    const logPath = path.join(sourceDir, '.shannon', 'deliverables', 'error.log');
     await fs.appendFile(logPath, `${JSON.stringify(errorLog)}\n`);
   } catch {
     // Best-effort error log writing - don't propagate failures

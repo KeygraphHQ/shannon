@@ -143,7 +143,7 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
 // Factory function for exploit deliverable validators
 function createExploitValidator(vulnType: VulnType): AgentValidator {
   return async (sourceDir: string): Promise<boolean> => {
-    const evidenceFile = path.join(sourceDir, 'deliverables', `${vulnType}_exploitation_evidence.md`);
+    const evidenceFile = path.join(sourceDir, '.shannon', 'deliverables', `${vulnType}_exploitation_evidence.md`);
     return await fs.pathExists(evidenceFile);
   };
 }
@@ -179,13 +179,13 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
   // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
   'pre-recon': async (sourceDir: string): Promise<boolean> => {
-    const codeAnalysisFile = path.join(sourceDir, 'deliverables', 'code_analysis_deliverable.md');
+    const codeAnalysisFile = path.join(sourceDir, '.shannon', 'deliverables', 'code_analysis_deliverable.md');
     return await fs.pathExists(codeAnalysisFile);
   },
 
   // Reconnaissance agent
   recon: async (sourceDir: string): Promise<boolean> => {
-    const reconFile = path.join(sourceDir, 'deliverables', 'recon_deliverable.md');
+    const reconFile = path.join(sourceDir, '.shannon', 'deliverables', 'recon_deliverable.md');
     return await fs.pathExists(reconFile);
   },
 
@@ -205,7 +205,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
   // Executive report agent
   report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
-    const reportFile = path.join(sourceDir, 'deliverables', 'comprehensive_security_assessment_report.md');
+    const reportFile = path.join(sourceDir, '.shannon', 'deliverables', 'comprehensive_security_assessment_report.md');
 
     const reportExists = await fs.pathExists(reportFile);
 

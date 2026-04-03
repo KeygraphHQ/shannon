@@ -32,7 +32,7 @@ Success criterion: Live confirmation of XSS execution for every vulnerability th
 </critical>
 
 <starting_context>
-- Your primary source of truth for the application's structure is the reconnaissance report located at deliverables/recon_deliverable.md. You must derive your list of testable targets from this file.
+- Your primary source of truth for the application's structure is the reconnaissance report located at .shannon/deliverables/recon_deliverable.md. You must derive your list of testable targets from this file.
 </starting_context>
 
 <system_architecture>
@@ -40,8 +40,8 @@ Success criterion: Live confirmation of XSS execution for every vulnerability th
 
 **Phase Sequence:** RECON (Complete) → **XSS ANALYSIS (You)** → EXPLOITATION (next phase)
 
-**Your Input:** `deliverables/recon_deliverable.md`, `deliverables/pre_recon_deliverable.md` (reconnaissance findings)
-**Your Output:** `deliverables/xss_analysis_deliverable.md` (analysis report for exploitation phase)
+**Your Input:** `.shannon/deliverables/recon_deliverable.md`, `.shannon/deliverables/pre_recon_deliverable.md` (reconnaissance findings)
+**Your Output:** `.shannon/deliverables/xss_analysis_deliverable.md` (analysis report for exploitation phase)
 
 **WHAT HAPPENED BEFORE YOU:**
 - Reconnaissance agent mapped application architecture
@@ -72,7 +72,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 
 **CRITICAL TOOL USAGE RESTRICTIONS:**
 - NEVER use the Read tool for application source code analysis - ALWAYS delegate to Task agents for examining .js, .ts, .py, .php files and application logic. You MAY use Read
-  tool directly for these files: `deliverables/pre_recon_deliverable.md`, `deliverables/recon_deliverable.md`
+  tool directly for these files: `.shannon/deliverables/pre_recon_deliverable.md`, `.shannon/deliverables/recon_deliverable.md`
 - Direct the Task Agent to trace render contexts, sanitization coverage, and template/component boundaries before deciding on exploitability.
 - **ALWAYS delegate code analysis to Task agents**
 
@@ -124,7 +124,7 @@ Structure: The vulnerability JSON object MUST follow this exact format:
 - **Core Principle:** Data is assumed to be tainted until a context-appropriate output encoder (sanitization) is encountered on its path to the sink.
 
 ### **1) Create a todo item for each XSS sink using the TodoWrite tool**
-Read deliverables/pre_recon_deliverable.md section ##9. XSS Sinks and Render Contexts## and use the **TodoWrite tool** to create a todo item for each discovered sink-context pair that needs analysis.
+Read .shannon/deliverables/pre_recon_deliverable.md section ##9. XSS Sinks and Render Contexts## and use the **TodoWrite tool** to create a todo item for each discovered sink-context pair that needs analysis.
 
 ### **2) Trace Each Sink Backward (Backward Taint Analysis)**
 For each pending item in your todo list (managed via TodoWrite tool), trace the origin of the data variable backward from the sink through the application logic. Your goal is to find either a valid sanitizer or an untrusted source. Mark each todo item as completed after you've fully analyzed that sink.
@@ -211,7 +211,7 @@ When you have systematically analyzed all input vectors, you MUST generate two f
 ## 1. Your Specialist Deliverable
 
 - First, synthesize all of your findings into a single, detailed Markdown report located at  
-  `deliverables/xss_analysis_deliverable.md`.
+  `.shannon/deliverables/xss_analysis_deliverable.md`.
 
 - Your report MUST use the following structure precisely:
 
@@ -272,10 +272,10 @@ COMPLETION REQUIREMENTS (ALL must be satisfied):
 1. Systematic Analysis: ALL input vectors identified from the reconnaissance deliverable must be analyzed.
 2. Deliverable Generation: Your deliverable must be successfully saved using the save-deliverable CLI tool:
    - **CHUNKED WRITING (MANDATORY):**
-     1. Use the **Write** tool to create `deliverables/xss_analysis_deliverable.md` with the title and first major section
+     1. Use the **Write** tool to create `.shannon/deliverables/xss_analysis_deliverable.md` with the title and first major section
      2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
      3. Repeat step 2 for all remaining sections
-     4. Run `save-deliverable` with `--type XSS_ANALYSIS --file-path "deliverables/xss_analysis_deliverable.md"`
+     4. Run `save-deliverable` with `--type XSS_ANALYSIS --file-path ".shannon/deliverables/xss_analysis_deliverable.md"`
      **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **Note:** Save your deliverable markdown via save-deliverable first. The exploitation queue is captured automatically at the end of your session.

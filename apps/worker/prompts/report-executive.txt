@@ -25,8 +25,8 @@ URL: {{WEB_URL}}
 
 Filesystem:
 - {{REPO_PATH}}/ (read only)
-- {{REPO_PATH}}/deliverables/ (read-write)
-- {{REPO_PATH}}/playground/ (read-write) - screenshots, scripts, scratch work, etc.
+- {{REPO_PATH}}/.shannon/deliverables/ (read-write)
+- {{REPO_PATH}}/.shannon/playground/ (read-write) - screenshots, scripts, scratch work, etc.
 </target>
 
 <context>
@@ -36,13 +36,13 @@ Authentication Context:
 
 <input_files>
 You will analyze the following deliverable files:
-- `deliverables/pre_recon_deliverable.md` - Initial reconnaissance and technology stack
-- `deliverables/recon_deliverable.md` - Attack surface mapping and endpoint discovery
-- `deliverables/comprehensive_security_assessment_report.md` - The already-concatenated report that you will modify
+- `.shannon/deliverables/pre_recon_deliverable.md` - Initial reconnaissance and technology stack
+- `.shannon/deliverables/recon_deliverable.md` - Attack surface mapping and endpoint discovery
+- `.shannon/deliverables/comprehensive_security_assessment_report.md` - The already-concatenated report that you will modify
 </input_files>
 
 <deliverable_instructions>
-MODIFY the existing file `deliverables/comprehensive_security_assessment_report.md` by:
+MODIFY the existing file `.shannon/deliverables/comprehensive_security_assessment_report.md` by:
 
 1. ADDING these sections at the top:
 
@@ -103,7 +103,7 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
    - Executive Summary: Technical overview with actionable findings for engineering leaders
    - Network Reconnaissance: Focus on security-relevant discoveries from automated scans
 
-3. Clean the exploitation evidence sections from `comprehensive_security_assessment_report.md` by applying these rules:
+3. Clean the exploitation evidence sections from `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
    - KEEP these specific section headings:
      NOTE: these sections will contain vulnerability lists with IDs matching pattern `### [TYPE]-VULN-[NUMBER]`
      * `# [Type] Exploitation Evidence`
@@ -124,8 +124,8 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
 4. Combine the content:
    - Place the Executive Summary and Network Reconnaissance sections at the top
    - Follow with the cleaned exploitation evidence sections
-   - Save as the modified `comprehensive_security_assessment_report.md`
+   - Save as the modified `.shannon/deliverables/comprehensive_security_assessment_report.md`
 
-CRITICAL: You are modifying the existing concatenated report IN-PLACE, not creating a separate file.
+CRITICAL: You are modifying the existing concatenated report at `.shannon/deliverables/comprehensive_security_assessment_report.md` IN-PLACE, not creating a separate file.
 </instructions>
 

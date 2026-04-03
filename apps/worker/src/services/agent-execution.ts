@@ -184,7 +184,7 @@ export class AgentExecutionService {
     // 8. Write structured output to disk (vuln agents only)
     const queueFilename = getQueueFilename(agentName);
     if (result.structuredOutput !== undefined && queueFilename) {
-      const deliverablesDir = path.join(repoPath, 'deliverables');
+      const deliverablesDir = path.join(repoPath, '.shannon', 'deliverables');
       await fs.ensureDir(deliverablesDir);
       const queuePath = path.join(deliverablesDir, queueFilename);
       await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');

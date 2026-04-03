@@ -28,7 +28,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   const sections: string[] = [];
 
   for (const file of deliverableFiles) {
-    const filePath = path.join(sourceDir, 'deliverables', file.path);
+    const filePath = path.join(sourceDir, '.shannon', 'deliverables', file.path);
     try {
       if (await fs.pathExists(filePath)) {
         const content = await fs.readFile(filePath, 'utf8');
@@ -55,7 +55,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   }
 
   const finalContent = sections.join('\n\n');
-  const deliverablesDir = path.join(sourceDir, 'deliverables');
+  const deliverablesDir = path.join(sourceDir, '.shannon', 'deliverables');
   const finalReportPath = path.join(deliverablesDir, 'comprehensive_security_assessment_report.md');
 
   try {
@@ -117,7 +117,7 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(repoPath, 'deliverables', 'comprehensive_security_assessment_report.md');
+  const reportPath = path.join(repoPath, '.shannon', 'deliverables', 'comprehensive_security_assessment_report.md');
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');

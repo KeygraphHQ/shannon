@@ -1,4 +1,4 @@
 Filesystem:
 - {{REPO_PATH}}/ (read only)
-- {{REPO_PATH}}/deliverables/ (read-write)
-- {{REPO_PATH}}/playground/ (read-write) - screenshots, scripts, scratch work, etc.
+- {{REPO_PATH}}/.shannon/deliverables/ (read-write)
+- {{REPO_PATH}}/.shannon/playground/ (read-write) - screenshots, scripts, scratch work, etc.

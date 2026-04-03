@@ -360,7 +360,7 @@ async function waitForWorkflowResult(
 // === Deliverables Copy ===
 
 function copyDeliverables(repoPath: string, outputPath: string): void {
-  const deliverablesDir = path.join(repoPath, 'deliverables');
+  const deliverablesDir = path.join(repoPath, '.shannon', 'deliverables');
   if (!fs.existsSync(deliverablesDir)) {
     console.log('No deliverables directory found, skipping copy');
     return;
