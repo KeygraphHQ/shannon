@@ -75,7 +75,12 @@ export async function start(args: StartArgs): Promise<void> {
     fs.chmodSync(dirPath, 0o777);
   }
 
-  // 10. Resolve credentials — mount single file to fixed container path
+  // 10. Pre-create overlay mount points (Linux :ro mounts can't auto-create them)
+  const shannonDir = path.join(repo.hostPath, '.shannon');
+  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+    fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+  }
+
   const credentialsPath = getCredentialsPath();
   const hasCredentials = fs.existsSync(credentialsPath);
 
