@@ -32,7 +32,7 @@ Success criterion: A complete source-to-sink trace for every identified SSRF vul
 </critical>
 
 <starting_context>
-- Your primary source of truth for the application's structure is the reconnaissance report located at `deliverables/recon_deliverable.md`. You must derive your list of testable endpoints from this file.
+- Your primary source of truth for the application's structure is the reconnaissance report located at `.shannon/deliverables/recon_deliverable.md`. You must derive your list of testable endpoints from this file.
 </starting_context>
 
 <system_architecture>
@@ -40,8 +40,8 @@ Success criterion: A complete source-to-sink trace for every identified SSRF vul
 
 **Phase Sequence:** RECON (Complete) → **SSRF ANALYSIS (You)** → EXPLOITATION (next phase)
 
-**Your Input:** `deliverables/recon_deliverable.md`, `deliverables/pre_recon_deliverable.md` (reconnaissance findings)
-**Your Output:** `deliverables/ssrf_analysis_deliverable.md` (analysis report for exploitation phase)
+**Your Input:** `.shannon/deliverables/recon_deliverable.md`, `.shannon/deliverables/pre_recon_deliverable.md` (reconnaissance findings)
+**Your Output:** `.shannon/deliverables/ssrf_analysis_deliverable.md` (analysis report for exploitation phase)
 
 **WHAT HAPPENED BEFORE YOU:**
 - Reconnaissance agent mapped application architecture, endpoints, and data flows
@@ -114,7 +114,7 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 # White-Box Vulnerability Analysis Procedure: Server-Side Request Forgery (SSRF)
 
 NOTE ON "FOR ALL": whenever an item begins with "for all …", use the TodoWrite tool to create a separate task for each relevant endpoint/flow that needs to be analyzed.
-From `deliverables/pre_recon_deliverable.md`, use Section 10 (SSRF Sinks) to guide your tasks.
+From `.shannon/deliverables/pre_recon_deliverable.md`, use Section 10 (SSRF Sinks) to guide your tasks.
 
 ## 1) Identify HTTP Client Usage Patterns
 - For all endpoints that accept URL parameters, callback URLs, webhook URLs, or file paths, trace how these inputs are processed.
@@ -166,7 +166,7 @@ From `deliverables/pre_recon_deliverable.md`, use Section 10 (SSRF Sinks) to gui
 
 ### **1) Create a To-Do Item for Each SSRF Sink**
 
-Inside `deliverables/pre_recon_deliverable.md` under section `##10. SSRF Sinks##`.
+Inside `.shannon/deliverables/pre_recon_deliverable.md` under section `##10. SSRF Sinks##`.
 
 Use the TodoWrite tool to create a task for each discovered sink (any server-side request composed even partially from user input).
 
@@ -291,10 +291,10 @@ These components were analyzed and found to have robust defenses. They are low-p
 1.  **Systematic Analysis:** ALL relevant API endpoints and request-making features identified in the reconnaissance deliverable must be analyzed for SSRF vulnerabilities.
 2.  **Deliverable Generation:** Your deliverable must be successfully saved using the save-deliverable CLI tool:
     - **CHUNKED WRITING (MANDATORY):**
-      1. Use the **Write** tool to create `deliverables/ssrf_analysis_deliverable.md` with the title and first major section
+      1. Use the **Write** tool to create `.shannon/deliverables/ssrf_analysis_deliverable.md` with the title and first major section
       2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
       3. Repeat step 2 for all remaining sections
-      4. Run `save-deliverable` with `--type SSRF_ANALYSIS --file-path "deliverables/ssrf_analysis_deliverable.md"`
+      4. Run `save-deliverable` with `--type SSRF_ANALYSIS --file-path ".shannon/deliverables/ssrf_analysis_deliverable.md"`
       **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **Note:** Save your deliverable markdown via save-deliverable first. The exploitation queue is captured automatically at the end of your session.

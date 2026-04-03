@@ -133,8 +133,8 @@ const createPaths = (vulnType: VulnType, sourceDir: string): PathsBase | PathsWi
 
   return Object.freeze({
     vulnType,
-    deliverable: path.join(sourceDir, 'deliverables', config.deliverable),
-    queue: path.join(sourceDir, 'deliverables', config.queue),
+    deliverable: path.join(sourceDir, '.shannon', 'deliverables', config.deliverable),
+    queue: path.join(sourceDir, '.shannon', 'deliverables', config.queue),
     sourceDir,
   });
 };

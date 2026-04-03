@@ -52,7 +52,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 // === File Operations ===
 
 function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const deliverablesDir = join(targetDir, 'deliverables');
+  const deliverablesDir = join(targetDir, '.shannon', 'deliverables');
   const filepath = join(deliverablesDir, filename);
 
   try {

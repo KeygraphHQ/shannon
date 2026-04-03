@@ -12,7 +12,7 @@ import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.j
 import { buildEnvFlags, isRouterConfigured, loadEnv, validateCredentials } from '../env.js';
 import { getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
-import { ensureDeliverables, resolveConfig, resolveRepo } from '../paths.js';
+import { resolveConfig, resolveRepo } from '../paths.js';
 import { displaySplash } from '../splash.js';
 
 export interface StartArgs {
@@ -42,7 +42,6 @@ export async function start(args: StartArgs): Promise<void> {
   // 3. Resolve paths
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
-  ensureDeliverables(repo.hostPath);
 
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
   const workspacesDir = getWorkspacesDir();
@@ -68,7 +67,20 @@ export async function start(args: StartArgs): Promise<void> {
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
-  // 9. Resolve credentials — mount single file to fixed container path
+  // 9. Create writable overlay directories (mounted over :ro repo paths inside container)
+  const workspacePath = path.join(workspacesDir, workspace);
+  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+    const dirPath = path.join(workspacePath, dir);
+    fs.mkdirSync(dirPath, { recursive: true });
+    fs.chmodSync(dirPath, 0o777);
+  }
+
+  // 10. Pre-create overlay mount points (Linux :ro mounts can't auto-create them)
+  const shannonDir = path.join(repo.hostPath, '.shannon');
+  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+    fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+  }
+
   const credentialsPath = getCredentialsPath();
   const hasCredentials = fs.existsSync(credentialsPath);
 
@@ -101,7 +113,7 @@ export async function start(args: StartArgs): Promise<void> {
     ...(hasCredentials && { credentials: credentialsPath }),
     ...(promptsDir && { promptsDir }),
     ...(outputDir && { outputDir }),
-    ...(workspace && { workspace }),
+    workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
   });
 

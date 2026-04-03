@@ -1,3 +1,5 @@
+@include(shared/_filesystem.txt)
+
 Please complete these tasks using your CLI tools:
 
 1. Navigate to https://example.org and take a screenshot:

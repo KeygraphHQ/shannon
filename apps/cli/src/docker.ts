@@ -194,7 +194,7 @@ export interface WorkerOptions {
   credentials?: string;
   promptsDir?: string;
   outputDir?: string;
-  workspace?: string;
+  workspace: string;
   pipelineTesting?: boolean;
 }
 
@@ -214,7 +214,13 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   // Volume mounts
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
-  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}`);
+  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
+
+  // Writable overlays: shadow .shannon/ inside the :ro repo with workspace-backed dirs
+  const workspacePath = path.join(opts.workspacesDir, opts.workspace);
+  args.push('-v', `${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
+  args.push('-v', `${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
+  args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
@@ -253,9 +259,7 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   if (opts.outputDir) {
     args.push('--output', '/app/output');
   }
-  if (opts.workspace) {
-    args.push('--workspace', opts.workspace);
-  }
+  args.push('--workspace', opts.workspace);
   if (opts.pipelineTesting) {
     args.push('--pipeline-testing');
   }

@@ -362,6 +362,9 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
     await preflightActs.runPreflightValidation(activityInput);
     log.info('Preflight validation passed');
 
+    // === Initialize Deliverables Git ===
+    await a.initDeliverableGit(activityInput);
+
     // === Phase 1: Pre-Reconnaissance ===
     await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 

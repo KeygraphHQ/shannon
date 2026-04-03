@@ -1,5 +1,3 @@
-URL: {{WEB_URL}}
-
 Filesystem:
 - {{REPO_PATH}}/ (read only)
 - {{REPO_PATH}}/.shannon/deliverables/ (read-write)

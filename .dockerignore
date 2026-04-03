@@ -1,5 +1,5 @@
 # Node.js
-node_modules/
+**/node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
@@ -49,8 +49,7 @@ Thumbs.db
 # CLI package (runs on host, not in container)
 # Keep apps/cli/package.json so pnpm workspaces resolve
 apps/cli/src/
-apps/cli/dist/
-apps/worker/dist/
+**/dist/
 apps/cli/infra/
 apps/cli/tsconfig.json
 apps/cli/tsdown.config.ts

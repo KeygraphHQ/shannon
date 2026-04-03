@@ -360,7 +360,7 @@ async function waitForWorkflowResult(
 // === Deliverables Copy ===
 
 function copyDeliverables(repoPath: string, outputPath: string): void {
-  const deliverablesDir = path.join(repoPath, 'deliverables');
+  const deliverablesDir = path.join(repoPath, '.shannon', 'deliverables');
   if (!fs.existsSync(deliverablesDir)) {
     console.log('No deliverables directory found, skipping copy');
     return;
@@ -375,6 +375,7 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
   fs.mkdirSync(outputPath, { recursive: true });
 
   for (const file of files) {
+    if (file === '.git') continue;
     const src = path.join(deliverablesDir, file);
     const dest = path.join(outputPath, file);
     fs.cpSync(src, dest, { recursive: true });

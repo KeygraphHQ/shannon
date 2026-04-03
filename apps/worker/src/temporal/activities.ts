@@ -20,7 +20,7 @@ import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
-import { copyDeliverablesToAudit, type SessionMetadata } from '../audit/utils.js';
+import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
@@ -126,11 +126,13 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
     await auditSession.initialize(workflowId);
 
     // 3. Execute agent via service (throws PentestError on failure)
+    const deliverablesPath = path.join(repoPath, '.shannon', 'deliverables');
     const endResult = await container.agentExecution.executeOrThrow(
       agentName,
       {
         webUrl,
         repoPath,
+        deliverablesPath,
         configPath,
         pipelineTestingMode,
         attemptNumber,
@@ -312,6 +314,31 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
 }
 
 /**
+ * Initialize a private git repository inside the workspace deliverables directory.
+ * Idempotent — skips if .git already exists (resume case).
+ */
+export async function initDeliverableGit(input: ActivityInput): Promise<void> {
+  const deliverablesPath = path.join(input.repoPath, '.shannon', 'deliverables');
+  await fs.mkdir(deliverablesPath, { recursive: true });
+
+  // Check for .git directly inside deliverables, not parent repo's .git
+  const dotGitPath = path.join(deliverablesPath, '.git');
+  try {
+    await fs.stat(dotGitPath);
+    return;
+  } catch {
+    // .git doesn't exist, proceed with init
+  }
+
+  await executeGitCommandWithRetry(['git', 'init'], deliverablesPath, 'init deliverables repo');
+  await executeGitCommandWithRetry(
+    ['git', 'commit', '--allow-empty', '-m', '📍 Initial deliverables checkpoint'],
+    deliverablesPath,
+    'initial checkpoint',
+  );
+}
+
+/**
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
@@ -426,7 +453,7 @@ export async function loadResumeState(
     }
 
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = `${expectedRepoPath}/deliverables/${deliverableFilename}`;
+    const deliverablePath = `${expectedRepoPath}/.shannon/deliverables/${deliverableFilename}`;
     const deliverableExists = await fileExists(deliverablePath);
 
     if (!deliverableExists) {
@@ -460,7 +487,8 @@ export async function loadResumeState(
   }
 
   // 5. Find the most recent checkpoint commit
-  const checkpointHash = await findLatestCommit(expectedRepoPath, checkpoints);
+  const deliverablesPath = path.join(expectedRepoPath, '.shannon', 'deliverables');
+  const checkpointHash = await findLatestCommit(deliverablesPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
   // 6. Log summary and return resume state
@@ -480,7 +508,7 @@ export async function loadResumeState(
   };
 }
 
-async function findLatestCommit(repoPath: string, commitHashes: string[]): Promise<string> {
+async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise<string> {
   if (commitHashes.length === 1) {
     const hash = commitHashes[0];
     if (!hash) {
@@ -497,7 +525,7 @@ async function findLatestCommit(repoPath: string, commitHashes: string[]): Promi
 
   const result = await executeGitCommandWithRetry(
     ['git', 'rev-list', '--max-count=1', ...commitHashes],
-    repoPath,
+    gitDir,
     'find latest commit',
   );
 
@@ -505,26 +533,29 @@ async function findLatestCommit(repoPath: string, commitHashes: string[]): Promi
 }
 
 /**
- * Restore git workspace to a checkpoint and clean up partial deliverables.
+ * Restore deliverables git to a checkpoint.
+ * Operates on the private git inside workspace deliverables, not the user's repo.
  */
 export async function restoreGitCheckpoint(
   repoPath: string,
   checkpointHash: string,
   incompleteAgents: AgentName[],
 ): Promise<void> {
+  const deliverablesPath = path.join(repoPath, '.shannon', 'deliverables');
   const logger = createActivityLogger();
-  logger.info(`Restoring git workspace to ${checkpointHash}...`);
+  logger.info(`Restoring deliverables to ${checkpointHash}...`);
 
   await executeGitCommandWithRetry(
     ['git', 'reset', '--hard', checkpointHash],
-    repoPath,
-    'reset to checkpoint for resume',
+    deliverablesPath,
+    'reset deliverables to checkpoint',
   );
-  await executeGitCommandWithRetry(['git', 'clean', '-fd'], repoPath, 'clean untracked files for resume');
+  await executeGitCommandWithRetry(['git', 'clean', '-fd'], deliverablesPath, 'clean untracked deliverables');
 
+  // Explicitly delete partial deliverables for incomplete agents
   for (const agentName of incompleteAgents) {
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = `${repoPath}/deliverables/${deliverableFilename}`;
+    const deliverablePath = path.join(deliverablesPath, deliverableFilename);
     try {
       const exists = await fileExists(deliverablePath);
       if (exists) {
@@ -536,7 +567,7 @@ export async function restoreGitCheckpoint(
     }
   }
 
-  logger.info('Workspace restored to clean state');
+  logger.info('Deliverables restored to clean state');
 }
 
 /**
@@ -589,7 +620,7 @@ export async function logPhaseTransition(
  * Cleans up container when done.
  */
 export async function logWorkflowComplete(input: ActivityInput, summary: WorkflowSummary): Promise<void> {
-  const { repoPath, workflowId } = input;
+  const { workflowId } = input;
   const sessionMetadata = buildSessionMetadata(input);
 
   // 1. Initialize audit session and mark final status
@@ -631,16 +662,6 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Copy deliverables to workspaces
-  try {
-    await copyDeliverablesToAudit(sessionMetadata, repoPath);
-  } catch (copyErr) {
-    const logger = createActivityLogger();
-    logger.error('Failed to copy deliverables to workspaces', {
-      error: copyErr instanceof Error ? copyErr.message : String(copyErr),
-    });
-  }
-
-  // 7. Clean up container
+  // 6. Clean up container
   removeContainer(workflowId);
 }

@@ -33,7 +33,7 @@ Success criterion: A complete, code-backed analysis of every potential authentic
 </critical>
 
 <starting_context>
-- Your primary source of truth for the application's structure is the reconnaissance report located at `deliverables/recon_deliverable.md`. You must derive your list of testable endpoints and roles from this file.
+- Your primary source of truth for the application's structure is the reconnaissance report located at `.shannon/deliverables/recon_deliverable.md`. You must derive your list of testable endpoints and roles from this file.
 </starting_context>
 
 <system_architecture>
@@ -41,8 +41,8 @@ Success criterion: A complete, code-backed analysis of every potential authentic
 
 **Phase Sequence:** RECON (Complete) → **AUTH ANALYSIS (You)** → EXPLOITATION (next phase)
 
-**Your Input:** `deliverables/recon_deliverable.md`, `deliverables/pre_recon_deliverable.md` (reconnaissance findings)
-**Your Output:** `deliverables/auth_analysis_deliverable.md` (analysis report for exploitation phase)
+**Your Input:** `.shannon/deliverables/recon_deliverable.md`, `.shannon/deliverables/pre_recon_deliverable.md` (reconnaissance findings)
+**Your Output:** `.shannon/deliverables/auth_analysis_deliverable.md` (analysis report for exploitation phase)
 
 **WHAT HAPPENED BEFORE YOU:**
 - Reconnaissance agent mapped application architecture, endpoints, and data flows
@@ -114,7 +114,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 # White-Box Vulnerability Analysis Procedure: Broken Authentication (AuthN-only)
 
 NOTE ON "FOR ALL": whenever an item begins with "for all …", use the TodoWrite tool to create a separate task for each relevant endpoint/flow that needs to be analyzed.
-From `deliverables/pre_recon_deliverable.md`, use Section 3 and 6 to help guide your tasks.
+From `.shannon/deliverables/pre_recon_deliverable.md`, use Section 3 and 6 to help guide your tasks.
 
 ## 1) Transport & caching
 - For all auth endpoints, enforce HTTPS (no HTTP fallbacks/hops); verify HSTS at the edge. (for all: use TodoWrite tool to add each endpoint as a task)
@@ -244,10 +244,10 @@ These components were analyzed and found to have robust defenses. They are low-p
 1.  **Systematic Analysis:** ALL relevant API endpoints and user-facing features identified in the reconnaissance deliverable must be analyzed for AuthN/AuthZ flaws.
 2.  **Deliverable Generation:** Your deliverable must be successfully saved using the save-deliverable CLI tool:
     - **CHUNKED WRITING (MANDATORY):**
-      1. Use the **Write** tool to create `deliverables/auth_analysis_deliverable.md` with the title and first major section
+      1. Use the **Write** tool to create `.shannon/deliverables/auth_analysis_deliverable.md` with the title and first major section
       2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
       3. Repeat step 2 for all remaining sections
-      4. Run `save-deliverable` with `--type AUTH_ANALYSIS --file-path "deliverables/auth_analysis_deliverable.md"`
+      4. Run `save-deliverable` with `--type AUTH_ANALYSIS --file-path ".shannon/deliverables/auth_analysis_deliverable.md"`
       **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **Note:** Save your deliverable markdown via save-deliverable first. The exploitation queue is captured automatically at the end of your session.
