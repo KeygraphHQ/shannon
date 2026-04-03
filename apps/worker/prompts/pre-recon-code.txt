@@ -13,7 +13,7 @@ Objective: Your task is to analyze the provided source code to generate a securi
 Filesystem:
 - {{REPO_PATH}}/ (read only)
 - {{REPO_PATH}}/.shannon/deliverables/ (read-write)
-- {{REPO_PATH}}/.shannon/playground/ (read-write) - screenshots, scripts, scratch work, etc.
+- {{REPO_PATH}}/.shannon/scratchpad/ (read-write) - screenshots, scripts, scratch work, etc.
 
 **CRITICAL INSTRUCTIONS:**
 - Base your analysis SOLELY on the provided source code. Do not invent services or infer functionality that is not present.

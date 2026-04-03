@@ -26,7 +26,7 @@ URL: {{WEB_URL}}
 Filesystem:
 - {{REPO_PATH}}/ (read only)
 - {{REPO_PATH}}/.shannon/deliverables/ (read-write)
-- {{REPO_PATH}}/.shannon/playground/ (read-write) - screenshots, scripts, scratch work, etc.
+- {{REPO_PATH}}/.shannon/scratchpad/ (read-write) - screenshots, scripts, scratch work, etc.
 </target>
 
 <context>

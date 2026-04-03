@@ -69,7 +69,7 @@ export async function start(args: StartArgs): Promise<void> {
 
   // 9. Create writable overlay directories (mounted over :ro repo paths inside container)
   const workspacePath = path.join(workspacesDir, workspace);
-  for (const dir of ['deliverables', 'playground', '.playwright-cli']) {
+  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
     const dirPath = path.join(workspacePath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
     fs.chmodSync(dirPath, 0o777);
