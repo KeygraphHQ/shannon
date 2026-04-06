@@ -33,6 +33,7 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean' },
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
   { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
+  { env: 'AWS_PROFILE', toml: 'bedrock.profile', type: 'string' },
 
   // Vertex
   { env: 'CLAUDE_CODE_USE_VERTEX', toml: 'vertex.use', type: 'boolean' },
@@ -147,11 +148,18 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
     }
 
     case 'bedrock': {
-      const required = ['use', 'region', 'token'];
-      const missing = required.filter((k) => !keys.includes(k));
-      if (missing.length > 0) {
-        errors.push(`[bedrock] missing required keys: ${missing.join(', ')}`);
+      const requiredBase = ['use', 'region'];
+      const missingBase = requiredBase.filter((k) => !keys.includes(k));
+      if (missingBase.length > 0) {
+        errors.push(`[bedrock] missing required keys: ${missingBase.join(', ')}`);
       }
+
+      const hasProfile = keys.includes('profile');
+      const hasToken = keys.includes('token');
+      if (!hasProfile && !hasToken) {
+        errors.push('[bedrock] requires either "profile" (AWS profile auth) or "token" (bearer token auth)');
+      }
+
       validateModelTiers(config, 'bedrock', errors);
       break;
     }

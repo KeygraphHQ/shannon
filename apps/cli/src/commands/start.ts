@@ -88,6 +88,9 @@ export async function start(args: StartArgs): Promise<void> {
     process.env.GOOGLE_APPLICATION_CREDENTIALS = '/app/credentials/google-sa-key.json';
   }
 
+  // 9b. Detect AWS profile mode for Bedrock bind mounts
+  const needsAwsMounts = process.env.CLAUDE_CODE_USE_BEDROCK === '1' && !!process.env.AWS_PROFILE;
+
   // 10. Resolve output directory
   const outputDir = args.output ? path.resolve(args.output) : undefined;
   if (outputDir) {
@@ -115,6 +118,7 @@ export async function start(args: StartArgs): Promise<void> {
     ...(outputDir && { outputDir }),
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
+    ...(needsAwsMounts && { awsMounts: true }),
   });
 
   // 14. Wait for workflow to register, then display info

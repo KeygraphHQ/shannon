@@ -17,6 +17,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@aws-sdk/credential-providers": "^3.1021.0",
     "@clack/prompts": "^1.1.0",
     "chokidar": "^5.0.0",
     "dotenv": "^17.3.1",

@@ -7,6 +7,7 @@
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -196,6 +197,7 @@ export interface WorkerOptions {
   outputDir?: string;
   workspace: string;
   pipelineTesting?: boolean;
+  awsMounts?: boolean;
 }
 
 /**
@@ -239,6 +241,25 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Mount credentials file to fixed container path
   if (opts.credentials) {
     args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
+  }
+
+  // Mount AWS config files for profile-based Bedrock auth
+  if (opts.awsMounts) {
+    const awsDir = path.join(os.homedir(), '.aws');
+    const configFile = path.join(awsDir, 'config');
+    const credentialsFile = path.join(awsDir, 'credentials');
+    const ssoDir = path.join(awsDir, 'sso');
+
+    // NOTE: Container HOME=/tmp (set in Dockerfile), so AWS SDK looks in /tmp/.aws/
+    if (fs.existsSync(configFile)) {
+      args.push('-v', `${configFile}:/tmp/.aws/config:ro`);
+    }
+    if (fs.existsSync(credentialsFile)) {
+      args.push('-v', `${credentialsFile}:/tmp/.aws/credentials:ro`);
+    }
+    if (fs.existsSync(ssoDir)) {
+      args.push('-v', `${ssoDir}:/tmp/.aws/sso:ro`);
+    }
   }
 
   // Environment
