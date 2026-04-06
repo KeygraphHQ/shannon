@@ -39,6 +39,7 @@ RUN mkdir -p $GOPATH/bin
 
 # Install Go-based security tools
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.13.0
+RUN go install -v github.com/projectdiscovery/httpx/cmd/httpx@v1.6.0
 # Install WhatWeb from release tarball (Ruby-based tool)
 RUN curl -sL https://github.com/urbanadventurer/WhatWeb/archive/refs/tags/v0.6.3.tar.gz | tar xz -C /opt && \
     mv /opt/WhatWeb-0.6.3 /opt/whatweb && \
@@ -111,6 +112,7 @@ RUN apk update && apk add --no-cache \
 
 # Copy Go binaries from builder
 COPY --from=builder /go/bin/subfinder /usr/local/bin/
+COPY --from=builder /go/bin/httpx /usr/local/bin/
 
 # Copy WhatWeb from builder
 COPY --from=builder /opt/whatweb /opt/whatweb
@@ -178,3 +180,7 @@ ENV XDG_CONFIG_HOME=/tmp/.config
 
 ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["node", "apps/worker/dist/temporal/worker.js"]
+
+# health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:3000/health || exit 1
