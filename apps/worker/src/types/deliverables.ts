@@ -36,7 +36,7 @@ export enum DeliverableType {
  * Hard-coded filename mappings from agent prompts
  */
 export const DELIVERABLE_FILENAMES: Record<DeliverableType, string> = {
-  [DeliverableType.CODE_ANALYSIS]: 'code_analysis_deliverable.md',
+  [DeliverableType.CODE_ANALYSIS]: 'pre_recon_deliverable.md',
   [DeliverableType.RECON]: 'recon_deliverable.md',
   [DeliverableType.INJECTION_ANALYSIS]: 'injection_analysis_deliverable.md',
   [DeliverableType.XSS_ANALYSIS]: 'xss_analysis_deliverable.md',

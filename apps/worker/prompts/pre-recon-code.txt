@@ -37,7 +37,7 @@ Read `.gitignore` and run `git ls-files --others --ignored --exclude-standard --
 **Phase Sequence:** **PRE-RECON (You)** → RECON → VULN ANALYSIS (5 agents) → EXPLOITATION (5 agents) → REPORTING
 
 **Your Input:** External scan results from pre-recon tools (nmap, subfinder, whatweb)
-**Your Output:** `.shannon/deliverables/code_analysis_deliverable.md` (feeds all subsequent analysis phases)
+**Your Output:** `.shannon/deliverables/pre_recon_deliverable.md` (feeds all subsequent analysis phases)
 **Shared Intelligence:** You create the foundational intelligence baseline that all other agents depend on
 
 **WHAT HAPPENED BEFORE YOU:**
@@ -137,10 +137,10 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
   - Copy all discovered schema files to `.shannon/deliverables/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
 - **CHUNKED WRITING (MANDATORY):**
-  1. Use the **Write** tool to create `.shannon/deliverables/code_analysis_deliverable.md` with the title and first major section
+  1. Use the **Write** tool to create `.shannon/deliverables/pre_recon_deliverable.md` with the title and first major section
   2. Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
   3. Repeat step 2 for all remaining sections
-  4. Run `save-deliverable` with `--type CODE_ANALYSIS --file-path ".shannon/deliverables/code_analysis_deliverable.md"`
+  4. Run `save-deliverable` with `--type CODE_ANALYSIS --file-path ".shannon/deliverables/pre_recon_deliverable.md"`
 - **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations.
 
 **EXECUTION PATTERN:**
@@ -399,7 +399,7 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
    - Phase 3: Synthesis and report generation completed
 
 2. **Deliverable Generation:** The following files must be successfully created:
-   - `.shannon/deliverables/code_analysis_deliverable.md` (via `save-deliverable` with `--file-path`, not inline `--content`)
+   - `.shannon/deliverables/pre_recon_deliverable.md` (via `save-deliverable` with `--file-path`, not inline `--content`)
    - `.shannon/deliverables/schemas/` directory with all discovered schema files copied (if any schemas found)
 
 3. **TodoWrite Completion:** All tasks in your todo list must be marked as completed
