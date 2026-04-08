@@ -3,6 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "exports": {
+    "./interfaces": "./dist/interfaces/index.js",
+    "./types": "./dist/types/index.js",
+    "./types/config": "./dist/types/config.js",
+    "./types/agents": "./dist/types/agents.js",
+    "./pipeline": "./dist/temporal/pipeline.js",
+    "./activities": "./dist/temporal/activities.js",
+    "./services": "./dist/services/index.js",
+    "./config": "./dist/config-parser.js"
+  },
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",

@@ -62,3 +62,20 @@ export interface DistributedConfig {
   authentication: Authentication | null;
   description: string;
 }
+
+/**
+ * Runtime configuration for the DI container.
+ *
+ * Abstracts path conventions and credential threading so consumers
+ * can override OSS defaults without modifying source files.
+ */
+export interface ContainerConfig {
+  /** Subdirectory for deliverables relative to repoPath. Default: '.shannon/deliverables' */
+  readonly deliverablesSubdir: string;
+  /** Directory for audit logs. Default: './workspaces' */
+  readonly auditDir: string;
+  /** API key override — when set, executor reads from config instead of process.env */
+  readonly apiKey?: string;
+  /** Prompt directory override — when set, prompt manager loads from this path */
+  readonly promptDir?: string;
+}

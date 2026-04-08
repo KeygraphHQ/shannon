@@ -9,6 +9,39 @@
  * Pure functions with no side effects — safe for Temporal workflow sandbox.
  */
 
+import { ErrorCode } from '../types/errors.js';
+
+/**
+ * Maps an ApplicationFailure type string to a structured ErrorCode.
+ *
+ * Activities classify errors via classifyErrorForTemporal() and throw
+ * ApplicationFailure with a type string. This function maps those strings
+ * to stable ErrorCode values so consumers can switch on codes instead of
+ * string-matching error messages.
+ */
+const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
+  AuthenticationError: ErrorCode.AUTH_FAILED,
+  BillingError: ErrorCode.BILLING_ERROR,
+  RateLimitError: ErrorCode.API_RATE_LIMITED,
+  ConfigurationError: ErrorCode.CONFIG_VALIDATION_FAILED,
+  OutputValidationError: ErrorCode.OUTPUT_VALIDATION_FAILED,
+  AgentExecutionError: ErrorCode.AGENT_EXECUTION_FAILED,
+  GitError: ErrorCode.GIT_CHECKPOINT_FAILED,
+  InvalidTargetError: ErrorCode.TARGET_UNREACHABLE,
+};
+
+export function classifyErrorCode(error: unknown): ErrorCode | undefined {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    if ('type' in current && typeof (current as { type: unknown }).type === 'string') {
+      const code = ERROR_TYPE_TO_CODE[(current as { type: string }).type];
+      if (code) return code;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 /** Maps Temporal error type strings to actionable remediation hints. */
 const REMEDIATION_HINTS: Record<string, string> = {
   AuthenticationError: 'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',

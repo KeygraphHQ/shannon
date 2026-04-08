@@ -46,8 +46,12 @@ export interface AgentExecutionInput {
   repoPath: string;
   deliverablesPath: string;
   configPath?: string | undefined;
+  configData?: import('../types/config.js').DistributedConfig | undefined;
+  configYAML?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
+  apiKey?: string | undefined;
+  promptDir?: string | undefined;
 }
 
 interface FailAgentOpts {
@@ -90,10 +94,10 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, deliverablesPath, configPath, pipelineTestingMode = false, attemptNumber } = input;
+    const { webUrl, repoPath, deliverablesPath, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir } = input;
 
-    // 1. Load config (if provided)
-    const configResult = await this.configLoader.loadOptional(configPath);
+    // 1. Load config (pre-parsed configData → raw YAML → file path)
+    const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
     if (isErr(configResult)) {
       return configResult;
     }
@@ -103,7 +107,7 @@ export class AgentExecutionService {
     const promptTemplate = AGENTS[agentName].promptTemplate;
     let prompt: string;
     try {
-      prompt = await loadPrompt(promptTemplate, { webUrl, repoPath }, distributedConfig, pipelineTestingMode, logger);
+      prompt = await loadPrompt(promptTemplate, { webUrl, repoPath }, distributedConfig, pipelineTestingMode, logger, promptDir);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -148,6 +152,8 @@ export class AgentExecutionService {
       logger,
       AGENTS[agentName].modelTier,
       outputFormat,
+      apiKey,
+      path.relative(repoPath, deliverablesPath),
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -184,15 +190,14 @@ export class AgentExecutionService {
     // 8. Write structured output to disk (vuln agents only)
     const queueFilename = getQueueFilename(agentName);
     if (result.structuredOutput !== undefined && queueFilename) {
-      const deliverablesDir = path.join(repoPath, '.shannon', 'deliverables');
-      await fs.ensureDir(deliverablesDir);
-      const queuePath = path.join(deliverablesDir, queueFilename);
+      await fs.ensureDir(deliverablesPath);
+      const queuePath = path.join(deliverablesPath, queueFilename);
       await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
       logger.info(`Wrote structured output queue to ${queueFilename}`);
     }
 
     // 9. Validate output
-    const validationPassed = await validateAgentOutput(result, agentName, repoPath, logger);
+    const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
     if (!validationPassed) {
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,

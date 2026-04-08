@@ -39,7 +39,7 @@ function isLoopbackAddress(address: string): boolean {
 
 // === Repository Validation ===
 
-async function validateRepo(repoPath: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
+async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitCheck?: boolean): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
   // 1. Check repo directory exists
@@ -68,10 +68,22 @@ async function validateRepo(repoPath: string, logger: ActivityLogger): Promise<R
     );
   }
 
-  // 2. Check .git directory exists
-  try {
-    const gitStats = await fs.stat(`${repoPath}/.git`);
-    if (!gitStats.isDirectory()) {
+  // 2. Check .git directory exists (skipped when consumer removes .git after clone)
+  if (!skipGitCheck) {
+    try {
+      const gitStats = await fs.stat(`${repoPath}/.git`);
+      if (!gitStats.isDirectory()) {
+        return err(
+          new PentestError(
+            `Not a git repository (no .git directory): ${repoPath}`,
+            'config',
+            false,
+            { repoPath },
+            ErrorCode.REPO_NOT_FOUND,
+          ),
+        );
+      }
+    } catch {
       return err(
         new PentestError(
           `Not a git repository (no .git directory): ${repoPath}`,
@@ -82,16 +94,8 @@ async function validateRepo(repoPath: string, logger: ActivityLogger): Promise<R
         ),
       );
     }
-  } catch {
-    return err(
-      new PentestError(
-        `Not a git repository (no .git directory): ${repoPath}`,
-        'config',
-        false,
-        { repoPath },
-        ErrorCode.REPO_NOT_FOUND,
-      ),
-    );
+  } else {
+    logger.info('Skipping .git check (skipGitCheck enabled)');
   }
 
   logger.info('Repository path OK');
@@ -180,7 +184,12 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
-async function validateCredentials(logger: ActivityLogger): Promise<Result<void, PentestError>> {
+async function validateCredentials(logger: ActivityLogger, apiKey?: string): Promise<Result<void, PentestError>> {
+  // 0. If apiKey provided via config, set it in env for SDK validation
+  //    This avoids requiring process.env.ANTHROPIC_API_KEY when key is threaded via input
+  if (apiKey) {
+    process.env.ANTHROPIC_API_KEY = apiKey;
+  }
   // 1. Custom base URL — validate endpoint is reachable via SDK query
   if (process.env.ANTHROPIC_BASE_URL) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
@@ -457,9 +466,11 @@ export async function runPreflightChecks(
   repoPath: string,
   configPath: string | undefined,
   logger: ActivityLogger,
+  skipGitCheck?: boolean,
+  apiKey?: string,
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (free — filesystem only)
-  const repoResult = await validateRepo(repoPath, logger);
+  const repoResult = await validateRepo(repoPath, logger, skipGitCheck);
   if (!repoResult.ok) {
     return repoResult;
   }
@@ -473,7 +484,7 @@ export async function runPreflightChecks(
   }
 
   // 3. Credential check (cheap — 1 SDK round-trip)
-  const credResult = await validateCredentials(logger);
+  const credResult = await validateCredentials(logger, apiKey);
   if (!credResult.ok) {
     return credResult;
   }

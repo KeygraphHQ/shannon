@@ -19,7 +19,7 @@ import type { PipelineState } from './shared.js';
  * safely imported into Temporal workflows. The caller must ensure
  * state.summary is set before calling (via computeSummary).
  */
-export function toWorkflowSummary(state: PipelineState, status: 'completed' | 'failed'): WorkflowSummary {
+export function toWorkflowSummary(state: PipelineState, status: 'completed' | 'failed' | 'cancelled'): WorkflowSummary {
   // state.summary must be computed before calling this mapper
   const summary = state.summary;
   if (!summary) {

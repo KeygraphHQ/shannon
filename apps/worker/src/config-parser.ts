@@ -258,6 +258,54 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
   }
 };
 
+/**
+ * Parse a raw YAML string into a validated Config object.
+ *
+ * Same validation as parseConfig but accepts a string instead of a file path.
+ * Used when config YAML is passed inline (e.g., from a parent workflow).
+ */
+export const parseConfigYAML = (yamlContent: string): Config => {
+  if (!yamlContent.trim()) {
+    throw new PentestError(
+      'Configuration YAML string is empty',
+      'config',
+      false,
+      {},
+      ErrorCode.CONFIG_VALIDATION_FAILED,
+    );
+  }
+
+  let config: unknown;
+  try {
+    config = yaml.load(yamlContent, {
+      schema: yaml.FAILSAFE_SCHEMA,
+      json: false,
+    });
+  } catch (yamlError) {
+    const errMsg = yamlError instanceof Error ? yamlError.message : String(yamlError);
+    throw new PentestError(
+      `YAML parsing failed: ${errMsg}`,
+      'config',
+      false,
+      { originalError: errMsg },
+      ErrorCode.CONFIG_PARSE_ERROR,
+    );
+  }
+
+  if (config === null || config === undefined) {
+    throw new PentestError(
+      'Configuration YAML resulted in null/undefined after parsing',
+      'config',
+      false,
+      {},
+      ErrorCode.CONFIG_PARSE_ERROR,
+    );
+  }
+
+  validateConfig(config as Config);
+  return config as Config;
+};
+
 const validateConfig = (config: Config): void => {
   if (!config || typeof config !== 'object') {
     throw new PentestError(

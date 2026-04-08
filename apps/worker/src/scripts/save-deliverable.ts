@@ -52,7 +52,8 @@ function parseArgs(argv: string[]): ParsedArgs {
 // === File Operations ===
 
 function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const deliverablesDir = join(targetDir, '.shannon', 'deliverables');
+  const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
+  const deliverablesDir = join(targetDir, ...subdir.split('/'));
   const filepath = join(deliverablesDir, filename);
 
   try {

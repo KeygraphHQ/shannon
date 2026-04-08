@@ -23,7 +23,14 @@
  * - Graceful failure handling: pipelines continue if one fails
  */
 
-import { log, proxyActivities, setHandler, workflowInfo } from '@temporalio/workflow';
+import {
+  ApplicationFailure,
+  isCancellation,
+  log,
+  proxyActivities,
+  setHandler,
+  workflowInfo,
+} from '@temporalio/workflow';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import type * as activities from './activities.js';
@@ -39,7 +46,7 @@ import {
   type VulnExploitPipelineResult,
 } from './shared.js';
 import { toWorkflowSummary } from './summary-mapper.js';
-import { formatWorkflowError } from './workflow-errors.js';
+import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -127,7 +134,28 @@ function computeSummary(state: PipelineState): PipelineSummary {
   };
 }
 
-export async function pentestPipelineWorkflow(input: PipelineInput): Promise<PipelineState> {
+/**
+ * Core pipeline orchestration. Coordinates the pentest pipeline stages.
+ *
+ * IMPORTANT: This function uses Temporal workflow APIs internally (proxyActivities,
+ * queries). It can ONLY be called from within a Temporal workflow execution.
+ * Do not call from standalone scripts or activity code.
+ */
+export async function pentestPipeline(input: PipelineInput): Promise<PipelineState> {
+  // Validate repoPath: reject traversal attempts and require absolute path
+  if (!input.repoPath || input.repoPath.includes('..')) {
+    throw ApplicationFailure.nonRetryable(
+      `Invalid repoPath: path traversal not allowed (received: ${input.repoPath ?? '<empty>'})`,
+      'ConfigurationError',
+    );
+  }
+  if (!input.repoPath.startsWith('/')) {
+    throw ApplicationFailure.nonRetryable(
+      `Invalid repoPath: absolute path required (received: ${input.repoPath})`,
+      'ConfigurationError',
+    );
+  }
+
   const { workflowId } = workflowInfo();
 
   // Select activity proxy based on mode: testing (fast), subscription (extended), or default
@@ -176,20 +204,28 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
     ...(input.pipelineTestingMode !== undefined && {
       pipelineTestingMode: input.pipelineTestingMode,
     }),
+    // Config fields — flow through to getOrCreateContainer()
+    ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
+    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+    ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
+    ...(input.auditDir !== undefined && { auditDir: input.auditDir }),
+    ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
+    ...(input.sastSarifPath !== undefined && { sastSarifPath: input.sastSarifPath }),
+    ...(input.skipGitCheck !== undefined && { skipGitCheck: input.skipGitCheck }),
   };
 
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
     // 1. Load resume state (validates workspace, cross-checks deliverables)
-    resumeState = await a.loadResumeState(input.resumeFromWorkspace, input.webUrl, input.repoPath);
+    resumeState = await a.loadResumeState(input.resumeFromWorkspace, input.webUrl, input.repoPath, input.deliverablesSubdir);
 
     // 2. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState?.completedAgents.includes(agentName),
     ) as AgentName[];
 
-    await a.restoreGitCheckpoint(input.repoPath, resumeState.checkpointHash, incompleteAgents);
+    await a.restoreGitCheckpoint(input.repoPath, resumeState.checkpointHash, incompleteAgents, input.deliverablesSubdir);
 
     // 3. Short-circuit if all agents already completed
     if (resumeState.completedAgents.length === ALL_AGENTS.length) {
@@ -228,6 +264,9 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
       await a.logPhaseTransition(activityInput, phaseName, 'start');
       state.agentMetrics[agentName] = await runAgent(activityInput);
       state.completedAgents.push(agentName);
+      if (input.checkpointsEnabled) {
+        await a.saveCheckpoint(activityInput, agentName, phaseName, state);
+      }
       await a.logPhaseTransition(activityInput, phaseName, 'complete');
     } else {
       log.info(`Skipping ${agentName} (already complete)`);
@@ -392,9 +431,15 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
       let vulnMetrics: AgentMetrics | null = null;
       if (!shouldSkip(vulnAgentName)) {
         vulnMetrics = await runVulnAgent();
+        if (input.checkpointsEnabled) {
+          await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
+        }
       } else {
         log.info(`Skipping ${vulnAgentName} (already complete)`);
       }
+
+      // 1.5. Merge external findings (SAST, SCA, etc.) into exploitation queue
+      await a.mergeFindingsIntoQueue(activityInput, vulnType);
 
       // 2. Check exploitation queue for actionable findings
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
@@ -404,6 +449,9 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
       if (decision.shouldExploit) {
         if (!shouldSkip(exploitAgentName)) {
           exploitMetrics = await runExploitAgent();
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
         } else {
           log.info(`Skipping ${exploitAgentName} (already complete)`);
         }
@@ -454,6 +502,9 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
       // Then run the report agent to add executive summary and clean up
       state.agentMetrics.report = await a.runReportAgent(activityInput);
       state.completedAgents.push('report');
+      if (input.checkpointsEnabled) {
+        await a.saveCheckpoint(activityInput, 'report', 'reporting', state);
+      }
 
       // Inject model metadata into the final report
       await a.injectReportMetadataActivity(activityInput);
@@ -474,9 +525,22 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
 
     return state;
   } catch (error) {
+    // Cancellation: return structured state instead of throwing
+    if (isCancellation(error)) {
+      state.status = 'cancelled';
+      state.error = `Cancelled during phase: ${state.currentPhase ?? 'unknown'}`;
+      state.summary = computeSummary(state);
+      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
+      return state;
+    }
+
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
     state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent);
+    const errorCode = classifyErrorCode(error);
+    if (errorCode) {
+      state.errorCode = errorCode;
+    }
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
@@ -484,4 +548,9 @@ export async function pentestPipelineWorkflow(input: PipelineInput): Promise<Pip
 
     throw error;
   }
+}
+
+/** OSS workflow entry point — thin shell around the extracted pipeline function. */
+export async function pentestPipelineWorkflow(input: PipelineInput): Promise<PipelineState> {
+  return pentestPipeline(input);
 }

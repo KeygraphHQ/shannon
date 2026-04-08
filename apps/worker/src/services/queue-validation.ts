@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
+
 import type { ExploitationDecision, VulnType } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
@@ -133,8 +134,8 @@ const createPaths = (vulnType: VulnType, sourceDir: string): PathsBase | PathsWi
 
   return Object.freeze({
     vulnType,
-    deliverable: path.join(sourceDir, '.shannon', 'deliverables', config.deliverable),
-    queue: path.join(sourceDir, '.shannon', 'deliverables', config.queue),
+    deliverable: path.join(sourceDir, config.deliverable),
+    queue: path.join(sourceDir, config.queue),
     sourceDir,
   });
 };

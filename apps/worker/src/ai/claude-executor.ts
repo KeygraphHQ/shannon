@@ -9,6 +9,7 @@
 import { type JsonSchemaOutputFormat, query } from '@anthropic-ai/claude-agent-sdk';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../audit/index.js';
+import { deliverablesDir } from '../paths.js';
 import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -72,7 +73,7 @@ async function writeErrorLog(
       },
       duration,
     };
-    const logPath = path.join(sourceDir, '.shannon', 'deliverables', 'error.log');
+    const logPath = path.join(deliverablesDir(sourceDir), 'error.log');
     await fs.appendFile(logPath, `${JSON.stringify(errorLog)}\n`);
   } catch {
     // Best-effort error log writing - don't propagate failures
@@ -88,8 +89,8 @@ export async function validateAgentOutput(
   logger.info(`Validating ${agentName} agent output`);
 
   try {
-    // Check if agent completed successfully
-    if (!result.success || !result.result) {
+    // Check if agent completed successfully (text result OR structured output)
+    if (!result.success || (!result.result && result.structuredOutput === undefined)) {
       logger.error('Validation failed: Agent execution was unsuccessful');
       return false;
     }
@@ -134,6 +135,8 @@ export async function runClaudePrompt(
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
   outputFormat?: JsonSchemaOutputFormat,
+  apiKey?: string,
+  deliverablesSubdir?: string,
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -152,10 +155,16 @@ export async function runClaudePrompt(
   // 3. Build env vars to pass to SDK subprocesses
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
-    PLAYWRIGHT_MCP_OUTPUT_DIR: path.join(sourceDir, '.shannon', '.playwright-cli'),
+    PLAYWRIGHT_MCP_OUTPUT_DIR: deliverablesSubdir
+      ? path.join(sourceDir, '.playwright-cli')
+      : path.join(sourceDir, '.shannon', '.playwright-cli'),
+    // apiKey from ContainerConfig takes precedence over process.env
+    ...(apiKey && { ANTHROPIC_API_KEY: apiKey }),
+    // Deliverables subdir for save-deliverable CLI tool
+    ...(deliverablesSubdir && { SHANNON_DELIVERABLES_SUBDIR: deliverablesSubdir }),
   };
   const passthroughVars = [
-    'ANTHROPIC_API_KEY',
+    ...(!apiKey ? ['ANTHROPIC_API_KEY'] : []),
     'CLAUDE_CODE_OAUTH_TOKEN',
     'ANTHROPIC_BASE_URL',
     'ANTHROPIC_AUTH_TOKEN',
