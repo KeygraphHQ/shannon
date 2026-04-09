@@ -156,7 +156,7 @@ export async function runClaudePrompt(
   const sdkEnv: Record<string, string> = {
     CLAUDE_CODE_MAX_OUTPUT_TOKENS: process.env.CLAUDE_CODE_MAX_OUTPUT_TOKENS || '64000',
     PLAYWRIGHT_MCP_OUTPUT_DIR: deliverablesSubdir
-      ? path.join(sourceDir, '.playwright-cli')
+      ? path.join(sourceDir, path.dirname(deliverablesSubdir), '.playwright-cli')
       : path.join(sourceDir, '.shannon', '.playwright-cli'),
     // apiKey from ContainerConfig takes precedence over process.env
     ...(apiKey && { ANTHROPIC_API_KEY: apiKey }),
