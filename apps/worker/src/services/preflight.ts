@@ -191,7 +191,7 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string): Pro
     process.env.ANTHROPIC_API_KEY = apiKey;
   }
   // 1. Custom base URL — validate endpoint is reachable via SDK query
-  if (process.env.ANTHROPIC_BASE_URL) {
+  if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
     logger.info(`Validating custom base URL: ${baseUrl}`);
 
@@ -298,7 +298,7 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string): Pro
   }
 
   // 4. Check that at least one credential is present
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return err(
       new PentestError(
         'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, or CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI)',
