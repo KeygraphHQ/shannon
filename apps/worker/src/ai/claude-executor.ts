@@ -190,9 +190,6 @@ export async function runClaudePrompt(
         if (providerConfig.apiKey && !apiKey) sdkEnv.ANTHROPIC_API_KEY = providerConfig.apiKey;
         break;
     }
-    if (providerConfig.modelOverrides?.small) sdkEnv.ANTHROPIC_SMALL_MODEL = providerConfig.modelOverrides.small;
-    if (providerConfig.modelOverrides?.medium) sdkEnv.ANTHROPIC_MEDIUM_MODEL = providerConfig.modelOverrides.medium;
-    if (providerConfig.modelOverrides?.large) sdkEnv.ANTHROPIC_LARGE_MODEL = providerConfig.modelOverrides.large;
   }
 
   // 3b. Passthrough env vars not already set by providerConfig or apiKey
@@ -208,9 +205,6 @@ export async function runClaudePrompt(
     ...(!sdkEnv.CLOUD_ML_REGION ? ['CLOUD_ML_REGION'] : []),
     ...(!sdkEnv.ANTHROPIC_VERTEX_PROJECT_ID ? ['ANTHROPIC_VERTEX_PROJECT_ID'] : []),
     ...(!sdkEnv.GOOGLE_APPLICATION_CREDENTIALS ? ['GOOGLE_APPLICATION_CREDENTIALS'] : []),
-    ...(!sdkEnv.ANTHROPIC_SMALL_MODEL ? ['ANTHROPIC_SMALL_MODEL'] : []),
-    ...(!sdkEnv.ANTHROPIC_MEDIUM_MODEL ? ['ANTHROPIC_MEDIUM_MODEL'] : []),
-    ...(!sdkEnv.ANTHROPIC_LARGE_MODEL ? ['ANTHROPIC_LARGE_MODEL'] : []),
     'HOME',
     'PATH',
     'PLAYWRIGHT_MCP_EXECUTABLE_PATH',
@@ -223,8 +217,10 @@ export async function runClaudePrompt(
   }
 
   // 4. Configure SDK options
+  // Model override from providerConfig takes precedence over env-based resolveModel
+  const model = providerConfig?.modelOverrides?.[modelTier] ?? resolveModel(modelTier);
   const options = {
-    model: resolveModel(modelTier),
+    model,
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
