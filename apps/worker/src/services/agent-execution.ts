@@ -52,6 +52,7 @@ export interface AgentExecutionInput {
   attemptNumber: number;
   apiKey?: string | undefined;
   promptDir?: string | undefined;
+  providerConfig?: import('../types/config.js').ProviderConfig | undefined;
 }
 
 interface FailAgentOpts {
@@ -94,7 +95,7 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, deliverablesPath, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir } = input;
+    const { webUrl, repoPath, deliverablesPath, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir, providerConfig } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
@@ -154,6 +155,7 @@ export class AgentExecutionService {
       outputFormat,
       apiKey,
       path.relative(repoPath, deliverablesPath),
+      providerConfig,
     );
 
     // 6. Spending cap check - defense-in-depth

@@ -212,6 +212,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
     ...(input.sastSarifPath !== undefined && { sastSarifPath: input.sastSarifPath }),
     ...(input.skipGitCheck !== undefined && { skipGitCheck: input.skipGitCheck }),
+    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 
   let resumeState: ResumeState | null = null;

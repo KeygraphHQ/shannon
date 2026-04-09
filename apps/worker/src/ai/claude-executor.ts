@@ -137,6 +137,7 @@ export async function runClaudePrompt(
   outputFormat?: JsonSchemaOutputFormat,
   apiKey?: string,
   deliverablesSubdir?: string,
+  providerConfig?: import('../types/config.js').ProviderConfig,
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -163,21 +164,53 @@ export async function runClaudePrompt(
     // Deliverables subdir for save-deliverable CLI tool
     ...(deliverablesSubdir && { SHANNON_DELIVERABLES_SUBDIR: deliverablesSubdir }),
   };
+
+  // 3a. Apply structured provider config directly to sdkEnv (no process.env mutation)
+  if (providerConfig) {
+    switch (providerConfig.providerType) {
+      case 'bedrock':
+        sdkEnv.CLAUDE_CODE_USE_BEDROCK = '1';
+        if (providerConfig.awsRegion) sdkEnv.AWS_REGION = providerConfig.awsRegion;
+        if (providerConfig.awsAccessKeyId) sdkEnv.AWS_ACCESS_KEY_ID = providerConfig.awsAccessKeyId;
+        if (providerConfig.awsSecretAccessKey) sdkEnv.AWS_SECRET_ACCESS_KEY = providerConfig.awsSecretAccessKey;
+        break;
+      case 'vertex':
+        sdkEnv.CLAUDE_CODE_USE_VERTEX = '1';
+        if (providerConfig.gcpRegion) sdkEnv.CLOUD_ML_REGION = providerConfig.gcpRegion;
+        if (providerConfig.gcpProjectId) sdkEnv.ANTHROPIC_VERTEX_PROJECT_ID = providerConfig.gcpProjectId;
+        if (providerConfig.gcpCredentialsPath) sdkEnv.GOOGLE_APPLICATION_CREDENTIALS = providerConfig.gcpCredentialsPath;
+        break;
+      case 'litellm_router':
+        if (providerConfig.baseUrl) sdkEnv.ANTHROPIC_BASE_URL = providerConfig.baseUrl;
+        if (providerConfig.authToken) sdkEnv.ANTHROPIC_AUTH_TOKEN = providerConfig.authToken;
+        if (providerConfig.routerDefault) sdkEnv.ROUTER_DEFAULT = providerConfig.routerDefault;
+        break;
+      default:
+        // 'anthropic_api' or unset — apiKey already handled above
+        if (providerConfig.apiKey && !apiKey) sdkEnv.ANTHROPIC_API_KEY = providerConfig.apiKey;
+        break;
+    }
+    if (providerConfig.modelOverrides?.small) sdkEnv.ANTHROPIC_SMALL_MODEL = providerConfig.modelOverrides.small;
+    if (providerConfig.modelOverrides?.medium) sdkEnv.ANTHROPIC_MEDIUM_MODEL = providerConfig.modelOverrides.medium;
+    if (providerConfig.modelOverrides?.large) sdkEnv.ANTHROPIC_LARGE_MODEL = providerConfig.modelOverrides.large;
+  }
+
+  // 3b. Passthrough env vars not already set by providerConfig or apiKey
   const passthroughVars = [
-    ...(!apiKey ? ['ANTHROPIC_API_KEY'] : []),
+    ...(!sdkEnv.ANTHROPIC_API_KEY ? ['ANTHROPIC_API_KEY'] : []),
     'CLAUDE_CODE_OAUTH_TOKEN',
-    'ANTHROPIC_BASE_URL',
-    'ANTHROPIC_AUTH_TOKEN',
-    'CLAUDE_CODE_USE_BEDROCK',
-    'AWS_REGION',
+    ...(!sdkEnv.ANTHROPIC_BASE_URL ? ['ANTHROPIC_BASE_URL'] : []),
+    ...(!sdkEnv.ANTHROPIC_AUTH_TOKEN ? ['ANTHROPIC_AUTH_TOKEN'] : []),
+    ...(!sdkEnv.CLAUDE_CODE_USE_BEDROCK ? ['CLAUDE_CODE_USE_BEDROCK'] : []),
+    ...(!sdkEnv.AWS_REGION ? ['AWS_REGION'] : []),
     'AWS_BEARER_TOKEN_BEDROCK',
-    'CLAUDE_CODE_USE_VERTEX',
-    'CLOUD_ML_REGION',
-    'ANTHROPIC_VERTEX_PROJECT_ID',
-    'GOOGLE_APPLICATION_CREDENTIALS',
-    'ANTHROPIC_SMALL_MODEL',
-    'ANTHROPIC_MEDIUM_MODEL',
-    'ANTHROPIC_LARGE_MODEL',
+    ...(!sdkEnv.CLAUDE_CODE_USE_VERTEX ? ['CLAUDE_CODE_USE_VERTEX'] : []),
+    ...(!sdkEnv.CLOUD_ML_REGION ? ['CLOUD_ML_REGION'] : []),
+    ...(!sdkEnv.ANTHROPIC_VERTEX_PROJECT_ID ? ['ANTHROPIC_VERTEX_PROJECT_ID'] : []),
+    ...(!sdkEnv.GOOGLE_APPLICATION_CREDENTIALS ? ['GOOGLE_APPLICATION_CREDENTIALS'] : []),
+    ...(!sdkEnv.ANTHROPIC_SMALL_MODEL ? ['ANTHROPIC_SMALL_MODEL'] : []),
+    ...(!sdkEnv.ANTHROPIC_MEDIUM_MODEL ? ['ANTHROPIC_MEDIUM_MODEL'] : []),
+    ...(!sdkEnv.ANTHROPIC_LARGE_MODEL ? ['ANTHROPIC_LARGE_MODEL'] : []),
     'HOME',
     'PATH',
     'PLAYWRIGHT_MCP_EXECUTABLE_PATH',

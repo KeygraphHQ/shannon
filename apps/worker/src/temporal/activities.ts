@@ -22,7 +22,7 @@ import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
-import type { ContainerConfig } from '../types/config.js';
+import type { ContainerConfig, ProviderConfig } from '../types/config.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -72,6 +72,7 @@ export interface ActivityInput {
   promptDir?: string;
   sastSarifPath?: string;
   skipGitCheck?: boolean;
+  providerConfig?: ProviderConfig;
 }
 
 /**
@@ -115,6 +116,7 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
     auditDir: input.auditDir ?? './workspaces',
     ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
+    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 }
 
@@ -163,6 +165,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
         pipelineTestingMode,
         attemptNumber,
         ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+        ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
         ...(input.promptDir !== undefined && {
           promptDir: path.isAbsolute(input.promptDir)
             ? input.promptDir
