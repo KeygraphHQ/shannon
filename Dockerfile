@@ -83,6 +83,7 @@ RUN apk update && apk add --no-cache \
     bash \
     curl \
     ca-certificates \
+    shadow \
     # Network libraries (runtime)
     libpcap \
     # Security tools
