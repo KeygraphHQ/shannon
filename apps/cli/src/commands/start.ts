@@ -7,6 +7,7 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, isRouterConfigured, loadEnv, validateCredentials } from '../env.js';
@@ -68,7 +69,10 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 9. Create writable overlay directories (mounted over :ro repo paths inside container)
+  // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
   const workspacePath = path.join(workspacesDir, workspace);
+  fs.mkdirSync(workspacePath, { recursive: true });
+  fs.chmodSync(workspacePath, 0o777);
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
     const dirPath = path.join(workspacePath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
@@ -76,9 +80,11 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // 10. Pre-create overlay mount points (Linux :ro mounts can't auto-create them)
-  const shannonDir = path.join(repo.hostPath, '.shannon');
-  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
-    fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+  if (os.platform() === 'linux') {
+    const shannonDir = path.join(repo.hostPath, '.shannon');
+    for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+      fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+    }
   }
 
   const credentialsPath = getCredentialsPath();
