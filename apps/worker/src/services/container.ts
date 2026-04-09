@@ -18,6 +18,11 @@
  */
 
 import type { SessionMetadata } from '../audit/utils.js';
+import type { CheckpointProvider } from '../interfaces/checkpoint-provider.js';
+import { NoOpCheckpointProvider } from '../interfaces/checkpoint-provider.js';
+import type { FindingsProvider } from '../interfaces/findings-provider.js';
+import { NoOpFindingsProvider } from '../interfaces/findings-provider.js';
+import type { ContainerConfig } from '../types/config.js';
 import { AgentExecutionService } from './agent-execution.js';
 import { ConfigLoaderService } from './config-loader.js';
 import { ExploitationCheckerService } from './exploitation-checker.js';
@@ -32,6 +37,9 @@ import { ExploitationCheckerService } from './exploitation-checker.js';
  */
 export interface ContainerDependencies {
   readonly sessionMetadata: SessionMetadata;
+  readonly config: ContainerConfig;
+  readonly findingsProvider?: FindingsProvider;
+  readonly checkpointProvider?: CheckpointProvider;
 }
 
 /**
@@ -45,17 +53,25 @@ export interface ContainerDependencies {
  */
 export class Container {
   readonly sessionMetadata: SessionMetadata;
+  readonly config: ContainerConfig;
   readonly agentExecution: AgentExecutionService;
   readonly configLoader: ConfigLoaderService;
   readonly exploitationChecker: ExploitationCheckerService;
+  readonly findingsProvider: FindingsProvider;
+  readonly checkpointProvider: CheckpointProvider;
 
   constructor(deps: ContainerDependencies) {
     this.sessionMetadata = deps.sessionMetadata;
+    this.config = deps.config;
 
     // Wire services with explicit constructor injection
     this.configLoader = new ConfigLoaderService();
     this.exploitationChecker = new ExploitationCheckerService();
     this.agentExecution = new AgentExecutionService(this.configLoader);
+
+    // Wire providers with default no-ops when not provided
+    this.findingsProvider = deps.findingsProvider ?? new NoOpFindingsProvider();
+    this.checkpointProvider = deps.checkpointProvider ?? new NoOpCheckpointProvider();
   }
 }
 
@@ -65,6 +81,12 @@ export class Container {
  */
 const containers = new Map<string, Container>();
 
+/** Default container config — OSS standalone defaults */
+const DEFAULT_CONFIG: ContainerConfig = {
+  deliverablesSubdir: '.shannon/deliverables',
+  auditDir: './workspaces',
+};
+
 /**
  * Get or create a Container for a workflow.
  *
@@ -73,13 +95,18 @@ const containers = new Map<string, Container>();
  *
  * @param workflowId - Unique workflow identifier
  * @param sessionMetadata - Session metadata for audit paths
+ * @param config - Runtime configuration (defaults to OSS standalone config)
  * @returns Container instance for the workflow
  */
-export function getOrCreateContainer(workflowId: string, sessionMetadata: SessionMetadata): Container {
+export function getOrCreateContainer(
+  workflowId: string,
+  sessionMetadata: SessionMetadata,
+  config: ContainerConfig = DEFAULT_CONFIG,
+): Container {
   let container = containers.get(workflowId);
 
   if (!container) {
-    container = new Container({ sessionMetadata });
+    container = new Container({ sessionMetadata, config });
     containers.set(workflowId, container);
   }
 

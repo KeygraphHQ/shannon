@@ -23,10 +23,14 @@ interface IncludeReplacement {
 }
 
 // Pure function: Build complete login instructions from config
-async function buildLoginInstructions(authentication: Authentication, logger: ActivityLogger): Promise<string> {
+async function buildLoginInstructions(
+  authentication: Authentication,
+  logger: ActivityLogger,
+  promptsBaseDir: string = PROMPTS_DIR,
+): Promise<string> {
   try {
     // 1. Load the login instructions template
-    const loginInstructionsPath = path.join(PROMPTS_DIR, 'shared', 'login-instructions.txt');
+    const loginInstructionsPath = path.join(promptsBaseDir, 'shared', 'login-instructions.txt');
 
     if (!(await fs.pathExists(loginInstructionsPath))) {
       throw new PentestError('Login instructions template not found', 'filesystem', false, { loginInstructionsPath });
@@ -148,6 +152,7 @@ async function interpolateVariables(
   variables: PromptVariables,
   config: DistributedConfig | null = null,
   logger: ActivityLogger,
+  promptsBaseDir: string = PROMPTS_DIR,
 ): Promise<string> {
   try {
     if (!template || typeof template !== 'string') {
@@ -188,7 +193,7 @@ async function interpolateVariables(
 
       // Extract and inject login instructions from config
       if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication, logger);
+        const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
@@ -223,10 +228,12 @@ export async function loadPrompt(
   config: DistributedConfig | null = null,
   pipelineTestingMode: boolean = false,
   logger: ActivityLogger,
+  promptDir?: string,
 ): Promise<string> {
   try {
-    // 1. Resolve prompt file path
-    const promptsDir = pipelineTestingMode ? path.join(PROMPTS_DIR, 'pipeline-testing') : PROMPTS_DIR;
+    // 1. Resolve prompt file path (promptDir override → default PROMPTS_DIR)
+    const basePromptsDir = promptDir ?? PROMPTS_DIR;
+    const promptsDir = pipelineTestingMode ? path.join(basePromptsDir, 'pipeline-testing') : basePromptsDir;
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 
     if (pipelineTestingMode) {
@@ -256,7 +263,7 @@ export async function loadPrompt(
     template = await processIncludes(template, promptsDir);
 
     // 5. Interpolate variables and return final prompt
-    return await interpolateVariables(template, enhancedVariables, config, logger);
+    return await interpolateVariables(template, enhancedVariables, config, logger, basePromptsDir);
   } catch (error) {
     if (error instanceof PentestError) {
       throw error;

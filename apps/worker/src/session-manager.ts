@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
+
 import { validateQueueAndDeliverable } from './services/queue-validation.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
@@ -143,7 +144,7 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
 // Factory function for exploit deliverable validators
 function createExploitValidator(vulnType: VulnType): AgentValidator {
   return async (sourceDir: string): Promise<boolean> => {
-    const evidenceFile = path.join(sourceDir, '.shannon', 'deliverables', `${vulnType}_exploitation_evidence.md`);
+    const evidenceFile = path.join(sourceDir, `${vulnType}_exploitation_evidence.md`);
     return await fs.pathExists(evidenceFile);
   };
 }
@@ -179,13 +180,13 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
   // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
   'pre-recon': async (sourceDir: string): Promise<boolean> => {
-    const codeAnalysisFile = path.join(sourceDir, '.shannon', 'deliverables', 'pre_recon_deliverable.md');
+    const codeAnalysisFile = path.join(sourceDir, 'pre_recon_deliverable.md');
     return await fs.pathExists(codeAnalysisFile);
   },
 
   // Reconnaissance agent
   recon: async (sourceDir: string): Promise<boolean> => {
-    const reconFile = path.join(sourceDir, '.shannon', 'deliverables', 'recon_deliverable.md');
+    const reconFile = path.join(sourceDir, 'recon_deliverable.md');
     return await fs.pathExists(reconFile);
   },
 
@@ -205,7 +206,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
   // Executive report agent
   report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
-    const reportFile = path.join(sourceDir, '.shannon', 'deliverables', 'comprehensive_security_assessment_report.md');
+    const reportFile = path.join(sourceDir, 'comprehensive_security_assessment_report.md');
 
     const reportExists = await fs.pathExists(reportFile);
 

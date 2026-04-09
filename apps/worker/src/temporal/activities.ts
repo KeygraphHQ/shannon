@@ -22,6 +22,7 @@ import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
+import type { ContainerConfig, ProviderConfig } from '../types/config.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -34,9 +35,10 @@ import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
+import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import { createActivityLogger } from './activity-logger.js';
-import type { AgentMetrics, ResumeState } from './shared.js';
+import type { AgentMetrics, PipelineState, ResumeState } from './shared.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -49,6 +51,9 @@ const HEARTBEAT_INTERVAL_MS = 2000;
 
 /**
  * Input for all agent activities.
+ *
+ * Config fields are optional with sensible defaults. When provided, they
+ * flow through to getOrCreateContainer() for path and credential configuration.
  */
 export interface ActivityInput {
   webUrl: string;
@@ -58,6 +63,16 @@ export interface ActivityInput {
   pipelineTestingMode?: boolean;
   workflowId: string;
   sessionId: string;
+
+  // Config fields — serializable, read by getOrCreateContainer()
+  configYAML?: string;
+  apiKey?: string;
+  deliverablesSubdir?: string;
+  auditDir?: string;
+  promptDir?: string;
+  sastSarifPath?: string;
+  skipGitCheck?: boolean;
+  providerConfig?: ProviderConfig;
 }
 
 /**
@@ -93,6 +108,19 @@ function buildSessionMetadata(input: ActivityInput): SessionMetadata {
 }
 
 /**
+ * Build ContainerConfig from ActivityInput, falling back to defaults.
+ */
+function buildContainerConfig(input: ActivityInput): ContainerConfig {
+  return {
+    deliverablesSubdir: input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+    auditDir: input.auditDir ?? './workspaces',
+    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+    ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
+    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
+  };
+}
+
+/**
  * Core activity implementation using services.
  *
  * Executes a single agent with:
@@ -117,7 +145,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
 
     // 1. Build session metadata and get/create container
     const sessionMetadata = buildSessionMetadata(input);
-    const container = getOrCreateContainer(workflowId, sessionMetadata);
+    const container = getOrCreateContainer(workflowId, sessionMetadata, buildContainerConfig(input));
 
     // 2. Create audit session for THIS agent execution
     // NOTE: Each agent needs its own AuditSession because AuditSession uses
@@ -126,7 +154,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
     await auditSession.initialize(workflowId);
 
     // 3. Execute agent via service (throws PentestError on failure)
-    const deliverablesPath = path.join(repoPath, '.shannon', 'deliverables');
+    const deliverablesPath = deliverablesDir(repoPath, container.config.deliverablesSubdir);
     const endResult = await container.agentExecution.executeOrThrow(
       agentName,
       {
@@ -136,6 +164,14 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+        ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
+        ...(input.promptDir !== undefined && {
+          promptDir: path.isAbsolute(input.promptDir)
+            ? input.promptDir
+            : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
+        }),
+        ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
       },
       auditSession,
       logger,
@@ -270,7 +306,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger);
+    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger, input.skipGitCheck, input.apiKey, input.providerConfig);
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -318,7 +354,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
  * Idempotent — skips if .git already exists (resume case).
  */
 export async function initDeliverableGit(input: ActivityInput): Promise<void> {
-  const deliverablesPath = path.join(input.repoPath, '.shannon', 'deliverables');
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
   await fs.mkdir(deliverablesPath, { recursive: true });
 
   // Check for .git directly inside deliverables, not parent repo's .git
@@ -382,7 +418,9 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
   const existingContainer = getContainer(workflowId);
   const checker = existingContainer?.exploitationChecker ?? new ExploitationCheckerService();
 
-  return checker.checkQueue(vulnType, repoPath, logger);
+  // Pass deliverablesPath (not repoPath) — validators expect the deliverables directory
+  const delivPath = deliverablesDir(repoPath, input.deliverablesSubdir);
+  return checker.checkQueue(vulnType, delivPath, logger);
 }
 
 interface SessionJson {
@@ -411,6 +449,7 @@ export async function loadResumeState(
   workspaceName: string,
   expectedUrl: string,
   expectedRepoPath: string,
+  deliverablesSubdir?: string,
 ): Promise<ResumeState> {
   // 1. Validate workspace exists
   const sessionPath = path.join('./workspaces', workspaceName, 'session.json');
@@ -453,7 +492,7 @@ export async function loadResumeState(
     }
 
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = `${expectedRepoPath}/.shannon/deliverables/${deliverableFilename}`;
+    const deliverablePath = path.join(deliverablesDir(expectedRepoPath, deliverablesSubdir), deliverableFilename);
     const deliverableExists = await fileExists(deliverablePath);
 
     if (!deliverableExists) {
@@ -487,7 +526,7 @@ export async function loadResumeState(
   }
 
   // 5. Find the most recent checkpoint commit
-  const deliverablesPath = path.join(expectedRepoPath, '.shannon', 'deliverables');
+  const deliverablesPath = deliverablesDir(expectedRepoPath, deliverablesSubdir);
   const checkpointHash = await findLatestCommit(deliverablesPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
@@ -540,8 +579,9 @@ export async function restoreGitCheckpoint(
   repoPath: string,
   checkpointHash: string,
   incompleteAgents: AgentName[],
+  deliverablesSubdir?: string,
 ): Promise<void> {
-  const deliverablesPath = path.join(repoPath, '.shannon', 'deliverables');
+  const deliverablesPath = deliverablesDir(repoPath, deliverablesSubdir);
   const logger = createActivityLogger();
   logger.info(`Restoring deliverables to ${checkpointHash}...`);
 
@@ -664,4 +704,37 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
 
   // 6. Clean up container
   removeContainer(workflowId);
+}
+
+/**
+ * Merge external findings into the exploitation queue for a vulnerability type.
+ *
+ * Delegates to the FindingsProvider registered in the DI container.
+ * Default: no-op returning { mergedCount: 0 }.
+ * Consumers can override this activity at the worker level with custom findings integration.
+ */
+export async function mergeFindingsIntoQueue(
+  input: ActivityInput,
+  vulnType: VulnType,
+): Promise<{ mergedCount: number }> {
+  const container = getContainer(input.workflowId);
+  if (!container?.findingsProvider) return { mergedCount: 0 };
+  return container.findingsProvider.mergeFindingsIntoQueue(input.repoPath, vulnType, input);
+}
+
+/**
+ * Persist pipeline state after an agent completes.
+ *
+ * Delegates to the CheckpointProvider registered in the DI container.
+ * Default: no-op. Consumers can override this activity at the worker level with custom persistence.
+ */
+export async function saveCheckpoint(
+  input: ActivityInput,
+  agentName: string,
+  phase: string,
+  state: PipelineState,
+): Promise<void> {
+  const container = getContainer(input.workflowId);
+  if (!container?.checkpointProvider) return;
+  return container.checkpointProvider.onAgentComplete(agentName, phase, state);
 }

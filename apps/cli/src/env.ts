@@ -110,8 +110,6 @@ export function validateCredentials(): CredentialValidation {
     return { valid: true, mode: 'oauth' };
   }
   if (isCustomBaseUrlConfigured()) {
-    // Set auth token as API key so the SDK can initialize
-    process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_AUTH_TOKEN;
     return { valid: true, mode: 'custom-base-url' };
   }
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
@@ -154,8 +152,6 @@ export function validateCredentials(): CredentialValidation {
     return { valid: true, mode: 'vertex' };
   }
   if (isRouterConfigured()) {
-    // Set a placeholder so the worker doesn't reject the missing key
-    process.env.ANTHROPIC_API_KEY = 'router-mode';
     return { valid: true, mode: 'router' };
   }
 

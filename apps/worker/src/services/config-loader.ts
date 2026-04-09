@@ -11,7 +11,7 @@
  * Pure service with no Temporal dependencies.
  */
 
-import { distributeConfig, parseConfig } from '../config-parser.js';
+import { distributeConfig, parseConfig, parseConfigYAML } from '../config-parser.js';
 import type { DistributedConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
@@ -60,11 +60,31 @@ export class ConfigLoaderService {
 
   /**
    * Load config if path is provided, otherwise return null config.
+   * If configData is provided (pre-parsed), returns it directly without file I/O.
    *
    * @param configPath - Optional path to the YAML configuration file
+   * @param configData - Optional pre-parsed config (bypasses file loading)
    * @returns Result containing DistributedConfig (or null) on success, PentestError on failure
    */
-  async loadOptional(configPath: string | undefined): Promise<Result<DistributedConfig | null, PentestError>> {
+  async loadOptional(
+    configPath: string | undefined,
+    configData?: DistributedConfig,
+    configYAML?: string,
+  ): Promise<Result<DistributedConfig | null, PentestError>> {
+    if (configData) {
+      return ok(configData);
+    }
+    if (configYAML) {
+      try {
+        const config = parseConfigYAML(configYAML);
+        return ok(distributeConfig(config));
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        return err(
+          new PentestError(`Failed to parse config YAML: ${errorMessage}`, 'config', false, { originalError: errorMessage }, ErrorCode.CONFIG_PARSE_ERROR),
+        );
+      }
+    }
     if (!configPath) {
       return ok(null);
     }

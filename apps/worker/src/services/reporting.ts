@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
+import { deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
@@ -28,7 +29,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   const sections: string[] = [];
 
   for (const file of deliverableFiles) {
-    const filePath = path.join(sourceDir, '.shannon', 'deliverables', file.path);
+    const filePath = path.join(deliverablesDir(sourceDir), file.path);
     try {
       if (await fs.pathExists(filePath)) {
         const content = await fs.readFile(filePath, 'utf8');
@@ -55,12 +56,12 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   }
 
   const finalContent = sections.join('\n\n');
-  const deliverablesDir = path.join(sourceDir, '.shannon', 'deliverables');
-  const finalReportPath = path.join(deliverablesDir, 'comprehensive_security_assessment_report.md');
+  const outputDir = deliverablesDir(sourceDir);
+  const finalReportPath = path.join(outputDir, 'comprehensive_security_assessment_report.md');
 
   try {
     // Ensure deliverables directory exists
-    await fs.ensureDir(deliverablesDir);
+    await fs.ensureDir(outputDir);
     await fs.writeFile(finalReportPath, finalContent);
     logger.info(`Final report assembled at ${finalReportPath}`);
   } catch (error) {
@@ -117,7 +118,7 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(repoPath, '.shannon', 'deliverables', 'comprehensive_security_assessment_report.md');
+  const reportPath = path.join(deliverablesDir(repoPath), 'comprehensive_security_assessment_report.md');
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');

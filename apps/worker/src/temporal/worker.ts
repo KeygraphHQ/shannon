@@ -35,6 +35,7 @@ import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
+import { deliverablesDir } from '../paths.js';
 import type { PipelineConfig } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
@@ -360,13 +361,13 @@ async function waitForWorkflowResult(
 // === Deliverables Copy ===
 
 function copyDeliverables(repoPath: string, outputPath: string): void {
-  const deliverablesDir = path.join(repoPath, '.shannon', 'deliverables');
-  if (!fs.existsSync(deliverablesDir)) {
+  const outputDir = deliverablesDir(repoPath);
+  if (!fs.existsSync(outputDir)) {
     console.log('No deliverables directory found, skipping copy');
     return;
   }
 
-  const files = fs.readdirSync(deliverablesDir);
+  const files = fs.readdirSync(outputDir);
   if (files.length === 0) {
     console.log('No deliverables to copy');
     return;
@@ -376,7 +377,7 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
 
   for (const file of files) {
     if (file === '.git') continue;
-    const src = path.join(deliverablesDir, file);
+    const src = path.join(outputDir, file);
     const dest = path.join(outputPath, file);
     fs.cpSync(src, dest, { recursive: true });
   }

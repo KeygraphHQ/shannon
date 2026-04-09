@@ -6,11 +6,11 @@ TARGET_GID="${SHANNON_HOST_GID:-}"
 CURRENT_UID=$(id -u pentest 2>/dev/null || echo "")
 
 if [ -n "$TARGET_UID" ] && [ "$TARGET_UID" != "$CURRENT_UID" ]; then
-  deluser pentest 2>/dev/null || true
-  delgroup pentest 2>/dev/null || true
+  userdel pentest 2>/dev/null || true
+  groupdel pentest 2>/dev/null || true
 
-  addgroup -g "$TARGET_GID" pentest
-  adduser -u "$TARGET_UID" -G pentest -s /bin/bash -D pentest
+  groupadd -g "$TARGET_GID" pentest
+  useradd -u "$TARGET_UID" -g pentest -s /bin/bash -M pentest
 
   chown -R pentest:pentest /app/sessions /app/workspaces /tmp/.claude
 fi

@@ -57,7 +57,7 @@ interface SessionData {
     id: string;
     webUrl: string;
     repoPath?: string;
-    status: 'in-progress' | 'completed' | 'failed';
+    status: 'in-progress' | 'completed' | 'failed' | 'cancelled';
     createdAt: string;
     completedAt?: string;
     originalWorkflowId?: string; // First workflow that created this workspace
@@ -232,12 +232,12 @@ export class MetricsTracker {
   /**
    * Update session status
    */
-  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed'): Promise<void> {
+  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled'): Promise<void> {
     if (!this.data) return;
 
     this.data.session.status = status;
 
-    if (status === 'completed' || status === 'failed') {
+    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
       this.data.session.completedAt = formatTimestamp();
     }
 
