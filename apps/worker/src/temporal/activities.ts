@@ -751,8 +751,19 @@ export async function generateReportOutputActivity(input: ActivityInput): Promis
   if (!container?.reportOutputProvider) return;
 
   const logger = createActivityLogger();
+
+  // Resolve promptDir against the worker root so providers are cwd-independent.
+  const resolvedInput: ActivityInput = {
+    ...input,
+    ...(input.promptDir !== undefined && {
+      promptDir: path.isAbsolute(input.promptDir)
+        ? input.promptDir
+        : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
+    }),
+  };
+
   try {
-    const result = await container.reportOutputProvider.generate(input, logger);
+    const result = await container.reportOutputProvider.generate(resolvedInput, logger);
     if (result.outputPath) {
       logger.info(`Report output written to ${result.outputPath}`);
     }

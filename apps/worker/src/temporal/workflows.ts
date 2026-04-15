@@ -510,13 +510,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       // Inject model metadata into the final report
       await a.injectReportMetadataActivity(activityInput);
 
-      // Emit any additional report outputs (no-op unless a consumer provider is wired)
-      await a.generateReportOutputActivity(activityInput);
-
       await a.logPhaseTransition(activityInput, 'reporting', 'complete');
     } else {
       log.info('Skipping report (already complete)');
       state.completedAgents.push('report');
+    }
+
+    // Runs after the skip gate so consumer providers still execute on resume.
+    await a.generateReportOutputActivity(activityInput);
+
+    if (input.checkpointsEnabled) {
+      await a.saveCheckpoint(activityInput, 'report-output', 'reporting', state);
     }
 
     state.status = 'completed';
