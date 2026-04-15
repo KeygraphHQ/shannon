@@ -17,7 +17,11 @@ interface DeliverableFile {
 }
 
 // Pure function: Assemble final report from specialist deliverables
-export async function assembleFinalReport(sourceDir: string, logger: ActivityLogger): Promise<string> {
+export async function assembleFinalReport(
+  sourceDir: string,
+  deliverablesSubdir: string | undefined,
+  logger: ActivityLogger,
+): Promise<string> {
   const deliverableFiles: DeliverableFile[] = [
     { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
     { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
@@ -29,7 +33,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   const sections: string[] = [];
 
   for (const file of deliverableFiles) {
-    const filePath = path.join(deliverablesDir(sourceDir), file.path);
+    const filePath = path.join(deliverablesDir(sourceDir, deliverablesSubdir), file.path);
     try {
       if (await fs.pathExists(filePath)) {
         const content = await fs.readFile(filePath, 'utf8');
@@ -56,7 +60,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
   }
 
   const finalContent = sections.join('\n\n');
-  const outputDir = deliverablesDir(sourceDir);
+  const outputDir = deliverablesDir(sourceDir, deliverablesSubdir);
   const finalReportPath = path.join(outputDir, 'comprehensive_security_assessment_report.md');
 
   try {
@@ -82,6 +86,7 @@ export async function assembleFinalReport(sourceDir: string, logger: ActivityLog
  */
 export async function injectModelIntoReport(
   repoPath: string,
+  deliverablesSubdir: string | undefined,
   outputPath: string,
   logger: ActivityLogger,
 ): Promise<void> {
@@ -118,7 +123,7 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(deliverablesDir(repoPath), 'comprehensive_security_assessment_report.md');
+  const reportPath = path.join(deliverablesDir(repoPath, deliverablesSubdir), 'comprehensive_security_assessment_report.md');
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');

@@ -378,11 +378,11 @@ export async function initDeliverableGit(input: ActivityInput): Promise<void> {
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath } = input;
+  const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, logger);
+    await assembleFinalReport(repoPath, deliverablesSubdir, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error assembling final report: ${err.message}`);
@@ -393,11 +393,11 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * Inject model metadata into the final report.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, sessionId, outputPath } = input;
+  const { repoPath, sessionId, outputPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
   const effectiveOutputPath = outputPath ? path.join(outputPath, sessionId) : path.join('./workspaces', sessionId);
   try {
-    await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
+    await injectModelIntoReport(repoPath, deliverablesSubdir, effectiveOutputPath, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error injecting model into report: ${err.message}`);
