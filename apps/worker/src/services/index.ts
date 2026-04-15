@@ -20,3 +20,5 @@ export { Container, getContainer, getOrCreateContainer, removeContainer } from '
 export { ExploitationCheckerService } from './exploitation-checker.js';
 export { loadPrompt } from './prompt-manager.js';
 export { assembleFinalReport, injectModelIntoReport } from './reporting.js';
+export type { ClaudePromptResult } from '../ai/claude-executor.js';
+export { runClaudePrompt } from '../ai/claude-executor.js';

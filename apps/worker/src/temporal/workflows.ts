@@ -439,7 +439,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         log.info(`Skipping ${vulnAgentName} (already complete)`);
       }
 
-      // 1.5. Merge external findings (SAST, SCA, etc.) into exploitation queue
+      // 1.5. Merge external findings from consumer provider into exploitation queue
       await a.mergeFindingsIntoQueue(activityInput, vulnType);
 
       // 2. Check exploitation queue for actionable findings
@@ -509,6 +509,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
       // Inject model metadata into the final report
       await a.injectReportMetadataActivity(activityInput);
+
+      // Emit any additional report outputs (no-op unless a consumer provider is wired)
+      await a.generateReportOutputActivity(activityInput);
 
       await a.logPhaseTransition(activityInput, 'reporting', 'complete');
     } else {

@@ -9,3 +9,5 @@ export type { CheckpointProvider } from './checkpoint-provider.js';
 export { NoOpCheckpointProvider } from './checkpoint-provider.js';
 export type { FindingsProvider } from './findings-provider.js';
 export { NoOpFindingsProvider } from './findings-provider.js';
+export type { ReportOutputProvider } from './report-output-provider.js';
+export { NoOpReportOutputProvider } from './report-output-provider.js';

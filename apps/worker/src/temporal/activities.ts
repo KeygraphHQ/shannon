@@ -738,3 +738,26 @@ export async function saveCheckpoint(
   if (!container?.checkpointProvider) return;
   return container.checkpointProvider.onAgentComplete(agentName, phase, state);
 }
+
+/**
+ * Generate an optional additional output alongside the assembled markdown report.
+ *
+ * Delegates to the ReportOutputProvider registered in the DI container.
+ * Default: no-op. Consumers can override this activity at the worker level
+ * to emit derived outputs from the final report.
+ */
+export async function generateReportOutputActivity(input: ActivityInput): Promise<void> {
+  const container = getContainer(input.workflowId);
+  if (!container?.reportOutputProvider) return;
+
+  const logger = createActivityLogger();
+  try {
+    const result = await container.reportOutputProvider.generate(input, logger);
+    if (result.outputPath) {
+      logger.info(`Report output written to ${result.outputPath}`);
+    }
+  } catch (error) {
+    const err = error as Error;
+    logger.warn(`Error generating report output: ${err.message}`);
+  }
+}
