@@ -762,13 +762,8 @@ export async function generateReportOutputActivity(input: ActivityInput): Promis
     }),
   };
 
-  try {
-    const result = await container.reportOutputProvider.generate(resolvedInput, logger);
-    if (result.outputPath) {
-      logger.info(`Report output written to ${result.outputPath}`);
-    }
-  } catch (error) {
-    const err = error as Error;
-    logger.warn(`Error generating report output: ${err.message}`);
+  const result = await container.reportOutputProvider.generate(resolvedInput, logger);
+  if (result.outputPath) {
+    logger.info(`Report output written to ${result.outputPath}`);
   }
 }
