@@ -17,6 +17,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const NPX_IMAGE_REPO = 'keygraph/shannon';
 const DEV_IMAGE = 'shannon-worker';
+const COMPOSE_PROJECT = 'infra';
 
 export function getWorkerImage(version: string): string {
   return getMode() === 'local' ? DEV_IMAGE : `${NPX_IMAGE_REPO}:${version}`;
@@ -82,17 +83,19 @@ function isRouterReady(): boolean {
 export async function ensureInfra(useRouter: boolean): Promise<void> {
   const temporalReady = isTemporalReady();
   const routerNeeded = useRouter && !isRouterReady();
+  const startRouterOnly = temporalReady && routerNeeded;
 
   if (temporalReady && !routerNeeded) {
     return;
   }
 
   const composeFile = getComposeFile();
-  const composeArgs = ['compose', '-f', composeFile];
+  const composeArgs = ['compose', '-p', COMPOSE_PROJECT, '-f', composeFile];
   if (useRouter) composeArgs.push('--profile', 'router');
   composeArgs.push('up', '-d');
+  if (startRouterOnly) composeArgs.push('router');
 
-  if (temporalReady && routerNeeded) {
+  if (startRouterOnly) {
     console.log('Starting router...');
   } else {
     console.log('Starting Shannon infrastructure...');
@@ -288,7 +291,7 @@ export function stopWorkers(): void {
  */
 export function stopInfra(clean: boolean): void {
   const composeFile = getComposeFile();
-  const args = ['compose', '-f', composeFile, '--profile', 'router', 'down'];
+  const args = ['compose', '-p', COMPOSE_PROJECT, '-f', composeFile, '--profile', 'router', 'down'];
   if (clean) args.push('-v');
   execFileSync('docker', args, { stdio: 'inherit' });
 }
