@@ -921,8 +921,8 @@ Issues are welcome for bug reports and feature requests.
 Shannon Pro is Keygraph's all-in-one AppSec platform. For organizations that need unified SAST, SCA, and autonomous pentesting with static-dynamic correlation, CI/CD integration, or self-hosted deployment, see the [Shannon Pro technical overview](./SHANNON-PRO.md).
 
 <p align="center">
-  <a href="https://docs.google.com/forms/d/e/1FAIpQLSf-cPZcWjlfBJ3TCT8AaWpf8ztsw3FaHzJE4urr55KdlQs6cQ/viewform?usp=header" target="_blank">
-    <img src="https://img.shields.io/badge/Shannon%20Pro%20Inquiry-4285F4?style=for-the-badge&logo=google&logoColor=white" alt="Shannon Pro Inquiry">
+  <a href="https://cal.com/team/keygraph/shannon-pro" target="_blank">
+    <img src="./assets/Demo_button.png" alt="Shannon Pro Inquiry">
   </a>
 </p>
 
