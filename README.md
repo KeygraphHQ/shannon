@@ -922,7 +922,7 @@ Shannon Pro is Keygraph's all-in-one AppSec platform. For organizations that nee
 
 <p align="center">
   <a href="https://cal.com/team/keygraph/shannon-pro" target="_blank">
-    <img src="./assets/Demo_Button.png" alt="Shannon Pro Inquiry">
+    <img src="./assets/Demo_Button.png" height="40" alt="Shannon Pro Inquiry">
   </a>
 </p>
 
