@@ -93,6 +93,32 @@ const DEFAULT_CONFIG: ContainerConfig = {
 };
 
 /**
+ * Factory function for creating containers.
+ *
+ * Default: creates a plain Container with NoOp providers. Consumers can call
+ * setContainerFactory() at worker startup to inject custom provider
+ * implementations into every container.
+ */
+type ContainerFactory = (
+  workflowId: string,
+  sessionMetadata: SessionMetadata,
+  config: ContainerConfig,
+) => Container;
+
+let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) =>
+  new Container({ sessionMetadata, config });
+
+/**
+ * Override the default container factory.
+ *
+ * Call once at worker startup to inject providers into all containers
+ * created during the worker's lifetime.
+ */
+export function setContainerFactory(factory: ContainerFactory): void {
+  containerFactory = factory;
+}
+
+/**
  * Get or create a Container for a workflow.
  *
  * If a container already exists for the workflowId, returns it.
@@ -111,7 +137,7 @@ export function getOrCreateContainer(
   let container = containers.get(workflowId);
 
   if (!container) {
-    container = new Container({ sessionMetadata, config });
+    container = containerFactory(workflowId, sessionMetadata, config);
     containers.set(workflowId, container);
   }
 

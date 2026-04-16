@@ -23,6 +23,7 @@ import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { ContainerConfig, ProviderConfig } from '../types/config.js';
+import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -131,6 +132,20 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
  */
 async function runAgentActivity(agentName: AgentName, input: ActivityInput): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+
+  // Skip guard: the checkpoint provider decides whether to run the agent.
+  // The default NoOp provider always returns { skip: false }.
+  const skipContainer = getContainer(workflowId) ??
+    getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
+    agentName,
+    repoPath,
+    input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+  );
+  if (decision.skip && decision.metrics) {
+    return decision.metrics;
+  }
+
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -585,6 +600,18 @@ export async function restoreGitCheckpoint(
   const logger = createActivityLogger();
   logger.info(`Restoring deliverables to ${checkpointHash}...`);
 
+  // Validate hash exists in this clone before attempting reset
+  try {
+    await executeGitCommandWithRetry(
+      ['git', 'rev-parse', '--verify', checkpointHash],
+      repoPath,
+      'verify checkpoint hash exists'
+    );
+  } catch {
+    logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);
+    return;
+  }
+
   await executeGitCommandWithRetry(
     ['git', 'reset', '--hard', checkpointHash],
     deliverablesPath,
@@ -736,7 +763,15 @@ export async function saveCheckpoint(
 ): Promise<void> {
   const container = getContainer(input.workflowId);
   if (!container?.checkpointProvider) return;
-  return container.checkpointProvider.onAgentComplete(agentName, phase, state);
+
+  const context: CheckpointContext = {
+    repoPath: input.repoPath,
+    sessionId: input.sessionId,
+    deliverablesSubdir: input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+    ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
+  };
+
+  return container.checkpointProvider.onAgentComplete(agentName, phase, state, context);
 }
 
 /**

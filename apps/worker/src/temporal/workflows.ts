@@ -322,30 +322,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ];
   }
 
-  // Aggregate results from settled pipeline promises into workflow state
+  // Aggregate errors from settled pipeline promises.
+  // Metrics and completedAgents are updated incrementally inside runVulnExploitPipeline
+  // so that getProgress queries reflect real-time status during execution.
   function aggregatePipelineResults(results: PromiseSettledResult<VulnExploitPipelineResult>[]): void {
     const failedPipelines: string[] = [];
 
     for (const result of results) {
-      if (result.status === 'fulfilled') {
-        const { vulnType, vulnMetrics, exploitMetrics } = result.value;
-
-        const vulnAgentName = `${vulnType}-vuln`;
-        if (vulnMetrics) {
-          state.agentMetrics[vulnAgentName] = vulnMetrics;
-          state.completedAgents.push(vulnAgentName);
-        } else if (shouldSkip(vulnAgentName)) {
-          state.completedAgents.push(vulnAgentName);
-        }
-
-        const exploitAgentName = `${vulnType}-exploit`;
-        if (exploitMetrics) {
-          state.agentMetrics[exploitAgentName] = exploitMetrics;
-          state.completedAgents.push(exploitAgentName);
-        } else if (shouldSkip(exploitAgentName)) {
-          state.completedAgents.push(exploitAgentName);
-        }
-      } else {
+      if (result.status === 'rejected') {
         const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
         failedPipelines.push(errorMsg);
       }
@@ -432,11 +416,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       let vulnMetrics: AgentMetrics | null = null;
       if (!shouldSkip(vulnAgentName)) {
         vulnMetrics = await runVulnAgent();
+        state.agentMetrics[vulnAgentName] = vulnMetrics;
+        state.completedAgents.push(vulnAgentName);
         if (input.checkpointsEnabled) {
           await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
         }
       } else {
         log.info(`Skipping ${vulnAgentName} (already complete)`);
+        state.completedAgents.push(vulnAgentName);
       }
 
       // 1.5. Merge external findings from consumer provider into exploitation queue
@@ -450,11 +437,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (decision.shouldExploit) {
         if (!shouldSkip(exploitAgentName)) {
           exploitMetrics = await runExploitAgent();
+          state.agentMetrics[exploitAgentName] = exploitMetrics;
+          state.completedAgents.push(exploitAgentName);
           if (input.checkpointsEnabled) {
             await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
           }
         } else {
           log.info(`Skipping ${exploitAgentName} (already complete)`);
+          state.completedAgents.push(exploitAgentName);
         }
       }
 
