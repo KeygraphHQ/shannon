@@ -26,7 +26,6 @@ export const BILLING_TEXT_PATTERNS = [
   'cap reached',
   'budget exceeded',
   'usage limit',
-  'resets',
 ] as const;
 
 /**
