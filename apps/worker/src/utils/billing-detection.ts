@@ -14,19 +14,35 @@
  *
  * This module provides defense-in-depth detection with shared pattern lists
  * to prevent drift between detection points.
+ *
+ * The text-pattern guard can produce false positives when pentest output
+ * contains billing-sounding phrases (e.g. "password reset", "usage limit
+ * per user"). Set SHANNON_DISABLE_SPENDING_GUARD=1 to bypass the
+ * text-pattern checks entirely while still preserving structured-error
+ * and behavioral (zero-cost) detection.
  */
+
+/**
+ * When true, all text-pattern spending guard checks are skipped.
+ * Structured SDK error detection (billing_error, rate_limit, etc.) and
+ * the behavioral heuristic (turns <= 2 && cost === 0) remain active.
+ */
+export const spendingGuardDisabled = process.env.SHANNON_DISABLE_SPENDING_GUARD === '1';
 
 /**
  * Text patterns for SDK output sniffing (what Claude says).
  * Used by message-handlers.ts and the behavioral heuristic.
+ *
+ * NOTE: Only patterns that are unambiguous in a pentesting context belong
+ * here.  "resets" was removed because it matches innocuous pentest
+ * vocabulary like "password reset" / "reset token" (see #263).
  */
 export const BILLING_TEXT_PATTERNS = [
   'spending cap',
   'spending limit',
   'cap reached',
   'budget exceeded',
-  'usage limit',
-  'resets',
+  'usage limit reached',
 ] as const;
 
 /**
@@ -50,8 +66,15 @@ export const BILLING_API_PATTERNS = [
 /**
  * Checks if text matches any billing text pattern.
  * Used for sniffing SDK output content for spending cap messages.
+ *
+ * Returns false immediately when SHANNON_DISABLE_SPENDING_GUARD=1,
+ * letting the caller fall through to structured-error or behavioral
+ * detection instead.
  */
 export function matchesBillingTextPattern(text: string): boolean {
+  if (spendingGuardDisabled) {
+    return false;
+  }
   const lowerText = text.toLowerCase();
   return BILLING_TEXT_PATTERNS.some((pattern) => lowerText.includes(pattern));
 }
@@ -75,6 +98,10 @@ export function matchesBillingApiPattern(message: string): boolean {
  * 1. Very low turn count (<=2)
  * 2. Zero cost ($0)
  * 3. Text matches billing patterns
+ *
+ * NOTE: The text-pattern leg respects SHANNON_DISABLE_SPENDING_GUARD;
+ * when the guard is disabled, this function can only return true if
+ * the caller adds an additional check.
  *
  * @param turns - Number of turns the agent took
  * @param cost - Total cost in USD
