@@ -44,11 +44,6 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
   { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
 
-  // Router
-  { env: 'ROUTER_DEFAULT', toml: 'router.default', type: 'string' },
-  { env: 'OPENAI_API_KEY', toml: 'router.openai_key', type: 'string' },
-  { env: 'OPENROUTER_API_KEY', toml: 'router.openrouter_key', type: 'string' },
-
   // Model tiers
   { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
   { env: 'ANTHROPIC_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
@@ -165,20 +160,6 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       validateModelTiers(config, 'vertex', errors);
       break;
     }
-
-    case 'router': {
-      if (!keys.includes('default')) {
-        errors.push('[router] missing required key: default');
-      }
-      if (!keys.includes('openai_key') && !keys.includes('openrouter_key')) {
-        errors.push('[router] requires either openai_key or openrouter_key');
-      }
-      const models = config.models as Record<string, unknown> | undefined;
-      if (models && typeof models === 'object' && Object.keys(models).length > 0) {
-        errors.push('[models] is not supported with [router]');
-      }
-      break;
-    }
   }
 }
 
@@ -242,7 +223,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex', 'router'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

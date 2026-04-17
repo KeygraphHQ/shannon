@@ -19,7 +19,6 @@ import {
   formatToolUseOutput,
 } from './output-formatters.js';
 import type { ProgressManager } from './progress-manager.js';
-import { getActualModelName } from './router-utils.js';
 import type {
   ApiErrorDetection,
   AssistantMessage,
@@ -309,12 +308,10 @@ export async function dispatchMessage(
     case 'system': {
       if (message.subtype === 'init') {
         const initMsg = message as SystemInitMessage;
-        const actualModel = getActualModelName(initMsg.model);
         if (!execContext.useCleanOutput) {
-          logger.info(`Model: ${actualModel}, Permission: ${initMsg.permissionMode}`);
+          logger.info(`Model: ${initMsg.model}, Permission: ${initMsg.permissionMode}`);
         }
-        // Return actual model for tracking in audit logs
-        return { type: 'continue', model: actualModel };
+        return { type: 'continue', model: initMsg.model };
       }
       return { type: 'continue' };
     }

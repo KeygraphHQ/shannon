@@ -118,7 +118,6 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - [AWS Bedrock](#aws-bedrock)
   - [Google Vertex AI](#google-vertex-ai)
   - [Custom Base URL](#custom-base-url)
-  - [Router Mode](#experimental---unsupported-router-mode-alternative-providers)
   - [Platform-Specific Instructions](#platform-specific-instructions)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#sample-reports)
@@ -144,7 +143,6 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - **Claude Code OAuth token**
   - **AWS Bedrock** - Route through Amazon Bedrock with AWS credentials (see [AWS Bedrock](#aws-bedrock))
   - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
-  - **[EXPERIMENTAL - UNSUPPORTED] Alternative providers via Router Mode** - OpenAI or Google Gemini via OpenRouter (see [Router Mode](#experimental---unsupported-router-mode-alternative-providers))
 
 > [!NOTE]
 > Docker is still required to use the `npx` workflow. Under the hood, the CLI pulls and runs a prebuilt Shannon worker image from Docker Hub, which is approximately 1 GB and contains Shannon plus all required dependencies.
@@ -540,54 +538,6 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 ```
 
 </details>
-
-### [EXPERIMENTAL - UNSUPPORTED] Router Mode (Alternative Providers)
-
-Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
-
-- **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3-family models
-
-#### Quick Setup
-
-Run `npx @keygraph/shannon setup` and select **Router**. The wizard will prompt you to choose a provider (OpenAI or OpenRouter), enter your API key, and select a default model.
-
-Or export env vars directly:
-
-```bash
-export OPENAI_API_KEY=sk-...          # or OPENROUTER_API_KEY=sk-or-...
-export ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
-```
-
-```bash
-npx @keygraph/shannon start -u https://example.com -r /path/to/repo --router
-```
-
-<details>
-<summary>Clone and Build: add to .env and run with --router</summary>
-
-```bash
-OPENAI_API_KEY=sk-...
-# OR
-OPENROUTER_API_KEY=sk-or-...
-ROUTER_DEFAULT=openai,gpt-5.2
-```
-
-```bash
-./shannon start -u https://example.com -r /path/to/repo --router
-```
-
-</details>
-
-#### Experimental Models
-
-| Provider | Models |
-|----------|--------|
-| OpenAI | gpt-5.2, gpt-5-mini |
-| OpenRouter | google/gemini-3-flash-preview |
-
-#### Disclaimer
-
-This feature is experimental and unsupported. Output quality depends heavily on the model. Shannon is built on top of the Anthropic Agent SDK and is optimized and primarily tested with Anthropic Claude models. Alternative providers may produce inconsistent results (including failing early phases like Recon) depending on the model and routing setup.
 
 ### Platform-Specific Instructions
 
