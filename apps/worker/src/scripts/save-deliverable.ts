@@ -16,8 +16,43 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
+
+const MAX_CONTENT_BYTES = 1024 * 1024; // 1 MiB cap for --content to protect Temporal buffer limits
+
+function errorJson(message: string, retryable: boolean = false): string {
+  return JSON.stringify({ status: 'error', message, retryable });
+}
+
+/**
+ * Resolve SHANNON_DELIVERABLES_SUBDIR against targetDir with strict guards.
+ * Rejects NUL bytes, absolute paths, and any resolved path that escapes targetDir.
+ */
+function resolveSafeDeliverablesDir(targetDir: string): { ok: true; dir: string } | { ok: false; error: string } {
+  const rawSubdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
+
+  if (rawSubdir.includes('\0')) {
+    return { ok: false, error: 'SHANNON_DELIVERABLES_SUBDIR contains NUL byte' };
+  }
+
+  if (isAbsolute(rawSubdir)) {
+    return { ok: false, error: `SHANNON_DELIVERABLES_SUBDIR must be relative (got absolute: ${rawSubdir})` };
+  }
+
+  const canonicalTarget = resolve(targetDir);
+  const candidate = resolve(canonicalTarget, rawSubdir);
+
+  const withSep = canonicalTarget.endsWith(sep) ? canonicalTarget : canonicalTarget + sep;
+  if (candidate !== canonicalTarget && !candidate.startsWith(withSep)) {
+    return {
+      ok: false,
+      error: `SHANNON_DELIVERABLES_SUBDIR escapes target directory (resolved=${candidate})`,
+    };
+  }
+
+  return { ok: true, dir: candidate };
+}
 
 // === Argument Parsing ===
 
@@ -52,8 +87,12 @@ function parseArgs(argv: string[]): ParsedArgs {
 // === File Operations ===
 
 function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
-  const deliverablesDir = join(targetDir, ...subdir.split('/'));
+  const dirResult = resolveSafeDeliverablesDir(targetDir);
+  if (!dirResult.ok) {
+    throw new Error(dirResult.error);
+  }
+
+  const deliverablesDir = dirResult.dir;
   const filepath = join(deliverablesDir, filename);
 
   try {
@@ -91,6 +130,10 @@ function main(): void {
   let content: string;
 
   if (args.content) {
+    if (Buffer.byteLength(args.content, 'utf8') > MAX_CONTENT_BYTES) {
+      console.log(errorJson(`--content exceeds ${MAX_CONTENT_BYTES}-byte cap; use --file-path for large deliverables`));
+      process.exit(1);
+    }
     content = args.content;
   } else if (args.filePath) {
     // Path traversal protection: must resolve inside cwd
