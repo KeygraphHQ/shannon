@@ -16,7 +16,7 @@
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\""
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "catalog:",
