@@ -22,6 +22,7 @@ export interface StartArgs {
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
+  debug: boolean;
   version: string;
 }
 
@@ -110,13 +111,21 @@ export async function start(args: StartArgs): Promise<void> {
     ...(outputDir && { outputDir }),
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
+    ...(args.debug && { debug: true }),
   });
 
-  // 14. Wait for workflow to register, then display info
-  proc.on('error', (err) => {
-    console.error(`Failed to start worker: ${err.message}`);
-    process.exit(1);
+  // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
+  const dockerExitCode = await new Promise<number>((resolve) => {
+    proc.once('exit', (code) => resolve(code ?? 1));
+    proc.once('error', (err) => {
+      console.error(`Failed to start worker: ${err.message}`);
+      resolve(1);
+    });
   });
+
+  if (dockerExitCode !== 0) {
+    process.exit(1);
+  }
 
   // Detect whether this is a fresh workspace or a resume by checking session.json existence
   const sessionJson = path.join(workspacesDir, workspace, 'session.json');
@@ -182,6 +191,9 @@ export async function start(args: StartArgs): Promise<void> {
     } catch {
       // Container may have already exited
     }
+    if (args.debug) {
+      printDebugHint(containerName);
+    }
   };
 
   process.on('SIGINT', () => {
@@ -193,6 +205,14 @@ export async function start(args: StartArgs): Promise<void> {
     process.exit(0);
   });
   process.on('exit', cleanup);
+}
+
+function printDebugHint(containerName: string): void {
+  console.log('');
+  console.log(`  Worker container preserved: ${containerName}`);
+  console.log(`    Inspect logs: docker logs ${containerName}`);
+  console.log(`    Remove:       docker rm ${containerName}`);
+  console.log('');
 }
 
 function printInfo(

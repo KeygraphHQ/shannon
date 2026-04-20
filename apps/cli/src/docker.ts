@@ -159,13 +159,19 @@ export interface WorkerOptions {
   outputDir?: string;
   workspace: string;
   pipelineTesting?: boolean;
+  debug?: boolean;
 }
 
 /**
  * Spawn the worker container in detached mode and return the process.
+ * When `opts.debug` is true, omits `--rm` so the container persists for log inspection.
  */
 export function spawnWorker(opts: WorkerOptions): ChildProcess {
-  const args = ['run', '-d', '--rm', '--name', opts.containerName, '--network', 'shannon-net'];
+  const args = ['run', '-d'];
+  if (!opts.debug) {
+    args.push('--rm');
+  }
+  args.push('--name', opts.containerName, '--network', 'shannon-net');
 
   // Add host flag for Linux
   args.push(...addHostFlag());
@@ -227,9 +233,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     args.push('--pipeline-testing');
   }
 
-  // Prevent MSYS/Git Bash from converting Unix paths (e.g. /repos/my-repo) to Windows paths
+  // Inherit stderr so `docker run` daemon errors surface to the user;
+  // ignore stdin/stdout (the container ID is noise).
   return spawn('docker', args, {
-    stdio: 'pipe',
+    stdio: ['ignore', 'ignore', 'inherit'],
+    // Prevent MSYS/Git Bash from converting Unix paths on Windows
     ...(os.platform() === 'win32' && { env: { ...process.env, MSYS_NO_PATHCONV: '1' } }),
   });
 }
