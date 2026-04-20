@@ -14,7 +14,6 @@ const FORWARD_VARS = [
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
-  'ROUTER_DEFAULT',
   'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
@@ -27,8 +26,6 @@ const FORWARD_VARS = [
   'ANTHROPIC_MEDIUM_MODEL',
   'ANTHROPIC_LARGE_MODEL',
   'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
-  'OPENAI_API_KEY',
-  'OPENROUTER_API_KEY',
 ] as const;
 
 /**
@@ -64,12 +61,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'router';
-}
-
-/** Check if router credentials are present in the environment. */
-export function isRouterConfigured(): boolean {
-  return !!(process.env.ROUTER_DEFAULT && (process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY));
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -85,7 +77,6 @@ function detectProviders(): string[] {
   if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
   if (process.env.CLAUDE_CODE_USE_VERTEX === '1') providers.push('Google Vertex');
-  if (isRouterConfigured()) providers.push('Router');
   return providers;
 }
 
@@ -150,9 +141,6 @@ export function validateCredentials(): CredentialValidation {
       };
     }
     return { valid: true, mode: 'vertex' };
-  }
-  if (isRouterConfigured()) {
-    return { valid: true, mode: 'router' };
   }
 
   const hint =

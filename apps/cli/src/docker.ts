@@ -69,65 +69,28 @@ export function isTemporalReady(): boolean {
   return output.includes('SERVING');
 }
 
-/** Check if the router container is running and healthy. */
-function isRouterReady(): boolean {
-  const status = runOutput('docker', ['inspect', '--format', '{{.State.Health.Status}}', 'shannon-router']);
-  return status === 'healthy';
-}
-
 /**
- * Ensure Temporal (and optionally router) are running via compose.
- * If Temporal is already up but router is needed and missing, starts router only.
+ * Ensure Temporal is running via compose.
  */
-export async function ensureInfra(useRouter: boolean): Promise<void> {
-  const temporalReady = isTemporalReady();
-  const routerNeeded = useRouter && !isRouterReady();
-
-  if (temporalReady && !routerNeeded) {
+export async function ensureInfra(): Promise<void> {
+  if (isTemporalReady()) {
     return;
   }
 
   const composeFile = getComposeFile();
-  const composeArgs = ['compose', '-f', composeFile];
-  if (useRouter) composeArgs.push('--profile', 'router');
-  composeArgs.push('up', '-d');
+  console.log('Starting Shannon infrastructure...');
+  execFileSync('docker', ['compose', '-f', composeFile, 'up', '-d'], { stdio: 'inherit' });
 
-  if (temporalReady && routerNeeded) {
-    console.log('Starting router...');
-  } else {
-    console.log('Starting Shannon infrastructure...');
-  }
-  execFileSync('docker', composeArgs, { stdio: 'inherit' });
-
-  // Wait for Temporal if it wasn't already running
-  if (!temporalReady) {
-    console.log('Waiting for Temporal to be ready...');
-    for (let i = 0; i < 30; i++) {
-      if (isTemporalReady()) {
-        console.log('Temporal is ready!');
-        break;
-      }
-      if (i === 29) {
-        console.error('Timeout waiting for Temporal');
-        process.exit(1);
-      }
-      await sleep(2000);
+  console.log('Waiting for Temporal to be ready...');
+  for (let i = 0; i < 30; i++) {
+    if (isTemporalReady()) {
+      console.log('Temporal is ready!');
+      return;
     }
+    await sleep(2000);
   }
-
-  // Wait for router if needed
-  if (routerNeeded) {
-    console.log('Waiting for router to be ready...');
-    for (let i = 0; i < 15; i++) {
-      if (isRouterReady()) {
-        console.log('Router is ready!');
-        return;
-      }
-      await sleep(2000);
-    }
-    console.error('Timeout waiting for router');
-    process.exit(1);
-  }
+  console.error('Timeout waiting for Temporal');
+  process.exit(1);
 }
 
 /**
@@ -288,7 +251,7 @@ export function stopWorkers(): void {
  */
 export function stopInfra(clean: boolean): void {
   const composeFile = getComposeFile();
-  const args = ['compose', '-f', composeFile, '--profile', 'router', 'down'];
+  const args = ['compose', '-f', composeFile, 'down'];
   if (clean) args.push('-v');
   execFileSync('docker', args, { stdio: 'inherit' });
 }

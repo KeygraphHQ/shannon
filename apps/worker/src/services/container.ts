@@ -22,6 +22,8 @@ import type { CheckpointProvider } from '../interfaces/checkpoint-provider.js';
 import { NoOpCheckpointProvider } from '../interfaces/checkpoint-provider.js';
 import type { FindingsProvider } from '../interfaces/findings-provider.js';
 import { NoOpFindingsProvider } from '../interfaces/findings-provider.js';
+import type { ReportOutputProvider } from '../interfaces/report-output-provider.js';
+import { NoOpReportOutputProvider } from '../interfaces/report-output-provider.js';
 import type { ContainerConfig } from '../types/config.js';
 import { AgentExecutionService } from './agent-execution.js';
 import { ConfigLoaderService } from './config-loader.js';
@@ -40,6 +42,7 @@ export interface ContainerDependencies {
   readonly config: ContainerConfig;
   readonly findingsProvider?: FindingsProvider;
   readonly checkpointProvider?: CheckpointProvider;
+  readonly reportOutputProvider?: ReportOutputProvider;
 }
 
 /**
@@ -59,6 +62,7 @@ export class Container {
   readonly exploitationChecker: ExploitationCheckerService;
   readonly findingsProvider: FindingsProvider;
   readonly checkpointProvider: CheckpointProvider;
+  readonly reportOutputProvider: ReportOutputProvider;
 
   constructor(deps: ContainerDependencies) {
     this.sessionMetadata = deps.sessionMetadata;
@@ -72,6 +76,7 @@ export class Container {
     // Wire providers with default no-ops when not provided
     this.findingsProvider = deps.findingsProvider ?? new NoOpFindingsProvider();
     this.checkpointProvider = deps.checkpointProvider ?? new NoOpCheckpointProvider();
+    this.reportOutputProvider = deps.reportOutputProvider ?? new NoOpReportOutputProvider();
   }
 }
 
@@ -86,6 +91,32 @@ const DEFAULT_CONFIG: ContainerConfig = {
   deliverablesSubdir: '.shannon/deliverables',
   auditDir: './workspaces',
 };
+
+/**
+ * Factory function for creating containers.
+ *
+ * Default: creates a plain Container with NoOp providers. Consumers can call
+ * setContainerFactory() at worker startup to inject custom provider
+ * implementations into every container.
+ */
+type ContainerFactory = (
+  workflowId: string,
+  sessionMetadata: SessionMetadata,
+  config: ContainerConfig,
+) => Container;
+
+let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) =>
+  new Container({ sessionMetadata, config });
+
+/**
+ * Override the default container factory.
+ *
+ * Call once at worker startup to inject providers into all containers
+ * created during the worker's lifetime.
+ */
+export function setContainerFactory(factory: ContainerFactory): void {
+  containerFactory = factory;
+}
 
 /**
  * Get or create a Container for a workflow.
@@ -106,7 +137,7 @@ export function getOrCreateContainer(
   let container = containers.get(workflowId);
 
   if (!container) {
-    container = new Container({ sessionMetadata, config });
+    container = containerFactory(workflowId, sessionMetadata, config);
     containers.set(workflowId, container);
   }
 

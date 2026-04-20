@@ -120,8 +120,6 @@ body:
         - "Custom base URL (proxy/gateway)"
         - "AWS Bedrock"
         - "Google Vertex AI"
-        - "Router - OpenAI"
-        - "Router - OpenRouter"
     validations:
       required: true
 

@@ -25,10 +25,10 @@ export interface PipelineInput {
   deliverablesSubdir?: string; // Override deliverables path (default: '.shannon/deliverables')
   auditDir?: string; // Override audit log directory (default: './workspaces')
   promptDir?: string; // Override prompt template directory
-  sastSarifPath?: string; // Path to SARIF file (gates SAST-enhanced mode)
+  sastSarifPath?: string; // Optional path for consumer-supplied findings input
   checkpointsEnabled?: boolean; // Enable checkpoint activities (default: false)
   skipGitCheck?: boolean; // Skip .git directory validation in preflight (e.g. when .git is removed after clone)
-  providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, Vertex, LiteLLM, etc.)
+  providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, Vertex, etc.)
 }
 
 export interface ResumeState {

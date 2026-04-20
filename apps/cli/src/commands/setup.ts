@@ -13,7 +13,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex' | 'router';
+type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -26,7 +26,6 @@ export async function setup(): Promise<void> {
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
       { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
-      { value: 'router' as const, label: 'Router', hint: 'experimental' },
     ],
   });
   if (p.isCancel(provider)) return cancelAndExit();
@@ -51,8 +50,6 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
       return setupBedrock();
     case 'vertex':
       return setupVertex();
-    case 'router':
-      return setupRouter();
   }
 }
 
@@ -280,50 +277,6 @@ async function setupVertex(): Promise<ShannonConfig> {
     },
     models: { small: models.small, medium: models.medium, large: models.large },
   };
-}
-
-async function setupRouter(): Promise<ShannonConfig> {
-  const routerProvider = await p.select({
-    message: 'Router provider',
-    options: [
-      { value: 'openai' as const, label: 'OpenAI' },
-      { value: 'openrouter' as const, label: 'OpenRouter' },
-    ],
-  });
-  if (p.isCancel(routerProvider)) return cancelAndExit();
-
-  const apiKey = await promptSecret(
-    routerProvider === 'openai' ? 'Enter your OpenAI API key' : 'Enter your OpenRouter API key',
-  );
-
-  let defaultModel: string;
-  if (routerProvider === 'openai') {
-    const model = await p.select({
-      message: 'Default model',
-      options: [
-        { value: 'gpt-5.2' as const, label: 'GPT-5.2' },
-        { value: 'gpt-5-mini' as const, label: 'GPT-5 Mini' },
-      ],
-    });
-    if (p.isCancel(model)) return cancelAndExit();
-    defaultModel = `openai,${model}`;
-  } else {
-    const model = await p.select({
-      message: 'Default model',
-      options: [{ value: 'google/gemini-3-flash-preview' as const, label: 'Google Gemini 3 Flash Preview' }],
-    });
-    if (p.isCancel(model)) return cancelAndExit();
-    defaultModel = `openrouter,${model}`;
-  }
-
-  const router: ShannonConfig['router'] = { default: defaultModel };
-  if (routerProvider === 'openai') {
-    router.openai_key = apiKey;
-  } else {
-    router.openrouter_key = apiKey;
-  }
-
-  return { router };
 }
 
 // === Helpers ===

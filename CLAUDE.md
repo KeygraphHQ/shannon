@@ -82,7 +82,7 @@ pnpm biome:fix                       # Auto-fix lint, format, and import sorting
 
 **Monorepo tooling:** pnpm workspaces, Turborepo for task orchestration, Biome for linting/formatting. TypeScript compiler options shared via `tsconfig.base.json` at the root. All packages extend it, overriding only `rootDir` and `outDir`. Shared devDependencies (`typescript`, `@types/node`, `turbo`, `@biomejs/biome`) are hoisted to the root workspace.
 
-**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--router` (multi-model routing via [claude-code-router](https://github.com/musistudio/claude-code-router))
+**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries)
 
 ## Architecture
 
@@ -106,14 +106,14 @@ Published as `@keygraph/shannon` on npm. Contains only Docker orchestration logi
 - `apps/cli/src/commands/setup.ts` — Interactive TUI wizard (`@clack/prompts`) for provider credential setup (npx only)
 - `apps/cli/src/paths.ts` — Repo/config path resolution (bare name → `./repos/<name>`, or any absolute/relative path)
 - `apps/cli/src/commands/` — Command handlers
-- `apps/cli/infra/compose.yml` — Bundled Temporal + router compose file for npx mode
+- `apps/cli/infra/compose.yml` — Bundled Temporal compose file for npx mode
 - `apps/cli/tsdown.config.ts` — tsdown bundler config
 - `shannon` — Node.js entry point (`#!/usr/bin/env node`) that delegates to `apps/cli/dist/index.mjs`
 
 ### Docker Architecture
-Infra (Temporal + router) runs via `docker-compose.yml`. Workers are ephemeral `docker run --rm` containers, one per scan, each with a unique task queue and isolated volume mounts.
+Infra (Temporal) runs via `docker-compose.yml`. Workers are ephemeral `docker run --rm` containers, one per scan, each with a unique task queue and isolated volume mounts.
 
-- `docker-compose.yml` — Infra only: `shannon-temporal` (port 7233/8233) and `shannon-router` (port 3456, optional via profile). Network: `shannon-net`
+- `docker-compose.yml` — Infra only: `shannon-temporal` (port 7233/8233). Network: `shannon-net`
 - `Dockerfile` — 2-stage build (builder + Chainguard Wolfi runtime). Uses pnpm. Entrypoint: `CMD ["node", "apps/worker/dist/temporal/worker.js"]`
 - No `docker-compose.docker.yml` — host gateway handled via `--add-host` flag in CLI
 

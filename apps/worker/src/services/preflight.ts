@@ -14,7 +14,7 @@
  * Checks run sequentially, cheapest first:
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
- * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, Vertex AI, or router mode)
+ * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
  * 4. Target URL is reachable from the container (DNS + HTTP)
  */
 
@@ -463,7 +463,7 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
  *
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if configPath provided)
- * 3. Credentials validate (API key, OAuth, or router mode)
+ * 3. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
  * 4. Target URL is reachable from the container
  *
  * Returns on first failure.

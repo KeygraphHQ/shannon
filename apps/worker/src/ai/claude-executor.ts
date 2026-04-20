@@ -21,7 +21,6 @@ import { dispatchMessage } from './message-handlers.js';
 import { type ModelTier, resolveModel } from './models.js';
 import { detectExecutionContext, formatCompletionMessage, formatErrorOutput } from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
-import { getActualModelName } from './router-utils.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -183,7 +182,6 @@ export async function runClaudePrompt(
       case 'litellm_router':
         if (providerConfig.baseUrl) sdkEnv.ANTHROPIC_BASE_URL = providerConfig.baseUrl;
         if (providerConfig.authToken) sdkEnv.ANTHROPIC_AUTH_TOKEN = providerConfig.authToken;
-        if (providerConfig.routerDefault) sdkEnv.ROUTER_DEFAULT = providerConfig.routerDefault;
         break;
       default:
         // 'anthropic_api' or unset — apiKey already handled above
@@ -384,9 +382,8 @@ async function processMessageStream(
       if (dispatchResult.apiErrorDetected) {
         apiErrorDetected = true;
       }
-      // Capture model from SystemInitMessage, but override with router model if applicable
       if (dispatchResult.model) {
-        model = getActualModelName(dispatchResult.model);
+        model = dispatchResult.model;
       }
     }
   }

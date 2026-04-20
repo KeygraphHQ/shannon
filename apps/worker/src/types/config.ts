@@ -80,7 +80,6 @@ export interface ProviderConfig {
   readonly gcpCredentialsPath?: string;
   readonly baseUrl?: string;
   readonly authToken?: string;
-  readonly routerDefault?: string;
   readonly modelOverrides?: Record<string, string>;
   readonly supportsStructuredOutput?: boolean;
 }

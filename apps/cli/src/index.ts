@@ -69,7 +69,6 @@ Options for 'start':
   -o, --output <path>       Copy deliverables to this directory after run
   -w, --workspace <name>    Named workspace (auto-resumes if exists)
       --pipeline-testing    Use minimal prompts for fast testing
-      --router              Route requests through claude-code-router
 
 Examples:
   ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
@@ -94,7 +93,6 @@ interface ParsedStartArgs {
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
-  router: boolean;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
@@ -104,7 +102,6 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   let workspace: string | undefined;
   let output: string | undefined;
   let pipelineTesting = false;
-  let router = false;
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -149,9 +146,6 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       case '--pipeline-testing':
         pipelineTesting = true;
         break;
-      case '--router':
-        router = true;
-        break;
       default:
         console.error(`Unknown option: ${arg}`);
         console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
@@ -169,7 +163,6 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     url,
     repo,
     pipelineTesting,
-    router,
     ...(config && { config }),
     ...(workspace && { workspace }),
     ...(output && { output }),

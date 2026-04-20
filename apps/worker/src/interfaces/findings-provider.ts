@@ -1,7 +1,7 @@
 /**
  * FindingsProvider — injectable interface for external findings integration.
  *
- * Allows external security data (SAST, SCA, secrets, etc.) to be merged
+ * Allows external security data from consumer-supplied sources to be merged
  * into the exploitation pipeline between vulnerability analysis and exploitation.
  *
  * Default: no-op returning { mergedCount: 0 }.

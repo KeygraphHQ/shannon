@@ -23,6 +23,7 @@ import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { ContainerConfig, ProviderConfig } from '../types/config.js';
+import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -131,6 +132,20 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
  */
 async function runAgentActivity(agentName: AgentName, input: ActivityInput): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
+
+  // Skip guard: the checkpoint provider decides whether to run the agent.
+  // The default NoOp provider always returns { skip: false }.
+  const skipContainer = getContainer(workflowId) ??
+    getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
+    agentName,
+    repoPath,
+    input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+  );
+  if (decision.skip && decision.metrics) {
+    return decision.metrics;
+  }
+
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -288,7 +303,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * Runs cheap checks before any agent execution:
  * 1. Repository path exists with .git
  * 2. Config file validates (if provided)
- * 3. Credential validation (API key, OAuth, or router mode)
+ * 3. Credential validation (API key, OAuth, Bedrock, or Vertex AI)
  * 4. Target URL reachable from the container
  *
  * NOT using runAgentActivity — preflight doesn't run an agent via the SDK.
@@ -378,11 +393,11 @@ export async function initDeliverableGit(input: ActivityInput): Promise<void> {
  * Assemble the final report by concatenating exploitation evidence files.
  */
 export async function assembleReportActivity(input: ActivityInput): Promise<void> {
-  const { repoPath } = input;
+  const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, logger);
+    await assembleFinalReport(repoPath, deliverablesSubdir, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error assembling final report: ${err.message}`);
@@ -393,11 +408,11 @@ export async function assembleReportActivity(input: ActivityInput): Promise<void
  * Inject model metadata into the final report.
  */
 export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, sessionId, outputPath } = input;
+  const { repoPath, sessionId, outputPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
   const effectiveOutputPath = outputPath ? path.join(outputPath, sessionId) : path.join('./workspaces', sessionId);
   try {
-    await injectModelIntoReport(repoPath, effectiveOutputPath, logger);
+    await injectModelIntoReport(repoPath, deliverablesSubdir, effectiveOutputPath, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error injecting model into report: ${err.message}`);
@@ -585,6 +600,18 @@ export async function restoreGitCheckpoint(
   const logger = createActivityLogger();
   logger.info(`Restoring deliverables to ${checkpointHash}...`);
 
+  // Validate hash exists in this clone before attempting reset
+  try {
+    await executeGitCommandWithRetry(
+      ['git', 'rev-parse', '--verify', checkpointHash],
+      repoPath,
+      'verify checkpoint hash exists'
+    );
+  } catch {
+    logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);
+    return;
+  }
+
   await executeGitCommandWithRetry(
     ['git', 'reset', '--hard', checkpointHash],
     deliverablesPath,
@@ -736,5 +763,42 @@ export async function saveCheckpoint(
 ): Promise<void> {
   const container = getContainer(input.workflowId);
   if (!container?.checkpointProvider) return;
-  return container.checkpointProvider.onAgentComplete(agentName, phase, state);
+
+  const context: CheckpointContext = {
+    repoPath: input.repoPath,
+    sessionId: input.sessionId,
+    deliverablesSubdir: input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+    ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
+  };
+
+  return container.checkpointProvider.onAgentComplete(agentName, phase, state, context);
+}
+
+/**
+ * Generate an optional additional output alongside the assembled markdown report.
+ *
+ * Delegates to the ReportOutputProvider registered in the DI container.
+ * Default: no-op. Consumers can override this activity at the worker level
+ * to emit derived outputs from the final report.
+ */
+export async function generateReportOutputActivity(input: ActivityInput): Promise<void> {
+  const container = getContainer(input.workflowId);
+  if (!container?.reportOutputProvider) return;
+
+  const logger = createActivityLogger();
+
+  // Resolve promptDir against the worker root so providers are cwd-independent.
+  const resolvedInput: ActivityInput = {
+    ...input,
+    ...(input.promptDir !== undefined && {
+      promptDir: path.isAbsolute(input.promptDir)
+        ? input.promptDir
+        : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
+    }),
+  };
+
+  const result = await container.reportOutputProvider.generate(resolvedInput, logger);
+  if (result.outputPath) {
+    logger.info(`Report output written to ${result.outputPath}`);
+  }
 }
