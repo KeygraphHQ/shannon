@@ -24,5 +24,8 @@
       "@swc/core",
       "protobufjs"
     ]
+  },
+  "dependencies": {
+    "protobufjs": "8.0.1"
   }
 }
