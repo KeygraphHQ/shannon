@@ -170,9 +170,7 @@ curl -X POST "http://juice-shop.sandbox.local:3001/file-upload" \
 **Proof of Impact:**
 Successfully extracted `/etc/passwd` file contents:
 ```
-root:x:0:0:root:/root:/sbin/nologin
-nobody:x:65534:65534:nobody:/nonexistent:/sbin/nologin
-nonroot:x:65532:65532:nonroot:/home/nonroot:/sbin/nologin
+[REDACTED - /etc/passwd entries retrieved via XXE, showing root, nobody, and nonroot accounts]
 ```
 
 **Notes:**
@@ -277,7 +275,7 @@ This vulnerability enables cross-domain attacks and can be used to exfiltrate us
 
 **Exploitation Steps:**
 
-1. Identify SQL injection vulnerability in login query structure: `SELECT * FROM Users WHERE email = '${req.body.email}'`
+1. Identify SQL injection vulnerability in login query structure where user input is concatenated directly into the SQL string (vulnerable pattern: `SELECT * FROM Users WHERE email = '[user-input]'`)
 
 2. Execute SQL injection payload to bypass authentication:
 ```bash
