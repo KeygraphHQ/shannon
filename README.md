@@ -1,5 +1,5 @@
 >[!NOTE]
-> **[📢 New: Shannon is now available via `npx @keygraph/shannon`. →](https://github.com/KeygraphHQ/shannon/discussions/249)**
+> **[📢 Sunsetting Router Mode (claude-code-router)`. →](https://github.com/KeygraphHQ/shannon/discussions/301)**
 
 <div align="center">
 
@@ -145,9 +145,12 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - **Google Vertex AI** - Route through Google Cloud Vertex AI (see [Google Vertex AI](#google-vertex-ai))
 
 > [!NOTE]
-> Docker is still required to use the `npx` workflow. Under the hood, the CLI pulls and runs a prebuilt Shannon worker image from Docker Hub, which is approximately 1 GB and contains Shannon plus all required dependencies.
+> Docker is still required to use the `npx` workflow. Under the hood, the CLI pulls and runs a prebuilt Shannon worker image from Docker Hub, which is approximately 1 GB and contains Shannon plus all required dependencies. Shannon mounts the target repository as read-only inside the worker container to protect against accidental modifications during analysis. Run Shannon via `npx @keygraph/shannon` for the latest released version, or pull the latest `main` if building from source.
 
 ### Quick Start (Recommended: npx)
+
+> [!WARNING]
+> **Please read the [Disclaimers](#disclaimers) before running Shannon.** Shannon is **not** a passive scanner — it actively executes exploits against the target. You must have **explicit, written authorization** from the system owner.
 
 ```bash
 # 1. Configure credentials (interactive wizard — one-time setup)
@@ -510,7 +513,12 @@ Set `CLOUD_ML_REGION=global` for global endpoints, or a specific region like `us
 
 ### Custom Base URL
 
-Shannon supports pointing the SDK at any Anthropic-compatible endpoint (proxies, gateways, etc.) via `ANTHROPIC_BASE_URL`.
+Shannon supports pointing the SDK at any Anthropic-compatible endpoint via `ANTHROPIC_BASE_URL`. For users who need proxy-based routing, the supported path is to use an LLM proxy such as [LiteLLM](https://github.com/BerriAI/litellm) configured to expose an Anthropic-compatible endpoint.
+
+> [!IMPORTANT]
+> **Only Claude models are officially supported.** Shannon's evaluations, internal testing, and agent harness are all optimized for Claude. Smaller or alternative models — including non-Claude models routed through a proxy — may not reliably follow Shannon's instructions or tool-use constraints, and are not officially supported. Use them at your own risk; results may be incomplete, inaccurate, or unstable.
+>
+> The previously experimental `claude-code-router` integration is being removed in an upcoming release. If you currently rely on it, migrate to an Anthropic-compatible proxy such as LiteLLM before upgrading.
 
 Run `npx @keygraph/shannon setup` and select **Custom Base URL**. The wizard will prompt for your endpoint URL, auth token, and optionally let you override the default model tiers.
 
@@ -543,11 +551,7 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 
 **For Windows:**
 
-*Native (Git Bash):*
-
-Install [Git for Windows](https://git-scm.com/install/windows) and run Shannon from **Git Bash** with Docker Desktop installed. Both `npx @keygraph/shannon` and local clone mode are supported.
-
-*WSL2 (Recommended):*
+Shannon on Windows is only supported via **WSL2**. Native Windows (including Git Bash) is not supported.
 
 **Step 1: Ensure WSL 2**
 
@@ -790,6 +794,7 @@ This is not a passive scanner. The exploitation agents are designed to **activel
 >
 > - It is intended exclusively for use on sandboxed, staging, or local development environments where data integrity is not a concern.
 > - Potential mutative effects include, but are not limited to: creating new users, modifying or deleting data, compromising test accounts, and triggering unintended side effects from injection attacks.
+> - **For maximum security and isolation, run Shannon inside a virtual machine (VM).** This confines any side effects from exploitation — including unexpected outbound traffic, file writes from agent tooling, or interactions with local services — to a disposable environment.
 
 #### **2. Legal & Ethical Use**
 
@@ -803,6 +808,7 @@ Shannon is designed for legitimate security auditing purposes only.
 #### **3. LLM & Automation Caveats**
 
 - **Verification is Required**: While significant engineering has gone into our "proof-by-exploitation" methodology to eliminate false positives, the underlying LLMs can still generate hallucinated or weakly-supported content in the final report. **Human oversight is essential** to validate the legitimacy and severity of all reported findings.
+- **Model Support**: Shannon is officially supported only with **Claude models**. Our evaluations, internal testing, and agent harness are all optimized for Claude. Smaller or alternative models — including non-Claude models routed through a proxy — may not reliably follow Shannon's instructions or tool-use constraints, and are not officially supported.
 - **Comprehensiveness**: The analysis in Shannon Lite may not be exhaustive due to the inherent limitations of LLM context windows. For a more comprehensive, graph-based analysis of your entire codebase, **Shannon Pro** leverages its advanced data flow analysis engine to ensure deeper and more thorough coverage.
 
 #### **4. Scope of Analysis**
