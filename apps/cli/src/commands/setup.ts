@@ -288,12 +288,17 @@ async function setupRouter(): Promise<ShannonConfig> {
     options: [
       { value: 'openai' as const, label: 'OpenAI' },
       { value: 'openrouter' as const, label: 'OpenRouter' },
+      { value: 'minimax' as const, label: 'MiniMax', hint: 'experimental' },
     ],
   });
   if (p.isCancel(routerProvider)) return cancelAndExit();
 
   const apiKey = await promptSecret(
-    routerProvider === 'openai' ? 'Enter your OpenAI API key' : 'Enter your OpenRouter API key',
+    routerProvider === 'openai'
+      ? 'Enter your OpenAI API key'
+      : routerProvider === 'minimax'
+        ? 'Enter your MiniMax API key'
+        : 'Enter your OpenRouter API key',
   );
 
   let defaultModel: string;
@@ -307,6 +312,16 @@ async function setupRouter(): Promise<ShannonConfig> {
     });
     if (p.isCancel(model)) return cancelAndExit();
     defaultModel = `openai,${model}`;
+  } else if (routerProvider === 'minimax') {
+    const model = await p.select({
+      message: 'Default model',
+      options: [
+        { value: 'MiniMax-M2.7' as const, label: 'MiniMax-M2.7' },
+        { value: 'MiniMax-Text-01' as const, label: 'MiniMax-Text-01' },
+      ],
+    });
+    if (p.isCancel(model)) return cancelAndExit();
+    defaultModel = `minimax,${model}`;
   } else {
     const model = await p.select({
       message: 'Default model',
@@ -319,6 +334,8 @@ async function setupRouter(): Promise<ShannonConfig> {
   const router: ShannonConfig['router'] = { default: defaultModel };
   if (routerProvider === 'openai') {
     router.openai_key = apiKey;
+  } else if (routerProvider === 'minimax') {
+    router.minimax_key = apiKey;
   } else {
     router.openrouter_key = apiKey;
   }

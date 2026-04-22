@@ -545,17 +545,24 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-6
 
 Shannon can experimentally route requests through alternative AI providers using claude-code-router. This mode is not officially supported and is intended primarily for:
 
-- **Model experimentation** — try Shannon with GPT-5.2 or Gemini 3-family models
+- **Model experimentation** — try Shannon with GPT-5.2, Gemini 3-family models, or MiniMax-M2.7
 
 #### Quick Setup
 
-Run `npx @keygraph/shannon setup` and select **Router**. The wizard will prompt you to choose a provider (OpenAI or OpenRouter), enter your API key, and select a default model.
+Run `npx @keygraph/shannon setup` and select **Router**. The wizard will prompt you to choose a provider (OpenAI, OpenRouter, or MiniMax), enter your API key, and select a default model.
 
 Or export env vars directly:
 
 ```bash
 export OPENAI_API_KEY=sk-...          # or OPENROUTER_API_KEY=sk-or-...
 export ROUTER_DEFAULT=openai,gpt-5.2  # provider,model format
+```
+
+For MiniMax:
+
+```bash
+export MINIMAX_API_KEY=<your-minimax-key>
+export ROUTER_DEFAULT=minimax,MiniMax-M2.7
 ```
 
 ```bash
@@ -569,6 +576,8 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo --router
 OPENAI_API_KEY=sk-...
 # OR
 OPENROUTER_API_KEY=sk-or-...
+# OR
+MINIMAX_API_KEY=<your-minimax-key>
 ROUTER_DEFAULT=openai,gpt-5.2
 ```
 
@@ -584,6 +593,7 @@ ROUTER_DEFAULT=openai,gpt-5.2
 |----------|--------|
 | OpenAI | gpt-5.2, gpt-5-mini |
 | OpenRouter | google/gemini-3-flash-preview |
+| MiniMax | MiniMax-M2.7, MiniMax-Text-01 |
 
 #### Disclaimer
 

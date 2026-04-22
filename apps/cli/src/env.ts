@@ -29,6 +29,7 @@ const FORWARD_VARS = [
   'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
   'OPENAI_API_KEY',
   'OPENROUTER_API_KEY',
+  'MINIMAX_API_KEY',
 ] as const;
 
 /**
@@ -69,7 +70,10 @@ interface CredentialValidation {
 
 /** Check if router credentials are present in the environment. */
 export function isRouterConfigured(): boolean {
-  return !!(process.env.ROUTER_DEFAULT && (process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY));
+  return !!(
+    process.env.ROUTER_DEFAULT &&
+    (process.env.OPENAI_API_KEY || process.env.OPENROUTER_API_KEY || process.env.MINIMAX_API_KEY)
+  );
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */

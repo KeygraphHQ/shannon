@@ -48,6 +48,7 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ROUTER_DEFAULT', toml: 'router.default', type: 'string' },
   { env: 'OPENAI_API_KEY', toml: 'router.openai_key', type: 'string' },
   { env: 'OPENROUTER_API_KEY', toml: 'router.openrouter_key', type: 'string' },
+  { env: 'MINIMAX_API_KEY', toml: 'router.minimax_key', type: 'string' },
 
   // Model tiers
   { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
@@ -170,8 +171,8 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       if (!keys.includes('default')) {
         errors.push('[router] missing required key: default');
       }
-      if (!keys.includes('openai_key') && !keys.includes('openrouter_key')) {
-        errors.push('[router] requires either openai_key or openrouter_key');
+      if (!keys.includes('openai_key') && !keys.includes('openrouter_key') && !keys.includes('minimax_key')) {
+        errors.push('[router] requires one of: openai_key, openrouter_key, minimax_key');
       }
       const models = config.models as Record<string, unknown> | undefined;
       if (models && typeof models === 'object' && Object.keys(models).length > 0) {
