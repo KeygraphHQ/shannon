@@ -208,11 +208,7 @@ async function interpolateVariables(
       const needsLoginInstructions =
         config.authentication?.login_type === 'interactive' || config.authentication?.login_flow;
       if (needsLoginInstructions) {
-        const loginInstructions = await buildLoginInstructions(
-          config.authentication!,
-          logger,
-          promptsBaseDir,
-        );
+        const loginInstructions = await buildLoginInstructions(config.authentication!, logger, promptsBaseDir);
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
       } else {
         result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');

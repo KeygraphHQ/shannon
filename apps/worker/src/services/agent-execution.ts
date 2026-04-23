@@ -96,7 +96,20 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, deliverablesPath, sessionId, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir, providerConfig } = input;
+    const {
+      webUrl,
+      repoPath,
+      deliverablesPath,
+      sessionId,
+      configPath,
+      configData,
+      configYAML,
+      pipelineTestingMode = false,
+      attemptNumber,
+      apiKey,
+      promptDir,
+      providerConfig,
+    } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);

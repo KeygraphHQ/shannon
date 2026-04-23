@@ -22,8 +22,8 @@ import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
-import type { ContainerConfig, ProviderConfig } from '../types/config.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
+import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -34,9 +34,9 @@ import { assembleFinalReport, injectModelIntoReport } from '../services/reportin
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
+import type { ContainerConfig, ProviderConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
-import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import { createActivityLogger } from './activity-logger.js';
 import type { AgentMetrics, PipelineState, ResumeState } from './shared.js';
@@ -135,7 +135,8 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
 
   // Skip guard: the checkpoint provider decides whether to run the agent.
   // The default NoOp provider always returns { skip: false }.
-  const skipContainer = getContainer(workflowId) ??
+  const skipContainer =
+    getContainer(workflowId) ??
     getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
   const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
     agentName,
@@ -322,7 +323,15 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger, input.skipGitCheck, input.apiKey, input.providerConfig);
+    const result = await runPreflightChecks(
+      input.webUrl,
+      input.repoPath,
+      input.configPath,
+      logger,
+      input.skipGitCheck,
+      input.apiKey,
+      input.providerConfig,
+    );
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -606,7 +615,7 @@ export async function restoreGitCheckpoint(
     await executeGitCommandWithRetry(
       ['git', 'rev-parse', '--verify', checkpointHash],
       repoPath,
-      'verify checkpoint hash exists'
+      'verify checkpoint hash exists',
     );
   } catch {
     logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);

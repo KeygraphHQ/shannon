@@ -123,7 +123,10 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(deliverablesDir(repoPath, deliverablesSubdir), 'comprehensive_security_assessment_report.md');
+  const reportPath = path.join(
+    deliverablesDir(repoPath, deliverablesSubdir),
+    'comprehensive_security_assessment_report.md',
+  );
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');
