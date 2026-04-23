@@ -45,6 +45,6 @@
     "node": ">=18"
   },
   "devDependencies": {
-    "tsdown": "^0.21.5"
+    "tsdown": "^0.21.9"
   }
 }

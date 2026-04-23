@@ -14,9 +14,9 @@
     "temporal:start": "node apps/worker/dist/temporal/worker.js"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.0.0",
-    "@types/node": "^25.0.3",
-    "turbo": "^2.5.0",
+    "@biomejs/biome": "^2.4.12",
+    "@types/node": "^25.6.0",
+    "turbo": "^2.9.6",
     "typescript": "^5.9.3"
   },
   "pnpm": {

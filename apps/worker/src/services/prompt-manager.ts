@@ -162,7 +162,7 @@ async function interpolateVariables(
       });
     }
 
-    if (!variables || !variables.webUrl || !variables.repoPath) {
+    if (!variables?.webUrl || !variables.repoPath) {
       throw new PentestError('Variables must include webUrl and repoPath', 'validation', false, {
         variables: Object.keys(variables || {}),
       });
