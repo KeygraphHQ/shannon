@@ -20,6 +20,9 @@
     "typescript": "^5.9.3"
   },
   "pnpm": {
+    "overrides": {
+      "protobufjs": ">=7.5.5"
+    },
     "onlyBuiltDependencies": [
       "@swc/core",
       "protobufjs"
