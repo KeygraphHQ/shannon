@@ -10,6 +10,9 @@ catalogs:
       specifier: ^0.2.38
       version: 0.2.76
 
+overrides:
+  '@temporalio/client>uuid': 14.0.0
+
 importers:
 
   .:
@@ -1314,8 +1317,8 @@ packages:
     peerDependencies:
       browserslist: '>= 4.21.0'
 
-  uuid@11.1.0:
-    resolution: {integrity: sha512-0/A9rDy9P7cJ+8w1c9WD9V//9Wj15Ce2MPz8Ri6032usz+NfePxx5AcN3bN+r6ZL6jEo066/yNYB3tn4pQEx+A==}
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
     hasBin: true
 
   watchpack@2.5.1:
@@ -1832,7 +1835,7 @@ snapshots:
       '@temporalio/proto': 1.16.0
       abort-controller: 3.0.0
       long: 5.3.2
-      uuid: 11.1.0
+      uuid: 14.0.0
 
   '@temporalio/common@1.16.0':
     dependencies:
@@ -2470,7 +2473,7 @@ snapshots:
       escalade: 3.2.0
       picocolors: 1.1.1
 
-  uuid@11.1.0: {}
+  uuid@14.0.0: {}
 
   watchpack@2.5.1:
     dependencies:

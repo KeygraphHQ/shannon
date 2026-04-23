@@ -23,6 +23,9 @@
     "onlyBuiltDependencies": [
       "@swc/core",
       "protobufjs"
-    ]
+    ],
+    "overrides": {
+      "@temporalio/client>uuid": "14.0.0"
+    }
   }
 }

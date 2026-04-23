@@ -3,3 +3,6 @@ packages:
 
 catalog:
   "@anthropic-ai/claude-agent-sdk": ^0.2.38
+
+minimumReleaseAgeExclude:
+  - uuid@14.0.0
