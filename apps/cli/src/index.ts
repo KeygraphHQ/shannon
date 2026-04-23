@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { auth } from './commands/auth.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
@@ -48,6 +49,7 @@ Usage:${
       : `
   ${prefix} setup                                       Configure credentials`
   }
+  ${prefix} auth --config <path> [--workspace <name>]    Pre-authenticate (OAuth/SSO)
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
   ${prefix} stop [--clean]                               Stop all containers
   ${prefix} workspaces                                   List all workspaces
@@ -176,12 +178,62 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   };
 }
 
+interface ParsedAuthArgs {
+  config: string;
+  workspace?: string;
+}
+
+function parseAuthArgs(argv: string[]): ParsedAuthArgs {
+  let config = '';
+  let workspace: string | undefined;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    const next = argv[i + 1];
+
+    switch (arg) {
+      case '-c':
+      case '--config':
+        if (next && !next.startsWith('-')) {
+          config = next;
+          i++;
+        }
+        break;
+      case '-w':
+      case '--workspace':
+        if (next && !next.startsWith('-')) {
+          workspace = next;
+          i++;
+        }
+        break;
+      default:
+        console.error(`Unknown option for auth: ${arg}`);
+        process.exit(1);
+    }
+  }
+
+  if (!config) {
+    console.error('ERROR: --config is required for auth');
+    console.error(
+      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} auth -c <config.yaml> [-w <workspace>]`,
+    );
+    process.exit(1);
+  }
+
+  return { config, ...(workspace && { workspace }) };
+}
+
 // === Main Dispatch ===
 
 const args = process.argv.slice(2);
 const command = args[0];
 
 switch (command) {
+  case 'auth': {
+    const parsed = parseAuthArgs(args.slice(1));
+    await auth(parsed);
+    break;
+  }
   case 'start': {
     const parsed = parseStartArgs(args.slice(1));
     await start({ ...parsed, version: getVersion() });

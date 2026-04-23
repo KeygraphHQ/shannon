@@ -30,22 +30,13 @@ export interface CheckpointProvider {
    * Return { skip: true, metrics } to skip the agent (e.g., output files already exist).
    * Return { skip: false } to run normally.
    */
-  shouldSkipAgent(
-    agentName: string,
-    repoPath: string,
-    deliverablesSubdir: string,
-  ): Promise<SkipDecision>;
+  shouldSkipAgent(agentName: string, repoPath: string, deliverablesSubdir: string): Promise<SkipDecision>;
 
   /**
    * Called after an agent activity succeeds.
    * Receives pipeline state and optional file context for artifact persistence.
    */
-  onAgentComplete(
-    agentName: string,
-    phase: string,
-    state: PipelineState,
-    context?: CheckpointContext,
-  ): Promise<void>;
+  onAgentComplete(agentName: string, phase: string, state: PipelineState, context?: CheckpointContext): Promise<void>;
 }
 
 /** Default no-op implementation — no external checkpointing. */
