@@ -191,6 +191,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push('-v', `${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
   args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
 
+  // Writable overlay for kiro-cli agent definitions
+  args.push('-v', `${path.join(workspacePath, 'kiro-agents')}:${opts.repo.containerPath}/.kiro/agents`);
+
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
     args.push('-v', `${opts.promptsDir}:/app/apps/worker/prompts:ro`);

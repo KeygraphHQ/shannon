@@ -22,10 +22,12 @@
  */
 
 import { fs, path } from 'zx';
-import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
+import { type ClaudePromptResult, validateAgentOutput } from '../ai/claude-executor.js';
+import { augmentPromptForStructuredOutput, readStructuredOutputFromDisk } from '../ai/kiro-cli-executor.js';
 import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
-import { AGENTS } from '../session-manager.js';
+import type { Executor } from '../interfaces/executor.js';
+import { AGENTS, PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentEndResult } from '../types/audit.js';
@@ -76,9 +78,11 @@ interface FailAgentOpts {
  */
 export class AgentExecutionService {
   private readonly configLoader: ConfigLoaderService;
+  private readonly executor: Executor;
 
-  constructor(configLoader: ConfigLoaderService) {
+  constructor(configLoader: ConfigLoaderService, executor: Executor) {
     this.configLoader = configLoader;
+    this.executor = executor;
   }
 
   /**
@@ -95,7 +99,19 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, deliverablesPath, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir, providerConfig } = input;
+    const {
+      webUrl,
+      repoPath,
+      deliverablesPath,
+      configPath,
+      configData,
+      configYAML,
+      pipelineTestingMode = false,
+      attemptNumber,
+      apiKey,
+      promptDir,
+      providerConfig,
+    } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
@@ -108,7 +124,14 @@ export class AgentExecutionService {
     const promptTemplate = AGENTS[agentName].promptTemplate;
     let prompt: string;
     try {
-      prompt = await loadPrompt(promptTemplate, { webUrl, repoPath }, distributedConfig, pipelineTestingMode, logger, promptDir);
+      prompt = await loadPrompt(
+        promptTemplate,
+        { webUrl, repoPath },
+        distributedConfig,
+        pipelineTestingMode,
+        logger,
+        promptDir,
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -143,19 +166,44 @@ export class AgentExecutionService {
 
     // 5. Execute agent
     const outputFormat = getOutputFormat(agentName);
-    const result: ClaudePromptResult = await runClaudePrompt(
-      prompt,
+    const queueFilename = getQueueFilename(agentName);
+
+    // Augment prompt with queue-writing instructions for vuln agents.
+    // Claude SDK uses native JsonSchemaOutputFormat; kiro-cli needs explicit file-write instructions.
+    // The extra text is harmless for the SDK path since structured output takes precedence.
+    let executionPrompt = prompt;
+    if (queueFilename && outputFormat) {
+      executionPrompt = augmentPromptForStructuredOutput(
+        prompt,
+        queueFilename,
+        path.relative(repoPath, deliverablesPath),
+        outputFormat.schema,
+      );
+    }
+
+    const result: ClaudePromptResult = await this.executor.execute(
+      executionPrompt,
       repoPath,
-      '', // context
-      agentName, // description
       agentName,
-      auditSession,
+      AGENTS[agentName].modelTier ?? 'medium',
       logger,
-      AGENTS[agentName].modelTier,
-      outputFormat,
-      apiKey,
-      path.relative(repoPath, deliverablesPath),
-      providerConfig,
+      {
+        context: '',
+        description: agentName,
+        auditSession,
+        outputFormat,
+        ...(apiKey ? { apiKey } : {}),
+        deliverablesSubdir: path.relative(repoPath, deliverablesPath),
+        ...(providerConfig ? { providerConfig } : {}),
+        ...(queueFilename ? { queueFilename } : {}),
+        ...(process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH
+          ? {
+              playwrightExecutablePath: process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH,
+              playwrightOutputDir: path.join(repoPath, '.shannon', '.playwright-cli'),
+              playwrightSession: PLAYWRIGHT_SESSION_MAPPING[AGENTS[agentName].promptTemplate],
+            }
+          : {}),
+      },
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -190,12 +238,18 @@ export class AgentExecutionService {
     }
 
     // 8. Write structured output to disk (vuln agents only)
-    const queueFilename = getQueueFilename(agentName);
     if (result.structuredOutput !== undefined && queueFilename) {
       await fs.ensureDir(deliverablesPath);
       const queuePath = path.join(deliverablesPath, queueFilename);
       await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
       logger.info(`Wrote structured output queue to ${queueFilename}`);
+    } else if (result.structuredOutput === undefined && queueFilename) {
+      // kiro-cli backend: agent writes queue JSON to disk directly via prompt instructions.
+      // Read it back so downstream validation sees it.
+      const diskOutput = await readStructuredOutputFromDisk(deliverablesPath, queueFilename);
+      if (diskOutput !== undefined) {
+        logger.info(`Read structured output queue from disk: ${queueFilename}`);
+      }
     }
 
     // 9. Validate output

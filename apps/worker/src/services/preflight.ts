@@ -39,7 +39,11 @@ function isLoopbackAddress(address: string): boolean {
 
 // === Repository Validation ===
 
-async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitCheck?: boolean): Promise<Result<void, PentestError>> {
+async function validateRepo(
+  repoPath: string,
+  logger: ActivityLogger,
+  skipGitCheck?: boolean,
+): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
   // 1. Check repo directory exists
@@ -184,11 +188,77 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
-async function validateCredentials(logger: ActivityLogger, apiKey?: string, providerConfig?: import('../types/config.js').ProviderConfig): Promise<Result<void, PentestError>> {
+async function validateCredentials(
+  logger: ActivityLogger,
+  apiKey?: string,
+  providerConfig?: import('../types/config.js').ProviderConfig,
+  executorBackend?: 'claude-sdk' | 'kiro-cli',
+): Promise<Result<void, PentestError>> {
+  // Kiro CLI backend — validate KIRO_API_KEY
+  if (executorBackend === 'kiro-cli') {
+    if (!process.env.KIRO_API_KEY) {
+      return err(
+        new PentestError(
+          'KIRO_API_KEY is not set.' + ' Required for kiro-cli backend.',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+
+    logger.info('Validating KIRO_API_KEY via kiro-cli...');
+    try {
+      const { spawnSync } = await import('node:child_process');
+      const { mkdirSync } = await import('node:fs');
+      const home = process.env.HOME || '/tmp';
+      mkdirSync(`${home}/.kiro`, { recursive: true });
+      const kiroEnv: Record<string, string> = {
+        KIRO_API_KEY: process.env.KIRO_API_KEY,
+        KIRO_LOG_NO_COLOR: '1',
+        HOME: home,
+        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
+        XDG_CONFIG_HOME: `${home}/.config`,
+        XDG_CACHE_HOME: `${home}/.cache`,
+      };
+      const r = spawnSync('kiro-cli', ['chat', '--no-interactive', '--wrap', 'never', 'hi'], {
+        timeout: 30_000,
+        env: kiroEnv,
+        stdio: 'pipe',
+      });
+      if (r.status === 0) {
+        logger.info('KIRO_API_KEY OK');
+        return ok(undefined);
+      }
+      const stderr = r.stderr?.toString() || '';
+      const isAuth = /authentication/i.test(stderr) || /unauthorized/i.test(stderr) || /invalid.*key/i.test(stderr);
+      return err(
+        new PentestError(
+          isAuth
+            ? 'KIRO_API_KEY validation failed. Check your key.'
+            : `kiro-cli preflight failed (exit ${r.status}): ${stderr.slice(0, 200)}`,
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return err(
+        new PentestError(`kiro-cli preflight error: ${msg.slice(0, 200)}`, 'config', false, {}, ErrorCode.AUTH_FAILED),
+      );
+    }
+  }
+
+  // Claude SDK path below
   // 0. If providerConfig is present, credentials are managed by the caller.
   //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
   if (providerConfig) {
-    logger.info(`Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`);
+    logger.info(
+      `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
+    );
     return ok(undefined);
   }
 
@@ -476,6 +546,7 @@ export async function runPreflightChecks(
   skipGitCheck?: boolean,
   apiKey?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
+  executorBackend?: 'claude-sdk' | 'kiro-cli',
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (free — filesystem only)
   const repoResult = await validateRepo(repoPath, logger, skipGitCheck);
@@ -491,8 +562,10 @@ export async function runPreflightChecks(
     }
   }
 
-  // 3. Credential check (cheap — 1 SDK round-trip, skipped when providerConfig present)
-  const credResult = await validateCredentials(logger, apiKey, providerConfig);
+  // 3. Credential check
+  const resolvedBackend =
+    executorBackend ?? (process.env.SHANNON_EXECUTOR_BACKEND as 'claude-sdk' | 'kiro-cli' | undefined);
+  const credResult = await validateCredentials(logger, apiKey, providerConfig, resolvedBackend);
   if (!credResult.ok) {
     return credResult;
   }

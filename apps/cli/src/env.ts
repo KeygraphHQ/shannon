@@ -17,6 +17,9 @@ const FORWARD_VARS = [
   'CLAUDE_CODE_OAUTH_TOKEN',
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
+  'AWS_ACCESS_KEY_ID',
+  'AWS_SECRET_ACCESS_KEY',
+  'AWS_SESSION_TOKEN',
   'AWS_BEARER_TOKEN_BEDROCK',
   'CLAUDE_CODE_USE_VERTEX',
   'CLOUD_ML_REGION',
@@ -26,6 +29,8 @@ const FORWARD_VARS = [
   'ANTHROPIC_MEDIUM_MODEL',
   'ANTHROPIC_LARGE_MODEL',
   'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
+  'KIRO_API_KEY',
+  'SHANNON_EXECUTOR_BACKEND',
 ] as const;
 
 /**
@@ -61,7 +66,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'kiro-cli';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -72,6 +77,7 @@ function isCustomBaseUrlConfigured(): boolean {
 /** Detect which providers are configured via environment variables. */
 function detectProviders(): string[] {
   const providers: string[] = [];
+  if (process.env.KIRO_API_KEY && process.env.SHANNON_EXECUTOR_BACKEND === 'kiro-cli') providers.push('Kiro CLI');
   if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
   if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
@@ -84,6 +90,18 @@ function detectProviders(): string[] {
  * Validate that exactly one authentication method is configured.
  */
 export function validateCredentials(): CredentialValidation {
+  // Kiro CLI backend — KIRO_API_KEY is the only credential needed
+  if (process.env.SHANNON_EXECUTOR_BACKEND === 'kiro-cli') {
+    if (!process.env.KIRO_API_KEY) {
+      return {
+        valid: false,
+        mode: 'kiro-cli',
+        error: 'Kiro CLI mode requires KIRO_API_KEY in .env or exported.',
+      };
+    }
+    return { valid: true, mode: 'kiro-cli' };
+  }
+
   // Reject multiple providers
   const providers = detectProviders();
   if (providers.length > 1) {

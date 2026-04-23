@@ -38,6 +38,9 @@ ENV CGO_ENABLED=1
 RUN mkdir -p $GOPATH/bin
 
 # Install Go-based security tools
+ENV GOPROXY=direct
+ENV GONOSUMCHECK=*
+ENV GOFLAGS=-insecure
 RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.13.0
 # Install WhatWeb from release tarball (Ruby-based tool)
 RUN curl -sL https://github.com/urbanadventurer/WhatWeb/archive/refs/tags/v0.6.3.tar.gz | tar xz -C /opt && \
@@ -53,6 +56,11 @@ RUN pip3 install --no-cache-dir schemathesis==4.13.0
 
 # Install pnpm
 RUN npm install -g pnpm@10.33.0
+
+# Install kiro-cli for headless mode executor backend
+RUN curl -fsSL https://cli.kiro.dev/install | bash && \
+    cp -a /root/.local/bin/kiro-cli* /usr/local/bin/ 2>/dev/null; \
+    ls /usr/local/bin/kiro-cli*
 
 # Build Node.js application in builder to avoid QEMU emulation failures in CI
 WORKDIR /app
@@ -123,6 +131,9 @@ RUN gem install addressable -v 2.8.9
 # Copy Python packages from builder
 COPY --from=builder /usr/lib/python3.*/site-packages /usr/lib/python3.12/site-packages
 COPY --from=builder /usr/bin/schemathesis /usr/bin/
+
+# Copy kiro-cli binaries from builder
+COPY --from=builder /usr/local/bin/kiro-cli* /usr/local/bin/
 
 # Create non-root user
 RUN addgroup -g 1001 pentest && \

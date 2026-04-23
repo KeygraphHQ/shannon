@@ -5,8 +5,9 @@
  * Consumers can provide alternate implementations via the DI container.
  */
 
-export type { CheckpointProvider, CheckpointContext, SkipDecision } from './checkpoint-provider.js';
+export type { CheckpointContext, CheckpointProvider, SkipDecision } from './checkpoint-provider.js';
 export { NoOpCheckpointProvider } from './checkpoint-provider.js';
+export type { Executor, ExecutorOptions } from './executor.js';
 export type { FindingsProvider } from './findings-provider.js';
 export { NoOpFindingsProvider } from './findings-provider.js';
 export type { ReportOutputProvider } from './report-output-provider.js';

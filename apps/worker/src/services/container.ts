@@ -9,14 +9,10 @@
  *
  * Provides a per-workflow container for service instances.
  * Services are wired with explicit constructor injection.
- *
- * Usage:
- *   const container = getOrCreateContainer(workflowId, sessionMetadata);
- *   const auditSession = new AuditSession(sessionMetadata);  // Per-agent
- *   await auditSession.initialize(workflowId);
- *   const result = await container.agentExecution.executeOrThrow(agentName, input, auditSession);
  */
 
+import { ClaudeSdkExecutor } from '../ai/claude-sdk-executor.js';
+import { KiroCliExecutor } from '../ai/kiro-cli-executor.js';
 import type { SessionMetadata } from '../audit/utils.js';
 import type { CheckpointProvider } from '../interfaces/checkpoint-provider.js';
 import { NoOpCheckpointProvider } from '../interfaces/checkpoint-provider.js';
@@ -29,13 +25,34 @@ import { AgentExecutionService } from './agent-execution.js';
 import { ConfigLoaderService } from './config-loader.js';
 import { ExploitationCheckerService } from './exploitation-checker.js';
 
+// === Backend Selection ===
+
+type ExecutorBackend = 'claude-sdk' | 'kiro-cli';
+
+const VALID_BACKENDS = new Set<ExecutorBackend>(['claude-sdk', 'kiro-cli']);
+
+/**
+ * Resolve which executor backend to use.
+ *
+ * Precedence: env var > config > default 'claude-sdk'.
+ */
+export function resolveExecutorBackend(config: ContainerConfig): ExecutorBackend {
+  const envBackend = process.env.SHANNON_EXECUTOR_BACKEND;
+  if (envBackend && VALID_BACKENDS.has(envBackend as ExecutorBackend)) {
+    return envBackend as ExecutorBackend;
+  }
+  return config.executorBackend ?? 'claude-sdk';
+}
+
+// === Container Dependencies ===
+
 /**
  * Dependencies required to create a Container.
  *
  * NOTE: AuditSession is NOT stored in the container.
  * Each agent execution receives its own AuditSession instance
- * because AuditSession uses instance state (currentAgentName) that
- * cannot be shared across parallel agents.
+ * because AuditSession uses instance state (currentAgentName)
+ * that cannot be shared across parallel agents.
  */
 export interface ContainerDependencies {
   readonly sessionMetadata: SessionMetadata;
@@ -45,14 +62,18 @@ export interface ContainerDependencies {
   readonly reportOutputProvider?: ReportOutputProvider;
 }
 
+// === Container Class ===
+
 /**
  * DI Container for a single workflow.
  *
  * Holds all service instances for the workflow lifecycle.
- * Services are instantiated once and reused across agent executions.
+ * Services are instantiated once and reused across agent
+ * executions.
  *
- * NOTE: AuditSession is NOT stored here - it's passed per agent execution
- * to support parallel agents each having their own logging context.
+ * NOTE: AuditSession is NOT stored here - it's passed per
+ * agent execution to support parallel agents each having
+ * their own logging context.
  */
 export class Container {
   readonly sessionMetadata: SessionMetadata;
@@ -71,7 +92,11 @@ export class Container {
     // Wire services with explicit constructor injection
     this.configLoader = new ConfigLoaderService();
     this.exploitationChecker = new ExploitationCheckerService();
-    this.agentExecution = new AgentExecutionService(this.configLoader);
+
+    // Select executor backend and wire into AgentExecutionService
+    const backend = resolveExecutorBackend(deps.config);
+    const executor = backend === 'kiro-cli' ? new KiroCliExecutor() : new ClaudeSdkExecutor();
+    this.agentExecution = new AgentExecutionService(this.configLoader, executor);
 
     // Wire providers with default no-ops when not provided
     this.findingsProvider = deps.findingsProvider ?? new NoOpFindingsProvider();
@@ -80,10 +105,8 @@ export class Container {
   }
 }
 
-/**
- * Map of workflowId to Container instance.
- * Each workflow gets its own container scoped to its lifecycle.
- */
+// === Container Lifecycle ===
+
 const containers = new Map<string, Container>();
 
 /** Default container config — OSS standalone defaults */
@@ -92,18 +115,7 @@ const DEFAULT_CONFIG: ContainerConfig = {
   auditDir: './workspaces',
 };
 
-/**
- * Factory function for creating containers.
- *
- * Default: creates a plain Container with NoOp providers. Consumers can call
- * setContainerFactory() at worker startup to inject custom provider
- * implementations into every container.
- */
-type ContainerFactory = (
-  workflowId: string,
-  sessionMetadata: SessionMetadata,
-  config: ContainerConfig,
-) => Container;
+type ContainerFactory = (workflowId: string, sessionMetadata: SessionMetadata, config: ContainerConfig) => Container;
 
 let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) =>
   new Container({ sessionMetadata, config });
@@ -111,8 +123,8 @@ let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) 
 /**
  * Override the default container factory.
  *
- * Call once at worker startup to inject providers into all containers
- * created during the worker's lifetime.
+ * Call once at worker startup to inject providers into all
+ * containers created during the worker's lifetime.
  */
 export function setContainerFactory(factory: ContainerFactory): void {
   containerFactory = factory;
@@ -120,14 +132,6 @@ export function setContainerFactory(factory: ContainerFactory): void {
 
 /**
  * Get or create a Container for a workflow.
- *
- * If a container already exists for the workflowId, returns it.
- * Otherwise, creates a new container with the provided dependencies.
- *
- * @param workflowId - Unique workflow identifier
- * @param sessionMetadata - Session metadata for audit paths
- * @param config - Runtime configuration (defaults to OSS standalone config)
- * @returns Container instance for the workflow
  */
 export function getOrCreateContainer(
   workflowId: string,
@@ -144,28 +148,13 @@ export function getOrCreateContainer(
   return container;
 }
 
-/**
- * Remove a Container when a workflow completes.
- *
- * Should be called in logWorkflowComplete to clean up resources.
- *
- * @param workflowId - Unique workflow identifier
- */
+/** Remove a Container when a workflow completes. */
 export function removeContainer(workflowId: string): void {
   containers.delete(workflowId);
 }
 
 /**
  * Get an existing Container for a workflow, if one exists.
- *
- * Unlike getOrCreateContainer, this does NOT create a new container.
- * Returns undefined if no container exists for the workflowId.
- *
- * Useful for lightweight activities that can benefit from an existing
- * container but don't need to create one.
- *
- * @param workflowId - Unique workflow identifier
- * @returns Container instance or undefined
  */
 export function getContainer(workflowId: string): Container | undefined {
   return containers.get(workflowId);
