@@ -14,7 +14,7 @@
   "scripts": {
     "build": "tsdown",
     "check": "tsc --noEmit",
-    "clean": "rm -rf dist"
+    "clean": "node -e \"import('node:fs').then(fs => fs.rmSync('dist', { recursive: true, force: true }))\""
   },
   "dependencies": {
     "@clack/prompts": "^1.1.0",

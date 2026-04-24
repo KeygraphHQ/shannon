@@ -5,17 +5,18 @@
   "type": "module",
   "packageManager": "pnpm@10.33.0",
   "scripts": {
-    "build": "turbo run build",
-    "check": "turbo run check",
+    "build": "node scripts/run-workspace-task.mjs build",
+    "check": "node scripts/run-workspace-task.mjs check",
     "biome": "biome check .",
     "biome:fix": "biome check --write .",
-    "clean": "turbo run clean",
+    "clean": "node scripts/run-workspace-task.mjs clean",
     "temporal:worker": "node apps/worker/dist/temporal/worker.js",
     "temporal:start": "node apps/worker/dist/temporal/worker.js"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^25.0.3",
+    "pnpm": "^10.33.0",
     "turbo": "^2.5.0",
     "typescript": "^5.9.3"
   },

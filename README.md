@@ -187,12 +187,14 @@ export ANTHROPIC_API_KEY="your-api-key"              # or CLAUDE_CODE_OAUTH_TOKE
 export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000           # recommended
 
 # 3. Install dependencies and build
-pnpm install
-pnpm build
+corepack pnpm install
+npm run build
 
 # 4. Run a pentest
 ./shannon start -u https://your-app.com -r /path/to/your-repo
 ```
+
+On Windows PowerShell or Command Prompt, use `.\shannon.cmd` instead of `./shannon`.
 
 Shannon will build the worker image locally, start the infrastructure, and launch an ephemeral worker container for the scan.
 
