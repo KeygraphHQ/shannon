@@ -5,7 +5,8 @@
  * maps exit codes to ClaudePromptResult, and strips ANSI escape codes from output.
  */
 
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
+import { cpSync } from 'node:fs';
 import { readFile as fsReadFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { Executor, ExecutorOptions } from '../interfaces/executor.js';
@@ -160,7 +161,7 @@ function buildAgentJsonObject(
   return {
     name: agentName,
     ...(options?.description ? { description: options.description } : {}),
-    prompt: `file://${promptFilename}`,
+    prompt: `file://./${promptFilename}`,
     tools: ['*'],
     allowedTools: ['read', 'write', 'shell'],
     model: resolveKiroModel(modelTier),
@@ -184,21 +185,41 @@ export async function generateAgentJson(
   modelTier: ModelTier,
   options?: AgentJsonOptions,
 ): Promise<void> {
-  const agentsDir = join(sourceDir, '.kiro', 'agents');
+  // Write to the global agents directory (~/.kiro/agents/).
+  // kiro-cli resolves agents by scanning both project and global directories.
+  // Inside Docker, the repo is mounted :ro with a bind-mount overlay for .kiro/agents/,
+  // but kiro-cli's project root detection may not match sourceDir. The global directory
+  // is always writable and always scanned, so it's the reliable target.
+  const homeDir = process.env.HOME || '/tmp';
+  const globalAgentsDir = join(homeDir, '.kiro', 'agents');
+
+  // Also write to the project-level bind mount for host-side visibility (debugging/logging)
+  const projectAgentsDir = join(sourceDir, '.kiro', 'agents');
+
   const promptFilename = `${agentName}-prompt.txt`;
-  const promptPath = join(agentsDir, promptFilename);
-  const jsonPath = join(agentsDir, `${agentName}.json`);
+  const agentJson = buildAgentJsonObject(agentName, promptFilename, modelTier, options);
+  const agentJsonStr = JSON.stringify(agentJson, null, 2);
 
   const maxRetries = 5;
   const baseDelayMs = 1000;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      await mkdir(agentsDir, { recursive: true });
-      await writeFile(promptPath, prompt, 'utf8');
+      // Primary: global directory (kiro-cli always finds agents here)
+      await mkdir(globalAgentsDir, { recursive: true });
+      await writeFile(join(globalAgentsDir, promptFilename), prompt, 'utf8');
+      await writeFile(join(globalAgentsDir, `${agentName}.json`), agentJsonStr, 'utf8');
+      await fsReadFile(join(globalAgentsDir, `${agentName}.json`), 'utf8');
 
-      const agentJson = buildAgentJsonObject(agentName, promptFilename, modelTier, options);
-      await writeFile(jsonPath, JSON.stringify(agentJson, null, 2), 'utf8');
+      // Secondary: project-level bind mount (best-effort for host-side logging)
+      try {
+        await mkdir(projectAgentsDir, { recursive: true });
+        await writeFile(join(projectAgentsDir, promptFilename), prompt, 'utf8');
+        await writeFile(join(projectAgentsDir, `${agentName}.json`), agentJsonStr, 'utf8');
+      } catch {
+        // Non-fatal — project dir may be read-only without the bind mount
+      }
+
       return;
     } catch (error) {
       if (attempt === maxRetries) {
@@ -260,26 +281,38 @@ export async function generateQueueValidationHooks(
   deliverablesPath: string,
   jsonSchema: Record<string, unknown>,
 ): Promise<KiroAgentHooks> {
-  const agentsDir = join(sourceDir, '.kiro', 'agents');
-  await mkdir(agentsDir, { recursive: true });
+  const homeDir = process.env.HOME || '/tmp';
+  const globalAgentsDir = join(homeDir, '.kiro', 'agents');
+  await mkdir(globalAgentsDir, { recursive: true });
 
   const validateScript = generateValidateQueueScript(queueFilename, jsonSchema);
-  await writeFile(join(agentsDir, 'validate-queue-json.js'), validateScript, 'utf8');
+  await writeFile(join(globalAgentsDir, 'validate-queue-json.js'), validateScript, 'utf8');
 
   const verifyScript = generateVerifyQueueScript(queueFilename, deliverablesPath);
-  await writeFile(join(agentsDir, 'verify-queue-file.js'), verifyScript, 'utf8');
+  await writeFile(join(globalAgentsDir, 'verify-queue-file.mjs'), verifyScript, 'utf8');
 
+  // Best-effort write to project-level bind mount for host-side visibility
+  try {
+    const projectAgentsDir = join(sourceDir, '.kiro', 'agents');
+    await mkdir(projectAgentsDir, { recursive: true });
+    await writeFile(join(projectAgentsDir, 'validate-queue-json.js'), validateScript, 'utf8');
+    await writeFile(join(projectAgentsDir, 'verify-queue-file.mjs'), verifyScript, 'utf8');
+  } catch {
+    // Non-fatal — project dir may be read-only without the bind mount
+  }
+
+  // Hook commands use the global directory (always writable, always resolvable)
   return {
     preToolUse: [
       {
         matcher: 'write',
-        command: `node ${join(agentsDir, 'validate-queue-json.js')}`,
+        command: `node ${join(globalAgentsDir, 'validate-queue-json.js')}`,
         timeout_ms: 30000,
       },
     ],
     stop: [
       {
-        command: `node ${join(agentsDir, 'verify-queue-file.js')}`,
+        command: `node ${join(globalAgentsDir, 'verify-queue-file.mjs')}`,
         timeout_ms: 30000,
       },
     ],
@@ -315,11 +348,11 @@ function generateValidateQueueScript(queueFilename: string, jsonSchema: Record<s
 function generateVerifyQueueScript(queueFilename: string, deliverablesPath: string): string {
   return [
     '// Auto-generated queue file verification script',
-    'const fs = require("fs");',
-    'const path = require("path");',
-    `const queuePath = path.join(${JSON.stringify(deliverablesPath)}, ${JSON.stringify(queueFilename)});`,
+    'import { readFileSync } from "node:fs";',
+    'import { join } from "node:path";',
+    `const queuePath = join(${JSON.stringify(deliverablesPath)}, ${JSON.stringify(queueFilename)});`,
     'try {',
-    '  const content = fs.readFileSync(queuePath, "utf8");',
+    '  const content = readFileSync(queuePath, "utf8");',
     '  JSON.parse(content);',
     '  process.exit(0);',
     '} catch (e) {',
@@ -342,7 +375,7 @@ export async function readStructuredOutputFromDisk(
   retryBaseDelayMs: number = 1000,
 ): Promise<unknown> {
   const queuePath = join(deliverablesPath, queueFilename);
-  const maxRetries = 5;
+  const maxRetries = 3;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
@@ -641,6 +674,7 @@ export function buildSubprocessEnv(
   const env: Record<string, string> = {
     KIRO_API_KEY: kiroApiKey,
     KIRO_LOG_NO_COLOR: '1',
+    KIRO_LOG_LEVEL: 'debug',
   };
 
   if (process.env.HOME) env.HOME = process.env.HOME;
@@ -703,12 +737,15 @@ const PLAYWRIGHT_SKILL_SOURCES = ['/tmp/.claude/skills/playwright-cli', '/tmp/.k
  * Non-fatal — logs a warning and continues if the skill source is missing.
  */
 async function installPlaywrightSkill(
-  sourceDir: string,
+  _sourceDir: string,
   session: string | undefined,
   logger: ActivityLogger,
 ): Promise<void> {
   try {
-    const destDir = join(sourceDir, '.kiro', 'skills', 'playwright-cli');
+    // Write to global ~/.kiro/ so kiro-cli discovers the skill regardless of project root.
+    // The repo is mounted :ro — writing to sourceDir/.kiro/ only works with the bind mount overlay.
+    const homeDir = process.env.HOME || '/tmp';
+    const destDir = join(homeDir, '.kiro', 'skills', 'playwright-cli');
 
     // Find the first available skill source
     let skillSource: string | undefined;
@@ -728,11 +765,11 @@ async function installPlaywrightSkill(
     }
 
     await mkdir(join(destDir, '..'), { recursive: true });
-    execSync(`cp -r "${skillSource}" "${destDir}"`);
+    cpSync(skillSource, destDir, { recursive: true, force: true });
 
     // Write session config so playwright-cli uses the correct browser session
     if (session) {
-      const settingsDir = join(sourceDir, '.kiro', 'settings');
+      const settingsDir = join(homeDir, '.kiro', 'settings');
       await mkdir(settingsDir, { recursive: true });
       await writeFile(join(settingsDir, 'playwright.json'), JSON.stringify({ session }, null, 2), 'utf8');
     }
@@ -829,7 +866,8 @@ export class KiroCliExecutor implements Executor {
     // 3. Generate agent JSON in sourceDir/.kiro/agents/
     try {
       await generateAgentJson(sourceDir, agentName, prompt, modelTier, agentJsonOptions);
-      logger.info(`Generated agent JSON for ${agentName}`, { modelTier });
+      const agentJsonPath = join(sourceDir, '.kiro', 'agents', `${agentName}.json`);
+      logger.info(`Generated agent JSON for ${agentName} at ${agentJsonPath}`, { modelTier });
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return {
@@ -845,7 +883,24 @@ export class KiroCliExecutor implements Executor {
     // 4. Build subprocess args — prompt is already in the agent JSON (file:// reference),
     // so the CLI input is just a short trigger. Passing the full prompt as a positional
     // arg can exceed OS arg length limits and corrupt argument parsing.
-    const args = ['chat', '--no-interactive', '--agent', agentName, '--wrap', 'never', '--trust-all-tools', 'begin'];
+    //
+    // NOTE: The trigger message must be explicit enough that the model executes the full
+    // system prompt instructions autonomously. A bare "begin" can cause the model to
+    // respond with a short acknowledgment and exit in --no-interactive mode.
+    const triggerMessage =
+      'Execute all instructions in your system prompt completely. ' +
+      'Use the tools available to you. ' +
+      'Do not stop until every deliverable file has been written to disk.';
+    const args = [
+      'chat',
+      '--no-interactive',
+      '--agent',
+      agentName,
+      '--wrap',
+      'never',
+      '--trust-all-tools',
+      triggerMessage,
+    ];
     if (this.requireMcpStartup) {
       args.push('--require-mcp-startup');
     }
@@ -873,6 +928,18 @@ export class KiroCliExecutor implements Executor {
 
     // 8. Map exit code to result
     const duration = Date.now() - startTime;
+
+    // 8a. Suspicious fast exit detection — log raw output for debugging
+    const SUSPICIOUS_FAST_EXIT_MS = 30_000;
+    if (duration < SUSPICIOUS_FAST_EXIT_MS && spawnResult.exitCode === 0) {
+      logger.warn(`[kiro-cli] Agent ${agentName} exited suspiciously fast (${Math.floor(duration / 1000)}s)`, {
+        exitCode: spawnResult.exitCode,
+        stdoutLength: spawnResult.stdout.length,
+        stderrLength: spawnResult.stderr.length,
+        stdoutHead: stripAnsi(spawnResult.stdout).slice(0, 500),
+        stderrHead: stripAnsi(spawnResult.stderr).slice(0, 500),
+      });
+    }
     const agentModel = resolveKiroModel(modelTier);
     const result = mapExitCodeToResult(
       spawnResult.exitCode,
@@ -883,16 +950,50 @@ export class KiroCliExecutor implements Executor {
       spawnResult.timedOut,
     );
 
-    // 9. API error detection on exit 0
+    // 9. Post-process: API error detection, spending cap, audit logging, error log
+    return this.postProcessResult(result, spawnResult, agentName, duration, sourceDir, logger);
+  }
+
+  /** Post-process the kiro-cli result: API error detection, spending cap, audit logging, error log. */
+  private async postProcessResult(
+    result: ClaudePromptResult,
+    spawnResult: { exitCode: number | null; stdout: string; stderr: string },
+    agentName: string,
+    duration: number,
+    sourceDir: string,
+    logger: ActivityLogger,
+  ): Promise<ClaudePromptResult> {
+    // Agent-not-found detection — kiro-cli silently falls back to the default agent,
+    // producing a generic response instead of executing the intended prompt.
+    // This must be caught early to avoid wasting a retry on validation failure.
+    if (result.success && spawnResult.stderr) {
+      const agentNotFound = /no agent with name .+ found/i.test(spawnResult.stderr);
+      if (agentNotFound) {
+        logger.error(
+          `[kiro-cli] Agent ${agentName} was not found by kiro-cli — fell back to default agent. ` +
+            `Stderr: ${stripAnsi(spawnResult.stderr).slice(0, 500)}`,
+        );
+        return {
+          success: false,
+          duration,
+          cost: 0,
+          error: `kiro-cli could not find agent "${agentName}" — verify .kiro/agents/${agentName}.json exists in the working directory`,
+          errorType: 'config',
+          retryable: true,
+        };
+      }
+    }
+
+    // API error detection on exit 0 — spread-copy to avoid mutating the original
     if (result.success && spawnResult.stderr) {
       const hasApiErrors = /dispatch failure|error sending request|connection refused/i.test(spawnResult.stderr);
       if (hasApiErrors) {
-        result.apiErrorDetected = true;
+        result = { ...result, apiErrorDetected: true };
         logger.warn(`[kiro-cli] API errors detected in stderr for ${agentName}, will validate deliverables`);
       }
     }
 
-    // 10. Check for spending cap in successful output
+    // Check for spending cap in successful output
     if (result.success && result.result && matchesBillingTextPattern(result.result)) {
       return {
         success: false,
@@ -904,7 +1005,7 @@ export class KiroCliExecutor implements Executor {
       };
     }
 
-    // 11. Audit: log execution result
+    // Audit: log execution result
     if (result.success) {
       logger.info(`[kiro-cli] Agent ${agentName} completed successfully`, {
         executor: 'kiro-cli',
@@ -925,7 +1026,7 @@ export class KiroCliExecutor implements Executor {
       });
     }
 
-    // 12. Write error log file on failure
+    // Write error log file on failure
     if (!result.success) {
       const promptPath = join(sourceDir, '.kiro', 'agents', `${agentName}-prompt.txt`);
       await writeKiroErrorLog(

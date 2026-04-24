@@ -142,8 +142,8 @@ describe('Feature: kiro-cli-compatibility, Property 2: Agent JSON generation cor
             const parsed = JSON.parse(content);
 
             expect(parsed.name).toBe(agentName);
-            expect(parsed.prompt).toMatch(/^file:\/\/.*-prompt\.txt$/);
-            expect(parsed.prompt).toBe(`file://${agentName}-prompt.txt`);
+            expect(parsed.prompt).toMatch(/^file:\/\/\.\/.*-prompt\.txt$/);
+            expect(parsed.prompt).toBe(`file://./${agentName}-prompt.txt`);
             expect(parsed.tools).toEqual(['*']);
             expect(parsed.allowedTools).toEqual(['read', 'write', 'shell']);
           } finally {
@@ -789,7 +789,7 @@ describe('Queue validation hooks integration', () => {
     await generateQueueValidationHooks(sourceDir, queueFilename, deliverablesPath, jsonSchema);
 
     const validatePath = join(sourceDir, '.kiro', 'agents', 'validate-queue-json.js');
-    const verifyPath = join(sourceDir, '.kiro', 'agents', 'verify-queue-file.js');
+    const verifyPath = join(sourceDir, '.kiro', 'agents', 'verify-queue-file.mjs');
 
     const validateStat = await stat(validatePath);
     expect(validateStat.isFile()).toBe(true);

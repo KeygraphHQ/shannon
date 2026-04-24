@@ -4,17 +4,20 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 // Mock child_process before importing preflight
 vi.mock('node:child_process', () => ({
   execSync: vi.fn(),
+  spawnSync: vi.fn(() => ({ status: 0, stdout: Buffer.from('hi'), stderr: Buffer.from('') })),
 }));
 
 // Mock fs to bypass repo validation
-vi.mock('node:fs/promises', () => ({
-  default: {
-    stat: vi.fn().mockResolvedValue({
-      isDirectory: () => true,
-    }),
+vi.mock('node:fs/promises', async () => {
+  return {
+    default: {
+      stat: vi.fn().mockResolvedValue({ isDirectory: () => true }),
+      access: vi.fn().mockResolvedValue(undefined),
+    },
+    stat: vi.fn().mockResolvedValue({ isDirectory: () => true }),
     access: vi.fn().mockResolvedValue(undefined),
-  },
-}));
+  };
+});
 
 // Mock dns to bypass target URL validation
 vi.mock('node:dns/promises', () => ({
@@ -76,6 +79,7 @@ describe('kiro-cli preflight validation', () => {
   beforeEach(() => {
     origKey = process.env.KIRO_API_KEY;
     vi.clearAllMocks();
+    vi.resetModules();
   });
 
   afterEach(() => {
@@ -114,8 +118,15 @@ describe('kiro-cli preflight validation', () => {
     process.env.KIRO_API_KEY = 'test-key-123';
 
     const cp = await import('node:child_process');
-    const execSyncMock = vi.mocked(cp.execSync);
-    execSyncMock.mockReturnValue(Buffer.from('hi'));
+    const spawnSyncMock = vi.mocked(cp.spawnSync);
+    spawnSyncMock.mockReturnValue({
+      status: 0,
+      stdout: Buffer.from('hi'),
+      stderr: Buffer.from(''),
+      pid: 1234,
+      output: [null, Buffer.from('hi'), Buffer.from('')],
+      signal: null,
+    });
 
     const { runPreflightChecks } = await import('./preflight.js');
 
@@ -142,9 +153,14 @@ describe('kiro-cli preflight validation', () => {
     process.env.KIRO_API_KEY = 'bad-key';
 
     const cp = await import('node:child_process');
-    const execSyncMock = vi.mocked(cp.execSync);
-    execSyncMock.mockImplementation(() => {
-      throw new Error('authentication failed');
+    const spawnSyncMock = vi.mocked(cp.spawnSync);
+    spawnSyncMock.mockReturnValue({
+      status: 1,
+      stdout: Buffer.from(''),
+      stderr: Buffer.from('authentication failed'),
+      pid: 1234,
+      output: [null, Buffer.from(''), Buffer.from('authentication failed')],
+      signal: null,
     });
 
     const { runPreflightChecks } = await import('./preflight.js');

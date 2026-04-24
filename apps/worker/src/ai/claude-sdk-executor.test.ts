@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ExecutorOptions } from '../interfaces/executor.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { ClaudePromptResult } from './claude-executor.js';
+import type { ModelTier } from './models.js';
 
 vi.mock('./claude-executor.js', () => ({
   runClaudePrompt: vi.fn(),

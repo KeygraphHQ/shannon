@@ -18,7 +18,9 @@
  * 4. Target URL is reachable from the container (DNS + HTTP)
  */
 
+import { spawnSync } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
+import { mkdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
@@ -210,8 +212,6 @@ async function validateCredentials(
 
     logger.info('Validating KIRO_API_KEY via kiro-cli...');
     try {
-      const { spawnSync } = await import('node:child_process');
-      const { mkdirSync } = await import('node:fs');
       const home = process.env.HOME || '/tmp';
       mkdirSync(`${home}/.kiro`, { recursive: true });
       const kiroEnv: Record<string, string> = {
