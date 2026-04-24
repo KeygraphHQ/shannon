@@ -555,15 +555,18 @@ function classifyRetryable(stderr: string): boolean {
 
 // === Cost Extraction ===
 
-/** Pattern to extract credits used from kiro-cli output footer. */
-const CREDITS_PATTERN = /^\s*Credits used:\s*([\d.]+)/im;
+/** Pattern to extract credits used from kiro-cli output footer (stdout or stderr). */
+const CREDITS_PATTERN = /^\s*(?:Credits used:|▸?\s*Credits:)\s*([\d.]+)/im;
 
 /**
- * Extract cost from kiro-cli "Credits used:" footer line.
+ * Extract cost from kiro-cli credits footer line.
+ *
+ * kiro-cli outputs credits in stderr as "▸ Credits: 0.05 • Time: 2s".
+ * Accepts both "Credits used: X" and "Credits: X" formats.
  * Returns 0 if not found.
  */
-export function extractCreditsUsed(stdout: string): number {
-  const match = CREDITS_PATTERN.exec(stripAnsi(stdout));
+export function extractCreditsUsed(text: string): number {
+  const match = CREDITS_PATTERN.exec(stripAnsi(text));
   if (!match?.[1]) return 0;
   const credits = Number.parseFloat(match[1]);
   return Number.isNaN(credits) ? 0 : credits;
@@ -612,7 +615,7 @@ export function mapExitCodeToResult(
   }
 
   if (exitCode === 0) {
-    const cost = extractCreditsUsed(stdout);
+    const cost = extractCreditsUsed(stderr) || extractCreditsUsed(stdout);
     const cleaned = stripMetadataLines(stripAnsi(stdout));
     return {
       success: true,
