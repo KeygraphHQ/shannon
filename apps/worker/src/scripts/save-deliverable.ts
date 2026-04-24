@@ -15,9 +15,104 @@
  *   node save-deliverable.js --type INJECTION_ANALYSIS --file-path deliverables/injection_analysis_deliverable.md
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { isAbsolute, join, resolve, sep } from 'node:path';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
+
+const MAX_CONTENT_BYTES = 1024 * 1024; // 1 MiB cap for --content to protect Temporal buffer limits
+const MAX_FILE_BYTES = 8 * 1024 * 1024; // 8 MiB hard cap on --file-path reads (defense-in-depth)
+
+/**
+ * Resolve --file-path with symlink-safe guards.
+ * Rejects NUL bytes, absolute paths that escape cwd after canonicalisation, symlinks
+ * whose final target escapes cwd (the /proc/self/environ attack), non-regular files,
+ * and files larger than MAX_FILE_BYTES.
+ */
+function resolveSafeFilePath(cwd: string, rawFilePath: string): { ok: true; path: string } | { ok: false; error: string } {
+  if (rawFilePath.includes('\0')) {
+    return { ok: false, error: '--file-path contains NUL byte' };
+  }
+
+  // Stage 1: lexical-only traversal check (fast-reject obvious `..` escapes).
+  const lexicallyResolved = resolve(cwd, rawFilePath);
+  const withSepCwd = cwd.endsWith(sep) ? cwd : cwd + sep;
+  if (lexicallyResolved !== cwd && !lexicallyResolved.startsWith(withSepCwd)) {
+    return { ok: false, error: `Path traversal detected: ${rawFilePath}` };
+  }
+
+  // Stage 2: canonicalise via realpath and enforce that the FINAL (symlink-followed)
+  // target is still inside cwd. Defeats the symlink-in-scratchpad -> /proc/self/environ
+  // credential-exfiltration attack where the path itself resolves inside cwd but the
+  // symlink it points at resolves outside.
+  let realCwd: string;
+  let realPath: string;
+  try {
+    realCwd = realpathSync.native(cwd);
+  } catch (err) {
+    return { ok: false, error: `Cannot canonicalise cwd: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  try {
+    realPath = realpathSync.native(lexicallyResolved);
+  } catch (err) {
+    return { ok: false, error: `Cannot canonicalise --file-path: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  const withSepRealCwd = realCwd.endsWith(sep) ? realCwd : realCwd + sep;
+  if (realPath !== realCwd && !realPath.startsWith(withSepRealCwd)) {
+    return { ok: false, error: `Symlink escapes cwd (realpath=${realPath}, cwd=${realCwd})` };
+  }
+
+  // Stage 3: must be a regular file. Rejects directories, FIFOs, char/block devices,
+  // sockets — all of which readFileSync would otherwise happily follow.
+  let st: ReturnType<typeof statSync>;
+  try {
+    st = statSync(realPath);
+  } catch (err) {
+    return { ok: false, error: `Cannot stat --file-path: ${err instanceof Error ? err.message : String(err)}` };
+  }
+  if (!st.isFile()) {
+    return { ok: false, error: `--file-path is not a regular file (mode=${st.mode.toString(8)})` };
+  }
+
+  // Stage 4: size cap. Guards against the agent pointing at a giant file.
+  if (st.size > MAX_FILE_BYTES) {
+    return { ok: false, error: `--file-path exceeds ${MAX_FILE_BYTES}-byte cap (got ${st.size})` };
+  }
+
+  return { ok: true, path: realPath };
+}
+
+function errorJson(message: string, retryable: boolean = false): string {
+  return JSON.stringify({ status: 'error', message, retryable });
+}
+
+/**
+ * Resolve SHANNON_DELIVERABLES_SUBDIR against targetDir with strict guards.
+ * Rejects NUL bytes, absolute paths, and any resolved path that escapes targetDir.
+ */
+function resolveSafeDeliverablesDir(targetDir: string): { ok: true; dir: string } | { ok: false; error: string } {
+  const rawSubdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
+
+  if (rawSubdir.includes('\0')) {
+    return { ok: false, error: 'SHANNON_DELIVERABLES_SUBDIR contains NUL byte' };
+  }
+
+  if (isAbsolute(rawSubdir)) {
+    return { ok: false, error: `SHANNON_DELIVERABLES_SUBDIR must be relative (got absolute: ${rawSubdir})` };
+  }
+
+  const canonicalTarget = resolve(targetDir);
+  const candidate = resolve(canonicalTarget, rawSubdir);
+
+  const withSep = canonicalTarget.endsWith(sep) ? canonicalTarget : canonicalTarget + sep;
+  if (candidate !== canonicalTarget && !candidate.startsWith(withSep)) {
+    return {
+      ok: false,
+      error: `SHANNON_DELIVERABLES_SUBDIR escapes target directory (resolved=${candidate})`,
+    };
+  }
+
+  return { ok: true, dir: candidate };
+}
 
 // === Argument Parsing ===
 
@@ -52,8 +147,12 @@ function parseArgs(argv: string[]): ParsedArgs {
 // === File Operations ===
 
 function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
-  const deliverablesDir = join(targetDir, ...subdir.split('/'));
+  const dirResult = resolveSafeDeliverablesDir(targetDir);
+  if (!dirResult.ok) {
+    throw new Error(dirResult.error);
+  }
+
+  const deliverablesDir = dirResult.dir;
   const filepath = join(deliverablesDir, filename);
 
   try {
@@ -91,20 +190,23 @@ function main(): void {
   let content: string;
 
   if (args.content) {
+    if (Buffer.byteLength(args.content, 'utf8') > MAX_CONTENT_BYTES) {
+      console.log(errorJson(`--content exceeds ${MAX_CONTENT_BYTES}-byte cap; use --file-path for large deliverables`));
+      process.exit(1);
+    }
     content = args.content;
   } else if (args.filePath) {
-    // Path traversal protection: must resolve inside cwd
+    // Symlink-safe path validation. Rejects traversal, non-regular files, and any
+    // symlink whose final target resolves outside cwd (the /proc/self/environ attack).
     const cwd = process.cwd();
-    const resolved = resolve(cwd, args.filePath);
-    if (!resolved.startsWith(`${cwd}/`) && resolved !== cwd) {
-      console.log(
-        JSON.stringify({ status: 'error', message: `Path traversal detected: ${args.filePath}`, retryable: false }),
-      );
+    const pathResult = resolveSafeFilePath(cwd, args.filePath);
+    if (!pathResult.ok) {
+      console.log(errorJson(pathResult.error));
       process.exit(1);
     }
 
     try {
-      content = readFileSync(resolved, 'utf8');
+      content = readFileSync(pathResult.path, 'utf8');
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error);
       console.log(JSON.stringify({ status: 'error', message: `Failed to read file: ${msg}`, retryable: true }));
