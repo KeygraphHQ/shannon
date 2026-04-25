@@ -228,7 +228,7 @@ const validateQueueContent = async (
       return {
         error: new PentestError(
           queueValidation.error
-            ? `Queue validation failed for ${pathsWithExistence.vulnType}: Invalid JSON structure. Analysis agent must fix queue format.`
+            ? `Queue validation failed for ${pathsWithExistence.vulnType}: Invalid JSON — ${queueValidation.error}. Analysis agent must fix queue format.`
             : `Queue validation failed for ${pathsWithExistence.vulnType}: Missing or invalid 'vulnerabilities' array. Analysis agent must fix queue structure.`,
           'validation',
           true, // retryable
