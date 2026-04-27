@@ -10,6 +10,11 @@
       "dependsOn": ["^build"],
       "inputs": ["src/**/*.ts", "tsconfig.json"]
     },
+    "test": {
+      "dependsOn": ["^build"],
+      "inputs": ["src/**/*.ts", "tsconfig.json", "vitest.config.ts"],
+      "outputs": []
+    },
     "clean": {
       "cache": false
     }

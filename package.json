@@ -7,6 +7,7 @@
   "scripts": {
     "build": "turbo run build",
     "check": "turbo run check",
+    "test": "turbo run test",
     "biome": "biome check .",
     "biome:fix": "biome check --write .",
     "clean": "turbo run clean",

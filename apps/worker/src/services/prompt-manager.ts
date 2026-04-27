@@ -22,6 +22,31 @@ interface IncludeReplacement {
   content: string;
 }
 
+/**
+ * Escape user-supplied values before interpolation into prompts.
+ *
+ * Prompts are how the orchestrator instructs LLM agents. If a user-controlled
+ * field (config description, focus/avoid rules, credentials) is interpolated
+ * raw, an attacker who can write the config can also inject prompt fragments
+ * and override agent instructions. This neutralises the two injection vectors
+ * Shannon's templating exposes:
+ *
+ *   1. `{{...}}` placeholder syntax — broken by spacing the braces apart, so
+ *      a value containing `{{WEB_URL}}` cannot pose as a real placeholder.
+ *   2. `@include(path)` directive — case-insensitively rewritten to
+ *      `@_include(path)` so an injected value cannot pull in arbitrary files.
+ *
+ * Newlines are intentionally preserved — multi-line descriptions are valid
+ * input. The defence is structural (placeholder + include syntax), not a
+ * keyword denylist.
+ */
+export function sanitizePromptValue(value: string): string {
+  return value
+    .replace(/\{\{/g, '{ {')
+    .replace(/\}\}/g, '} }')
+    .replace(/@include\(/gi, '@_include(');
+}
+
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(
   authentication: Authentication,
@@ -65,15 +90,21 @@ async function buildLoginInstructions(
 
     if (authentication.credentials) {
       if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+        userInstructions = userInstructions.replace(
+          /\$username/g,
+          sanitizePromptValue(authentication.credentials.username),
+        );
       }
       if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
+        userInstructions = userInstructions.replace(
+          /\$password/g,
+          sanitizePromptValue(authentication.credentials.password),
+        );
       }
       if (authentication.credentials.totp_secret) {
         userInstructions = userInstructions.replace(
           /\$totp/g,
-          `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
+          `generated TOTP code using secret "${sanitizePromptValue(authentication.credentials.totp_secret)}"`,
         );
       }
     }
@@ -135,8 +166,8 @@ function buildAuthContext(config: DistributedConfig | null): string {
   const auth = config.authentication;
   const lines = [
     `- Login type: ${auth.login_type.toUpperCase()}`,
-    `- Username: ${auth.credentials.username}`,
-    `- Login URL: ${auth.login_url}`,
+    `- Username: ${sanitizePromptValue(auth.credentials.username)}`,
+    `- Login URL: ${sanitizePromptValue(auth.login_url)}`,
   ];
 
   if (auth.credentials?.totp_secret) {
@@ -169,11 +200,14 @@ async function interpolateVariables(
     }
 
     let result = template
-      .replace(/{{WEB_URL}}/g, variables.webUrl)
-      .replace(/{{REPO_PATH}}/g, variables.repoPath)
+      .replace(/{{WEB_URL}}/g, sanitizePromptValue(variables.webUrl))
+      .replace(/{{REPO_PATH}}/g, sanitizePromptValue(variables.repoPath))
       .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
-      .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
+      .replace(
+        /{{DESCRIPTION}}/g,
+        config?.description ? `Description: ${sanitizePromptValue(config.description)}` : '',
+      );
 
     if (config) {
       // Handle rules section - if both are empty, use cleaner messaging
@@ -185,8 +219,12 @@ async function interpolateVariables(
         const cleanRulesSection = '<rules>\nNo specific rules or focus areas provided for this test.\n</rules>';
         result = result.replace(/<rules>[\s\S]*?<\/rules>/g, cleanRulesSection);
       } else {
-        const avoidRules = hasAvoidRules ? config.avoid?.map((r) => `- ${r.description}`).join('\n') : 'None';
-        const focusRules = hasFocusRules ? config.focus?.map((r) => `- ${r.description}`).join('\n') : 'None';
+        const avoidRules = hasAvoidRules
+          ? config.avoid?.map((r) => `- ${sanitizePromptValue(r.description)}`).join('\n')
+          : 'None';
+        const focusRules = hasFocusRules
+          ? config.focus?.map((r) => `- ${sanitizePromptValue(r.description)}`).join('\n')
+          : 'None';
 
         result = result.replace(/{{RULES_AVOID}}/g, avoidRules).replace(/{{RULES_FOCUS}}/g, focusRules);
       }
