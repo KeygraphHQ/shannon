@@ -131,7 +131,9 @@ RUN addgroup -g 1001 pentest && \
 # System-level git config (survives UID remapping in entrypoint)
 RUN git config --system user.email "agent@localhost" && \
     git config --system user.name "Pentest Agent" && \
-    git config --system --add safe.directory '*'
+    git config --system --add safe.directory /app/repos && \
+    git config --system --add safe.directory /app/workspaces && \
+    git config --system --add safe.directory /app/sessions
 
 # Set working directory
 WORKDIR /app
