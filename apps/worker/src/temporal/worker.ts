@@ -36,6 +36,8 @@ import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
 import { deliverablesDir } from '../paths.js';
+import { Container, setContainerFactory } from '../services/container.js';
+import { SarifReportOutputProvider } from '../services/sarif-output-provider.js';
 import type { PipelineConfig } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
@@ -387,9 +389,38 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
 
 // === Main Entry Point ===
 
+/**
+ * Inspect SHANNON_REPORT_FORMAT and wire optional report output providers
+ * into every Container created during this worker's lifetime.
+ *
+ * Supported values:
+ *   - unset / "md"  → default no-op (markdown only, written by the report agent)
+ *   - "sarif"       → also emit a SARIF 2.1.0 file alongside the markdown
+ */
+function configureReportOutputProvider(): void {
+  const format = (process.env.SHANNON_REPORT_FORMAT ?? 'md').toLowerCase();
+  if (format === 'md' || format === '') return;
+  if (format !== 'sarif') {
+    console.error(`WARN: unknown SHANNON_REPORT_FORMAT=${format}, ignoring (expected: md, sarif)`);
+    return;
+  }
+  const driverVersion = process.env.SHANNON_VERSION;
+  setContainerFactory((_workflowId, sessionMetadata, config) => {
+    return new Container({
+      sessionMetadata,
+      config,
+      reportOutputProvider: new SarifReportOutputProvider(driverVersion),
+    });
+  });
+  console.log('SHANNON_REPORT_FORMAT=sarif — SARIF output enabled');
+}
+
 async function run(): Promise<void> {
   // 1. Parse CLI args
   const args = parseCliArgs(process.argv.slice(2));
+
+  // 1a. Wire optional output providers based on SHANNON_REPORT_FORMAT.
+  configureReportOutputProvider();
 
   // 2. Connect to Temporal server
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
