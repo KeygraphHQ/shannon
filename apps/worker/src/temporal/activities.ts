@@ -189,6 +189,10 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
             : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
         }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
+        onHeartbeat: (details: Record<string, unknown>) => {
+          const elapsed = Math.floor((Date.now() - startTime) / 1000);
+          heartbeat({ agent: agentName, elapsedSeconds: elapsed, attempt: attemptNumber, ...details });
+        },
       },
       auditSession,
       logger,

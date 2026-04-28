@@ -488,6 +488,7 @@ function spawnKiroCli(
   cwd: string,
   env: Record<string, string>,
   timeoutMs: number,
+  onHeartbeat?: (details: Record<string, unknown>) => void,
 ): Promise<{ exitCode: number | null; stdout: string; stderr: string; timedOut: boolean }> {
   return new Promise((resolve) => {
     let resolved = false;
@@ -496,6 +497,7 @@ function spawnKiroCli(
       resolved = true;
       clearTimeout(timer);
       clearTimeout(sigkillTimer);
+      if (heartbeatTimer) clearInterval(heartbeatTimer);
       resolve(result);
     };
 
@@ -504,6 +506,18 @@ function spawnKiroCli(
     let stderr = '';
     let timedOut = false;
     let sigkillTimer: ReturnType<typeof setTimeout>;
+    const spawnTime = Date.now();
+
+    // Heartbeat loop — signals liveness back to the orchestrator (Temporal).
+    // Without this, the outer setInterval heartbeat in runAgentActivity can starve
+    // when multiple kiro-cli subprocesses saturate the event loop with I/O callbacks.
+    const SPAWN_HEARTBEAT_MS = 30_000;
+    const heartbeatTimer = onHeartbeat
+      ? setInterval(() => {
+          const elapsed = Math.floor((Date.now() - spawnTime) / 1000);
+          onHeartbeat({ phase: 'kiro-cli-running', elapsedSeconds: elapsed, pid: child.pid });
+        }, SPAWN_HEARTBEAT_MS)
+      : null;
 
     child.stdout.on('data', (chunk: Buffer) => {
       stdout += chunk.toString();
@@ -926,7 +940,7 @@ export class KiroCliExecutor implements Executor {
       logger.info(`[${elapsed}s] Agent ${agentName} running...`);
     }, 30_000);
 
-    const spawnResult = await spawnKiroCli(args, sourceDir, env, this.defaultTimeoutMs);
+    const spawnResult = await spawnKiroCli(args, sourceDir, env, this.defaultTimeoutMs, options?.onHeartbeat);
     clearInterval(heartbeatInterval);
 
     // 8. Map exit code to result

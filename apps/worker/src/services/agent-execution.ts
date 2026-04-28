@@ -55,6 +55,8 @@ export interface AgentExecutionInput {
   apiKey?: string | undefined;
   promptDir?: string | undefined;
   providerConfig?: import('../types/config.js').ProviderConfig | undefined;
+  /** Callback to signal liveness to the orchestrator (e.g., Temporal heartbeat). */
+  onHeartbeat?: ((details: Record<string, unknown>) => void) | undefined;
 }
 
 interface FailAgentOpts {
@@ -203,6 +205,7 @@ export class AgentExecutionService {
               playwrightSession: PLAYWRIGHT_SESSION_MAPPING[AGENTS[agentName].promptTemplate],
             }
           : {}),
+        ...(input.onHeartbeat ? { onHeartbeat: input.onHeartbeat } : {}),
       },
     );
 
