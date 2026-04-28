@@ -18,7 +18,7 @@ import { formatTimestamp } from '../utils/formatting.js';
 import { Timer } from '../utils/metrics.js';
 import { createAuditLogger } from './audit-logger.js';
 import { dispatchMessage } from './message-handlers.js';
-import { type ModelTier, resolveModel } from './models.js';
+import { type ModelTier, resolveModel, supportsAdaptiveThinking } from './models.js';
 import { detectExecutionContext, formatCompletionMessage, formatErrorOutput } from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
 
@@ -217,6 +217,7 @@ export async function runClaudePrompt(
   // 4. Configure SDK options
   // Model override from providerConfig takes precedence over env-based resolveModel
   const model = providerConfig?.modelOverrides?.[modelTier] ?? resolveModel(modelTier);
+  const adaptiveThinking = supportsAdaptiveThinking(model) && process.env.CLAUDE_ADAPTIVE_THINKING !== 'false';
   const options = {
     model,
     maxTurns: 10_000,
@@ -225,6 +226,7 @@ export async function runClaudePrompt(
     allowDangerouslySkipPermissions: true,
     settingSources: ['user'] as ('user' | 'project' | 'local')[],
     env: sdkEnv,
+    ...(adaptiveThinking && { thinking: { type: 'adaptive' as const } }),
     ...(outputFormat && { outputFormat }),
   };
 

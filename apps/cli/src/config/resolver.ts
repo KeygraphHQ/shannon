@@ -18,12 +18,14 @@ interface ConfigMapping {
   readonly env: string;
   readonly toml: string;
   readonly type: TOMLType;
+  readonly boolFormat?: 'numeric' | 'literal';
 }
 
 /** Maps every supported env var to its TOML path (section.key) and expected type. */
 const CONFIG_MAP: readonly ConfigMapping[] = [
   // Core
   { env: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', toml: 'core.max_tokens', type: 'number' },
+  { env: 'CLAUDE_ADAPTIVE_THINKING', toml: 'core.adaptive_thinking', type: 'boolean', boolFormat: 'literal' },
 
   // Anthropic
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
@@ -56,9 +58,9 @@ type TOMLValue = string | number | boolean;
 type TOMLSection = Record<string, TOMLValue>;
 type TOMLConfig = Record<string, TOMLSection>;
 
-/** Read a nested TOML value by dotted path (e.g. "anthropic.api_key"). */
-function getTomlValue(config: TOMLConfig, path: string): string | undefined {
-  const [section, key] = path.split('.');
+/** Read a nested TOML value for a given mapping. */
+function getTomlValue(config: TOMLConfig, mapping: ConfigMapping): string | undefined {
+  const [section, key] = mapping.toml.split('.');
   if (!section || !key) return undefined;
 
   const sectionObj = config[section];
@@ -67,8 +69,10 @@ function getTomlValue(config: TOMLConfig, path: string): string | undefined {
   const value = sectionObj[key];
   if (value === undefined || value === null) return undefined;
 
-  // NOTE: env.ts checks bedrock/vertex via `=== '1'`, so booleans must map to "1"/"0"
-  if (typeof value === 'boolean') return value ? '1' : '0';
+  if (typeof value === 'boolean') {
+    if (mapping.boolFormat === 'literal') return value ? 'true' : 'false';
+    return value ? '1' : '0';
+  }
 
   return String(value);
 }
@@ -273,7 +277,7 @@ export function resolveConfig(): void {
   for (const mapping of CONFIG_MAP) {
     if (process.env[mapping.env]) continue;
 
-    const value = getTomlValue(toml, mapping.toml);
+    const value = getTomlValue(toml, mapping);
     if (value) {
       process.env[mapping.env] = value;
     }
