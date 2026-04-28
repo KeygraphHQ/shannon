@@ -25,6 +25,25 @@ import { displaySplash } from './splash.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+function blockSudo(): void {
+  const isSudo = !!process.env.SUDO_USER;
+  const isRoot = process.geteuid?.() === 0;
+  if (!isSudo && !isRoot) return;
+
+  if (isSudo) {
+    console.error('ERROR: Shannon must not be run with sudo.');
+    console.error('Re-run this command as your normal user.');
+  } else {
+    console.error('ERROR: Shannon must not be run as the root user.');
+    console.error('Switch to a regular user account and re-run this command.');
+  }
+  if (process.platform === 'linux') {
+    console.error('Configure Docker to run without sudo first:');
+    console.error('https://docs.docker.com/engine/install/linux-postinstall');
+  }
+  process.exit(1);
+}
+
 function getVersion(): string {
   try {
     const pkgPath = path.join(__dirname, '..', 'package.json');
@@ -177,6 +196,8 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 }
 
 // === Main Dispatch ===
+
+blockSudo();
 
 const args = process.argv.slice(2);
 const command = args[0];
