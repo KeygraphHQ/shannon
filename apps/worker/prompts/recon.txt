@@ -379,6 +379,17 @@ CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, 
 
 **WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `--content` to save-deliverable — always use `--file-path`.
 
+**FALLBACK FOR LARGE FILE WRITE FAILURES:** If Write/Edit fails due to file size, use **Bash** to append safely in chunks:
+- Initialize once: `mkdir -p .shannon/deliverables && : > .shannon/deliverables/recon_deliverable.md`
+- Append each section with a heredoc (repeat section-by-section):
+  ```bash
+  cat <<'EOF' >> .shannon/deliverables/recon_deliverable.md
+  ## <Section Title>
+  <section content>
+  EOF
+  ```
+- Then run `save-deliverable --type RECON --file-path ".shannon/deliverables/recon_deliverable.md"`
+
 Once the deliverable is successfully saved, announce "RECONNAISSANCE COMPLETE" and stop.
 
 **CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
