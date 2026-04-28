@@ -15,6 +15,7 @@ const FORWARD_VARS = [
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
   'CLAUDE_CODE_OAUTH_TOKEN',
+  'OPENROUTER_API_KEY',
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
   'AWS_BEARER_TOKEN_BEDROCK',
@@ -61,7 +62,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'openrouter' | 'custom-base-url' | 'bedrock' | 'vertex';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -74,6 +75,7 @@ function detectProviders(): string[] {
   const providers: string[] = [];
   if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
+  if (process.env.OPENROUTER_API_KEY) providers.push('OpenRouter');
   if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
   if (process.env.CLAUDE_CODE_USE_VERTEX === '1') providers.push('Google Vertex');
@@ -99,6 +101,9 @@ export function validateCredentials(): CredentialValidation {
   }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return { valid: true, mode: 'oauth' };
+  }
+  if (process.env.OPENROUTER_API_KEY) {
+    return { valid: true, mode: 'openrouter' };
   }
   if (isCustomBaseUrlConfigured()) {
     return { valid: true, mode: 'custom-base-url' };

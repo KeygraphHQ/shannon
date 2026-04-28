@@ -197,7 +197,38 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string, prov
   if (apiKey) {
     process.env.ANTHROPIC_API_KEY = apiKey;
   }
-  // 1. Custom base URL — validate endpoint is reachable via SDK query
+  // 1a. OpenRouter mode — validate required credentials are present
+  if (process.env.OPENROUTER_API_KEY) {
+    const baseUrl = 'https://openrouter.ai/api/v1';
+    logger.info(`Validating OpenRouter configuration: ${baseUrl}`);
+
+    try {
+      for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
+        if (message.type === 'assistant' && message.error) {
+          return classifySdkError(message.error, 'OpenRouter endpoint');
+        }
+        if (message.type === 'result') {
+          break;
+        }
+      }
+
+      logger.info('OpenRouter OK');
+      return ok(undefined);
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      return err(
+        new PentestError(
+          `OpenRouter unreachable: ${msg}`,
+          'network',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+  }
+
+  // 1b. Custom base URL — validate endpoint is reachable via SDK query
   if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
     logger.info(`Validating custom base URL: ${baseUrl}`);
@@ -305,7 +336,7 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string, prov
   }
 
   // 4. Check that at least one credential is present
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_AUTH_TOKEN) {
+  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_AUTH_TOKEN && !process.env.OPENROUTER_API_KEY) {
     return err(
       new PentestError(
         'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, or CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI)',
