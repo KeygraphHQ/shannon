@@ -425,6 +425,13 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c ./my-app-
 
 If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
 
+#### Adaptive Thinking (Opus 4.6/4.7)
+
+Claude decides when and how deeply to reason on Opus 4.6 and 4.7. Enabled by default whenever a tier resolves to one of these models.
+
+- **npx mode** — `npx @keygraph/shannon setup` prompts you during the wizard.
+- **Local mode** — set `CLAUDE_ADAPTIVE_THINKING=false` in `.env` (or as an exported env var) to disable.
+
 #### Subscription Plan Rate Limits
 
 Anthropic subscription plans reset usage on a **rolling 5-hour window**. The default retry strategy (30-min max backoff) will exhaust retries before the window resets. Add this to your config:
@@ -453,7 +460,7 @@ export AWS_REGION=us-east-1
 export AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
 export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-7
 ```
 
 <details>
@@ -465,12 +472,12 @@ AWS_REGION=us-east-1
 AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
 ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-6
+ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-7
 ```
 
 </details>
 
-Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-6`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
+Shannon uses three model tiers: **small** (`claude-haiku-4-5-20251001`) for summarization, **medium** (`claude-sonnet-4-6`) for security analysis, and **large** (`claude-opus-4-7`) for deep reasoning. Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to the Bedrock model IDs for your region.
 
 ### Google Vertex AI
 
@@ -491,7 +498,7 @@ export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-sa-key.json
 export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
 export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-7
 ```
 
 <details>
@@ -504,7 +511,7 @@ ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
 GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-sa-key.json
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+ANTHROPIC_LARGE_MODEL=claude-opus-4-7
 ```
 
 </details>
@@ -531,7 +538,7 @@ export ANTHROPIC_AUTH_TOKEN=your-auth-token
 # Optionally override model tiers (defaults are used if not set)
 export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
 export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-7
 ```
 
 <details>
@@ -542,7 +549,7 @@ ANTHROPIC_BASE_URL=https://your-proxy.example.com
 ANTHROPIC_AUTH_TOKEN=your-auth-token
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-6
+ANTHROPIC_LARGE_MODEL=claude-opus-4-7
 ```
 
 </details>

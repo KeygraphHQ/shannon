@@ -8,7 +8,7 @@ import { getConfigFile } from '../home.js';
 // === Types ===
 
 export interface ShannonConfig {
-  core?: { max_tokens?: number };
+  core?: { max_tokens?: number; adaptive_thinking?: boolean };
   anthropic?: { api_key?: string; oauth_token?: string };
   custom_base_url?: { base_url?: string; auth_token?: string };
   bedrock?: { use?: boolean; region?: string; token?: string };
