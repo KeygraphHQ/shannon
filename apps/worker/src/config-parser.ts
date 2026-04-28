@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
 import { Ajv, type ErrorObject, type ValidateFunction } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
 import yaml from 'js-yaml';
@@ -25,7 +26,7 @@ let validateSchema: ValidateFunction;
 
 try {
   const schemaPath = new URL('../configs/config-schema.json', import.meta.url);
-  const schemaContent = await fs.readFile(schemaPath, 'utf8');
+  const schemaContent = await fs.readFile(fileURLToPath(schemaPath), 'utf8');
   configSchema = JSON.parse(schemaContent) as object;
   validateSchema = ajv.compile(configSchema);
 } catch (error) {
