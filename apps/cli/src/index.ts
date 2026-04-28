@@ -89,6 +89,10 @@ Options for 'start':
   -w, --workspace <name>    Named workspace (auto-resumes if exists)
       --pipeline-testing    Use minimal prompts for fast testing
       --debug               Preserve worker container after exit for log inspection
+      --report-format <fmt> Report output format: 'md' (default) or 'sarif'
+                            'sarif' emits a SARIF 2.1.0 file alongside the
+                            markdown report for ingestion by GitHub Code
+                            Scanning, GitLab, Defect Dojo, etc.
 
 Examples:
   ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
@@ -106,6 +110,8 @@ Monitor workflows at http://localhost:8233
 `);
 }
 
+type ReportFormat = 'md' | 'sarif';
+
 interface ParsedStartArgs {
   url: string;
   repo: string;
@@ -114,6 +120,7 @@ interface ParsedStartArgs {
   output?: string;
   pipelineTesting: boolean;
   debug: boolean;
+  reportFormat: ReportFormat;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
@@ -124,6 +131,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   let output: string | undefined;
   let pipelineTesting = false;
   let debug = false;
+  let reportFormat: ReportFormat = 'md';
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
@@ -171,6 +179,16 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       case '--debug':
         debug = true;
         break;
+      case '--report-format':
+        if (next && !next.startsWith('-')) {
+          if (next !== 'md' && next !== 'sarif') {
+            console.error(`ERROR: --report-format must be 'md' or 'sarif', got '${next}'`);
+            process.exit(1);
+          }
+          reportFormat = next;
+          i++;
+        }
+        break;
       default:
         console.error(`Unknown option: ${arg}`);
         console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
@@ -189,6 +207,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     repo,
     pipelineTesting,
     debug,
+    reportFormat,
     ...(config && { config }),
     ...(workspace && { workspace }),
     ...(output && { output }),

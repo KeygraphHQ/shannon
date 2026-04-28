@@ -23,6 +23,7 @@ export interface StartArgs {
   output?: string;
   pipelineTesting: boolean;
   debug: boolean;
+  reportFormat: 'md' | 'sarif';
   version: string;
 }
 
@@ -42,6 +43,22 @@ export async function start(args: StartArgs): Promise<void> {
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
 
+  // 3a. Validate target URL up front. Without this, a malformed value or a
+  // non-http scheme (file://, ftp://, javascript:) crashes the CLI mid-setup
+  // with a raw TypeError or, worse, slips through to the worker which
+  // assumes http/https semantics.
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(args.url);
+  } catch {
+    console.error(`ERROR: Invalid URL: ${args.url}`);
+    process.exit(1);
+  }
+  if (targetUrl.protocol !== 'http:' && targetUrl.protocol !== 'https:') {
+    console.error(`ERROR: URL scheme must be http or https, got: ${targetUrl.protocol}`);
+    process.exit(1);
+  }
+
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
   const workspacesDir = getWorkspacesDir();
   fs.mkdirSync(workspacesDir, { recursive: true });
@@ -57,8 +74,7 @@ export async function start(args: StartArgs): Promise<void> {
   const containerName = `shannon-worker-${suffix}`;
 
   // 7. Generate workspace name if not provided
-  const workspace =
-    args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
+  const workspace = args.workspace ?? `${targetUrl.hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
   // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
@@ -105,6 +121,7 @@ export async function start(args: StartArgs): Promise<void> {
     taskQueue,
     containerName,
     envFlags: buildEnvFlags(),
+    reportFormat: args.reportFormat,
     ...(config && { config }),
     ...(hasCredentials && { credentials: credentialsPath }),
     ...(promptsDir && { promptsDir }),
@@ -173,8 +190,18 @@ export async function start(args: StartArgs): Promise<void> {
         printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
         return;
       }
-    } catch {
-      // File doesn't exist yet
+    } catch (error) {
+      // ENOENT is the expected steady-state until the worker writes
+      // session.json — keep polling. SyntaxError means the worker is
+      // mid-write — also keep polling. Anything else (EACCES, EIO,
+      // ENOTDIR) is a real problem we should not silently swallow.
+      const code = (error as NodeJS.ErrnoException | undefined)?.code;
+      if (code !== 'ENOENT' && !(error instanceof SyntaxError)) {
+        clearInterval(pollInterval);
+        process.stdout.write('\n');
+        console.error(`ERROR: Failed to read session file: ${(error as Error).message}`);
+        process.exit(1);
+      }
     }
     process.stdout.write('.');
   }, 2000);

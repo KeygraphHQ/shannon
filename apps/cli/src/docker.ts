@@ -160,6 +160,7 @@ export interface WorkerOptions {
   workspace: string;
   pipelineTesting?: boolean;
   debug?: boolean;
+  reportFormat?: 'md' | 'sarif';
 }
 
 /**
@@ -212,6 +213,14 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   // Environment
   args.push(...opts.envFlags);
+
+  // Forward report format selection + version to the worker. Done as env
+  // (rather than CLI args) because the worker reads them once at startup
+  // to wire DI providers, before any activity-input plumbing exists.
+  if (opts.reportFormat && opts.reportFormat !== 'md') {
+    args.push('-e', `SHANNON_REPORT_FORMAT=${opts.reportFormat}`);
+  }
+  args.push('-e', `SHANNON_VERSION=${opts.version}`);
 
   // Container settings
   args.push('--shm-size', '2gb', '--security-opt', 'seccomp=unconfined');

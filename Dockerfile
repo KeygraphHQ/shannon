@@ -154,14 +154,19 @@ RUN ln -s /app/apps/worker/dist/scripts/save-deliverable.js /usr/local/bin/save-
     ln -s /app/apps/worker/dist/scripts/generate-totp.js /usr/local/bin/generate-totp && \
     chmod +x /app/apps/worker/dist/scripts/generate-totp.js
 
-# Create directories for session data and ensure proper permissions
+# Create directories for session data and ensure proper permissions.
+# 0o770 (owner+group rwx, world none) is sufficient: the container only ever
+# runs the pentest user (or a remapped UID added to the pentest group via
+# entrypoint.sh) and there is no legitimate world-write requirement. 0o777
+# previously made every directory writable by every other UID inside the
+# container, which is a needlessly broad blast radius.
 RUN mkdir -p /app/sessions /app/repos /app/workspaces && \
     mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
-    chmod 777 /app && \
-    chmod 777 /tmp/.cache && \
-    chmod 777 /tmp/.config && \
-    chmod 777 /tmp/.npm && \
-    chown -R pentest:pentest /app /tmp/.claude
+    chmod 770 /app && \
+    chmod 770 /tmp/.cache && \
+    chmod 770 /tmp/.config && \
+    chmod 770 /tmp/.npm && \
+    chown -R pentest:pentest /app /tmp/.claude /tmp/.cache /tmp/.config /tmp/.npm
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
