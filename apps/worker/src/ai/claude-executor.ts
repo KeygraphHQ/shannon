@@ -183,6 +183,10 @@ export async function runClaudePrompt(
         if (providerConfig.baseUrl) sdkEnv.ANTHROPIC_BASE_URL = providerConfig.baseUrl;
         if (providerConfig.authToken) sdkEnv.ANTHROPIC_AUTH_TOKEN = providerConfig.authToken;
         break;
+      case 'openrouter':
+        sdkEnv.ANTHROPIC_BASE_URL = 'https://openrouter.ai/api/v1';
+        if (providerConfig.apiKey) sdkEnv.ANTHROPIC_API_KEY = providerConfig.apiKey;
+        break;
       default:
         // 'anthropic_api' or unset — apiKey already handled above
         if (providerConfig.apiKey && !apiKey) sdkEnv.ANTHROPIC_API_KEY = providerConfig.apiKey;
