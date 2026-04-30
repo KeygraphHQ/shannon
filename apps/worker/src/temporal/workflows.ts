@@ -423,6 +423,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Initialize Deliverables Git ===
     await a.initDeliverableGit(activityInput);
 
+    // === Sync SDK deny rules ===
+    await a.syncCodePathDenyRules(activityInput);
+
     await a.persistOrValidateRunScope(activityInput, [...selectedVulnClasses], exploit);
 
     log.info(`Run scope: vuln_classes=[${selectedVulnClasses.join(', ')}] exploit=${exploit}`);

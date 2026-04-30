@@ -18,6 +18,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
+import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
@@ -396,6 +397,30 @@ export async function initDeliverableGit(input: ActivityInput): Promise<void> {
     deliverablesPath,
     'initial checkpoint',
   );
+}
+
+/**
+ * Sync code_path avoid rules into Claude's user-scope settings.json so the
+ * SDK enforces them at the tool layer for every agent in this run.
+ *
+ * Runs once per workflow before any agent fires. Config is fixed for the
+ * lifetime of the workflow, so writing once avoids the parallel-agent race
+ * on the global ~/.claude/settings.json file.
+ */
+export async function syncCodePathDenyRules(input: ActivityInput): Promise<void> {
+  const logger = createActivityLogger();
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult)) {
+    logger.warn(`syncCodePathDenyRules: skipping (config load failed: ${configResult.error.message})`);
+    return;
+  }
+
+  const config = configResult.value;
+  const denyCount = (config?.avoid ?? []).filter((r) => r.type === 'code_path').length;
+  await writeUserSettingsForCodePathAvoids(config);
+  logger.info(`Synced code_path deny rules to user settings (${denyCount} entries)`);
 }
 
 /**
