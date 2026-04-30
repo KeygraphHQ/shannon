@@ -103,15 +103,15 @@ function renderReportFiltersBlock(report: ReportConfig | undefined): string {
 }
 
 /**
- * Renders the per-finding DROP rules used inside the cleanup step. Only carries
- * measurable thresholds (severity, confidence). Guidance is intentionally not
- * a DROP rule — it's already declared as a binding directive in
- * <report_filters> and applies throughout the report, not just per-finding.
+ * Renders the per-finding DROP rules used inside the cleanup step. Severity and
+ * confidence inline as concrete thresholds; guidance is referenced by pointer
+ * so the actual text only lives in <report_filters>, avoiding double-statement.
  */
 function renderReportFilterRules(report: ReportConfig | undefined): string {
   const drops: string[] = [];
   if (report?.min_severity) drops.push(`* severity is below ${report.min_severity}`);
   if (report?.min_confidence) drops.push(`* confidence is below ${report.min_confidence}`);
+  if (report?.guidance?.trim()) drops.push('* topic matches an exclusion in the user guidance');
   if (drops.length === 0) return '';
   return ['   - DROP any `### [TYPE]-VULN-[NUMBER]` finding whose:', ...drops.map((d) => `     ${d}`)].join('\n');
 }
