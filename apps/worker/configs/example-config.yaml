@@ -4,6 +4,26 @@
 # Description of the target environment (optional, max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
 
+vuln_classes: [injection, xss, auth, authz, ssrf]
+
+# Set to "false" to skip the exploitation phase (default: "true").
+# exploit: "false"
+
+# Free-form engagement rules applied to analysis and exploitation agents.
+# Example below is illustrative; edit, remove, or add sections as needed.
+rules_of_engagement: |
+  Forbidden techniques:
+  - No password brute-force or credential stuffing. Cap login attempts at 5 per account.
+  - ...
+
+  Operational:
+  - Throttle to under 5 requests per second per endpoint. Back off 60 seconds on any 429 response.
+  - ...
+
+  Data handling:
+  - Do not include actual values in deliverables — use placeholders like [order_id] or [user_email].
+  - ...
+
 authentication:
   login_type: form  # Options: 'form' or 'sso'
   login_url: "https://example.com/login"
@@ -25,27 +45,37 @@ authentication:
     value: "/dashboard"
 
 rules:
+  # Supported types: url_path, subdomain, domain, method, header, parameter, code_path
   avoid:
     - description: "Do not test the marketing site subdomain"
       type: subdomain
-      url_path: "www"
+      value: "www"
     
     - description: "Skip logout functionality"
-      type: path
-      url_path: "/logout"
+      type: url_path
+      value: "/logout"
     
     - description: "No DELETE operations on user API"
-      type: path
-      url_path: "/api/v1/users/*"
+      type: url_path
+      value: "/api/v1/users/*"
   
   focus:
     - description: "Prioritize beta admin panel subdomain"
       type: subdomain
-      url_path: "beta-admin"
+      value: "beta-admin"
 
     - description: "Focus on user profile updates"
-      type: path
-      url_path: "/api/v2/user-profile"
+      type: url_path
+      value: "/api/v2/user-profile"
+
+# Report filters applied by the report agent when assembling the final report.
+# Example below is illustrative; edit, remove, or add sections as needed.
+report:
+  min_severity: medium
+  min_confidence: medium
+  guidance: |
+    Drop findings about missing security headers and rate-limit gaps.
+    ...
 
 # Pipeline execution settings (optional)
 # pipeline:

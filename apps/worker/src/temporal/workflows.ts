@@ -33,6 +33,7 @@ import {
 } from '@temporalio/workflow';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
+import type { VulnClass } from '../types/config.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
 import {
@@ -47,6 +48,21 @@ import {
 } from './shared.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
+
+const ALL_VULN_CLASSES_LOCAL: readonly VulnClass[] = ['injection', 'xss', 'auth', 'authz', 'ssrf'];
+
+/** Agents this run is expected to produce — drives the resume short-circuit. */
+function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boolean): string[] {
+  const expected: string[] = ['pre-recon', 'recon'];
+  for (const cls of vulnClasses) {
+    expected.push(`${cls}-vuln`);
+    if (exploit) {
+      expected.push(`${cls}-exploit`);
+    }
+  }
+  expected.push('report');
+  return expected;
+}
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -215,22 +231,40 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 
+  const selectedVulnClasses: readonly VulnClass[] =
+    input.vulnClasses && input.vulnClasses.length > 0 ? input.vulnClasses : ALL_VULN_CLASSES_LOCAL;
+  const selectedClassSet = new Set<VulnClass>(selectedVulnClasses);
+  const exploit: boolean = input.exploit ?? true;
+  const expectedAgents = computeExpectedAgents(selectedVulnClasses, exploit);
+
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
     // 1. Load resume state (validates workspace, cross-checks deliverables)
-    resumeState = await a.loadResumeState(input.resumeFromWorkspace, input.webUrl, input.repoPath, input.deliverablesSubdir);
+    resumeState = await a.loadResumeState(
+      input.resumeFromWorkspace,
+      input.webUrl,
+      input.repoPath,
+      input.deliverablesSubdir,
+    );
 
     // 2. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState?.completedAgents.includes(agentName),
     ) as AgentName[];
 
-    await a.restoreGitCheckpoint(input.repoPath, resumeState.checkpointHash, incompleteAgents, input.deliverablesSubdir);
+    await a.restoreGitCheckpoint(
+      input.repoPath,
+      resumeState.checkpointHash,
+      incompleteAgents,
+      input.deliverablesSubdir,
+    );
 
-    // 3. Short-circuit if all agents already completed
-    if (resumeState.completedAgents.length === ALL_AGENTS.length) {
-      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
+    // 3. Short-circuit when every agent expected by this run is done.
+    // Uses dynamic expectedAgents (not ALL_AGENTS) so a class-scoped run completes sooner.
+    const allExpectedDone = expectedAgents.every((a) => resumeState?.completedAgents.includes(a));
+    if (allExpectedDone) {
+      log.info(`All ${expectedAgents.length} expected agents already completed. Nothing to resume.`);
       state.status = 'completed';
       state.completedAgents = [...resumeState.completedAgents];
       state.summary = computeSummary(state);
@@ -389,6 +423,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Initialize Deliverables Git ===
     await a.initDeliverableGit(activityInput);
 
+    await a.persistOrValidateRunScope(activityInput, [...selectedVulnClasses], exploit);
+
+    log.info(`Run scope: vuln_classes=[${selectedVulnClasses.join(', ')}] exploit=${exploit}`);
+
     // === Phase 1: Pre-Reconnaissance ===
     await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 
@@ -432,19 +470,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       // 2. Check exploitation queue for actionable findings
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
 
-      // 3. Conditionally run exploitation agent
+      // 3. Previously-completed exploits are preserved regardless of mode; new exploits gated by mode.
       let exploitMetrics: AgentMetrics | null = null;
-      if (decision.shouldExploit) {
-        if (!shouldSkip(exploitAgentName)) {
-          exploitMetrics = await runExploitAgent();
-          state.agentMetrics[exploitAgentName] = exploitMetrics;
-          state.completedAgents.push(exploitAgentName);
-          if (input.checkpointsEnabled) {
-            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
-          }
-        } else {
-          log.info(`Skipping ${exploitAgentName} (already complete)`);
-          state.completedAgents.push(exploitAgentName);
+      if (shouldSkip(exploitAgentName)) {
+        log.info(`Skipping ${exploitAgentName} (already complete)`);
+        state.completedAgents.push(exploitAgentName);
+      } else if (decision.shouldExploit && exploit) {
+        exploitMetrics = await runExploitAgent();
+        state.agentMetrics[exploitAgentName] = exploitMetrics;
+        state.completedAgents.push(exploitAgentName);
+        if (input.checkpointsEnabled) {
+          await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
         }
       }
 
@@ -466,6 +502,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
 
     for (const config of pipelineConfigs) {
+      // Excluded classes drop entirely; any prior deliverables stay on disk but don't count this run.
+      if (!selectedClassSet.has(config.vulnType)) {
+        log.info(`Skipping ${config.vulnType} pipeline (class not selected this run)`);
+        continue;
+      }
       if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
         pipelineThunks.push(() => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit));
       } else {

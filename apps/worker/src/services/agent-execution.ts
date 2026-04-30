@@ -24,6 +24,7 @@
 import { fs, path } from 'zx';
 import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
 import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
+import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import type { AuditSession } from '../audit/index.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -103,6 +104,9 @@ export class AgentExecutionService {
       return configResult;
     }
     const distributedConfig = configResult.value;
+
+    // 1a. Sync code_path avoid rules into user settings.json so the SDK enforces them at the tool layer
+    await writeUserSettingsForCodePathAvoids(distributedConfig);
 
     // 2. Load prompt
     const promptTemplate = AGENTS[agentName].promptTemplate;

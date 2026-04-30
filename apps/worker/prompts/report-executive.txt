@@ -32,7 +32,12 @@ Filesystem:
 <context>
 Authentication Context:
 {{AUTH_CONTEXT}}
+
+Vulnerability classes tested in this run: {{VULN_CLASSES_TESTED}}
+Exploitation: {{EXPLOITATION}}
 </context>
+
+{{REPORT_FILTERS_BLOCK}}
 
 <input_files>
 You will analyze the following deliverable files:
@@ -51,26 +56,14 @@ MODIFY the existing file `.shannon/deliverables/comprehensive_security_assessmen
 ## Executive Summary
 - Target: {{WEB_URL}}
 - Assessment Date: {current date}
-- Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+- Scope: {{VULN_CLASSES_TESTED}}
+- Exploitation: {{EXPLOITATION}}
 
 ## Summary by Vulnerability Type
 
 {For each vulnerability type below, examine the comprehensive_security_assessment_report.md sections and provide a summary. If no section exists for that type or no vulnerabilities are listed, explicitly state that none were found.}
 
-**Authentication Vulnerabilities:**
-{Check for "Authentication Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No authentication vulnerabilities were found."}
-
-**Authorization Vulnerabilities:**
-{Check for "Authorization Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No authorization vulnerabilities were found."}
-
-**Cross-Site Scripting (XSS) Vulnerabilities:**
-{Check for "XSS Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No XSS vulnerabilities were found."}
-
-**SQL/Command Injection Vulnerabilities:**
-{Check for "Injection Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No SQL or command injection vulnerabilities were found."}
-
-**Server-Side Request Forgery (SSRF) Vulnerabilities:**
-{Check for "SSRF Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No SSRF vulnerabilities were found."}
+{{VULN_SUMMARY_SUBSECTIONS}}
 
 ## Network Reconnaissance
 {Extract security-relevant findings from automated scanning tools:
@@ -106,8 +99,9 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
 3. Clean the exploitation evidence sections from `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
    - KEEP these specific section headings:
      NOTE: these sections will contain vulnerability lists with IDs matching pattern `### [TYPE]-VULN-[NUMBER]`
-     * `# [Type] Exploitation Evidence`
-     * `## Successfully Exploited Vulnerabilities`
+     * `# [Type] {{REPORT_VULN_HEADING}}`
+     * `## {{REPORT_VULN_SUBHEADING}}`
+{{REPORT_FILTER_RULES}}
    - REMOVE ANY OTHER SECTIONS (even if they contain vulnerability IDs), such as:
      * `## Potential Vulnerabilities (Validation Blocked)` (All agents)
      * Standalone "Recommendations" sections

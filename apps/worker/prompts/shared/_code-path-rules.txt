@@ -1,0 +1,13 @@
+<code_path_rules>
+Source-code routing. Each rule is tagged `[FILE]` (literal path) or `[GLOB]` (pattern). All paths are repository-relative.
+
+How to apply:
+- For `[FILE]` entries — delegate analysis to the Task tool.
+- For `[GLOB]` entries — invoke the Glob tool to enumerate matches, then delegate analysis of every match to the Task tool.
+
+Avoid (access blocked at the tool layer):
+{{CODE_RULES_AVOID}}
+
+Focus (priority — analyze every match):
+{{CODE_RULES_FOCUS}}
+</code_path_rules>

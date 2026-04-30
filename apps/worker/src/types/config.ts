@@ -8,17 +8,30 @@
  * Configuration type definitions
  */
 
-export type RuleType = 'path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter';
+export type RuleType = 'url_path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter' | 'code_path';
 
 export interface Rule {
   description: string;
   type: RuleType;
-  url_path: string;
+  value: string;
 }
 
 export interface Rules {
   avoid?: Rule[];
   focus?: Rule[];
+}
+
+export type VulnClass = 'injection' | 'xss' | 'auth' | 'authz' | 'ssrf';
+
+export const ALL_VULN_CLASSES: readonly VulnClass[] = ['injection', 'xss', 'auth', 'authz', 'ssrf'];
+
+export type Severity = 'low' | 'medium' | 'high' | 'critical';
+export type Confidence = 'low' | 'medium' | 'high';
+
+export interface ReportConfig {
+  min_severity?: Severity;
+  min_confidence?: Confidence;
+  guidance?: string;
 }
 
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
@@ -47,6 +60,10 @@ export interface Config {
   authentication?: Authentication;
   pipeline?: PipelineConfig;
   description?: string;
+  vuln_classes?: VulnClass[];
+  exploit?: 'true' | 'false';
+  report?: ReportConfig;
+  rules_of_engagement?: string;
 }
 
 export type RetryPreset = 'default' | 'subscription';
@@ -61,6 +78,10 @@ export interface DistributedConfig {
   focus: Rule[];
   authentication: Authentication | null;
   description: string;
+  vuln_classes: VulnClass[];
+  exploit: boolean;
+  report: ReportConfig;
+  rules_of_engagement: string;
 }
 
 /**

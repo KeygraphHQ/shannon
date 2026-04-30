@@ -1,0 +1,3 @@
+<rules_of_engagement>
+{{RULES_OF_ENGAGEMENT}}
+</rules_of_engagement>
