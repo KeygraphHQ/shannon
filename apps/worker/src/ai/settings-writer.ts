@@ -14,7 +14,7 @@ import os from 'node:os';
 import { fs, path } from 'zx';
 import type { DistributedConfig } from '../types/config.js';
 
-const FILE_TOOLS = ['Read', 'Grep', 'Glob', 'Edit', 'Write'] as const;
+const FILE_TOOLS = ['Read', 'Edit'] as const;
 
 function denyEntriesFor(pattern: string): string[] {
   const arg = `./${pattern.replace(/^[./]+/, '')}`;
