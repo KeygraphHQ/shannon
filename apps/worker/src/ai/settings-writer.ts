@@ -5,17 +5,16 @@
 // as published by the Free Software Foundation.
 
 /**
- * Writes Claude Code's user-scope settings.json with permissions.deny rules
- * derived from the operator's `code_path` avoid patterns. Loaded by the SDK
- * via `settingSources: ['user']`; deny rules fire even in `bypassPermissions`
- * mode, blocking Read/Edit/Glob/Grep/Write on matching paths.
+ * Writes ~/.claude/settings.json with permissions.deny rules derived from
+ * `code_path` avoid patterns. The SDK reads this via `settingSources: ['user']`;
+ * deny rules fire even in `bypassPermissions` mode.
  */
 
 import os from 'node:os';
 import { fs, path } from 'zx';
 import type { DistributedConfig } from '../types/config.js';
 
-const FILE_TOOLS = ['Read', 'Grep'] as const;
+const FILE_TOOLS = ['Read', 'Grep', 'Glob', 'Edit', 'Write'] as const;
 
 function denyEntriesFor(pattern: string): string[] {
   const arg = `./${pattern.replace(/^[./]+/, '')}`;
