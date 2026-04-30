@@ -35,7 +35,7 @@ import { assembleFinalReport, injectModelIntoReport } from '../services/reportin
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
-import type { ContainerConfig, ProviderConfig } from '../types/config.js';
+import type { ContainerConfig, ProviderConfig, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
@@ -473,7 +473,7 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
 }
 
 interface RunScope {
-  vulnClasses: string[];
+  vulnClasses: VulnClass[];
   exploit: boolean;
 }
 
@@ -605,7 +605,7 @@ export async function loadResumeState(
 /** First run records scope into session.json; resume runs throw if it differs. */
 export async function persistOrValidateRunScope(
   input: ActivityInput,
-  vulnClasses: string[],
+  vulnClasses: VulnClass[],
   exploit: boolean,
 ): Promise<void> {
   const sessionMetadata = buildSessionMetadata(input);

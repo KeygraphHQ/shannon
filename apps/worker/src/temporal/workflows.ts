@@ -33,7 +33,7 @@ import {
 } from '@temporalio/workflow';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
-import type { VulnClass } from '../types/config.js';
+import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
 import {
@@ -48,8 +48,6 @@ import {
 } from './shared.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
-
-const ALL_VULN_CLASSES_LOCAL: readonly VulnClass[] = ['injection', 'xss', 'auth', 'authz', 'ssrf'];
 
 /** Agents this run is expected to produce — drives the resume short-circuit. */
 function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boolean): string[] {
@@ -232,7 +230,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   };
 
   const selectedVulnClasses: readonly VulnClass[] =
-    input.vulnClasses && input.vulnClasses.length > 0 ? input.vulnClasses : ALL_VULN_CLASSES_LOCAL;
+    input.vulnClasses && input.vulnClasses.length > 0 ? input.vulnClasses : ALL_VULN_CLASSES;
   const selectedClassSet = new Set<VulnClass>(selectedVulnClasses);
   const exploit: boolean = input.exploit ?? true;
   const expectedAgents = computeExpectedAgents(selectedVulnClasses, exploit);
