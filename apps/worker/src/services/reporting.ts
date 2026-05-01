@@ -16,18 +16,20 @@ interface DeliverableFile {
   required: boolean;
 }
 
-// Pure function: Assemble final report from specialist deliverables
+// Pure function: Assemble final report from specialist deliverables.
 export async function assembleFinalReport(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
+  exploit: boolean,
   logger: ActivityLogger,
 ): Promise<string> {
+  const suffix = exploit ? 'exploitation_evidence.md' : 'analysis_deliverable.md';
   const deliverableFiles: DeliverableFile[] = [
-    { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
-    { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
-    { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
-    { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
-    { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+    { name: 'Injection', path: `injection_${suffix}`, required: false },
+    { name: 'XSS', path: `xss_${suffix}`, required: false },
+    { name: 'Authentication', path: `auth_${suffix}`, required: false },
+    { name: 'SSRF', path: `ssrf_${suffix}`, required: false },
+    { name: 'Authorization', path: `authz_${suffix}`, required: false },
   ];
 
   const sections: string[] = [];
