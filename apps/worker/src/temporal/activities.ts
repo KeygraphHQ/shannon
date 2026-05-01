@@ -424,14 +424,14 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
 }
 
 /**
- * Assemble the final report by concatenating specialist deliverables.
+ * Assemble the final report by concatenating exploitation evidence files.
  */
-export async function assembleReportActivity(input: ActivityInput, exploit: boolean): Promise<void> {
+export async function assembleReportActivity(input: ActivityInput): Promise<void> {
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, deliverablesSubdir, exploit, logger);
+    await assembleFinalReport(repoPath, deliverablesSubdir, logger);
   } catch (error) {
     const err = error as Error;
     logger.warn(`Error assembling final report: ${err.message}`);
