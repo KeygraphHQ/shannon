@@ -149,32 +149,42 @@ async function patternMatchesAny(repoPath: string, pattern: string): Promise<boo
   return false;
 }
 
+type RuleKind = 'avoid' | 'focus';
+interface MissingCodePath {
+  kind: RuleKind;
+  value: string;
+  description: string;
+}
+
 async function validateCodePathsExist(
   config: Config,
   repoPath: string,
   logger: ActivityLogger,
 ): Promise<Result<void, PentestError>> {
-  const codeRules: Rule[] = [...(config.rules?.avoid ?? []), ...(config.rules?.focus ?? [])].filter(
-    (r) => r.type === 'code_path',
-  );
-  if (codeRules.length === 0) {
+  const tagged: Array<{ kind: RuleKind; rule: Rule }> = [
+    ...(config.rules?.avoid ?? []).map((rule) => ({ kind: 'avoid' as const, rule })),
+    ...(config.rules?.focus ?? []).map((rule) => ({ kind: 'focus' as const, rule })),
+  ].filter(({ rule }) => rule.type === 'code_path');
+
+  if (tagged.length === 0) {
     return ok(undefined);
   }
 
-  logger.info(`Validating ${codeRules.length} code_path rule(s) against repo...`);
+  logger.info(`Validating ${tagged.length} code_path rule(s) against repo...`);
 
   // ≥1 match is the only property enforced — malformed globs simply match nothing.
-  const missing: string[] = [];
-  for (const rule of codeRules) {
+  const missing: MissingCodePath[] = [];
+  for (const { kind, rule } of tagged) {
     if (!(await patternMatchesAny(repoPath, rule.value))) {
-      missing.push(`'${rule.value}' — ${rule.description}`);
+      missing.push({ kind, value: rule.value, description: rule.description });
     }
   }
 
   if (missing.length > 0) {
+    const lines = missing.map((m) => `[${m.kind}] '${m.value}' — ${m.description}`);
     return err(
       new PentestError(
-        `code_path rules don't match any file or directory in the repo:\n  - ${missing.join('\n  - ')}\n` +
+        `code_path rules don't match any file or directory in the repo:\n  - ${lines.join('\n  - ')}\n` +
           `Fix the patterns or remove the rules.`,
         'config',
         false,
