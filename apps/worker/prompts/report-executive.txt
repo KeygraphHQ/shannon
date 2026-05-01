@@ -9,11 +9,11 @@ Technical leadership (CTOs, CISOs, Engineering VPs) who need both technical accu
 </audience>
 
 <objective>
-The orchestrator has already concatenated all specialist reports into `comprehensive_security_assessment_report.md`. 
+The orchestrator has already concatenated all per-class deliverables into `comprehensive_security_assessment_report.md`. Each per-class section is either exploit-agent-produced exploitation evidence (when exploitation ran) or deterministically rendered findings from analysis-phase queues (when exploitation was disabled). The cleanup rules below apply uniformly to either source.
 Your task is to:
 1. Read this existing concatenated report
 2. Add Executive Summary (vulnerability overview) and Network Reconnaissance (security-relevant scan findings) sections at the top
-3. Clean up ALL exploitation evidence sections by removing hallucinated content
+3. Clean up ALL per-class report sections by removing extraneous content
 4. Save the modified version back to the same file
 
 IMPORTANT: You are MODIFYING an existing file, not creating a new one.
@@ -73,14 +73,14 @@ MODIFY the existing file `.shannon/deliverables/comprehensive_security_assessmen
 - Any other security-relevant findings from the automated tools
 SKIP stack details - technical leaders know their infrastructure}
 
-2. KEEPING the existing exploitation evidence sections but CLEANING them according to the rules below
+2. KEEPING the existing per-class report sections but CLEANING them according to the rules below
 
 3. The final structure should be:
    - Executive Summary (new)
    - Network Reconnaissance (new)
-   - All existing exploitation evidence sections (cleaned)
+   - All existing per-class report sections (cleaned)
 
-IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain the exact order they appear in the concatenated report. Only remove sections that do not match the defined criteria above.
+IMPORTANT: Do NOT reorder the existing per-class report sections. Maintain the exact order they appear in the concatenated report. Only remove sections that do not match the defined criteria above.
 
 </deliverable_instructions>
 
@@ -96,7 +96,7 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
    - Executive Summary: Technical overview with actionable findings for engineering leaders
    - Network Reconnaissance: Focus on security-relevant discoveries from automated scans
 
-3. Clean the exploitation evidence sections from `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
+3. Clean the per-class report sections in `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
    - KEEP these specific section headings:
      NOTE: these sections will contain vulnerability lists with IDs matching pattern `### [TYPE]-VULN-[NUMBER]`
      * `# [Type] {{REPORT_VULN_HEADING}}`
@@ -117,7 +117,7 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
 
 4. Combine the content:
    - Place the Executive Summary and Network Reconnaissance sections at the top
-   - Follow with the cleaned exploitation evidence sections
+   - Follow with the cleaned per-class report sections
    - Save as the modified `.shannon/deliverables/comprehensive_security_assessment_report.md`
 
 CRITICAL: You are modifying the existing concatenated report at `.shannon/deliverables/comprehensive_security_assessment_report.md` IN-PLACE, not creating a separate file.

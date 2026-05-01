@@ -529,8 +529,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.currentAgent = 'report';
       await a.logPhaseTransition(activityInput, 'reporting', 'start');
 
-      // First, assemble the concatenated report from exploitation evidence files
-      await a.assembleReportActivity(activityInput);
+      // First, assemble the concatenated report from per-class deliverables
+      await a.assembleReportActivity(activityInput, exploit);
 
       // Then run the report agent to add executive summary and clean up
       state.agentMetrics.report = await a.runReportAgent(activityInput);

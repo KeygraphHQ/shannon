@@ -31,6 +31,7 @@ import { ExploitationCheckerService } from '../services/exploitation-checker.js'
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
+import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
@@ -424,11 +425,26 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
 }
 
 /**
- * Assemble the final report by concatenating exploitation evidence files.
+ * Assemble the final report by concatenating per-class deliverables.
+ *
+ * Under exploit=true, each exploit agent has produced `*_exploitation_evidence.md`
+ * directly. Under exploit=false, exploit agents didn't run; we deterministically
+ * render `*_findings.md` from each `*_exploitation_queue.json` first, then assemble.
  */
-export async function assembleReportActivity(input: ActivityInput): Promise<void> {
+export async function assembleReportActivity(input: ActivityInput, exploit: boolean): Promise<void> {
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
+
+  if (!exploit) {
+    logger.info('Rendering per-class findings from analysis queues...');
+    try {
+      await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
+    } catch (error) {
+      const err = error as Error;
+      logger.warn(`Error rendering findings from queues: ${err.message}`);
+    }
+  }
+
   logger.info('Assembling deliverables from specialist agents...');
   try {
     await assembleFinalReport(repoPath, deliverablesSubdir, logger);
