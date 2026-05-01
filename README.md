@@ -374,21 +374,20 @@ cp configs/example-config.yaml ./my-app-config.yaml
 ##### Basic Configuration Structure
 
 ```yaml
-# Optional: describe your target environment (max 500 chars)
+# Describe your target environment (optional, max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
 
-# Optional: limit which vulnerability classes run end-to-end (default: all five)
-vuln_classes: [injection, xss, auth, authz, ssrf]
+# Limit which vulnerability classes run end-to-end (optional, default: all five)
+# vuln_classes: [injection, xss, auth, authz, ssrf]
 
-# Optional: skip the exploitation phase. When "false", agents stop after analysis and the
-# report lists static findings rather than proven exploits. (default: "true")
+# Skip the exploitation phase (optional, default: "true")
 # exploit: "false"
 
-# Optional: free-form rules of engagement
-rules_of_engagement: |
-  - No password brute-force; cap login attempts at 5 per account.
-  - Throttle to under 5 requests per second per endpoint; back off 60s on any 429.
-  - Use placeholders like [order_id] in deliverables — no real data values.
+# Free-form rules of engagement (optional)
+# rules_of_engagement: |
+#   - No password brute-force; cap login attempts at 5 per account.
+#   - Throttle to under 5 requests per second per endpoint; back off 60s on any 429.
+#   - Use placeholders like [order_id] in deliverables — no real data values.
 
 authentication:
   login_type: form
@@ -414,21 +413,22 @@ rules:
       type: url_path
       value: "/logout"
 
-    - description: "Out-of-scope vendored libraries"
-      type: code_path
-      value: "src/vendor/**"
+    # code_path values are repo-relative file paths or globs (e.g. "src/auth.ts", "src/vendor/**").
+    # - description: "Out-of-scope vendored libraries"
+    #   type: code_path
+    #   value: "src/vendor/**"
 
   focus:
     - description: "AI should emphasize testing API endpoints"
       type: url_path
       value: "/api"
 
-# Optional: filters applied by the report agent when assembling the final report.
-report:
-  min_severity: low                   # drop findings below this severity (low | medium | high | critical)
-  min_confidence: low                 # drop findings below this confidence (low | medium | high)
-  guidance: |
-    Drop findings about missing security headers and rate-limit gaps.
+# Filters applied by the report agent when assembling the final report (optional).
+# report:
+#   min_severity: low                   # drop findings below this severity (low | medium | high | critical)
+#   min_confidence: low                 # drop findings below this confidence (low | medium | high)
+#   guidance: |
+#     Drop findings about missing security headers and rate-limit gaps.
 ```
 
 Run with:

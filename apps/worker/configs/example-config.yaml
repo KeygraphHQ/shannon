@@ -4,25 +4,26 @@
 # Description of the target environment (optional, max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
 
-vuln_classes: [injection, xss, auth, authz, ssrf]
+# Limit which vulnerability classes run end-to-end (optional, default: all five)
+# vuln_classes: [injection, xss, auth, authz, ssrf]
 
-# Set to "false" to skip the exploitation phase (default: "true").
+# Skip the exploitation phase (optional, default: "true")
 # exploit: "false"
 
-# Free-form engagement rules applied to analysis and exploitation agents.
+# Free-form engagement rules applied to analysis and exploitation agents (optional).
 # Example below is illustrative; edit, remove, or add sections as needed.
-rules_of_engagement: |
-  Forbidden techniques:
-  - No password brute-force or credential stuffing. Cap login attempts at 5 per account.
-  - ...
-
-  Operational:
-  - Throttle to under 5 requests per second per endpoint. Back off 60 seconds on any 429 response.
-  - ...
-
-  Data handling:
-  - Do not include actual values in deliverables — use placeholders like [order_id] or [user_email].
-  - ...
+# rules_of_engagement: |
+#   Forbidden techniques:
+#   - No password brute-force or credential stuffing. Cap login attempts at 5 per account.
+#   - ...
+#
+#   Operational:
+#   - Throttle to under 5 requests per second per endpoint. Back off 60 seconds on any 429 response.
+#   - ...
+#
+#   Data handling:
+#   - Do not include actual values in deliverables — use placeholders like [order_id] or [user_email].
+#   - ...
 
 authentication:
   login_type: form  # Options: 'form' or 'sso'
@@ -59,6 +60,15 @@ rules:
       type: url_path
       value: "/api/v1/users/*"
   
+    # code_path values are repo-relative file paths or globs (e.g. "src/auth.ts", "test/**").
+    # - description: "Test fixtures and specs (not production code)"
+    #   type: code_path
+    #   value: "test/**"
+    #
+    # - description: "Generated migrations"
+    #   type: code_path
+    #   value: "db/migrations/**"
+
   focus:
     - description: "Prioritize beta admin panel subdomain"
       type: subdomain
@@ -68,14 +78,23 @@ rules:
       type: url_path
       value: "/api/v2/user-profile"
 
-# Report filters applied by the report agent when assembling the final report.
+    # code_path values are repo-relative file paths or globs (e.g. "src/auth.ts", "routes/*.ts").
+    # - description: "Express route handlers"
+    #   type: code_path
+    #   value: "routes/*.ts"
+    #
+    # - description: "Sequelize ORM model definitions"
+    #   type: code_path
+    #   value: "models/*.ts"
+
+# Report filters applied by the report agent when assembling the final report (optional).
 # Example below is illustrative; edit, remove, or add sections as needed.
-report:
-  min_severity: medium
-  min_confidence: medium
-  guidance: |
-    Drop findings about missing security headers and rate-limit gaps.
-    ...
+# report:
+#   min_severity: low
+#   min_confidence: low
+#   guidance: |
+#     Drop findings about missing security headers and rate-limit gaps.
+#     ...
 
 # Pipeline execution settings (optional)
 # pipeline:
