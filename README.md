@@ -377,6 +377,19 @@ cp configs/example-config.yaml ./my-app-config.yaml
 # Optional: describe your target environment (max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
 
+# Optional: limit which vulnerability classes run end-to-end (default: all five)
+vuln_classes: [injection, xss, auth, authz, ssrf]
+
+# Optional: skip the exploitation phase. When "false", agents stop after analysis and the
+# report lists static findings rather than proven exploits. (default: "true")
+# exploit: "false"
+
+# Optional: free-form rules of engagement
+rules_of_engagement: |
+  - No password brute-force; cap login attempts at 5 per account.
+  - Throttle to under 5 requests per second per endpoint; back off 60s on any 429.
+  - Use placeholders like [order_id] in deliverables — no real data values.
+
 authentication:
   login_type: form
   login_url: "https://your-app.com/login"
@@ -395,15 +408,27 @@ authentication:
     value: "/dashboard"
 
 rules:
+  # Supported types: url_path, subdomain, domain, method, header, parameter, code_path
   avoid:
     - description: "AI should avoid testing logout functionality"
-      type: path
-      url_path: "/logout"
+      type: url_path
+      value: "/logout"
+
+    - description: "Out-of-scope vendored libraries"
+      type: code_path
+      value: "src/vendor/**"
 
   focus:
     - description: "AI should emphasize testing API endpoints"
-      type: path
-      url_path: "/api"
+      type: url_path
+      value: "/api"
+
+# Optional: filters applied by the report agent when assembling the final report.
+report:
+  min_severity: low                   # drop findings below this severity (low | medium | high | critical)
+  min_confidence: low                 # drop findings below this confidence (low | medium | high)
+  guidance: |
+    Drop findings about missing security headers and rate-limit gaps.
 ```
 
 Run with:
