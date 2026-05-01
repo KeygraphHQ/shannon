@@ -9,16 +9,15 @@ import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
+import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
-
-const GLOB_CHARS = /[*?[\]{}!]/;
 
 function renderCodePathRules(rules: Rule[]): string {
   const filtered = rules.filter((r) => r.type === 'code_path');
   if (filtered.length === 0) return 'None';
   return filtered
     .map((r) => {
-      const kind = GLOB_CHARS.test(r.value) ? '[GLOB]' : '[FILE]';
+      const kind = isGlobPattern(r.value) ? '[GLOB]' : '[FILE]';
       return `- ${r.value} ${kind} — ${r.description}`;
     })
     .join('\n');

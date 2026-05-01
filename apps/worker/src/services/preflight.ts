@@ -14,8 +14,9 @@
  * Checks run sequentially, cheapest first:
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
- * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
- * 4. Target URL is reachable from the container (DNS + HTTP)
+ * 3. code_path rules match real entries in the repo (filesystem only)
+ * 4. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
+ * 5. Target URL is reachable from the container (DNS + HTTP)
  */
 
 import { lookup } from 'node:dns/promises';
@@ -24,9 +25,11 @@ import http from 'node:http';
 import https from 'node:https';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { glob } from 'zx';
 import { resolveModel } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { Config, Rule } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
 import { isRetryableError, PentestError } from './error-handling.js';
@@ -104,13 +107,13 @@ async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitChe
 
 // === Config Validation ===
 
-async function validateConfig(configPath: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
+async function validateConfig(configPath: string, logger: ActivityLogger): Promise<Result<Config, PentestError>> {
   logger.info('Validating configuration file...', { configPath });
 
   try {
-    await parseConfig(configPath);
+    const config = await parseConfig(configPath);
     logger.info('Configuration file OK');
-    return ok(undefined);
+    return ok(config);
   } catch (error) {
     if (error instanceof PentestError) {
       return err(error);
@@ -126,6 +129,63 @@ async function validateConfig(configPath: string, logger: ActivityLogger): Promi
       ),
     );
   }
+}
+
+// === code_path Existence Validation ===
+
+const CODE_PATH_IGNORE = ['.git/**', '.shannon/**'];
+
+async function patternMatchesAny(repoPath: string, pattern: string): Promise<boolean> {
+  const stream = glob.globbyStream(pattern, {
+    cwd: repoPath,
+    dot: true,
+    onlyFiles: false,
+    followSymbolicLinks: false,
+    ignore: CODE_PATH_IGNORE,
+  });
+  for await (const _ of stream) {
+    return true;
+  }
+  return false;
+}
+
+async function validateCodePathsExist(
+  config: Config,
+  repoPath: string,
+  logger: ActivityLogger,
+): Promise<Result<void, PentestError>> {
+  const codeRules: Rule[] = [...(config.rules?.avoid ?? []), ...(config.rules?.focus ?? [])].filter(
+    (r) => r.type === 'code_path',
+  );
+  if (codeRules.length === 0) {
+    return ok(undefined);
+  }
+
+  logger.info(`Validating ${codeRules.length} code_path rule(s) against repo...`);
+
+  // ≥1 match is the only property enforced — malformed globs simply match nothing.
+  const missing: string[] = [];
+  for (const rule of codeRules) {
+    if (!(await patternMatchesAny(repoPath, rule.value))) {
+      missing.push(`'${rule.value}' — ${rule.description}`);
+    }
+  }
+
+  if (missing.length > 0) {
+    return err(
+      new PentestError(
+        `code_path rules don't match any file or directory in the repo:\n  - ${missing.join('\n  - ')}\n` +
+          `Fix the patterns or remove the rules.`,
+        'config',
+        false,
+        { missing },
+        ErrorCode.CONFIG_VALIDATION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('All code_path rules matched');
+  return ok(undefined);
 }
 
 // === Credential Validation ===
@@ -463,8 +523,9 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
  *
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if configPath provided)
- * 3. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
- * 4. Target URL is reachable from the container
+ * 3. code_path rules match at least one entry in the repo (skipped without config)
+ * 4. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
+ * 5. Target URL is reachable from the container
  *
  * Returns on first failure.
  */
@@ -484,20 +545,31 @@ export async function runPreflightChecks(
   }
 
   // 2. Config check (free — filesystem + CPU)
+  let parsedConfig: Config | null = null;
   if (configPath) {
     const configResult = await validateConfig(configPath, logger);
     if (!configResult.ok) {
       return configResult;
     }
+    parsedConfig = configResult.value;
   }
 
-  // 3. Credential check (cheap — 1 SDK round-trip, skipped when providerConfig present)
+  // 3. code_path rules must match real entries in the repo (filesystem only).
+  // Runs after both repo and config are valid, before any network round-trip.
+  if (parsedConfig) {
+    const codePathResult = await validateCodePathsExist(parsedConfig, repoPath, logger);
+    if (!codePathResult.ok) {
+      return codePathResult;
+    }
+  }
+
+  // 4. Credential check (cheap — 1 SDK round-trip, skipped when providerConfig present)
   const credResult = await validateCredentials(logger, apiKey, providerConfig);
   if (!credResult.ok) {
     return credResult;
   }
 
-  // 4. Target URL reachability check (cheap — 1 HTTP round-trip)
+  // 5. Target URL reachability check (cheap — 1 HTTP round-trip)
   const urlResult = await validateTargetUrl(targetUrl, logger);
   if (!urlResult.ok) {
     return urlResult;
