@@ -8,8 +8,112 @@ import { fs, path } from 'zx';
 import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
-import type { Authentication, DistributedConfig } from '../types/config.js';
+import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
+import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
+
+function renderCodePathRules(rules: Rule[]): string {
+  const filtered = rules.filter((r) => r.type === 'code_path');
+  if (filtered.length === 0) return 'None';
+  return filtered
+    .map((r) => {
+      const kind = isGlobPattern(r.value) ? '[GLOB]' : '[FILE]';
+      return `- ${r.value} ${kind} — ${r.description}`;
+    })
+    .join('\n');
+}
+
+interface VulnSummarySpec {
+  readonly heading: string;
+  readonly evidenceSection: string;
+  readonly noneFoundLabel: string;
+}
+
+const VULN_SUMMARY_SPECS: Record<VulnClass, VulnSummarySpec> = {
+  auth: {
+    heading: 'Authentication Vulnerabilities',
+    evidenceSection: 'Authentication Exploitation Evidence',
+    noneFoundLabel: 'authentication',
+  },
+  authz: {
+    heading: 'Authorization Vulnerabilities',
+    evidenceSection: 'Authorization Exploitation Evidence',
+    noneFoundLabel: 'authorization',
+  },
+  xss: {
+    heading: 'Cross-Site Scripting (XSS) Vulnerabilities',
+    evidenceSection: 'XSS Exploitation Evidence',
+    noneFoundLabel: 'XSS',
+  },
+  injection: {
+    heading: 'SQL/Command Injection Vulnerabilities',
+    evidenceSection: 'Injection Exploitation Evidence',
+    noneFoundLabel: 'SQL or command injection',
+  },
+  ssrf: {
+    heading: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
+    evidenceSection: 'SSRF Exploitation Evidence',
+    noneFoundLabel: 'SSRF',
+  },
+};
+
+function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
+  const classes = selected.length > 0 ? selected : (Object.keys(VULN_SUMMARY_SPECS) as VulnClass[]);
+  return classes
+    .map((cls) => {
+      const spec = VULN_SUMMARY_SPECS[cls];
+      return `**${spec.heading}:**\n{Check for "${spec.evidenceSection}" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No ${spec.noneFoundLabel} vulnerabilities were found."}`;
+    })
+    .join('\n\n');
+}
+
+/**
+ * Renders the top-level <report_filters> block. Empty when no filters are set —
+ * each filter is included only when the operator configured it, so the agent
+ * never sees `none` placeholders or instructions for filters that don't apply.
+ */
+function renderReportFiltersBlock(report: ReportConfig | undefined): string {
+  if (!report) return '';
+  const guidance = report.guidance?.trim();
+  if (!report.min_severity && !report.min_confidence && !guidance) return '';
+
+  const lines: string[] = [
+    '<report_filters>',
+    'The filters below are user-supplied and binding for this assessment. Honor each strictly when assembling the final report.',
+    '',
+  ];
+  if (report.min_severity) {
+    lines.push(
+      `- Minimum severity: ${report.min_severity} — keep only findings rated this severity or higher (scale: low < medium < high < critical).`,
+    );
+  }
+  if (report.min_confidence) {
+    lines.push(
+      `- Minimum confidence: ${report.min_confidence} — keep only findings rated this confidence or higher (scale: low < medium < high).`,
+    );
+  }
+  if (guidance) {
+    lines.push('');
+    lines.push('User guidance — apply throughout the report as binding directives for finding selection:');
+    lines.push(guidance);
+  }
+  lines.push('</report_filters>');
+  return lines.join('\n');
+}
+
+/**
+ * Renders the per-finding DROP rules used inside the cleanup step. Severity and
+ * confidence inline as concrete thresholds; guidance is referenced by pointer
+ * so the actual text only lives in <report_filters>, avoiding double-statement.
+ */
+function renderReportFilterRules(report: ReportConfig | undefined): string {
+  const drops: string[] = [];
+  if (report?.min_severity) drops.push(`* severity is below ${report.min_severity}`);
+  if (report?.min_confidence) drops.push(`* confidence is below ${report.min_confidence}`);
+  if (report?.guidance?.trim()) drops.push('* topic matches an exclusion in the user guidance');
+  if (drops.length === 0) return '';
+  return ['   - DROP any `### [TYPE]-VULN-[NUMBER]` finding whose:', ...drops.map((d) => `     ${d}`)].join('\n');
+}
 
 interface PromptVariables {
   webUrl: string;
@@ -175,35 +279,62 @@ async function interpolateVariables(
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
       .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
 
-    if (config) {
-      // Handle rules section - if both are empty, use cleaner messaging
-      const hasAvoidRules = config.avoid && config.avoid.length > 0;
-      const hasFocusRules = config.focus && config.focus.length > 0;
-
-      if (!hasAvoidRules && !hasFocusRules) {
-        // Replace the entire rules section with a clean message
-        const cleanRulesSection = '<rules>\nNo specific rules or focus areas provided for this test.\n</rules>';
-        result = result.replace(/<rules>[\s\S]*?<\/rules>/g, cleanRulesSection);
-      } else {
-        const avoidRules = hasAvoidRules ? config.avoid?.map((r) => `- ${r.description}`).join('\n') : 'None';
-        const focusRules = hasFocusRules ? config.focus?.map((r) => `- ${r.description}`).join('\n') : 'None';
-
-        result = result.replace(/{{RULES_AVOID}}/g, avoidRules).replace(/{{RULES_FOCUS}}/g, focusRules);
-      }
-
-      // Extract and inject login instructions from config
-      if (config.authentication?.login_flow) {
-        const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
-        result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
-      } else {
-        result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
-      }
+    const avoidUrlRules = config?.avoid?.filter((r) => r.type !== 'code_path') ?? [];
+    const focusUrlRules = config?.focus?.filter((r) => r.type !== 'code_path') ?? [];
+    if (avoidUrlRules.length === 0 && focusUrlRules.length === 0) {
+      result = result.replace(/<rules>[\s\S]*?<\/rules>\s*/g, '');
     } else {
-      // Replace the entire rules section with a clean message when no config provided
-      const cleanRulesSection = '<rules>\nNo specific rules or focus areas provided for this test.\n</rules>';
-      result = result.replace(/<rules>[\s\S]*?<\/rules>/g, cleanRulesSection);
+      const avoidStr = avoidUrlRules.length > 0 ? avoidUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
+      const focusStr = focusUrlRules.length > 0 ? focusUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
+      result = result.replace(/{{RULES_AVOID}}/g, avoidStr).replace(/{{RULES_FOCUS}}/g, focusStr);
+    }
+
+    const avoidCodeRules = (config?.avoid ?? []).filter((r) => r.type === 'code_path');
+    const focusCodeRules = (config?.focus ?? []).filter((r) => r.type === 'code_path');
+    if (avoidCodeRules.length === 0 && focusCodeRules.length === 0) {
+      result = result.replace(/<code_path_rules>[\s\S]*?<\/code_path_rules>\s*/g, '');
+    } else {
+      result = result
+        .replace(/{{CODE_RULES_AVOID}}/g, renderCodePathRules(config?.avoid ?? []))
+        .replace(/{{CODE_RULES_FOCUS}}/g, renderCodePathRules(config?.focus ?? []));
+    }
+
+    const roe = config?.rules_of_engagement?.trim() ?? '';
+    if (roe) {
+      result = result.replace(/{{RULES_OF_ENGAGEMENT}}/g, roe);
+    } else {
+      result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
+    }
+
+    if (config?.authentication?.login_flow) {
+      const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
+      result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
+    } else {
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
     }
+
+    const vulnClasses = config?.vuln_classes ?? [];
+    result = result.replace(
+      /{{VULN_CLASSES_TESTED}}/g,
+      vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
+    );
+    result = result.replace(/{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
+
+    const exploitEnabled = config?.exploit ?? true;
+    result = result
+      .replace(/{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled')
+      .replace(/{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings')
+      .replace(
+        /{{REPORT_VULN_SUBHEADING}}/g,
+        exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
+      );
+
+    result = result
+      .replace(/{{REPORT_FILTERS_BLOCK}}/g, renderReportFiltersBlock(config?.report))
+      .replace(/{{REPORT_FILTER_RULES}}/g, renderReportFilterRules(config?.report));
+
+    // Collapse runs of 3+ newlines (left behind by tag-strip and empty-fragment substitutions).
+    result = result.replace(/\n{3,}/g, '\n\n');
 
     // Validate that all placeholders have been replaced (excluding instructional text)
     const remainingPlaceholders = result.match(/\{\{[^}]+\}\}/g);

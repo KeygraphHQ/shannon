@@ -12,60 +12,66 @@ import { PentestError } from './error-handling.js';
 
 interface DeliverableFile {
   name: string;
-  path: string;
+  /** Candidate filenames in priority order. First one that exists wins. */
+  paths: readonly string[];
   required: boolean;
 }
 
-// Pure function: Assemble final report from specialist deliverables
+// Pure function: Assemble final report from specialist deliverables.
+// Per class, prefer the exploit-agent's evidence file; fall back to renderer-produced findings.
+// Both never coexist for a workspace because scope (exploit flag) is locked.
 export async function assembleFinalReport(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
 ): Promise<string> {
-  const deliverableFiles: DeliverableFile[] = [
-    { name: 'Injection', path: 'injection_exploitation_evidence.md', required: false },
-    { name: 'XSS', path: 'xss_exploitation_evidence.md', required: false },
-    { name: 'Authentication', path: 'auth_exploitation_evidence.md', required: false },
-    { name: 'SSRF', path: 'ssrf_exploitation_evidence.md', required: false },
-    { name: 'Authorization', path: 'authz_exploitation_evidence.md', required: false },
+  const deliverableFiles: readonly DeliverableFile[] = [
+    { name: 'Injection', paths: ['injection_exploitation_evidence.md', 'injection_findings.md'], required: false },
+    { name: 'XSS', paths: ['xss_exploitation_evidence.md', 'xss_findings.md'], required: false },
+    { name: 'Authentication', paths: ['auth_exploitation_evidence.md', 'auth_findings.md'], required: false },
+    { name: 'SSRF', paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'], required: false },
+    { name: 'Authorization', paths: ['authz_exploitation_evidence.md', 'authz_findings.md'], required: false },
   ];
 
+  const dir = deliverablesDir(sourceDir, deliverablesSubdir);
   const sections: string[] = [];
 
   for (const file of deliverableFiles) {
-    const filePath = path.join(deliverablesDir(sourceDir, deliverablesSubdir), file.path);
-    try {
-      if (await fs.pathExists(filePath)) {
-        const content = await fs.readFile(filePath, 'utf8');
-        sections.push(content);
-        logger.info(`Added ${file.name} findings`);
-      } else if (file.required) {
+    let added = false;
+    for (const candidate of file.paths) {
+      const filePath = path.join(dir, candidate);
+      try {
+        if (await fs.pathExists(filePath)) {
+          const content = await fs.readFile(filePath, 'utf8');
+          sections.push(content);
+          logger.info(`Added ${file.name} section from ${candidate}`);
+          added = true;
+          break;
+        }
+      } catch (error) {
+        const err = error as Error;
+        logger.warn(`Could not read ${candidate}: ${err.message}`);
+      }
+    }
+    if (!added) {
+      if (file.required) {
         throw new PentestError(
-          `Required deliverable file not found: ${file.path}`,
+          `Required deliverable file not found: ${file.paths.join(' or ')}`,
           'filesystem',
           false,
-          { deliverableFile: file.path, sourceDir },
+          { deliverableFile: file.paths, sourceDir },
           ErrorCode.DELIVERABLE_NOT_FOUND,
         );
-      } else {
-        logger.info(`No ${file.name} deliverable found`);
       }
-    } catch (error) {
-      if (file.required) {
-        throw error;
-      }
-      const err = error as Error;
-      logger.warn(`Could not read ${file.path}: ${err.message}`);
+      logger.info(`No ${file.name} deliverable found`);
     }
   }
 
   const finalContent = sections.join('\n\n');
-  const outputDir = deliverablesDir(sourceDir, deliverablesSubdir);
-  const finalReportPath = path.join(outputDir, 'comprehensive_security_assessment_report.md');
+  const finalReportPath = path.join(dir, 'comprehensive_security_assessment_report.md');
 
   try {
-    // Ensure deliverables directory exists
-    await fs.ensureDir(outputDir);
+    await fs.ensureDir(dir);
     await fs.writeFile(finalReportPath, finalContent);
     logger.info(`Final report assembled at ${finalReportPath}`);
   } catch (error) {

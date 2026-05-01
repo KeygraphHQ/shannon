@@ -31,6 +31,14 @@ Read `.gitignore` and run `git ls-files --others --ignored --exclude-standard --
 
 {{DESCRIPTION}}
 
+<scope>
+Downstream vulnerability analysis will cover these classes: {{VULN_CLASSES_TESTED}}.
+</scope>
+
+@include(shared/_code-path-rules.txt)
+
+@include(shared/_rules-of-engagement.txt)
+
 <system_architecture>
 **PENTESTING WORKFLOW - YOUR POSITION:**
 

@@ -20,9 +20,13 @@ Success criterion: Complete source-to-sink traces detailing path, sanitizers, si
 @include(shared/_rules.txt)
 </rules>
 
+@include(shared/_code-path-rules.txt)
+
 <login_instructions>
 {{LOGIN_INSTRUCTIONS}}
 </login_instructions>
+
+@include(shared/_rules-of-engagement.txt)
 
 <critical>
 **Your Professional Standard**

@@ -18,26 +18,28 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
+import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
-import type { SessionMetadata } from '../audit/utils.js';
+import { generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
-import type { ContainerConfig, ProviderConfig } from '../types/config.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
+import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
+import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
+import type { ContainerConfig, ProviderConfig, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
-import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
-import { fileExists, readJson } from '../utils/file-io.js';
+import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { createActivityLogger } from './activity-logger.js';
 import type { AgentMetrics, PipelineState, ResumeState } from './shared.js';
 
@@ -135,7 +137,8 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
 
   // Skip guard: the checkpoint provider decides whether to run the agent.
   // The default NoOp provider always returns { skip: false }.
-  const skipContainer = getContainer(workflowId) ??
+  const skipContainer =
+    getContainer(workflowId) ??
     getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
   const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
     agentName,
@@ -321,7 +324,15 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger, input.skipGitCheck, input.apiKey, input.providerConfig);
+    const result = await runPreflightChecks(
+      input.webUrl,
+      input.repoPath,
+      input.configPath,
+      logger,
+      input.skipGitCheck,
+      input.apiKey,
+      input.providerConfig,
+    );
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -390,11 +401,50 @@ export async function initDeliverableGit(input: ActivityInput): Promise<void> {
 }
 
 /**
- * Assemble the final report by concatenating exploitation evidence files.
+ * Sync code_path avoid rules into Claude's user-scope settings.json so the
+ * SDK enforces them at the tool layer for every agent in this run.
+ *
+ * Runs once per workflow before any agent fires. Config is fixed for the
+ * lifetime of the workflow, so writing once avoids the parallel-agent race
+ * on the global ~/.claude/settings.json file.
  */
-export async function assembleReportActivity(input: ActivityInput): Promise<void> {
+export async function syncCodePathDenyRules(input: ActivityInput): Promise<void> {
+  const logger = createActivityLogger();
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult)) {
+    logger.warn(`syncCodePathDenyRules: skipping (config load failed: ${configResult.error.message})`);
+    return;
+  }
+
+  const config = configResult.value;
+  const denyCount = (config?.avoid ?? []).filter((r) => r.type === 'code_path').length;
+  await writeUserSettingsForCodePathAvoids(config);
+  logger.info(`Synced code_path deny rules to user settings (${denyCount} entries)`);
+}
+
+/**
+ * Assemble the final report by concatenating per-class deliverables.
+ *
+ * Under exploit=true, each exploit agent has produced `*_exploitation_evidence.md`
+ * directly. Under exploit=false, exploit agents didn't run; we deterministically
+ * render `*_findings.md` from each `*_exploitation_queue.json` first, then assemble.
+ */
+export async function assembleReportActivity(input: ActivityInput, exploit: boolean): Promise<void> {
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
+
+  if (!exploit) {
+    logger.info('Rendering per-class findings from analysis queues...');
+    try {
+      await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
+    } catch (error) {
+      const err = error as Error;
+      logger.warn(`Error rendering findings from queues: ${err.message}`);
+    }
+  }
+
   logger.info('Assembling deliverables from specialist agents...');
   try {
     await assembleFinalReport(repoPath, deliverablesSubdir, logger);
@@ -438,6 +488,11 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
   return checker.checkQueue(vulnType, delivPath, logger);
 }
 
+interface RunScope {
+  vulnClasses: VulnClass[];
+  exploit: boolean;
+}
+
 interface SessionJson {
   session: {
     id: string;
@@ -445,6 +500,7 @@ interface SessionJson {
     repoPath?: string;
     originalWorkflowId?: string;
     resumeAttempts?: ResumeAttempt[];
+    scope?: RunScope;
   };
   metrics: {
     agents: Record<
@@ -562,6 +618,42 @@ export async function loadResumeState(
   };
 }
 
+/** First run records scope into session.json; resume runs throw if it differs. */
+export async function persistOrValidateRunScope(
+  input: ActivityInput,
+  vulnClasses: VulnClass[],
+  exploit: boolean,
+): Promise<void> {
+  const sessionMetadata = buildSessionMetadata(input);
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize(input.workflowId);
+
+  const sessionPath = generateSessionJsonPath(sessionMetadata);
+  const session = await readJson<SessionJson>(sessionPath);
+
+  if (session.session.scope) {
+    const recorded = session.session.scope;
+    const sameClasses =
+      recorded.vulnClasses.length === vulnClasses.length &&
+      recorded.vulnClasses.every((c) => vulnClasses.includes(c)) &&
+      vulnClasses.every((c) => recorded.vulnClasses.includes(c));
+
+    if (!sameClasses || recorded.exploit !== exploit) {
+      throw ApplicationFailure.nonRetryable(
+        `Resume scope mismatch for workspace ${input.sessionId}.\n` +
+          `  Original: vuln_classes=[${recorded.vulnClasses.join(', ')}], exploit=${recorded.exploit}\n` +
+          `  Provided: vuln_classes=[${vulnClasses.join(', ')}], exploit=${exploit}\n` +
+          `Resume requires the same scope as the original run. Start a new workspace if you want different scope.`,
+        'ScopeMismatchError',
+      );
+    }
+    return;
+  }
+
+  session.session.scope = { vulnClasses: [...vulnClasses], exploit };
+  await atomicWrite(sessionPath, session);
+}
+
 async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise<string> {
   if (commitHashes.length === 1) {
     const hash = commitHashes[0];
@@ -605,7 +697,7 @@ export async function restoreGitCheckpoint(
     await executeGitCommandWithRetry(
       ['git', 'rev-parse', '--verify', checkpointHash],
       repoPath,
-      'verify checkpoint hash exists'
+      'verify checkpoint hash exists',
     );
   } catch {
     logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);

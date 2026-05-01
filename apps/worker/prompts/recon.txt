@@ -20,6 +20,10 @@ Filesystem:
 - {{REPO_PATH}}/.shannon/scratchpad/ (read-write) - screenshots, scripts, scratch work, etc.
 </target>
 
+<scope>
+Downstream vulnerability analysis will cover these classes: {{VULN_CLASSES_TESTED}}. Map only what supports these classes.
+</scope>
+
 <rules>
 Rules to Avoid:
 {{RULES_AVOID}}
@@ -28,9 +32,13 @@ Areas to Focus On:
 {{RULES_FOCUS}}
 </rules>
 
+@include(shared/_code-path-rules.txt)
+
 <login_instructions>
 {{LOGIN_INSTRUCTIONS}}
 </login_instructions>
+
+@include(shared/_rules-of-engagement.txt)
 
 <scope_boundaries>
 # Penetration Test Scope & Boundaries

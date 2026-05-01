@@ -9,11 +9,11 @@ Technical leadership (CTOs, CISOs, Engineering VPs) who need both technical accu
 </audience>
 
 <objective>
-The orchestrator has already concatenated all specialist reports into `comprehensive_security_assessment_report.md`. 
+The orchestrator has already concatenated all per-class deliverables into `comprehensive_security_assessment_report.md`. Each per-class section is either exploit-agent-produced exploitation evidence (when exploitation ran) or deterministically rendered findings from analysis-phase queues (when exploitation was disabled). The cleanup rules below apply uniformly to either source.
 Your task is to:
 1. Read this existing concatenated report
 2. Add Executive Summary (vulnerability overview) and Network Reconnaissance (security-relevant scan findings) sections at the top
-3. Clean up ALL exploitation evidence sections by removing hallucinated content
+3. Clean up ALL per-class report sections by removing extraneous content
 4. Save the modified version back to the same file
 
 IMPORTANT: You are MODIFYING an existing file, not creating a new one.
@@ -32,7 +32,12 @@ Filesystem:
 <context>
 Authentication Context:
 {{AUTH_CONTEXT}}
+
+Vulnerability classes tested in this run: {{VULN_CLASSES_TESTED}}
+Exploitation: {{EXPLOITATION}}
 </context>
+
+{{REPORT_FILTERS_BLOCK}}
 
 <input_files>
 You will analyze the following deliverable files:
@@ -51,26 +56,14 @@ MODIFY the existing file `.shannon/deliverables/comprehensive_security_assessmen
 ## Executive Summary
 - Target: {{WEB_URL}}
 - Assessment Date: {current date}
-- Scope: Authentication, XSS, SQL and Command Injection, SSRF, Authorization testing
+- Scope: {{VULN_CLASSES_TESTED}}
+- Exploitation: {{EXPLOITATION}}
 
 ## Summary by Vulnerability Type
 
 {For each vulnerability type below, examine the comprehensive_security_assessment_report.md sections and provide a summary. If no section exists for that type or no vulnerabilities are listed, explicitly state that none were found.}
 
-**Authentication Vulnerabilities:**
-{Check for "Authentication Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No authentication vulnerabilities were found."}
-
-**Authorization Vulnerabilities:**
-{Check for "Authorization Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No authorization vulnerabilities were found."}
-
-**Cross-Site Scripting (XSS) Vulnerabilities:**
-{Check for "XSS Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No XSS vulnerabilities were found."}
-
-**SQL/Command Injection Vulnerabilities:**
-{Check for "Injection Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No SQL or command injection vulnerabilities were found."}
-
-**Server-Side Request Forgery (SSRF) Vulnerabilities:**
-{Check for "SSRF Exploitation Evidence" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No SSRF vulnerabilities were found."}
+{{VULN_SUMMARY_SUBSECTIONS}}
 
 ## Network Reconnaissance
 {Extract security-relevant findings from automated scanning tools:
@@ -80,14 +73,14 @@ MODIFY the existing file `.shannon/deliverables/comprehensive_security_assessmen
 - Any other security-relevant findings from the automated tools
 SKIP stack details - technical leaders know their infrastructure}
 
-2. KEEPING the existing exploitation evidence sections but CLEANING them according to the rules below
+2. KEEPING the existing per-class report sections but CLEANING them according to the rules below
 
 3. The final structure should be:
    - Executive Summary (new)
    - Network Reconnaissance (new)
-   - All existing exploitation evidence sections (cleaned)
+   - All existing per-class report sections (cleaned)
 
-IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain the exact order they appear in the concatenated report. Only remove sections that do not match the defined criteria above.
+IMPORTANT: Do NOT reorder the existing per-class report sections. Maintain the exact order they appear in the concatenated report. Only remove sections that do not match the defined criteria above.
 
 </deliverable_instructions>
 
@@ -103,11 +96,12 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
    - Executive Summary: Technical overview with actionable findings for engineering leaders
    - Network Reconnaissance: Focus on security-relevant discoveries from automated scans
 
-3. Clean the exploitation evidence sections from `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
+3. Clean the per-class report sections in `.shannon/deliverables/comprehensive_security_assessment_report.md` by applying these rules:
    - KEEP these specific section headings:
      NOTE: these sections will contain vulnerability lists with IDs matching pattern `### [TYPE]-VULN-[NUMBER]`
-     * `# [Type] Exploitation Evidence`
-     * `## Successfully Exploited Vulnerabilities`
+     * `# [Type] {{REPORT_VULN_HEADING}}`
+     * `## {{REPORT_VULN_SUBHEADING}}`
+{{REPORT_FILTER_RULES}}
    - REMOVE ANY OTHER SECTIONS (even if they contain vulnerability IDs), such as:
      * `## Potential Vulnerabilities (Validation Blocked)` (All agents)
      * Standalone "Recommendations" sections
@@ -119,11 +113,11 @@ IMPORTANT: Do NOT reorder the existing exploitation evidence sections. Maintain 
      * False positives sections
      * any intros in the sections
      * any counts in the sections
-   - Preserve exact vulnerability IDs and formatting
+   - Preserve exact vulnerability IDs (`### [TYPE]-VULN-NN:`); if the title after the colon is only a short category label rather than a descriptive phrase, rewrite it to a concise human-readable descriptor derived from the finding's Vulnerable location and Overview.
 
 4. Combine the content:
    - Place the Executive Summary and Network Reconnaissance sections at the top
-   - Follow with the cleaned exploitation evidence sections
+   - Follow with the cleaned per-class report sections
    - Save as the modified `.shannon/deliverables/comprehensive_security_assessment_report.md`
 
 CRITICAL: You are modifying the existing concatenated report at `.shannon/deliverables/comprehensive_security_assessment_report.md` IN-PLACE, not creating a separate file.

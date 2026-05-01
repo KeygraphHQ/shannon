@@ -374,8 +374,20 @@ cp configs/example-config.yaml ./my-app-config.yaml
 ##### Basic Configuration Structure
 
 ```yaml
-# Optional: describe your target environment (max 500 chars)
+# Describe your target environment (optional, max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
+
+# Limit which vulnerability classes run end-to-end (optional, default: all five)
+# vuln_classes: [injection, xss, auth, authz, ssrf]
+
+# Skip the exploitation phase (optional, default: "true")
+# exploit: "false"
+
+# Free-form rules of engagement (optional)
+# rules_of_engagement: |
+#   - No password brute-force; cap login attempts at 5 per account.
+#   - Throttle to under 5 requests per second per endpoint; back off 60s on any 429.
+#   - Use placeholders like [order_id] in deliverables — no real data values.
 
 authentication:
   login_type: form
@@ -395,15 +407,28 @@ authentication:
     value: "/dashboard"
 
 rules:
+  # Supported types: url_path, subdomain, domain, method, header, parameter, code_path
   avoid:
     - description: "AI should avoid testing logout functionality"
-      type: path
-      url_path: "/logout"
+      type: url_path
+      value: "/logout"
+
+    # code_path values are repo-relative file paths or globs (e.g. "src/auth.ts", "src/vendor/**").
+    # - description: "Out-of-scope vendored libraries"
+    #   type: code_path
+    #   value: "src/vendor/**"
 
   focus:
     - description: "AI should emphasize testing API endpoints"
-      type: path
-      url_path: "/api"
+      type: url_path
+      value: "/api"
+
+# Filters applied by the report agent when assembling the final report (optional).
+# report:
+#   min_severity: low                   # drop findings below this severity (low | medium | high | critical)
+#   min_confidence: low                 # drop findings below this confidence (low | medium | high)
+#   guidance: |
+#     Drop findings about missing security headers and rate-limit gaps.
 ```
 
 Run with:
