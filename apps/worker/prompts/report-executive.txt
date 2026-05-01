@@ -113,7 +113,7 @@ IMPORTANT: Do NOT reorder the existing per-class report sections. Maintain the e
      * False positives sections
      * any intros in the sections
      * any counts in the sections
-   - Preserve exact vulnerability IDs and formatting
+   - Preserve exact vulnerability IDs (`### [TYPE]-VULN-NN:`); if the title after the colon is only a short category label rather than a descriptive phrase, rewrite it to a concise human-readable descriptor derived from the finding's Vulnerable location and Overview.
 
 4. Combine the content:
    - Place the Executive Summary and Network Reconnaissance sections at the top
