@@ -59,27 +59,10 @@ function formatLocation(endpoint: string | undefined, codeLocation: string | und
   return endpoint ?? codeLocation ?? '';
 }
 
-interface ExploitStep {
-  /** Plain prefix text — single line, safe for the numbered-list item. */
-  readonly prefix: string;
-  /** Optional payload to render as inline code or a fenced block depending on shape. */
-  readonly payload?: string;
-}
-
-function renderExploitStep(step: ExploitStep): string[] {
-  const { prefix, payload } = step;
-  if (!payload) return [`1. ${prefix}`];
-  if (payload.includes('\n')) {
-    return [`1. ${prefix}`, '', '```', payload, '```'];
-  }
-  return [`1. ${prefix} \`${payload}\``];
-}
-
 function buildEntry(
   id: string,
   title: string,
   summaryRows: ReadonlyArray<string | null>,
-  exploitStep: ExploitStep | null,
   notes: string | undefined,
 ): string {
   const lines: string[] = [];
@@ -90,13 +73,6 @@ function buildEntry(
     if (row !== null) lines.push(row);
   }
   lines.push('');
-  if (exploitStep !== null) {
-    lines.push('**Exploitation Steps (proposed):**');
-    for (const stepLine of renderExploitStep(exploitStep)) {
-      lines.push(stepLine);
-    }
-    lines.push('');
-  }
   if (notes && notes.trim() !== '') {
     lines.push(`**Notes:** ${notes.trim()}`);
   }
@@ -113,10 +89,7 @@ function renderAuthEntry(e: AuthFinding): string {
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
       summaryRow('Impact', e.exploitation_hypothesis),
-      summaryRow('Confidence', e.confidence),
-      summaryRow('Externally exploitable', String(e.externally_exploitable)),
     ],
-    e.suggested_exploit_technique ? { prefix: 'Technique:', payload: e.suggested_exploit_technique } : null,
     e.notes,
   );
 }
@@ -127,13 +100,9 @@ function renderSsrfEntry(e: SsrfFinding): string {
     e.vulnerability_type,
     [
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
-      summaryRow('Vulnerable parameter', e.vulnerable_parameter),
       summaryRow('Overview', e.missing_defense),
       summaryRow('Impact', e.exploitation_hypothesis),
-      summaryRow('Confidence', e.confidence),
-      summaryRow('Externally exploitable', String(e.externally_exploitable)),
     ],
-    e.suggested_exploit_technique ? { prefix: 'Technique:', payload: e.suggested_exploit_technique } : null,
     e.notes,
   );
 }
@@ -144,14 +113,9 @@ function renderAuthzEntry(e: AuthzFinding): string {
     e.vulnerability_type,
     [
       summaryRow('Vulnerable location', formatLocation(e.endpoint, e.vulnerable_code_location)),
-      summaryRow('Role context', e.role_context),
       summaryRow('Overview', e.guard_evidence),
       summaryRow('Impact', e.side_effect),
-      summaryRow('Reason', e.reason),
-      summaryRow('Confidence', e.confidence),
-      summaryRow('Externally exploitable', String(e.externally_exploitable)),
     ],
-    e.minimal_witness ? { prefix: e.minimal_witness } : null,
     e.notes,
   );
 }
@@ -163,16 +127,8 @@ function renderInjectionEntry(e: InjectionFinding): string {
     e.vulnerability_type,
     [
       summaryRow('Vulnerable location', location),
-      summaryRow('Source', e.source),
-      summaryRow('Combined sources', e.combined_sources),
-      summaryRow('Slot', e.slot_type),
       summaryRow('Overview', e.mismatch_reason),
-      summaryRow('Sanitization observed', e.sanitization_observed),
-      summaryRow('Verdict', e.verdict),
-      summaryRow('Confidence', e.confidence),
-      summaryRow('Externally exploitable', String(e.externally_exploitable)),
     ],
-    e.witness_payload ? { prefix: 'Payload:', payload: e.witness_payload } : null,
     e.notes,
   );
 }
@@ -184,16 +140,8 @@ function renderXssEntry(e: XssFinding): string {
     e.vulnerability_type,
     [
       summaryRow('Vulnerable location', location),
-      summaryRow('Source', e.source),
-      summaryRow('Source detail', e.source_detail),
-      summaryRow('Render context', e.render_context),
       summaryRow('Overview', e.mismatch_reason),
-      summaryRow('Encoding observed', e.encoding_observed),
-      summaryRow('Verdict', e.verdict),
-      summaryRow('Confidence', e.confidence),
-      summaryRow('Externally exploitable', String(e.externally_exploitable)),
     ],
-    e.witness_payload ? { prefix: 'Payload:', payload: e.witness_payload } : null,
     e.notes,
   );
 }
