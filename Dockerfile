@@ -13,43 +13,11 @@ RUN apk update && apk add --no-cache \
     curl \
     wget \
     ca-certificates \
-    # Network libraries for Go tools
-    libpcap-dev \
-    linux-headers \
     # Language runtimes
-    go \
     nodejs-22 \
     npm \
-    python3 \
-    py3-pip \
-    ruby \
-    ruby-dev \
-    # Security tools available in Wolfi
-    nmap \
     # Additional utilities
     bash
-
-# Set environment variables for Go
-ENV GOPATH=/go
-ENV PATH=$GOPATH/bin:/usr/local/go/bin:$PATH
-ENV CGO_ENABLED=1
-
-# Create directories
-RUN mkdir -p $GOPATH/bin
-
-# Install Go-based security tools
-RUN go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@v2.13.0
-# Install WhatWeb from release tarball (Ruby-based tool)
-RUN curl -sL https://github.com/urbanadventurer/WhatWeb/archive/refs/tags/v0.6.3.tar.gz | tar xz -C /opt && \
-    mv /opt/WhatWeb-0.6.3 /opt/whatweb && \
-    chmod +x /opt/whatweb/whatweb && \
-    gem install addressable -v 2.8.9 && \
-    echo '#!/bin/bash' > /usr/local/bin/whatweb && \
-    echo 'cd /opt/whatweb && exec ./whatweb "$@"' >> /usr/local/bin/whatweb && \
-    chmod +x /usr/local/bin/whatweb
-
-# Install Python-based tools
-RUN pip3 install --no-cache-dir schemathesis==4.13.0
 
 # Install pnpm
 RUN npm install -g pnpm@10.33.0
@@ -84,15 +52,10 @@ RUN apk update && apk add --no-cache \
     curl \
     ca-certificates \
     shadow \
-    # Network libraries (runtime)
-    libpcap \
-    # Security tools
-    nmap \
     # Language runtimes (minimal)
     nodejs-22 \
     npm \
     python3 \
-    ruby \
     # Chromium browser and dependencies for Playwright
     chromium \
     # Additional libraries Chromium needs
@@ -109,20 +72,6 @@ RUN apk update && apk add --no-cache \
     mesa-gbm \
     # Font rendering
     fontconfig
-
-# Copy Go binaries from builder
-COPY --from=builder /go/bin/subfinder /usr/local/bin/
-
-# Copy WhatWeb from builder
-COPY --from=builder /opt/whatweb /opt/whatweb
-COPY --from=builder /usr/local/bin/whatweb /usr/local/bin/whatweb
-
-# Install WhatWeb Ruby dependencies in runtime stage
-RUN gem install addressable -v 2.8.9
-
-# Copy Python packages from builder
-COPY --from=builder /usr/lib/python3.*/site-packages /usr/lib/python3.12/site-packages
-COPY --from=builder /usr/bin/schemathesis /usr/bin/
 
 # Create non-root user
 RUN addgroup -g 1001 pentest && \

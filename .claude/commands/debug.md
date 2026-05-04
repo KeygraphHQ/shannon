@@ -135,7 +135,6 @@ shannon <URL> <REPO> --pipeline-testing
 |-------------------|---------|------------|
 | `config` | Configuration file issues | No |
 | `network` | Connection/timeout issues | Yes |
-| `tool` | External tool (nmap, etc.) failed | Yes |
 | `prompt` | Claude SDK/API issues | Sometimes |
 | `filesystem` | File read/write errors | Sometimes |
 | `validation` | Deliverable validation failed | Yes (via retry) |

@@ -44,7 +44,6 @@ Shannon identified 20+ vulnerabilities in OWASP Juice Shop, including authentica
 - **Reproducible Proof-of-Concept Exploits**: The final report contains only proven, exploitable findings with copy-and-paste PoCs. Vulnerabilities that cannot be exploited are not reported.
 - **OWASP Vulnerability Coverage**: Identifies and validates Injection, XSS, SSRF, and Broken Authentication/Authorization, with additional categories in development.
 - **Code-Aware Dynamic Testing**: Analyzes source code to guide attack strategy, then validates findings with live browser and CLI-based exploits against the running application.
-- **Integrated Security Tooling**: Leverages Nmap, Subfinder, WhatWeb, and Schemathesis during reconnaissance and discovery phases.
 - **Parallel Processing**: Vulnerability analysis and exploitation phases run concurrently across all attack categories.
 
 ## Product Line
@@ -744,8 +743,7 @@ Shannon uses a multi-agent architecture that combines white-box source code anal
 ```
         ┌──────────────────────┐
         │   Pre-Reconnaissance │
-        │  (nmap, subfinder,   │
-        │  whatweb, code scan) │
+        │   (source code scan) │
         └──────────┬───────────┘
                    │
                    ▼
@@ -788,7 +786,7 @@ Each scan runs in its own ephemeral Docker container (`docker run --rm`) with a 
 
 #### **Phase 1: Pre-Reconnaissance**
 
-External scanning using nmap, subfinder, and whatweb to fingerprint the target's infrastructure and tech stack. Simultaneously performs source code analysis to identify the application framework, entry points, and potential attack surface from the codebase.
+Performs source code analysis to identify the application framework, entry points, and potential attack surface from the codebase. Builds the foundational architectural intelligence that all subsequent agents depend on.
 
 #### **Phase 2: Reconnaissance**
 
