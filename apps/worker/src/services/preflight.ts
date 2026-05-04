@@ -270,7 +270,7 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string, prov
   // 1. Custom base URL — validate endpoint is reachable via SDK query
   if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
-    logger.info(`Validating custom base URL: ${baseUrl}`);
+    logger.info('Validating custom base URL');
 
     try {
       for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
@@ -454,7 +454,7 @@ function httpHead(url: string, timeoutMs: number): Promise<number> {
 
 /** Check that the target URL is reachable from inside the container. */
 async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
-  logger.info('Checking target URL reachability...', { targetUrl });
+  logger.info('Checking target URL reachability...');
 
   // 1. Parse URL
   let parsed: URL;

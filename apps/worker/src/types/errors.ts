@@ -11,7 +11,7 @@
 /**
  * Specific error codes for reliable classification.
  *
- * ErrorCode provides precision within the coarse 8-category PentestErrorType.
+ * ErrorCode provides precision within the coarse 7-category PentestErrorType.
  * Used by classifyErrorForTemporal for code-based classification (preferred)
  * with string matching as fallback for external errors.
  */
@@ -47,15 +47,7 @@ export enum ErrorCode {
   BILLING_ERROR = 'BILLING_ERROR',
 }
 
-export type PentestErrorType =
-  | 'config'
-  | 'network'
-  | 'tool'
-  | 'prompt'
-  | 'filesystem'
-  | 'validation'
-  | 'billing'
-  | 'unknown';
+export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'billing' | 'unknown';
 
 export interface PentestErrorContext {
   [key: string]: unknown;

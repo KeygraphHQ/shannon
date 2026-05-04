@@ -137,7 +137,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `apps/worker/src/temporal/shared.ts` — Types, interfaces, query definitions
 ### Five-Phase Pipeline
 
-1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
+1. **Pre-Recon** (`pre-recon`) — Source code analysis to build the architectural baseline
 2. **Recon** (`recon`) — Attack surface mapping from initial findings
 3. **Vulnerability Analysis** (5 parallel agents) — injection, xss, auth, authz, ssrf
 4. **Exploitation** (5 parallel agents, conditional) — Exploits confirmed vulnerabilities
@@ -244,5 +244,4 @@ Package managers are configured with a minimum release age (7 days). Requires pn
 - **Worker not processing** — Check `docker ps --filter "name=shannon-worker-"`
 - **Reset state** — `./shannon stop --clean`
 - **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
-- **Missing tools** — Use `--pipeline-testing` to skip nmap/subfinder/whatweb (graceful degradation)
 - **Container permissions** — On Linux, may need `sudo` for docker commands
