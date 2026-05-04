@@ -10,7 +10,13 @@ import type { FormatsPlugin } from 'ajv-formats';
 import yaml from 'js-yaml';
 import { fs } from 'zx';
 import { PentestError } from './services/error-handling.js';
-import type { Authentication, Config, DistributedConfig, Rule } from './types/config.js';
+import {
+  ALL_VULN_CLASSES,
+  type Authentication,
+  type Config,
+  type DistributedConfig,
+  type Rule,
+} from './types/config.js';
 import { ErrorCode } from './types/errors.js';
 
 // Handle ESM/CJS interop for ajv-formats using require
@@ -306,6 +312,39 @@ export const parseConfigYAML = (yamlContent: string): Config => {
   return config as Config;
 };
 
+function checkDeprecatedFields(config: Config): void {
+  const messages: string[] = [];
+
+  const checkRules = (rules: unknown, where: string): void => {
+    if (!Array.isArray(rules)) return;
+    rules.forEach((rule, idx) => {
+      if (typeof rule !== 'object' || rule === null) return;
+      const r = rule as Record<string, unknown>;
+      if (r.type === 'path') {
+        messages.push(`rules.${where}[${idx}].type: 'path' has been renamed to 'url_path'.`);
+      }
+      if ('url_path' in r && !('value' in r)) {
+        messages.push(`rules.${where}[${idx}]: the rule field 'url_path' has been renamed to 'value'.`);
+      }
+    });
+  };
+
+  const raw = config as Record<string, unknown>;
+  const rules = raw.rules as { avoid?: unknown; focus?: unknown } | undefined;
+  checkRules(rules?.avoid, 'avoid');
+  checkRules(rules?.focus, 'focus');
+
+  if (messages.length > 0) {
+    throw new PentestError(
+      `Configuration uses deprecated fields. Please update:\n  - ${messages.join('\n  - ')}`,
+      'config',
+      false,
+      { deprecatedFields: messages },
+      ErrorCode.CONFIG_VALIDATION_FAILED,
+    );
+  }
+}
+
 const validateConfig = (config: Config): void => {
   if (!config || typeof config !== 'object') {
     throw new PentestError(
@@ -327,6 +366,8 @@ const validateConfig = (config: Config): void => {
     );
   }
 
+  checkDeprecatedFields(config);
+
   const isValid = validateSchema(config);
   if (!isValid) {
     const errors = validateSchema.errors || [];
@@ -342,10 +383,16 @@ const validateConfig = (config: Config): void => {
 
   performSecurityValidation(config);
 
-  if (!config.rules && !config.authentication && !config.description) {
-    console.warn(
-      '⚠️  Configuration file contains no rules, authentication, or description. The pentest will run without any scoping restrictions or login capabilities.',
-    );
+  const hasAnySteering =
+    !!config.rules ||
+    !!config.authentication ||
+    !!config.description ||
+    !!config.vuln_classes ||
+    config.exploit !== undefined ||
+    !!config.report ||
+    !!config.rules_of_engagement;
+  if (!hasAnySteering) {
+    console.warn('⚠️  Configuration file contains no steering fields. The pentest will run with all defaults.');
   } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
     console.warn('⚠️  Configuration file contains no rules. The pentest will run without any scoping restrictions.');
   }
@@ -432,6 +479,34 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
   }
+
+  if (config.rules_of_engagement) {
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(config.rules_of_engagement)) {
+        throw new PentestError(
+          `rules_of_engagement contains potentially dangerous pattern: ${pattern.source}`,
+          'config',
+          false,
+          { field: 'rules_of_engagement', pattern: pattern.source },
+          ErrorCode.CONFIG_VALIDATION_FAILED,
+        );
+      }
+    }
+  }
+
+  if (config.report?.guidance) {
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(config.report.guidance)) {
+        throw new PentestError(
+          `report.guidance contains potentially dangerous pattern: ${pattern.source}`,
+          'config',
+          false,
+          { field: 'report.guidance', pattern: pattern.source },
+          ErrorCode.CONFIG_VALIDATION_FAILED,
+        );
+      }
+    }
+  }
 };
 
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
@@ -439,12 +514,12 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
 
   rules.forEach((rule, index) => {
     for (const pattern of DANGEROUS_PATTERNS) {
-      if (pattern.test(rule.url_path)) {
+      if (pattern.test(rule.value)) {
         throw new PentestError(
-          `rules.${ruleType}[${index}].url_path contains potentially dangerous pattern: ${pattern.source}`,
+          `rules.${ruleType}[${index}].value contains potentially dangerous pattern: ${pattern.source}`,
           'config',
           false,
-          { field: `rules.${ruleType}[${index}].url_path`, pattern: pattern.source },
+          { field: `rules.${ruleType}[${index}].value`, pattern: pattern.source },
           ErrorCode.CONFIG_VALIDATION_FAILED,
         );
       }
@@ -464,13 +539,25 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
 };
 
 const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): void => {
-  const field = `rules.${ruleType}[${index}].url_path`;
+  const field = `rules.${ruleType}[${index}].value`;
 
   switch (rule.type) {
-    case 'path':
-      if (!rule.url_path.startsWith('/')) {
+    case 'url_path':
+      if (!rule.value.startsWith('/')) {
         throw new PentestError(
-          `${field} for type 'path' must start with '/'`,
+          `${field} for type 'url_path' must start with '/'`,
+          'config',
+          false,
+          { field, ruleType: rule.type },
+          ErrorCode.CONFIG_VALIDATION_FAILED,
+        );
+      }
+      break;
+
+    case 'code_path':
+      if (rule.value.includes('://')) {
+        throw new PentestError(
+          `${field} for type 'code_path' must not contain a URL protocol (got '${rule.value}')`,
           'config',
           false,
           { field, ruleType: rule.type },
@@ -482,7 +569,7 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
     case 'subdomain':
     case 'domain':
       // Basic domain validation - no slashes allowed
-      if (rule.url_path.includes('/')) {
+      if (rule.value.includes('/')) {
         throw new PentestError(
           `${field} for type '${rule.type}' cannot contain '/' characters`,
           'config',
@@ -492,7 +579,7 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
         );
       }
       // Must contain at least one dot for domains
-      if (rule.type === 'domain' && !rule.url_path.includes('.')) {
+      if (rule.type === 'domain' && !rule.value.includes('.')) {
         throw new PentestError(
           `${field} for type 'domain' must be a valid domain name`,
           'config',
@@ -505,7 +592,7 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
 
     case 'method': {
       const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
-      if (!allowedMethods.includes(rule.url_path.toUpperCase())) {
+      if (!allowedMethods.includes(rule.value.toUpperCase())) {
         throw new PentestError(
           `${field} for type 'method' must be one of: ${allowedMethods.join(', ')}`,
           'config',
@@ -518,7 +605,7 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
     }
 
     case 'header':
-      if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
+      if (!rule.value.match(/^[a-zA-Z0-9\-_]+$/)) {
         throw new PentestError(
           `${field} for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`,
           'config',
@@ -530,7 +617,7 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
       break;
 
     case 'parameter':
-      if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
+      if (!rule.value.match(/^[a-zA-Z0-9\-_]+$/)) {
         throw new PentestError(
           `${field} for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`,
           'config',
@@ -546,13 +633,13 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
   rules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.url_path}`;
+    const key = `${rule.type}:${rule.value}`;
     if (seen.has(key)) {
       throw new PentestError(
-        `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.url_path}'`,
+        `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.value}'`,
         'config',
         false,
-        { field: `rules.${ruleType}[${index}]`, ruleType: rule.type, urlPath: rule.url_path },
+        { field: `rules.${ruleType}[${index}]`, ruleType: rule.type, value: rule.value },
         ErrorCode.CONFIG_VALIDATION_FAILED,
       );
     }
@@ -561,16 +648,16 @@ const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
 };
 
 const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): void => {
-  const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.url_path}`));
+  const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.value}`));
 
   focusRules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.url_path}`;
+    const key = `${rule.type}:${rule.value}`;
     if (avoidSet.has(key)) {
       throw new PentestError(
-        `Conflicting rule found: rules.focus[${index}] '${rule.url_path}' also exists in rules.avoid`,
+        `Conflicting rule found: rules.focus[${index}] '${rule.value}' also exists in rules.avoid`,
         'config',
         false,
-        { field: `rules.focus[${index}]`, urlPath: rule.url_path },
+        { field: `rules.focus[${index}]`, value: rule.value },
         ErrorCode.CONFIG_VALIDATION_FAILED,
       );
     }
@@ -581,7 +668,7 @@ const sanitizeRule = (rule: Rule): Rule => {
   return {
     description: rule.description.trim(),
     type: rule.type.toLowerCase().trim() as Rule['type'],
-    url_path: rule.url_path.trim(),
+    value: rule.value.trim(),
   };
 };
 
@@ -591,11 +678,28 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const authentication = config?.authentication || null;
   const description = config?.description?.trim() || '';
 
+  const vuln_classes =
+    config?.vuln_classes && config.vuln_classes.length > 0 ? [...config.vuln_classes] : [...ALL_VULN_CLASSES];
+
+  const exploit = config?.exploit !== undefined ? config.exploit === 'true' : true;
+
+  const report = {
+    ...(config?.report?.min_severity && { min_severity: config.report.min_severity }),
+    ...(config?.report?.min_confidence && { min_confidence: config.report.min_confidence }),
+    ...(config?.report?.guidance && { guidance: config.report.guidance.trim() }),
+  };
+
+  const rules_of_engagement = config?.rules_of_engagement?.trim() ?? '';
+
   return {
     avoid: avoid.map(sanitizeRule),
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
     description,
+    vuln_classes,
+    exploit,
+    report,
+    rules_of_engagement,
   };
 };
 

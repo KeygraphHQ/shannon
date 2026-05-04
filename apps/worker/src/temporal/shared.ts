@@ -2,7 +2,7 @@ import { defineQuery } from '@temporalio/workflow';
 
 export type { AgentMetrics } from '../types/metrics.js';
 
-import type { DistributedConfig, PipelineConfig, ProviderConfig } from '../types/config.js';
+import type { DistributedConfig, PipelineConfig, ProviderConfig, VulnClass } from '../types/config.js';
 import type { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 
@@ -29,6 +29,8 @@ export interface PipelineInput {
   checkpointsEnabled?: boolean; // Enable checkpoint activities (default: false)
   skipGitCheck?: boolean; // Skip .git directory validation in preflight (e.g. when .git is removed after clone)
   providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, Vertex, etc.)
+  vulnClasses?: VulnClass[]; // omitted = all five
+  exploit?: boolean; // false skips the exploitation phase
 }
 
 export interface ResumeState {

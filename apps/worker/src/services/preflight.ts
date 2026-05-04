@@ -14,21 +14,22 @@
  * Checks run sequentially, cheapest first:
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
- * 3. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
- * 4. Target URL is reachable from the container (DNS + HTTP)
+ * 3. code_path rules match real entries in the repo (filesystem only)
+ * 4. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
+ * 5. Target URL is reachable from the container (DNS + HTTP)
  */
 
-import { spawnSync } from 'node:child_process';
 import { lookup } from 'node:dns/promises';
-import { mkdirSync } from 'node:fs';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
+import { glob } from 'zx';
 import { resolveModel } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { Config, Rule } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
 import { isRetryableError, PentestError } from './error-handling.js';
@@ -41,11 +42,7 @@ function isLoopbackAddress(address: string): boolean {
 
 // === Repository Validation ===
 
-async function validateRepo(
-  repoPath: string,
-  logger: ActivityLogger,
-  skipGitCheck?: boolean,
-): Promise<Result<void, PentestError>> {
+async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitCheck?: boolean): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
   // 1. Check repo directory exists
@@ -110,13 +107,13 @@ async function validateRepo(
 
 // === Config Validation ===
 
-async function validateConfig(configPath: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
+async function validateConfig(configPath: string, logger: ActivityLogger): Promise<Result<Config, PentestError>> {
   logger.info('Validating configuration file...', { configPath });
 
   try {
-    await parseConfig(configPath);
+    const config = await parseConfig(configPath);
     logger.info('Configuration file OK');
-    return ok(undefined);
+    return ok(config);
   } catch (error) {
     if (error instanceof PentestError) {
       return err(error);
@@ -132,6 +129,73 @@ async function validateConfig(configPath: string, logger: ActivityLogger): Promi
       ),
     );
   }
+}
+
+// === code_path Existence Validation ===
+
+const CODE_PATH_IGNORE = ['.git/**', '.shannon/**'];
+
+async function patternMatchesAny(repoPath: string, pattern: string): Promise<boolean> {
+  const stream = glob.globbyStream(pattern, {
+    cwd: repoPath,
+    dot: true,
+    onlyFiles: false,
+    followSymbolicLinks: false,
+    ignore: CODE_PATH_IGNORE,
+  });
+  for await (const _ of stream) {
+    return true;
+  }
+  return false;
+}
+
+type RuleKind = 'avoid' | 'focus';
+interface MissingCodePath {
+  kind: RuleKind;
+  value: string;
+  description: string;
+}
+
+async function validateCodePathsExist(
+  config: Config,
+  repoPath: string,
+  logger: ActivityLogger,
+): Promise<Result<void, PentestError>> {
+  const tagged: Array<{ kind: RuleKind; rule: Rule }> = [
+    ...(config.rules?.avoid ?? []).map((rule) => ({ kind: 'avoid' as const, rule })),
+    ...(config.rules?.focus ?? []).map((rule) => ({ kind: 'focus' as const, rule })),
+  ].filter(({ rule }) => rule.type === 'code_path');
+
+  if (tagged.length === 0) {
+    return ok(undefined);
+  }
+
+  logger.info(`Validating ${tagged.length} code_path rule(s) against repo...`);
+
+  // ≥1 match is the only property enforced — malformed globs simply match nothing.
+  const missing: MissingCodePath[] = [];
+  for (const { kind, rule } of tagged) {
+    if (!(await patternMatchesAny(repoPath, rule.value))) {
+      missing.push({ kind, value: rule.value, description: rule.description });
+    }
+  }
+
+  if (missing.length > 0) {
+    const lines = missing.map((m) => `[${m.kind}] '${m.value}' — ${m.description}`);
+    return err(
+      new PentestError(
+        `code_path rules don't match any file or directory in the repo:\n  - ${lines.join('\n  - ')}\n` +
+          `Fix the patterns or remove the rules.`,
+        'config',
+        false,
+        { missing },
+        ErrorCode.CONFIG_VALIDATION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('All code_path rules matched');
+  return ok(undefined);
 }
 
 // === Credential Validation ===
@@ -190,75 +254,11 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
-async function validateCredentials(
-  logger: ActivityLogger,
-  apiKey?: string,
-  providerConfig?: import('../types/config.js').ProviderConfig,
-  executorBackend?: 'claude-sdk' | 'kiro-cli',
-): Promise<Result<void, PentestError>> {
-  // Kiro CLI backend — validate KIRO_API_KEY
-  if (executorBackend === 'kiro-cli') {
-    if (!process.env.KIRO_API_KEY) {
-      return err(
-        new PentestError(
-          'KIRO_API_KEY is not set.' + ' Required for kiro-cli backend.',
-          'config',
-          false,
-          {},
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
-
-    logger.info('Validating KIRO_API_KEY via kiro-cli...');
-    try {
-      const home = process.env.HOME || '/tmp';
-      mkdirSync(`${home}/.kiro`, { recursive: true });
-      const kiroEnv: Record<string, string> = {
-        KIRO_API_KEY: process.env.KIRO_API_KEY,
-        KIRO_LOG_NO_COLOR: '1',
-        HOME: home,
-        PATH: process.env.PATH || '/usr/local/bin:/usr/bin:/bin',
-        XDG_CONFIG_HOME: `${home}/.config`,
-        XDG_CACHE_HOME: `${home}/.cache`,
-      };
-      const r = spawnSync('kiro-cli', ['chat', '--no-interactive', '--wrap', 'never', 'hi'], {
-        timeout: 30_000,
-        env: kiroEnv,
-        stdio: 'pipe',
-      });
-      if (r.status === 0) {
-        logger.info('KIRO_API_KEY OK');
-        return ok(undefined);
-      }
-      const stderr = r.stderr?.toString() || '';
-      const isAuth = /authentication/i.test(stderr) || /unauthorized/i.test(stderr) || /invalid.*key/i.test(stderr);
-      return err(
-        new PentestError(
-          isAuth
-            ? 'KIRO_API_KEY validation failed. Check your key.'
-            : `kiro-cli preflight failed (exit ${r.status}): ${stderr.slice(0, 200)}`,
-          'config',
-          false,
-          {},
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      return err(
-        new PentestError(`kiro-cli preflight error: ${msg.slice(0, 200)}`, 'config', false, {}, ErrorCode.AUTH_FAILED),
-      );
-    }
-  }
-
-  // Claude SDK path below
+async function validateCredentials(logger: ActivityLogger, apiKey?: string, providerConfig?: import('../types/config.js').ProviderConfig): Promise<Result<void, PentestError>> {
   // 0. If providerConfig is present, credentials are managed by the caller.
   //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
   if (providerConfig) {
-    logger.info(
-      `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
-    );
+    logger.info(`Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`);
     return ok(undefined);
   }
 
@@ -270,7 +270,7 @@ async function validateCredentials(
   // 1. Custom base URL — validate endpoint is reachable via SDK query
   if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
-    logger.info(`Validating custom base URL: ${baseUrl}`);
+    logger.info('Validating custom base URL');
 
     try {
       for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
@@ -454,7 +454,7 @@ function httpHead(url: string, timeoutMs: number): Promise<number> {
 
 /** Check that the target URL is reachable from inside the container. */
 async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
-  logger.info('Checking target URL reachability...', { targetUrl });
+  logger.info('Checking target URL reachability...');
 
   // 1. Parse URL
   let parsed: URL;
@@ -533,8 +533,9 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
  *
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if configPath provided)
- * 3. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
- * 4. Target URL is reachable from the container
+ * 3. code_path rules match at least one entry in the repo (skipped without config)
+ * 4. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
+ * 5. Target URL is reachable from the container
  *
  * Returns on first failure.
  */
@@ -546,7 +547,6 @@ export async function runPreflightChecks(
   skipGitCheck?: boolean,
   apiKey?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
-  executorBackend?: 'claude-sdk' | 'kiro-cli',
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (free — filesystem only)
   const repoResult = await validateRepo(repoPath, logger, skipGitCheck);
@@ -555,22 +555,31 @@ export async function runPreflightChecks(
   }
 
   // 2. Config check (free — filesystem + CPU)
+  let parsedConfig: Config | null = null;
   if (configPath) {
     const configResult = await validateConfig(configPath, logger);
     if (!configResult.ok) {
       return configResult;
     }
+    parsedConfig = configResult.value;
   }
 
-  // 3. Credential check
-  const resolvedBackend =
-    executorBackend ?? (process.env.SHANNON_EXECUTOR_BACKEND as 'claude-sdk' | 'kiro-cli' | undefined);
-  const credResult = await validateCredentials(logger, apiKey, providerConfig, resolvedBackend);
+  // 3. code_path rules must match real entries in the repo (filesystem only).
+  // Runs after both repo and config are valid, before any network round-trip.
+  if (parsedConfig) {
+    const codePathResult = await validateCodePathsExist(parsedConfig, repoPath, logger);
+    if (!codePathResult.ok) {
+      return codePathResult;
+    }
+  }
+
+  // 4. Credential check (cheap — 1 SDK round-trip, skipped when providerConfig present)
+  const credResult = await validateCredentials(logger, apiKey, providerConfig);
   if (!credResult.ok) {
     return credResult;
   }
 
-  // 4. Target URL reachability check (cheap — 1 HTTP round-trip)
+  // 5. Target URL reachability check (cheap — 1 HTTP round-trip)
   const urlResult = await validateTargetUrl(targetUrl, logger);
   if (!urlResult.ok) {
     return urlResult;

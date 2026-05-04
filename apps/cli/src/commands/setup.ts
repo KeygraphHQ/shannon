@@ -32,7 +32,10 @@ export async function setup(): Promise<void> {
 
   const config = await setupProvider(provider as Provider);
 
-  // 2. Save config
+  // 2. Adaptive thinking
+  await maybePromptAdaptiveThinking(config);
+
+  // 3. Save config
   saveConfig(config);
 
   const configPath = path.join(SHANNON_HOME, 'config.toml');
@@ -80,7 +83,7 @@ async function setupAnthropic(): Promise<ShannonConfig> {
       'Do you want to change the default models?\n' +
       '    Small  - claude-haiku-4-5-20251001\n' +
       '    Medium - claude-sonnet-4-6\n' +
-      '    Large  - claude-opus-4-6',
+      '    Large  - claude-opus-4-7',
     initialValue: false,
   });
   if (p.isCancel(customizeModels)) return cancelAndExit();
@@ -102,7 +105,7 @@ async function setupAnthropic(): Promise<ShannonConfig> {
 
     const large = await p.text({
       message: 'Large model ID',
-      initialValue: 'claude-opus-4-6',
+      initialValue: 'claude-opus-4-7',
       validate: required('Large model ID is required'),
     });
     if (p.isCancel(large)) return cancelAndExit();
@@ -140,7 +143,7 @@ async function setupCustomBaseUrl(): Promise<ShannonConfig> {
       'Do you want to change the default models?\n' +
       '    Small  - claude-haiku-4-5-20251001\n' +
       '    Medium - claude-sonnet-4-6\n' +
-      '    Large  - claude-opus-4-6',
+      '    Large  - claude-opus-4-7',
     initialValue: false,
   });
   if (p.isCancel(customizeModels)) return cancelAndExit();
@@ -162,7 +165,7 @@ async function setupCustomBaseUrl(): Promise<ShannonConfig> {
 
     const large = await p.text({
       message: 'Large model ID',
-      initialValue: 'claude-opus-4-6',
+      initialValue: 'claude-opus-4-7',
       validate: required('Large model ID is required'),
     });
     if (p.isCancel(large)) return cancelAndExit();
@@ -199,7 +202,7 @@ async function setupBedrock(): Promise<ShannonConfig> {
 
   const large = await p.text({
     message: 'Large model ID',
-    placeholder: 'us.anthropic.claude-opus-4-6',
+    placeholder: 'us.anthropic.claude-opus-4-7',
     validate: required('Large model ID is required'),
   });
   if (p.isCancel(large)) return cancelAndExit();
@@ -262,7 +265,7 @@ async function setupVertex(): Promise<ShannonConfig> {
     large: () =>
       p.text({
         message: 'Large model ID',
-        placeholder: 'claude-opus-4-6',
+        placeholder: 'claude-opus-4-7',
         validate: required('Large model ID is required'),
       }),
   });
@@ -280,6 +283,20 @@ async function setupVertex(): Promise<ShannonConfig> {
 }
 
 // === Helpers ===
+
+async function maybePromptAdaptiveThinking(config: ShannonConfig): Promise<void> {
+  const m = config.models;
+  const hasOpus47 = !m || [m.small, m.medium, m.large].some((v) => v && /opus-4-[67]/.test(v));
+  if (!hasOpus47) return;
+
+  const enable = await p.confirm({
+    message: 'Enable adaptive thinking on Opus 4.6/4.7? Claude decides when and how deeply to reason.',
+    initialValue: true,
+  });
+  if (p.isCancel(enable)) return cancelAndExit();
+
+  config.core = { ...config.core, adaptive_thinking: enable };
+}
 
 async function promptSecret(message: string): Promise<string> {
   const value = await p.password({

@@ -147,7 +147,7 @@ This phase informs everything downstream. If the codebase uses an ORM with param
 
 ## Phase 2: Reconnaissance
 
-Bridges static and dynamic analysis using browser automation. The recon agent correlates code findings with the live application, validating that endpoints actually exist, mapping authentication flows, inventorying input vectors (URL parameters, POST fields, headers, cookies), and documenting the real authorization architecture. This phase may also integrate with infrastructure discovery tools including Nmap, Subfinder, and WhatWeb for network perimeter mapping.
+Bridges static and dynamic analysis using browser automation. The recon agent correlates code findings with the live application, validating that endpoints actually exist, mapping authentication flows, inventorying input vectors (URL parameters, POST fields, headers, cookies), and documenting the real authorization architecture.
 
 ## Phase 3: Vulnerability Analysis
 
@@ -194,7 +194,6 @@ This correlation means that a data flow vulnerability identified in static analy
 - **Fully Autonomous Operation:** Shannon Pro handles complex workflows including 2FA/TOTP logins and SSO (e.g., Sign in with Google) without human intervention. TOTP is handled via a dedicated MCP server tool.
 - **White-Box Awareness:** Unlike black-box scanners, Shannon Pro reads the source code to intelligently guide its attack strategy, combining code-level insight with runtime validation.
 - **Parallel Processing:** Vulnerability analysis and exploitation phases run concurrently across attack domains, with pipelined parallelism minimizing total execution time.
-- **Tool Orchestration:** Shannon Pro orchestrates existing security tools (e.g., Schemathesis for API testing, Nmap for network discovery) while adding LLM reasoning to interpret results.
 - **Configurable Login Flows:** Authentication configuration specifies login procedures and credentials, which are interpolated into agent prompts for authenticated testing.
 
 ---

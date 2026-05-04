@@ -52,6 +52,8 @@ export interface ToolResultData {
 export interface ContentBlock {
   type?: string;
   text?: string;
+  thinking?: string;
+  data?: string;
 }
 
 export interface AssistantMessage {

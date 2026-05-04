@@ -137,16 +137,16 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 - `apps/worker/src/temporal/shared.ts` — Types, interfaces, query definitions
 ### Five-Phase Pipeline
 
-1. **Pre-Recon** (`pre-recon`) — External scans (nmap, subfinder, whatweb) + source code analysis
+1. **Pre-Recon** (`pre-recon`) — Source code analysis to build the architectural baseline
 2. **Recon** (`recon`) — Attack surface mapping from initial findings
 3. **Vulnerability Analysis** (5 parallel agents) — injection, xss, auth, authz, ssrf
 4. **Exploitation** (5 parallel agents, conditional) — Exploits confirmed vulnerabilities
 5. **Reporting** (`report`) — Executive-level security report
 
 ### Supporting Systems
-- **Configuration** — YAML configs in `apps/worker/configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings, MFA/TOTP, and per-app testing parameters. Credential resolution — local mode: env vars → `./.env`; npx mode: env vars → `~/.shannon/config.toml` (via `shn setup`)
-- **Prompts** — Per-phase templates in `apps/worker/prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `apps/worker/prompts/shared/` via `apps/worker/src/services/prompt-manager.ts`
-- **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Browser automation via `playwright-cli` with session isolation (`-s=<session>`). TOTP generation via `generate-totp` CLI tool. Login flow template at `apps/worker/prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
+- **Configuration** — YAML configs in `apps/worker/configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings (MFA/TOTP), URL/code rule scoping (`rules.avoid`/`rules.focus`), run-scope steering (`vuln_classes`, `exploit`), free-form `rules_of_engagement`, and post-hoc `report` filters (`min_severity`, `min_confidence`, `guidance`). `code_path` avoid rules are written into `~/.claude/settings.json` `permissions.deny` (`Read`/`Edit`) once per workflow by `apps/worker/src/temporal/activities.ts:syncCodePathDenyRules` so the SDK enforces them at the tool layer even in `bypassPermissions` mode. `vuln_classes`/`exploit` scope is locked into `session.json` on first run; resumes with a different scope fail fast (`persistOrValidateRunScope`). Credential resolution — local mode: env vars → `./.env`; npx mode: env vars → `~/.shannon/config.toml` (via `shn setup`)
+- **Prompts** — Per-phase templates in `apps/worker/prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `apps/worker/prompts/shared/` via `apps/worker/src/services/prompt-manager.ts`, including `_code-path-rules.txt` (focus/avoid `[FILE]`/`[GLOB]` routing) and `_rules-of-engagement.txt` (free-text engagement rules). When `exploit: false`, `apps/worker/src/services/findings-renderer.ts` deterministically converts each `*_exploitation_queue.json` into a `*_findings.md` for report assembly — no LLM in the loop
+- **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Adaptive thinking is enabled by default on Opus 4.6/4.7 (`supportsAdaptiveThinking` in `apps/worker/src/ai/models.ts`); disable per-scan via `CLAUDE_ADAPTIVE_THINKING=false` (env) or `core.adaptive_thinking = false` (npx TOML). Browser automation via `playwright-cli` with session isolation (`-s=<session>`). TOTP generation via `generate-totp` CLI tool. Login flow template at `apps/worker/prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth
 - **Audit System** — Crash-safe append-only logging in `workspaces/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`apps/worker/src/audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`apps/worker/src/audit/log-stream.ts`) shared stream primitive
 - **Deliverables** — Saved to `deliverables/` in the target repo via the `save-deliverable` CLI script (`apps/worker/src/scripts/save-deliverable.ts`)
 - **Workspaces & Resume** — Named workspaces via `-w <name>` or auto-named from URL+timestamp. Resume detects completed agents via `session.json`. `loadResumeState()` in `apps/worker/src/temporal/activities.ts` validates deliverable existence, restores git checkpoints, and cleans up incomplete deliverables. Workspace listing via `apps/worker/src/temporal/workspaces.ts`
@@ -227,7 +227,7 @@ Comments must be **timeless** — no references to this conversation, refactorin
 
 **Entry Points:** `apps/worker/src/temporal/workflows.ts`, `apps/worker/src/temporal/activities.ts`, `apps/worker/src/temporal/worker.ts`
 
-**Core Logic:** `apps/worker/src/session-manager.ts`, `apps/worker/src/ai/claude-executor.ts`, `apps/worker/src/config-parser.ts`, `apps/worker/src/services/`, `apps/worker/src/audit/`
+**Core Logic:** `apps/worker/src/session-manager.ts`, `apps/worker/src/ai/claude-executor.ts`, `apps/worker/src/ai/settings-writer.ts` (writes `code_path` deny rules to `~/.claude/settings.json`), `apps/worker/src/config-parser.ts`, `apps/worker/src/services/` (incl. `preflight.ts`, `findings-renderer.ts`, `reporting.ts`), `apps/worker/src/audit/`
 
 **Config:** `docker-compose.yml`, `apps/cli/infra/compose.yml`, `apps/worker/configs/`, `apps/worker/prompts/`, `tsconfig.base.json` (shared compiler options), `turbo.json`, `biome.json`
 
@@ -244,5 +244,4 @@ Package managers are configured with a minimum release age (7 days). Requires pn
 - **Worker not processing** — Check `docker ps --filter "name=shannon-worker-"`
 - **Reset state** — `./shannon stop --clean`
 - **Local apps unreachable** — Use `host.docker.internal` instead of `localhost`
-- **Missing tools** — Use `--pipeline-testing` to skip nmap/subfinder/whatweb (graceful degradation)
 - **Container permissions** — On Linux, may need `sudo` for docker commands

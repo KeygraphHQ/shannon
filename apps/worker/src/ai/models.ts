@@ -21,7 +21,7 @@ export type ModelTier = 'small' | 'medium' | 'large';
 const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
   small: 'claude-haiku-4-5-20251001',
   medium: 'claude-sonnet-4-6',
-  large: 'claude-opus-4-6',
+  large: 'claude-opus-4-7',
 };
 
 /** Resolve a model tier to a concrete model ID. */
@@ -34,4 +34,9 @@ export function resolveModel(tier: ModelTier = 'medium'): string {
     default:
       return process.env.ANTHROPIC_MEDIUM_MODEL || DEFAULT_MODELS.medium;
   }
+}
+
+/** Whether a model supports adaptive thinking. Opus 4.6 and 4.7 only. */
+export function supportsAdaptiveThinking(model: string): boolean {
+  return /opus-4-[67]/.test(model);
 }

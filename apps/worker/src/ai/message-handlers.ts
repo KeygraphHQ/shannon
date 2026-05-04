@@ -39,7 +39,10 @@ function extractMessageContent(message: AssistantMessage): string {
   const messageContent = message.message;
 
   if (Array.isArray(messageContent.content)) {
-    return messageContent.content.map((c: ContentBlock) => c.text || JSON.stringify(c)).join('\n');
+    return messageContent.content
+      .filter((c: ContentBlock) => c.type !== 'thinking' && c.type !== 'redacted_thinking')
+      .map((c: ContentBlock) => c.text || JSON.stringify(c))
+      .join('\n');
   }
 
   return String(messageContent.content);

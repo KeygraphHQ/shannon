@@ -79,6 +79,14 @@ const AuthzVulnerability = baseVulnerability.extend({
   minimal_witness: z.string().optional(),
 });
 
+// === Inferred Entry Types (consumed by renderer) ===
+
+export type InjectionFinding = z.infer<typeof InjectionVulnerability>;
+export type XssFinding = z.infer<typeof XssVulnerability>;
+export type AuthFinding = z.infer<typeof AuthVulnerability>;
+export type SsrfFinding = z.infer<typeof SsrfVulnerability>;
+export type AuthzFinding = z.infer<typeof AuthzVulnerability>;
+
 // === Queue Wrapper Schemas ===
 
 const InjectionQueueSchema = z.object({ vulnerabilities: z.array(InjectionVulnerability) });

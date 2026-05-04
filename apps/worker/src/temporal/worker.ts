@@ -36,7 +36,7 @@ import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
 import { deliverablesDir } from '../paths.js';
-import type { PipelineConfig } from '../types/config.js';
+import type { PipelineConfig, VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
 import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js';
@@ -275,30 +275,39 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
 
 // === Pipeline Input Construction ===
 
-async function loadPipelineConfig(configPath: string | undefined): Promise<PipelineConfig> {
-  if (!configPath) return {};
+interface OrchestrationConfig {
+  pipelineConfig: PipelineConfig;
+  vulnClasses?: VulnClass[];
+  exploit?: boolean;
+}
+
+async function loadOrchestrationConfig(configPath: string | undefined): Promise<OrchestrationConfig> {
+  if (!configPath) return { pipelineConfig: {} };
   try {
     const config = await parseConfig(configPath);
-    const raw = config.pipeline;
-    if (!raw) return {};
 
-    const result: PipelineConfig = {};
-    if (raw.retry_preset !== undefined) {
-      result.retry_preset = raw.retry_preset;
+    const pipelineConfig: PipelineConfig = {};
+    if (config.pipeline?.retry_preset !== undefined) {
+      pipelineConfig.retry_preset = config.pipeline.retry_preset;
     }
-    if (raw.max_concurrent_pipelines !== undefined) {
-      result.max_concurrent_pipelines = Number(raw.max_concurrent_pipelines);
+    if (config.pipeline?.max_concurrent_pipelines !== undefined) {
+      pipelineConfig.max_concurrent_pipelines = Number(config.pipeline.max_concurrent_pipelines);
     }
-    return result;
+
+    return {
+      pipelineConfig,
+      ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
+      ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
+    };
   } catch {
-    return {};
+    return { pipelineConfig: {} };
   }
 }
 
 function buildPipelineInput(
   args: CliArgs,
   workspace: WorkspaceResolution,
-  pipelineConfig: PipelineConfig,
+  orchestration: OrchestrationConfig,
 ): PipelineInput {
   return {
     webUrl: args.webUrl,
@@ -309,7 +318,9 @@ function buildPipelineInput(
     ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
-    ...(Object.keys(pipelineConfig).length > 0 && { pipelineConfig }),
+    ...(Object.keys(orchestration.pipelineConfig).length > 0 && { pipelineConfig: orchestration.pipelineConfig }),
+    ...(orchestration.vulnClasses && { vulnClasses: orchestration.vulnClasses }),
+    ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
   };
 }
 
@@ -417,8 +428,8 @@ async function run(): Promise<void> {
 
     // 4. Resolve workspace and build pipeline input
     const workspace = await resolveWorkspace(client, args);
-    const pipelineConfig = await loadPipelineConfig(args.configPath);
-    const input = buildPipelineInput(args, workspace, pipelineConfig);
+    const orchestration = await loadOrchestrationConfig(args.configPath);
+    const input = buildPipelineInput(args, workspace, orchestration);
 
     // 5. Start worker polling in the background
     const workerDone = worker.run();

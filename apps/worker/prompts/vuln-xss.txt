@@ -19,9 +19,13 @@ Success criterion: Live confirmation of XSS execution for every vulnerability th
 @include(shared/_rules.txt)
 </rules>
 
+@include(shared/_code-path-rules.txt)
+
 <login_instructions>
 {{LOGIN_INSTRUCTIONS}}
 </login_instructions>
+
+@include(shared/_rules-of-engagement.txt)
 
 <critical>
 **Your Professional Standard**
