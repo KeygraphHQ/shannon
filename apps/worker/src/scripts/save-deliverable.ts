@@ -19,6 +19,31 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
 
+// === Help ===
+
+function printHelp(): void {
+  const types = Object.keys(DELIVERABLE_FILENAMES).join(', ');
+  console.log(
+    `save-deliverable - save a Shannon pentest deliverable under its canonical filename.
+
+Usage:
+  save-deliverable --type <TYPE> --file-path <path>
+  save-deliverable --type <TYPE> --content '<text>'
+  save-deliverable --help
+
+Options:
+  --type        Deliverable type (required). One of:
+                  ${types}
+  --file-path   Path of a file whose contents to save (preferred for large content).
+  --content     Inline content string to save.
+  -h, --help    Show this help and exit.
+
+Output:
+  JSON to stdout. On success: {"status":"success","filepath":"..."}.
+  On error:   {"status":"error","message":"...","retryable":true|false} (exit 1).`,
+  );
+}
+
 // === Argument Parsing ===
 
 interface ParsedArgs {
@@ -69,6 +94,11 @@ function saveDeliverableFile(targetDir: string, filename: string, content: strin
 // === Main ===
 
 function main(): void {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printHelp();
+    return;
+  }
+
   const args = parseArgs(process.argv);
 
   // 1. Validate --type
