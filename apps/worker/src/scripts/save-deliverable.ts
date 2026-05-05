@@ -15,7 +15,7 @@
  *   node save-deliverable.js --type INJECTION_ANALYSIS --file-path deliverables/injection_analysis_deliverable.md
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { accessSync, constants, copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
 
@@ -76,7 +76,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 // === File Operations ===
 
-function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
+function resolveDeliverablePath(targetDir: string, filename: string): string {
   const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
   const deliverablesDir = join(targetDir, ...subdir.split('/'));
   const filepath = join(deliverablesDir, filename);
@@ -87,7 +87,22 @@ function saveDeliverableFile(targetDir: string, filename: string, content: strin
     throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
   }
 
+  return filepath;
+}
+
+function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
+  const filepath = resolveDeliverablePath(targetDir, filename);
   writeFileSync(filepath, content, 'utf8');
+  return filepath;
+}
+
+function saveDeliverableFromFile(targetDir: string, filename: string, sourcePath: string): string {
+  const filepath = resolveDeliverablePath(targetDir, filename);
+
+  if (sourcePath !== filepath) {
+    copyFileSync(sourcePath, filepath);
+  }
+
   return filepath;
 }
 
@@ -117,30 +132,41 @@ function main(): void {
     process.exit(1);
   }
 
-  // 2. Resolve content from --content or --file-path
-  let content: string;
+  // 2. Save from --content or --file-path
+  try {
+    const targetDir = process.cwd();
 
-  if (args.content) {
-    content = args.content;
-  } else if (args.filePath) {
-    // Path traversal protection: must resolve inside cwd
-    const cwd = process.cwd();
-    const resolved = resolve(cwd, args.filePath);
-    if (!resolved.startsWith(`${cwd}/`) && resolved !== cwd) {
-      console.log(
-        JSON.stringify({ status: 'error', message: `Path traversal detected: ${args.filePath}`, retryable: false }),
-      );
-      process.exit(1);
+    if (args.content) {
+      const filepath = saveDeliverableFile(targetDir, filename, args.content);
+      console.log(JSON.stringify({ status: 'success', filepath }));
+      return;
     }
 
-    try {
-      content = readFileSync(resolved, 'utf8');
-    } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      console.log(JSON.stringify({ status: 'error', message: `Failed to read file: ${msg}`, retryable: true }));
-      process.exit(1);
+    if (args.filePath) {
+      // Path traversal protection: must resolve inside cwd
+      const cwd = process.cwd();
+      const resolved = resolve(cwd, args.filePath);
+      if (!resolved.startsWith(`${cwd}/`) && resolved !== cwd) {
+        console.log(
+          JSON.stringify({ status: 'error', message: `Path traversal detected: ${args.filePath}`, retryable: false }),
+        );
+        process.exit(1);
+      }
+
+      // Validate file is readable before copy for clearer errors
+      try {
+        accessSync(resolved, constants.R_OK);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error);
+        console.log(JSON.stringify({ status: 'error', message: `Failed to read file: ${msg}`, retryable: true }));
+        process.exit(1);
+      }
+
+      const filepath = saveDeliverableFromFile(targetDir, filename, resolved);
+      console.log(JSON.stringify({ status: 'success', filepath }));
+      return;
     }
-  } else {
+
     console.log(
       JSON.stringify({
         status: 'error',
@@ -149,13 +175,6 @@ function main(): void {
       }),
     );
     process.exit(1);
-  }
-
-  // 3. Save the file
-  try {
-    const targetDir = process.cwd();
-    const filepath = saveDeliverableFile(targetDir, filename, content);
-    console.log(JSON.stringify({ status: 'success', filepath }));
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
     console.log(JSON.stringify({ status: 'error', message: `Failed to save: ${msg}`, retryable: true }));
