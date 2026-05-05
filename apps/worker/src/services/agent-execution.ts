@@ -142,7 +142,7 @@ export class AgentExecutionService {
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
     // 5. Execute agent
-    const outputFormat = getOutputFormat(agentName);
+    const outputFormat = getOutputFormat(agentName, distributedConfig?.exploit ?? true);
     const result: ClaudePromptResult = await runClaudePrompt(
       prompt,
       repoPath,
