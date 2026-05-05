@@ -17,15 +17,27 @@ import type { AgentName } from '../types/agents.js';
 
 // === Common Fields ===
 
-const baseVulnerability = z.object({
-  ID: z.string(),
-  vulnerability_type: z.string(),
-  externally_exploitable: z.boolean(),
-  confidence: z.string(),
-  notes: z.string().optional(),
-});
+const ANALYSIS_NOTES_DESCRIPTION =
+  'Plain context for defenders (caveats, scope, what is at risk). Not attack steps.';
 
-// === Per-Vuln-Type Schemas ===
+function notesField(exploit: boolean) {
+  const f = z.string().optional();
+  return exploit ? f : f.describe(ANALYSIS_NOTES_DESCRIPTION);
+}
+
+function makeBase(exploit: boolean) {
+  return z.object({
+    ID: z.string(),
+    vulnerability_type: z.string(),
+    externally_exploitable: z.boolean(),
+    confidence: z.string(),
+    notes: notesField(exploit),
+  });
+}
+
+// === Per-Vuln-Type Schemas (used for type inference; notes description is mode-agnostic for types) ===
+
+const baseVulnerability = makeBase(true);
 
 const InjectionVulnerability = baseVulnerability.extend({
   source: z.string().optional(),
@@ -87,14 +99,6 @@ export type AuthFinding = z.infer<typeof AuthVulnerability>;
 export type SsrfFinding = z.infer<typeof SsrfVulnerability>;
 export type AuthzFinding = z.infer<typeof AuthzVulnerability>;
 
-// === Queue Wrapper Schemas ===
-
-const InjectionQueueSchema = z.object({ vulnerabilities: z.array(InjectionVulnerability) });
-const XssQueueSchema = z.object({ vulnerabilities: z.array(XssVulnerability) });
-const AuthQueueSchema = z.object({ vulnerabilities: z.array(AuthVulnerability) });
-const SsrfQueueSchema = z.object({ vulnerabilities: z.array(SsrfVulnerability) });
-const AuthzQueueSchema = z.object({ vulnerabilities: z.array(AuthzVulnerability) });
-
 // === Convert to JSON Schema for SDK ===
 
 // NOTE: The SDK's AJV validator expects draft-07. Zod defaults to draft-2020-12 which
@@ -103,15 +107,65 @@ function toOutputFormat(zodSchema: z.ZodType): JsonSchemaOutputFormat {
   return { type: 'json_schema', schema: z.toJSONSchema(zodSchema, { target: 'draft-07' }) as Record<string, unknown> };
 }
 
-// === Lookup Maps ===
+// === Per-Mode Output Format Builders ===
+// Two maps cached at module load; the only per-mode difference is the
+// description on the `notes` field, which steers the LLM's writing.
 
-const VULN_AGENT_OUTPUT_FORMAT: Partial<Record<AgentName, JsonSchemaOutputFormat>> = {
-  'injection-vuln': toOutputFormat(InjectionQueueSchema),
-  'xss-vuln': toOutputFormat(XssQueueSchema),
-  'auth-vuln': toOutputFormat(AuthQueueSchema),
-  'ssrf-vuln': toOutputFormat(SsrfQueueSchema),
-  'authz-vuln': toOutputFormat(AuthzQueueSchema),
-};
+function buildOutputFormats(exploit: boolean): Partial<Record<AgentName, JsonSchemaOutputFormat>> {
+  const base = makeBase(exploit);
+  return {
+    'injection-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
+      source: z.string().optional(),
+      combined_sources: z.string().optional(),
+      path: z.string().optional(),
+      sink_call: z.string().optional(),
+      slot_type: z.string().optional(),
+      sanitization_observed: z.string().optional(),
+      concat_occurrences: z.string().optional(),
+      verdict: z.string().optional(),
+      mismatch_reason: z.string().optional(),
+      witness_payload: z.string().optional(),
+    })) })),
+    'xss-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
+      source: z.string().optional(),
+      source_detail: z.string().optional(),
+      path: z.string().optional(),
+      sink_function: z.string().optional(),
+      render_context: z.string().optional(),
+      encoding_observed: z.string().optional(),
+      verdict: z.string().optional(),
+      mismatch_reason: z.string().optional(),
+      witness_payload: z.string().optional(),
+    })) })),
+    'auth-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
+      source_endpoint: z.string().optional(),
+      vulnerable_code_location: z.string().optional(),
+      missing_defense: z.string().optional(),
+      exploitation_hypothesis: z.string().optional(),
+      suggested_exploit_technique: z.string().optional(),
+    })) })),
+    'ssrf-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
+      source_endpoint: z.string().optional(),
+      vulnerable_parameter: z.string().optional(),
+      vulnerable_code_location: z.string().optional(),
+      missing_defense: z.string().optional(),
+      exploitation_hypothesis: z.string().optional(),
+      suggested_exploit_technique: z.string().optional(),
+    })) })),
+    'authz-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
+      endpoint: z.string().optional(),
+      vulnerable_code_location: z.string().optional(),
+      role_context: z.string().optional(),
+      guard_evidence: z.string().optional(),
+      side_effect: z.string().optional(),
+      reason: z.string().optional(),
+      minimal_witness: z.string().optional(),
+    })) })),
+  };
+}
+
+const OUTPUT_FORMATS_EXPLOIT = buildOutputFormats(true);
+const OUTPUT_FORMATS_ANALYSIS = buildOutputFormats(false);
 
 const VULN_AGENT_QUEUE_FILENAMES: Partial<Record<AgentName, string>> = {
   'injection-vuln': 'injection_exploitation_queue.json',
@@ -122,8 +176,8 @@ const VULN_AGENT_QUEUE_FILENAMES: Partial<Record<AgentName, string>> = {
 };
 
 /** Returns the structured output format for a vuln agent, or undefined for non-vuln agents. */
-export function getOutputFormat(agentName: AgentName): JsonSchemaOutputFormat | undefined {
-  return VULN_AGENT_OUTPUT_FORMAT[agentName];
+export function getOutputFormat(agentName: AgentName, exploit = true): JsonSchemaOutputFormat | undefined {
+  return (exploit ? OUTPUT_FORMATS_EXPLOIT : OUTPUT_FORMATS_ANALYSIS)[agentName];
 }
 
 /** Returns the queue filename for a vuln agent, or undefined for non-vuln agents. */
