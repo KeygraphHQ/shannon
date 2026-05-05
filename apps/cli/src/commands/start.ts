@@ -7,9 +7,10 @@
 
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
-import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
+import { buildEnvFlags, isRouterConfigured, loadEnv, validateCredentials } from '../env.js';
 import { getCredentialsPath, getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveConfig, resolveRepo } from '../paths.js';
@@ -22,7 +23,7 @@ export interface StartArgs {
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
-  debug: boolean;
+  router: boolean;
   version: string;
 }
 
@@ -31,50 +32,70 @@ export async function start(args: StartArgs): Promise<void> {
   initHome();
   loadEnv();
 
-  // 2. Validate credentials
+  // 2. Validate credentials and auto-detect router mode
   const creds = validateCredentials();
   if (!creds.valid) {
     console.error(`ERROR: ${creds.error}`);
     process.exit(1);
   }
+  const useRouter = args.router || isRouterConfigured();
 
   // 3. Resolve paths
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
 
-  // 4. Ensure workspaces dir is writable by container user (UID 1001)
+  // 4. Ensure workspaces dir is writable by container user (UID 1001).
+  //
+  // SECURITY: On Linux we chmod 0o770 and rely on the entrypoint adding the
+  // pentest user to the host-owner's group (SHANNON_HOST_GID is passed through
+  // in docker.ts and groupadd+useradd in entrypoint.sh wire the membership).
+  // 0o770 keeps the container writable without exposing the dir to every
+  // other user on the host. macOS stays at 0o777: Docker Desktop maps ownership
+  // through osxfs/VirtioFS so group-based writes from the container are not
+  // reliable on macOS dev hosts, and macOS hosts are single-user workstations
+  // where the broader permission is not a meaningful widening.
   const workspacesDir = getWorkspacesDir();
+  const workspaceMode = os.platform() === 'linux' ? 0o770 : 0o777;
   fs.mkdirSync(workspacesDir, { recursive: true });
-  fs.chmodSync(workspacesDir, 0o777);
+  fs.chmodSync(workspacesDir, workspaceMode);
 
-  // 5. Ensure image (auto-build in dev, pull in npx) and start infra
+  // 5. Handle router env
+  if (useRouter) {
+    process.env.ANTHROPIC_BASE_URL = 'http://shannon-router:3456';
+    process.env.ANTHROPIC_AUTH_TOKEN = 'shannon-router-key';
+  }
+
+  // 6. Ensure image (auto-build in dev, pull in npx) and start infra
   ensureImage(args.version);
-  await ensureInfra();
+  await ensureInfra(useRouter);
 
-  // 6. Generate unique task queue and container name
+  // 7. Generate unique task queue and container name
   const suffix = randomSuffix();
   const taskQueue = `shannon-${suffix}`;
   const containerName = `shannon-worker-${suffix}`;
 
-  // 7. Generate workspace name if not provided
+  // 8. Generate workspace name if not provided
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
-  // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
-  // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
+  // 9. Create writable overlay directories (mounted over :ro repo paths inside container).
+  // Workspace and overlay dirs must be group-writable so the container user (UID 1001)
+  // can create audit subdirs. See step 4 for the Linux vs macOS mode rationale.
   const workspacePath = path.join(workspacesDir, workspace);
   fs.mkdirSync(workspacePath, { recursive: true });
-  fs.chmodSync(workspacePath, 0o777);
+  fs.chmodSync(workspacePath, workspaceMode);
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
     const dirPath = path.join(workspacePath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
-    fs.chmodSync(dirPath, 0o777);
+    fs.chmodSync(dirPath, workspaceMode);
   }
 
-  // 9. Pre-create overlay mount points (:ro mounts can't auto-create them)
-  const shannonDir = path.join(repo.hostPath, '.shannon');
-  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
-    fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+  // 10. Pre-create overlay mount points (Linux :ro mounts can't auto-create them)
+  if (os.platform() === 'linux') {
+    const shannonDir = path.join(repo.hostPath, '.shannon');
+    for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+      fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+    }
   }
 
   const credentialsPath = getCredentialsPath();
@@ -111,21 +132,13 @@ export async function start(args: StartArgs): Promise<void> {
     ...(outputDir && { outputDir }),
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
-    ...(args.debug && { debug: true }),
   });
 
-  // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
-  const dockerExitCode = await new Promise<number>((resolve) => {
-    proc.once('exit', (code) => resolve(code ?? 1));
-    proc.once('error', (err) => {
-      console.error(`Failed to start worker: ${err.message}`);
-      resolve(1);
-    });
-  });
-
-  if (dockerExitCode !== 0) {
+  // 14. Wait for workflow to register, then display info
+  proc.on('error', (err) => {
+    console.error(`Failed to start worker: ${err.message}`);
     process.exit(1);
-  }
+  });
 
   // Detect whether this is a fresh workspace or a resume by checking session.json existence
   const sessionJson = path.join(workspacesDir, workspace, 'session.json');
@@ -170,7 +183,7 @@ export async function start(args: StartArgs): Promise<void> {
 
         // Clear waiting line and show info
         process.stdout.write('\r\x1b[K');
-        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
+        printInfo(args, useRouter, workspace, workflowId, repo.hostPath, workspacesDir);
         return;
       }
     } catch {
@@ -191,9 +204,6 @@ export async function start(args: StartArgs): Promise<void> {
     } catch {
       // Container may have already exited
     }
-    if (args.debug) {
-      printDebugHint(containerName);
-    }
   };
 
   process.on('SIGINT', () => {
@@ -207,16 +217,9 @@ export async function start(args: StartArgs): Promise<void> {
   process.on('exit', cleanup);
 }
 
-function printDebugHint(containerName: string): void {
-  console.log('');
-  console.log(`  Worker container preserved: ${containerName}`);
-  console.log(`    Inspect logs: docker logs ${containerName}`);
-  console.log(`    Remove:       docker rm ${containerName}`);
-  console.log('');
-}
-
 function printInfo(
   args: StartArgs,
+  routerActive: boolean,
   workspace: string,
   workflowId: string,
   repoPath: string,
@@ -233,6 +236,9 @@ function printInfo(
   }
   if (args.pipelineTesting) {
     console.log('  Mode:       Pipeline Testing');
+  }
+  if (routerActive) {
+    console.log('  Router:     Enabled');
   }
   console.log('');
   console.log('  Monitor:');
