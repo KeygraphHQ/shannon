@@ -45,6 +45,7 @@ export interface AgentExecutionInput {
   webUrl: string;
   repoPath: string;
   deliverablesPath: string;
+  sessionId?: string | undefined;
   configPath?: string | undefined;
   configData?: import('../types/config.js').DistributedConfig | undefined;
   configYAML?: string | undefined;
@@ -95,7 +96,7 @@ export class AgentExecutionService {
     auditSession: AuditSession,
     logger: ActivityLogger,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    const { webUrl, repoPath, deliverablesPath, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir, providerConfig } = input;
+    const { webUrl, repoPath, deliverablesPath, sessionId, configPath, configData, configYAML, pipelineTestingMode = false, attemptNumber, apiKey, promptDir, providerConfig } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
@@ -108,7 +109,14 @@ export class AgentExecutionService {
     const promptTemplate = AGENTS[agentName].promptTemplate;
     let prompt: string;
     try {
-      prompt = await loadPrompt(promptTemplate, { webUrl, repoPath }, distributedConfig, pipelineTestingMode, logger, promptDir);
+      prompt = await loadPrompt(
+        promptTemplate,
+        { webUrl, repoPath, ...(sessionId !== undefined && { sessionId }) },
+        distributedConfig,
+        pipelineTestingMode,
+        logger,
+        promptDir,
+      );
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
