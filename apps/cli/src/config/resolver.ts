@@ -31,6 +31,9 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
 
+  // OpenRouter
+  { env: 'OPENROUTER_API_KEY', toml: 'openrouter.api_key', type: 'string' },
+
   // Bedrock
   { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean' },
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
@@ -136,6 +139,15 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       }
       break;
 
+    case 'openrouter': {
+      const required = ['api_key'];
+      const missing = required.filter((k) => !keys.includes(k));
+      if (missing.length > 0) {
+        errors.push(`[openrouter] missing required keys: ${missing.join(', ')}`);
+      }
+      break;
+    }
+
     case 'custom_base_url': {
       const required = ['base_url', 'auth_token'];
       const missing = required.filter((k) => !keys.includes(k));
@@ -227,7 +239,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'openrouter', 'custom_base_url', 'bedrock', 'vertex'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

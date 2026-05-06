@@ -13,7 +13,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
+type Provider = 'anthropic' | 'openrouter' | 'custom_base_url' | 'bedrock' | 'vertex';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -23,6 +23,7 @@ export async function setup(): Promise<void> {
     message: 'Select your AI provider',
     options: [
       { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
+      { value: 'openrouter' as const, label: 'OpenRouter' },
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
       { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
@@ -47,6 +48,8 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
   switch (provider) {
     case 'anthropic':
       return setupAnthropic();
+    case 'openrouter':
+      return setupOpenRouter();
     case 'custom_base_url':
       return setupCustomBaseUrl();
     case 'bedrock':
@@ -106,6 +109,51 @@ async function setupAnthropic(): Promise<ShannonConfig> {
     const large = await p.text({
       message: 'Large model ID',
       initialValue: 'claude-opus-4-7',
+      validate: required('Large model ID is required'),
+    });
+    if (p.isCancel(large)) return cancelAndExit();
+
+    config.models = { small, medium, large };
+  }
+
+  return config;
+}
+
+async function setupOpenRouter(): Promise<ShannonConfig> {
+  const apiKey = await promptSecret('Enter your OpenRouter API key');
+
+  const config: ShannonConfig = {
+    openrouter: { api_key: apiKey },
+  };
+
+  const customizeModels = await p.confirm({
+    message:
+      'Do you want to change the default models?\n' +
+      '    Small  - anthropic/claude-haiku-4-5-20251001\n' +
+      '    Medium - anthropic/claude-sonnet-4-6\n' +
+      '    Large  - anthropic/claude-opus-4-6',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    const small = await p.text({
+      message: 'Small model ID',
+      initialValue: 'anthropic/claude-haiku-4-5-20251001',
+      validate: required('Small model ID is required'),
+    });
+    if (p.isCancel(small)) return cancelAndExit();
+
+    const medium = await p.text({
+      message: 'Medium model ID',
+      initialValue: 'anthropic/claude-sonnet-4-6',
+      validate: required('Medium model ID is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+
+    const large = await p.text({
+      message: 'Large model ID',
+      initialValue: 'anthropic/claude-opus-4-6',
       validate: required('Large model ID is required'),
     });
     if (p.isCancel(large)) return cancelAndExit();
