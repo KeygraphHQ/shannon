@@ -34,7 +34,7 @@ export interface ReportConfig {
   guidance?: string;
 }
 
-export type LoginType = 'form' | 'sso' | 'api' | 'basic';
+export type LoginType = 'form' | 'sso' | 'api' | 'basic' | 'interactive';
 
 export interface SuccessCondition {
   type: 'url_contains' | 'element_present' | 'url_equals_exactly' | 'text_contains';
@@ -50,7 +50,7 @@ export interface Credentials {
 export interface Authentication {
   login_type: LoginType;
   login_url: string;
-  credentials: Credentials;
+  credentials?: Credentials;
   login_flow?: string[];
   success_condition: SuccessCondition;
 }

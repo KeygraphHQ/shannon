@@ -11,7 +11,7 @@
       "properties": {
         "login_type": {
           "type": "string",
-          "enum": ["form", "sso", "api", "basic"],
+          "enum": ["form", "sso", "api", "basic", "interactive"],
           "description": "Type of authentication mechanism"
         },
         "login_url": {
@@ -75,7 +75,13 @@
           "additionalProperties": false
         }
       },
-      "required": ["login_type", "login_url", "credentials", "success_condition"],
+      "required": ["login_type", "login_url", "success_condition"],
+      "if": {
+        "properties": { "login_type": { "not": { "const": "interactive" } } }
+      },
+      "then": {
+        "required": ["credentials"]
+      },
       "additionalProperties": false
     },
     "pipeline": {

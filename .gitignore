@@ -1,7 +1,10 @@
 node_modules/
 .env
+.env.*
 workspaces/
 credentials/
+configs/
 dist/
 repos/
 .turbo/
+audit-logs/

@@ -26,7 +26,7 @@ description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .e
 #   - ...
 
 authentication:
-  login_type: form  # Options: 'form' or 'sso'
+  login_type: form  # Options: 'form', 'sso', or 'interactive'
   login_url: "https://example.com/login"
   credentials:
     username: "testuser"
@@ -95,6 +95,17 @@ rules:
 #   guidance: |
 #     Drop findings about missing security headers and rate-limit gaps.
 #     ...
+
+# --- Interactive authentication example (OAuth / Google Sign-In) ---
+# Requires running `shannon auth -c config.yaml` before `shannon start`.
+# Shannon opens a browser, you log in manually, and it captures the session.
+#
+# authentication:
+#   login_type: interactive
+#   login_url: "https://example.com/login"
+#   success_condition:
+#     type: url_contains
+#     value: "/dashboard"
 
 # Pipeline execution settings (optional)
 # pipeline:

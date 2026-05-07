@@ -93,10 +93,16 @@ export async function start(args: StartArgs): Promise<void> {
   // 11. Resolve prompts directory (local mode only)
   const promptsDir = isLocal() ? path.resolve('apps/worker/prompts') : undefined;
 
-  // 12. Display splash screen
+  // 12. Check for pre-authenticated session
+  const authStatePath = path.join(workspacesDir, workspace, 'auth-state.json');
+  if (fs.existsSync(authStatePath)) {
+    console.log('Using pre-authenticated session from auth-state.json');
+  }
+
+  // 13. Display splash screen
   displaySplash(isLocal() ? undefined : args.version);
 
-  // 13. Spawn worker container
+  // 14. Spawn worker container
   const proc = spawnWorker({
     version: args.version,
     url: args.url,
@@ -114,7 +120,7 @@ export async function start(args: StartArgs): Promise<void> {
     ...(args.debug && { debug: true }),
   });
 
-  // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
+  // 15. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
   const dockerExitCode = await new Promise<number>((resolve) => {
     proc.once('exit', (code) => resolve(code ?? 1));
     proc.once('error', (err) => {

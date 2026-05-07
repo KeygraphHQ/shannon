@@ -417,7 +417,7 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
 
-    if (auth.credentials) {
+    if (auth.credentials && auth.login_type !== 'interactive') {
       for (const pattern of DANGEROUS_PATTERNS) {
         if (pattern.test(auth.credentials.username)) {
           throw new PentestError(
@@ -707,11 +707,13 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
   return {
     login_type: auth.login_type.toLowerCase().trim() as Authentication['login_type'],
     login_url: auth.login_url.trim(),
-    credentials: {
-      username: auth.credentials.username.trim(),
-      password: auth.credentials.password,
-      ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
-    },
+    ...(auth.credentials && {
+      credentials: {
+        username: auth.credentials.username.trim(),
+        password: auth.credentials.password,
+        ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
+      },
+    }),
     ...(auth.login_flow && { login_flow: auth.login_flow.map((step) => step.trim()) }),
     success_condition: {
       type: auth.success_condition.type.toLowerCase().trim() as Authentication['success_condition']['type'],
