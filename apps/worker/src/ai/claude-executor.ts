@@ -16,6 +16,7 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { Timer } from '../utils/metrics.js';
+import type { ToolUsageSummary } from './kiro-cli-executor.js';
 import { createAuditLogger } from './audit-logger.js';
 import { dispatchMessage } from './message-handlers.js';
 import { type ModelTier, resolveModel, supportsAdaptiveThinking } from './models.js';
@@ -40,6 +41,10 @@ export interface ClaudePromptResult {
   prompt?: string | undefined;
   retryable?: boolean | undefined;
   structuredOutput?: unknown;
+  /** Tool usage summary from kiro-cli hooks (kiro-cli backend only). */
+  toolUsage?: ToolUsageSummary | undefined;
+  /** Per-invocation tool usage records (kiro-cli backend only). */
+  toolInvocations?: ReadonlyArray<{ tool: string; timestamp: number; success?: boolean; durationMs?: number }> | undefined;
 }
 
 function outputLines(lines: string[]): void {

@@ -56,6 +56,308 @@ export function stripMetadataLines(text: string): string {
     .join('\n');
 }
 
+// === Tool Usage Data Models ===
+
+/** A single tool invocation event recorded by the hook script. */
+export interface ToolUsageEntry {
+  readonly event: 'pre' | 'post';
+  readonly tool: string;
+  readonly timestamp: number;
+  readonly success?: boolean | undefined;
+  readonly error?: string | undefined;
+  readonly durationMs?: number | undefined;
+}
+
+/** Aggregated tool usage statistics for an agent execution. */
+export interface ToolUsageSummary {
+  readonly totalInvocations: number;
+  readonly toolCounts: Record<string, number>;
+  readonly failures: number;
+  readonly totalDurationMs: number;
+}
+
+// === Hook Script Generator ===
+
+/**
+ * Generate the ESM JavaScript source for the tool-usage-logger hook script.
+ *
+ * The script reads stdin JSON from kiro-cli, extracts tool event data, and
+ * appends a JSONL entry to the given log path. Always exits with code 0.
+ */
+export function generateToolUsageLoggerScript(logFilePath: string): string {
+  return [
+    '// Auto-generated tool usage logger hook script',
+    "import { appendFileSync, mkdirSync } from 'node:fs';",
+    "import { dirname } from 'node:path';",
+    '',
+    `const LOG_PATH = ${JSON.stringify(logFilePath)};`,
+    '',
+    "process.stdin.setEncoding('utf8');",
+    "let input = '';",
+    '',
+    "process.stdin.on('data', (chunk) => { input += chunk; });",
+    '',
+    "process.stdin.on('end', () => {",
+    '  try {',
+    '    const event = JSON.parse(input);',
+    "    const toolName = event.tool_name ?? 'unknown';",
+    '    const now = Date.now();',
+    "    const hookEvent = event.hook_event_name ?? '';",
+    '',
+    "    if (hookEvent === 'preToolUse') {",
+    "      const entry = { event: 'pre', tool: toolName, timestamp: now };",
+    "      mkdirSync(dirname(LOG_PATH), { recursive: true });",
+    "      appendFileSync(LOG_PATH, JSON.stringify(entry) + '\\n');",
+    "    } else if (hookEvent === 'postToolUse') {",
+    '      const success = event.tool_response?.success ?? true;',
+    '      const entry = {',
+    "        event: 'post',",
+    '        tool: toolName,',
+    '        timestamp: now,',
+    '        success,',
+    '      };',
+    "      mkdirSync(dirname(LOG_PATH), { recursive: true });",
+    "      appendFileSync(LOG_PATH, JSON.stringify(entry) + '\\n');",
+    '    }',
+    '  } catch {',
+    "    // Never fail — don't block the agent",
+    '  }',
+    '',
+    '  process.exit(0);',
+    '});',
+    '',
+  ].join('\n');
+}
+
+// === Hook Generation ===
+
+/**
+ * Generate tool usage hooks and write the logger script to disk.
+ *
+ * Writes `tool-usage-logger.mjs` to `~/.kiro/agents/` (always writable),
+ * with a best-effort copy to the project-level `.kiro/agents/` for debugging.
+ * Returns hook definitions with wildcard matcher for both preToolUse and postToolUse.
+ */
+export async function generateToolUsageHooks(sourceDir: string): Promise<KiroAgentHooks> {
+  // 1. Determine paths — must be writable.
+  // Inside Docker the repo is mounted :ro; sourceDir/.shannon/agents/ has no writable overlay.
+  // Use ~/.kiro/agents/ (always writable) for both the hook script and the log file.
+  const homeDir = process.env.HOME || '/tmp';
+  const globalAgentsDir = join(homeDir, '.kiro', 'agents');
+  const logFilePath = join(globalAgentsDir, 'tool-usage.jsonl');
+
+  // 2. Generate the hook script with the log path baked in
+  const script = generateToolUsageLoggerScript(logFilePath);
+
+  // 3. Write script to global agents dir (always writable)
+  await mkdir(globalAgentsDir, { recursive: true });
+  const scriptPath = join(globalAgentsDir, 'tool-usage-logger.mjs');
+  await writeFile(scriptPath, script, 'utf8');
+
+  // 4. Best-effort copy to project-level dir for debugging
+  try {
+    const projectAgentsDir = join(sourceDir, '.kiro', 'agents');
+    await mkdir(projectAgentsDir, { recursive: true });
+    await writeFile(join(projectAgentsDir, 'tool-usage-logger.mjs'), script, 'utf8');
+  } catch {
+    // Non-fatal
+  }
+
+  // 5. Return hook definitions
+  return {
+    preToolUse: [{ matcher: '*', command: `node ${scriptPath}`, timeout_ms: 10000 }],
+    postToolUse: [{ matcher: '*', command: `node ${scriptPath}`, timeout_ms: 10000 }],
+  };
+}
+
+// === Tool Usage Log Reader ===
+
+/**
+ * Read the tool-usage.jsonl log file after kiro-cli execution, emit structured
+ * log entries via the ActivityLogger, and compute a ToolUsageSummary.
+ *
+ * Returns the computed summary, or undefined if no valid post entries were found.
+ * Never throws — all errors are caught and logged as warnings.
+ */
+export /** Result from reading tool usage — includes both summary and raw invocations. */
+interface ToolUsageResult {
+  readonly summary: ToolUsageSummary;
+  readonly invocations: ReadonlyArray<{ tool: string; timestamp: number; success?: boolean; durationMs?: number }>;
+}
+
+async function readAndLogToolUsage(
+  _sourceDir: string,
+  agentName: string,
+  logger: ActivityLogger,
+): Promise<ToolUsageResult | undefined> {
+  try {
+    // Read from ~/.kiro/agents/ — the same writable location where the hook script writes.
+    // Inside Docker the repo is mounted :ro, so sourceDir/.shannon/agents/ is not writable.
+    const homeDir = process.env.HOME || '/tmp';
+    const logFilePath = join(homeDir, '.kiro', 'agents', 'tool-usage.jsonl');
+
+    // 1. Read log file — non-fatal if missing
+    let content: string;
+    try {
+      content = await fsReadFile(logFilePath, 'utf8');
+    } catch {
+      logger.info(`[kiro-cli] No tool usage data for ${agentName}`);
+      return undefined;
+    }
+
+    // 2. Parse JSONL lines, skip malformed
+    const lines = content.split('\n').filter((line) => line.trim().length > 0);
+    const entries: ToolUsageEntry[] = [];
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as ToolUsageEntry;
+        if (parsed.event && parsed.tool && parsed.timestamp) {
+          entries.push(parsed);
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    // 3. Filter to post entries only
+    const postEntries = entries.filter((e) => e.event === 'post');
+
+    if (postEntries.length === 0) {
+      logger.info(`[kiro-cli] No valid tool usage entries for ${agentName}`);
+      return undefined;
+    }
+
+    // 4. Emit per-tool log entries
+    for (const entry of postEntries) {
+      logger.info(`[kiro-cli] Tool used: ${entry.tool}`, {
+        agent: agentName,
+        tool: entry.tool,
+        success: entry.success,
+        timestamp: entry.timestamp,
+      });
+    }
+
+    // 5. Compute summary
+    const toolCounts: Record<string, number> = {};
+    let failures = 0;
+    let totalDurationMs = 0;
+
+    for (const entry of postEntries) {
+      toolCounts[entry.tool] = (toolCounts[entry.tool] ?? 0) + 1;
+      if (entry.success === false) failures++;
+      if (entry.durationMs) totalDurationMs += entry.durationMs;
+    }
+
+    const summary: ToolUsageSummary = {
+      totalInvocations: postEntries.length,
+      toolCounts,
+      failures,
+      totalDurationMs,
+    };
+
+    // 6. Emit summary line
+    logger.info(`[kiro-cli] Tool usage summary for ${agentName}`, {
+      totalInvocations: summary.totalInvocations,
+      toolCounts: summary.toolCounts,
+      failures: summary.failures,
+    });
+
+    // 7. Build invocation records for detailed query
+    const invocations = postEntries.map((e) => ({
+      tool: e.tool,
+      timestamp: e.timestamp,
+      ...(e.success !== undefined && { success: e.success }),
+      ...(e.durationMs !== undefined && { durationMs: e.durationMs }),
+    }));
+
+    return { summary, invocations };
+  } catch (error) {
+    const msg = error instanceof Error ? error.message : String(error);
+    logger.warn(`[kiro-cli] Failed to read tool usage data for ${agentName}: ${msg}`);
+    return undefined;
+  }
+}
+
+// === Live Tool Usage Reader ===
+
+/**
+ * Read the current tool-usage.jsonl and return a summary without logging.
+ *
+ * Lightweight version of readAndLogToolUsage for live polling from activities.
+ * Returns undefined if the file is missing or has no post entries.
+ * Never throws.
+ */
+export async function readLiveToolUsage(): Promise<ToolUsageSummary | undefined> {
+  try {
+    const homeDir = process.env.HOME || '/tmp';
+    const logFilePath = join(homeDir, '.kiro', 'agents', 'tool-usage.jsonl');
+
+    let content: string;
+    try {
+      content = await fsReadFile(logFilePath, 'utf8');
+    } catch {
+      return undefined;
+    }
+
+    const lines = content.split('\n').filter((line) => line.trim().length > 0);
+    const toolCounts: Record<string, number> = {};
+    let totalInvocations = 0;
+    let failures = 0;
+    let totalDurationMs = 0;
+
+    for (const line of lines) {
+      try {
+        const parsed = JSON.parse(line) as ToolUsageEntry;
+        if (parsed.event === 'post' && parsed.tool && parsed.timestamp) {
+          totalInvocations++;
+          toolCounts[parsed.tool] = (toolCounts[parsed.tool] ?? 0) + 1;
+          if (parsed.success === false) failures++;
+          if (parsed.durationMs) totalDurationMs += parsed.durationMs;
+        }
+      } catch {
+        // Skip malformed lines
+      }
+    }
+
+    if (totalInvocations === 0) return undefined;
+
+    return { totalInvocations, toolCounts, failures, totalDurationMs };
+  } catch {
+    return undefined;
+  }
+}
+
+// === Hook Merger ===
+
+/** All hook types that can appear in KiroAgentHooks. */
+const HOOK_TYPES = ['preToolUse', 'postToolUse', 'stop', 'agentSpawn', 'userPromptSubmit'] as const;
+
+/**
+ * Merge multiple KiroAgentHooks objects by concatenating arrays for each hook type.
+ *
+ * Filters out undefined inputs. Returns undefined if all inputs are undefined
+ * or no hook entries exist after merging. Preserves order within and across inputs.
+ * Does not mutate any input arrays.
+ */
+export function mergeHooks(
+  ...hookSets: ReadonlyArray<KiroAgentHooks | undefined>
+): KiroAgentHooks | undefined {
+  const defined = hookSets.filter((h): h is KiroAgentHooks => h !== undefined);
+  if (defined.length === 0) return undefined;
+
+  const merged: Record<string, readonly HookDef[]> = {};
+
+  for (const type of HOOK_TYPES) {
+    const combined = defined.flatMap((h) => h[type] ?? []);
+    if (combined.length > 0) {
+      merged[type] = combined;
+    }
+  }
+
+  return Object.keys(merged).length > 0 ? (merged as KiroAgentHooks) : undefined;
+}
+
 // === Agent JSON Interfaces ===
 
 interface KiroAgentJson {
@@ -871,9 +1173,14 @@ export class KiroCliExecutor implements Executor {
       };
     }
 
-    // 2. Build agent JSON options (queue hooks only — Playwright uses skills, not MCP)
+    // 2. Build agent JSON options (queue hooks + tool usage hooks)
     const queueHookOptions = await buildQueueHookOptions(sourceDir, options);
-    const agentJsonOptions: AgentJsonOptions | undefined = queueHookOptions ?? undefined;
+    const toolUsageHooks = await generateToolUsageHooks(sourceDir);
+    const mergedHooks = mergeHooks(queueHookOptions?.hooks, toolUsageHooks);
+    const agentJsonOptions: AgentJsonOptions = {
+      ...queueHookOptions,
+      ...(mergedHooks ? { hooks: mergedHooks } : {}),
+    };
 
     // 2a. Install Playwright skill for kiro-cli (copies from Claude Code skill location)
     if (options?.playwrightExecutablePath) {
@@ -968,7 +1275,14 @@ export class KiroCliExecutor implements Executor {
     );
 
     // 9. Post-process: API error detection, spending cap, audit logging, error log
-    return this.postProcessResult(result, spawnResult, agentName, duration, sourceDir, logger);
+    const postProcessed = await this.postProcessResult(result, spawnResult, agentName, duration, sourceDir, logger);
+
+    // 10. Read and log tool usage, attach summary and invocations to result
+    const toolUsageResult = await readAndLogToolUsage(sourceDir, agentName, logger);
+    if (toolUsageResult) {
+      return { ...postProcessed, toolUsage: toolUsageResult.summary, toolInvocations: toolUsageResult.invocations };
+    }
+    return postProcessed;
   }
 
   /** Post-process the kiro-cli result: API error detection, spending cap, audit logging, error log. */

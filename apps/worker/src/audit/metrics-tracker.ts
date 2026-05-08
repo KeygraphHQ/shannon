@@ -11,6 +11,7 @@
  * Tracks attempt-level data for complete forensic trail.
  */
 
+import type { ToolUsageSummary } from '../ai/kiro-cli-executor.js';
 import { PentestError } from '../services/error-handling.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
 import { ErrorCode } from '../types/errors.js';
@@ -36,6 +37,7 @@ interface AgentAuditMetrics {
   total_cost_usd: number;
   model?: string | undefined;
   checkpoint?: string | undefined;
+  toolUsage?: ToolUsageSummary | undefined;
 }
 
 interface PhaseMetrics {
@@ -219,13 +221,18 @@ export class MetricsTracker {
       }
     }
 
-    // 7. Clear active timer
+    // 7. Attach tool usage summary if present
+    if (result.toolUsage) {
+      agent.toolUsage = result.toolUsage;
+    }
+
+    // 8. Clear active timer
     this.activeTimers.delete(agentName);
 
-    // 8. Recalculate phase and session-level aggregations
+    // 9. Recalculate phase and session-level aggregations
     this.recalculateAggregations();
 
-    // 9. Persist to session.json
+    // 10. Persist to session.json
     await this.save();
   }
 

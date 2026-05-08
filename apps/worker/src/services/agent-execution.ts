@@ -281,6 +281,8 @@ export class AgentExecutionService {
       success: true,
       model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
+      ...(result.toolUsage ? { toolUsage: result.toolUsage } : {}),
+      ...(result.toolInvocations ? { toolInvocations: result.toolInvocations } : {}),
     };
     await auditSession.endAgent(agentName, endResult);
 

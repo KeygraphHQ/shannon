@@ -22,6 +22,11 @@ RUN apk update && apk add --no-cache \
 # Install pnpm
 RUN npm install -g pnpm@10.33.0
 
+# Install kiro-cli for headless mode executor backend
+RUN curl -fsSL https://cli.kiro.dev/install | bash && \
+    cp -a /root/.local/bin/kiro-cli* /usr/local/bin/ 2>/dev/null; \
+    ls /usr/local/bin/kiro-cli*
+
 # Build Node.js application in builder to avoid QEMU emulation failures in CI
 WORKDIR /app
 
@@ -92,6 +97,9 @@ COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
 
 RUN npm install -g @anthropic-ai/claude-code@2.1.84 @playwright/cli@0.1.1
+
+# Copy kiro-cli binaries from builder
+COPY --from=builder /usr/local/bin/kiro-cli* /usr/local/bin/
 RUN mkdir -p /tmp/.claude/skills && \
     playwright-cli install --skills && \
     cp -r .claude/skills/playwright-cli /tmp/.claude/skills/ && \

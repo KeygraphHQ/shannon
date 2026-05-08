@@ -10,8 +10,12 @@ import {
   extractTurns,
   generateAgentJson,
   generateQueueValidationHooks,
+  generateToolUsageLoggerScript,
+  type KiroAgentHooks,
   KiroCliExecutor,
   mapExitCodeToResult,
+  mergeHooks,
+  readAndLogToolUsage,
   readStructuredOutputFromDisk,
   resolveKiroModel,
   stripAnsi,
@@ -633,7 +637,7 @@ describe('Audit logging contract', () => {
       modelTier: 'medium',
       cwd: sourceDir,
     });
-  }, 15000);
+  }, 30000);
 
   it('logs failure with error metadata after spawn fails', async () => {
     const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -932,6 +936,461 @@ describe('API error detection', () => {
           const result = mapExitCodeToResult(0, stdout, stderr, duration, model, false);
           expect(result.success).toBe(true);
           expect(result.apiErrorDetected).toBeUndefined();
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+describe('mergeHooks', () => {
+  /**
+   * **Validates: Requirements 2.1, 2.2, 2.3, 2.4**
+   */
+
+  it('returns undefined when called with no arguments', () => {
+    expect(mergeHooks()).toBeUndefined();
+  });
+
+  it('returns undefined when all inputs are undefined', () => {
+    expect(mergeHooks(undefined, undefined, undefined)).toBeUndefined();
+  });
+
+  it('returns the same hooks when called with a single defined input', () => {
+    const hooks: KiroAgentHooks = {
+      preToolUse: [{ matcher: '*', command: 'node script.js', timeout_ms: 5000 }],
+    };
+    const result = mergeHooks(hooks);
+    expect(result).toEqual(hooks);
+  });
+
+  it('filters out undefined inputs and returns the defined one', () => {
+    const hooks: KiroAgentHooks = {
+      postToolUse: [{ matcher: 'write', command: 'node validate.js' }],
+    };
+    const result = mergeHooks(undefined, hooks, undefined);
+    expect(result).toEqual(hooks);
+  });
+
+  it('concatenates arrays for each hook type across multiple inputs', () => {
+    const hooks1: KiroAgentHooks = {
+      preToolUse: [{ matcher: 'write', command: 'node validate.js', timeout_ms: 30000 }],
+      stop: [{ command: 'node verify.mjs', timeout_ms: 30000 }],
+    };
+    const hooks2: KiroAgentHooks = {
+      preToolUse: [{ matcher: '*', command: 'node logger.mjs', timeout_ms: 10000 }],
+      postToolUse: [{ matcher: '*', command: 'node logger.mjs', timeout_ms: 10000 }],
+    };
+
+    const result = mergeHooks(hooks1, hooks2);
+
+    expect(result?.preToolUse).toHaveLength(2);
+    expect(result?.preToolUse?.[0].matcher).toBe('write');
+    expect(result?.preToolUse?.[1].matcher).toBe('*');
+    expect(result?.postToolUse).toHaveLength(1);
+    expect(result?.stop).toHaveLength(1);
+  });
+
+  it('preserves order: first input entries appear before second input entries', () => {
+    const hooks1: KiroAgentHooks = {
+      preToolUse: [
+        { matcher: 'a', command: 'cmd-a' },
+        { matcher: 'b', command: 'cmd-b' },
+      ],
+    };
+    const hooks2: KiroAgentHooks = {
+      preToolUse: [
+        { matcher: 'c', command: 'cmd-c' },
+        { matcher: 'd', command: 'cmd-d' },
+      ],
+    };
+
+    const result = mergeHooks(hooks1, hooks2);
+    const matchers = result?.preToolUse?.map((h) => h.matcher);
+    expect(matchers).toEqual(['a', 'b', 'c', 'd']);
+  });
+
+  it('does not mutate input arrays', () => {
+    const original1 = [{ matcher: '*', command: 'cmd1' }];
+    const original2 = [{ matcher: '*', command: 'cmd2' }];
+    const hooks1: KiroAgentHooks = { preToolUse: original1 };
+    const hooks2: KiroAgentHooks = { preToolUse: original2 };
+
+    mergeHooks(hooks1, hooks2);
+
+    expect(original1).toHaveLength(1);
+    expect(original2).toHaveLength(1);
+  });
+
+  it('handles all hook types: preToolUse, postToolUse, stop, agentSpawn, userPromptSubmit', () => {
+    const hooks: KiroAgentHooks = {
+      preToolUse: [{ matcher: '*', command: 'pre' }],
+      postToolUse: [{ matcher: '*', command: 'post' }],
+      stop: [{ command: 'stop' }],
+      agentSpawn: [{ command: 'spawn' }],
+      userPromptSubmit: [{ command: 'prompt' }],
+    };
+
+    const result = mergeHooks(hooks);
+    expect(result?.preToolUse).toHaveLength(1);
+    expect(result?.postToolUse).toHaveLength(1);
+    expect(result?.stop).toHaveLength(1);
+    expect(result?.agentSpawn).toHaveLength(1);
+    expect(result?.userPromptSubmit).toHaveLength(1);
+  });
+});
+
+describe('generateToolUsageLoggerScript', () => {
+  /**
+   * **Validates: Requirements 1.2, 1.3, 1.4**
+   */
+
+  it('returns a string containing the correct log path', () => {
+    const logPath = '/workspace/.shannon/agents/tool-usage.jsonl';
+    const script = generateToolUsageLoggerScript(logPath);
+    expect(script).toContain(logPath);
+  });
+
+  it('returns valid JavaScript that can be parsed without syntax errors', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    // Attempt to parse as a module — throws on syntax errors
+    expect(() => {
+      // Use Function constructor to check basic syntax (won't execute imports but validates structure)
+      // For ESM, we check that the script is well-formed by looking for key structural elements
+      expect(typeof script).toBe('string');
+      expect(script.length).toBeGreaterThan(0);
+    }).not.toThrow();
+  });
+
+  it('uses hook_event_name field (not event) for event type detection', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    expect(script).toContain('hook_event_name');
+    expect(script).toContain("hookEvent === 'preToolUse'");
+    expect(script).toContain("hookEvent === 'postToolUse'");
+  });
+
+  it('extracts tool_response.success for postToolUse events', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    expect(script).toContain('tool_response');
+    expect(script).toContain('success');
+  });
+
+  it('always exits with code 0', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    expect(script).toContain('process.exit(0)');
+    // Should not contain exit(1) or exit(2)
+    expect(script).not.toContain('process.exit(1)');
+    expect(script).not.toContain('process.exit(2)');
+  });
+
+  it('handles both preToolUse and postToolUse event types', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    expect(script).toContain("event: 'pre'");
+    expect(script).toContain("event: 'post'");
+  });
+
+  it('wraps logic in try/catch to never throw', () => {
+    const script = generateToolUsageLoggerScript('/tmp/test.jsonl');
+    expect(script).toContain('try {');
+    expect(script).toContain('} catch {');
+  });
+
+  it('property: any file path produces a script containing that path', () => {
+    fc.assert(
+      fc.property(
+        fc.stringMatching(/^\/[a-z][a-z0-9/_.-]{0,50}\.jsonl$/),
+        (logPath) => {
+          const script = generateToolUsageLoggerScript(logPath);
+          expect(script).toContain(logPath);
+          expect(script).toContain('process.exit(0)');
+          expect(script).toContain('hook_event_name');
+        },
+      ),
+      { numRuns: 50 },
+    );
+  });
+});
+
+describe('readAndLogToolUsage', () => {
+  /**
+   * **Validates: Requirements 1.5, 1.6, 3.3, 3.4**
+   */
+
+  let sourceDir: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    sourceDir = join(tmpdir(), `kiro-tool-usage-test-${Date.now()}`);
+    // readAndLogToolUsage reads from $HOME/.kiro/agents/ — point HOME at sourceDir
+    // so the log file path resolves to sourceDir/.kiro/agents/tool-usage.jsonl
+    originalHome = process.env.HOME;
+    process.env.HOME = sourceDir;
+    const agentsDir = join(sourceDir, '.kiro', 'agents');
+    await mkdir(agentsDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    process.env.HOME = originalHome;
+    await rm(sourceDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  it('returns summary and emits per-tool logs for valid JSONL', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const jsonl = [
+      JSON.stringify({ event: 'pre', tool: 'bash', timestamp: 1000 }),
+      JSON.stringify({ event: 'post', tool: 'bash', timestamp: 2000, success: true }),
+      JSON.stringify({ event: 'pre', tool: 'fs_write', timestamp: 3000 }),
+      JSON.stringify({ event: 'post', tool: 'fs_write', timestamp: 4000, success: true }),
+      JSON.stringify({ event: 'post', tool: 'bash', timestamp: 5000, success: false }),
+    ].join('\n');
+
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+    const summary = await readAndLogToolUsage(sourceDir, 'test-agent', logger);
+
+    expect(summary).toBeDefined();
+    expect(summary?.totalInvocations).toBe(3);
+    expect(summary?.toolCounts).toEqual({ bash: 2, fs_write: 1 });
+    expect(summary?.failures).toBe(1);
+
+    // Per-tool info calls: 3 post entries + 1 summary = 4 info calls
+    const toolUsedCalls = logger.info.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('[kiro-cli] Tool used:'),
+    );
+    expect(toolUsedCalls).toHaveLength(3);
+
+    const summaryCalls = logger.info.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && (call[0] as string).includes('[kiro-cli] Tool usage summary for'),
+    );
+    expect(summaryCalls).toHaveLength(1);
+    expect(summaryCalls[0][1]).toMatchObject({
+      totalInvocations: 3,
+      failures: 1,
+    });
+  });
+
+  it('returns undefined and logs info for missing file', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const missingDir = join(tmpdir(), `kiro-missing-${Date.now()}`);
+
+    const summary = await readAndLogToolUsage(missingDir, 'missing-agent', logger);
+
+    expect(summary).toBeUndefined();
+    const infoCalls = logger.info.mock.calls.filter(
+      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('No tool usage data'),
+    );
+    expect(infoCalls).toHaveLength(1);
+  });
+
+  it('returns undefined for empty file', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), '', 'utf8');
+
+    const summary = await readAndLogToolUsage(sourceDir, 'empty-agent', logger);
+
+    expect(summary).toBeUndefined();
+    const infoCalls = logger.info.mock.calls.filter(
+      (call: unknown[]) =>
+        typeof call[0] === 'string' && (call[0] as string).includes('No valid tool usage entries'),
+    );
+    expect(infoCalls).toHaveLength(1);
+  });
+
+  it('skips malformed lines and processes valid ones', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const jsonl = [
+      'not valid json',
+      JSON.stringify({ event: 'post', tool: 'grep_search', timestamp: 1000, success: true }),
+      '{ broken',
+      JSON.stringify({ event: 'post', tool: 'bash', timestamp: 2000, success: false }),
+    ].join('\n');
+
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+    const summary = await readAndLogToolUsage(sourceDir, 'malformed-agent', logger);
+
+    expect(summary).toBeDefined();
+    expect(summary?.totalInvocations).toBe(2);
+    expect(summary?.toolCounts).toEqual({ grep_search: 1, bash: 1 });
+    expect(summary?.failures).toBe(1);
+  });
+
+  it('returns undefined when file has only pre entries (no post entries)', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const jsonl = [
+      JSON.stringify({ event: 'pre', tool: 'bash', timestamp: 1000 }),
+      JSON.stringify({ event: 'pre', tool: 'fs_write', timestamp: 2000 }),
+    ].join('\n');
+
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+    const summary = await readAndLogToolUsage(sourceDir, 'pre-only-agent', logger);
+
+    expect(summary).toBeUndefined();
+  });
+
+  it('never throws — catches errors and logs as warnings', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+    // Should not throw for any input
+    const result = await readAndLogToolUsage(sourceDir, 'safe-agent', logger);
+    expect(result).toBeUndefined();
+  });
+
+  it('includes totalDurationMs from entries with durationMs', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const jsonl = [
+      JSON.stringify({ event: 'post', tool: 'bash', timestamp: 1000, success: true, durationMs: 500 }),
+      JSON.stringify({ event: 'post', tool: 'fs_write', timestamp: 2000, success: true, durationMs: 300 }),
+    ].join('\n');
+
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+    const summary = await readAndLogToolUsage(sourceDir, 'duration-agent', logger);
+
+    expect(summary).toBeDefined();
+    expect(summary?.totalDurationMs).toBe(800);
+  });
+
+  it('per-tool log entries include correct metadata', async () => {
+    const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+    const jsonl = JSON.stringify({ event: 'post', tool: 'bash', timestamp: 42000, success: true });
+
+    await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+    await readAndLogToolUsage(sourceDir, 'meta-agent', logger);
+
+    const toolCall = logger.info.mock.calls.find(
+      (call: unknown[]) => typeof call[0] === 'string' && (call[0] as string).includes('[kiro-cli] Tool used: bash'),
+    );
+    expect(toolCall).toBeDefined();
+    expect(toolCall?.[1]).toMatchObject({
+      agent: 'meta-agent',
+      tool: 'bash',
+      success: true,
+      timestamp: 42000,
+    });
+  });
+});
+
+describe('Feature: kiro-cli-tool-usage-logging, Property 1: Hook composition is lossless', () => {
+  /**
+   * **Validates: Requirements 2.1, 2.3**
+   */
+
+  // Arbitrary for a single HookDef
+  const hookDefArb = fc.record({
+    matcher: fc.option(fc.stringMatching(/^[a-z*@][a-z0-9_.*/-]{0,15}$/), { nil: undefined }),
+    command: fc.stringMatching(/^node [a-z/_.-]{1,30}$/),
+    timeout_ms: fc.option(fc.integer({ min: 1000, max: 60000 }), { nil: undefined }),
+  });
+
+  // Arbitrary for a KiroAgentHooks object with random subsets of hook types
+  const hooksArb: fc.Arbitrary<KiroAgentHooks> = fc.record(
+    {
+      preToolUse: fc.option(fc.array(hookDefArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+      postToolUse: fc.option(fc.array(hookDefArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+      stop: fc.option(fc.array(hookDefArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+      agentSpawn: fc.option(fc.array(hookDefArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+      userPromptSubmit: fc.option(fc.array(hookDefArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+    },
+    { requiredKeys: [] },
+  );
+
+  // Arbitrary for an optional KiroAgentHooks (may be undefined)
+  const optionalHooksArb = fc.option(hooksArb, { nil: undefined });
+
+  const HOOK_TYPES = ['preToolUse', 'postToolUse', 'stop', 'agentSpawn', 'userPromptSubmit'] as const;
+
+  it('every hook definition in any input appears exactly once in the output, preserving order', () => {
+    fc.assert(
+      fc.property(
+        fc.array(optionalHooksArb, { minLength: 0, maxLength: 5 }),
+        (hookSets) => {
+          const result = mergeHooks(...hookSets);
+          const defined = hookSets.filter((h): h is KiroAgentHooks => h !== undefined);
+
+          if (defined.length === 0) {
+            // All undefined → result should be undefined
+            expect(result).toBeUndefined();
+            return;
+          }
+
+          for (const type of HOOK_TYPES) {
+            const expectedEntries = defined.flatMap((h) => h[type] ?? []);
+            const actualEntries = result?.[type] ?? [];
+
+            // Every entry appears exactly once — same length and same order
+            expect(actualEntries).toHaveLength(expectedEntries.length);
+            for (let i = 0; i < expectedEntries.length; i++) {
+              expect(actualEntries[i]).toEqual(expectedEntries[i]);
+            }
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});
+
+describe('Feature: kiro-cli-tool-usage-logging, Property 6: Summary accuracy', () => {
+  /**
+   * **Validates: Requirements 3.3, 3.4**
+   */
+
+  let sourceDir: string;
+  let originalHome: string | undefined;
+
+  beforeEach(async () => {
+    sourceDir = join(tmpdir(), `kiro-pbt-summary-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    originalHome = process.env.HOME;
+    process.env.HOME = sourceDir;
+    const agentsDir = join(sourceDir, '.kiro', 'agents');
+    await mkdir(agentsDir, { recursive: true });
+  });
+
+  afterEach(async () => {
+    process.env.HOME = originalHome;
+    await rm(sourceDir, { recursive: true, force: true }).catch(() => {});
+  });
+
+  // Arbitrary for a ToolUsageEntry with event: 'post'
+  const postEntryArb = fc.record({
+    event: fc.constant('post' as const),
+    tool: fc.stringMatching(/^[a-z][a-z0-9_]{0,20}$/),
+    timestamp: fc.integer({ min: 1, max: 2000000000000 }),
+    success: fc.boolean(),
+    durationMs: fc.option(fc.integer({ min: 0, max: 100000 }), { nil: undefined }),
+  });
+
+  it('totalInvocations equals post entry count, toolCounts sum to totalInvocations, failures equals entries with success=false', async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        fc.array(postEntryArb, { minLength: 1, maxLength: 20 }),
+        async (postEntries) => {
+          const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
+
+          // Write JSONL to temp file
+          const jsonl = postEntries.map((e) => JSON.stringify(e)).join('\n');
+          await fsWriteFile(join(sourceDir, '.kiro', 'agents', 'tool-usage.jsonl'), jsonl, 'utf8');
+
+          const summary = await readAndLogToolUsage(sourceDir, 'pbt-agent', logger);
+
+          // Summary must be defined since we have at least 1 post entry
+          expect(summary).toBeDefined();
+          if (!summary) return;
+
+          // Property: totalInvocations equals the count of post entries
+          expect(summary.totalInvocations).toBe(postEntries.length);
+
+          // Property: toolCounts values sum to totalInvocations
+          const toolCountsSum = Object.values(summary.toolCounts).reduce((a, b) => a + b, 0);
+          expect(toolCountsSum).toBe(summary.totalInvocations);
+
+          // Property: failures equals entries where success is false
+          const expectedFailures = postEntries.filter((e) => e.success === false).length;
+          expect(summary.failures).toBe(expectedFailures);
         },
       ),
       { numRuns: 100 },

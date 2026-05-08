@@ -1,10 +1,10 @@
 import { defineQuery } from '@temporalio/workflow';
 
-export type { AgentMetrics } from '../types/metrics.js';
+export type { AgentMetrics, DetailedToolUsageMetrics, ToolInvocationRecord, ToolUsageSummaryMetrics } from '../types/metrics.js';
 
 import type { DistributedConfig, PipelineConfig, ProviderConfig, VulnClass } from '../types/config.js';
 import type { ErrorCode } from '../types/errors.js';
-import type { AgentMetrics } from '../types/metrics.js';
+import type { AgentMetrics, DetailedToolUsageMetrics, ToolUsageSummaryMetrics } from '../types/metrics.js';
 
 export interface PipelineInput {
   webUrl: string;
@@ -80,3 +80,8 @@ export interface VulnExploitPipelineResult {
 }
 
 export const getProgress = defineQuery<PipelineProgress>('getProgress');
+
+export const getToolUsage = defineQuery<
+  Record<string, ToolUsageSummaryMetrics | DetailedToolUsageMetrics>,
+  [boolean?]
+>('getToolUsage');

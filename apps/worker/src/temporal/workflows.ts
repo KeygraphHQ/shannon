@@ -29,38 +29,28 @@ import {
   log,
   proxyActivities,
   setHandler,
+  upsertSearchAttributes,
   workflowInfo,
 } from '@temporalio/workflow';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
-import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
 import {
   type AgentMetrics,
+  type DetailedToolUsageMetrics,
   getProgress,
+  getToolUsage,
   type PipelineInput,
   type PipelineProgress,
   type PipelineState,
   type PipelineSummary,
   type ResumeState,
+  type ToolUsageSummaryMetrics,
   type VulnExploitPipelineResult,
 } from './shared.js';
 import { toWorkflowSummary } from './summary-mapper.js';
 import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
-
-/** Agents this run is expected to produce — drives the resume short-circuit. */
-function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boolean): string[] {
-  const expected: string[] = ['pre-recon', 'recon'];
-  for (const cls of vulnClasses) {
-    expected.push(`${cls}-vuln`);
-    if (exploit) {
-      expected.push(`${cls}-exploit`);
-    }
-  }
-  expected.push('report');
-  return expected;
-}
 
 // Retry configuration for production (long intervals for billing recovery)
 const PRODUCTION_RETRY = {
@@ -202,6 +192,40 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }),
   );
 
+  setHandler(getToolUsage, (detailed?: boolean) => {
+    if (detailed) {
+      return detailedToolUsageByAgent;
+    }
+    return toolUsageByAgent;
+  });
+
+  // === Cumulative tool usage tracking for Temporal search attributes ===
+  // Search attributes: tool_invocations (Int), tool_failures (Int)
+  // Registration: tctl admin cluster add-search-attributes --name tool_invocations --type Int --name tool_failures --type Int
+  let cumulativeInvocations = 0;
+  let cumulativeFailures = 0;
+
+  // === Per-agent tool usage state for getToolUsage query ===
+  const toolUsageByAgent: Record<string, ToolUsageSummaryMetrics> = {};
+  const detailedToolUsageByAgent: Record<string, DetailedToolUsageMetrics> = {};
+
+  /** Accumulate tool usage from an agent result and upsert search attributes. */
+  function trackToolUsage(agentName: string, metrics: AgentMetrics): void {
+    if (metrics.toolUsage === undefined) return;
+    cumulativeInvocations += metrics.toolUsage.totalInvocations;
+    cumulativeFailures += metrics.toolUsage.failures;
+    toolUsageByAgent[agentName] = metrics.toolUsage;
+    // Store detailed invocations if available
+    detailedToolUsageByAgent[agentName] = {
+      ...metrics.toolUsage,
+      invocations: metrics.toolInvocations ?? [],
+    };
+    upsertSearchAttributes({
+      tool_invocations: [String(cumulativeInvocations)],
+      tool_failures: [String(cumulativeFailures)],
+    });
+  }
+
   // Build ActivityInput with required workflowId for audit correlation
   // Activities require workflowId (non-optional), PipelineInput has it optional
   // Use spread to conditionally include optional properties (exactOptionalPropertyTypes)
@@ -229,42 +253,22 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 
-  const selectedVulnClasses: readonly VulnClass[] =
-    input.vulnClasses && input.vulnClasses.length > 0 ? input.vulnClasses : ALL_VULN_CLASSES;
-  const selectedClassSet = new Set<VulnClass>(selectedVulnClasses);
-  const exploit: boolean = input.exploit ?? true;
-  const expectedAgents = computeExpectedAgents(selectedVulnClasses, exploit);
-
-  await a.persistOrValidateRunScope(activityInput, [...selectedVulnClasses], exploit);
-
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
     // 1. Load resume state (validates workspace, cross-checks deliverables)
-    resumeState = await a.loadResumeState(
-      input.resumeFromWorkspace,
-      input.webUrl,
-      input.repoPath,
-      input.deliverablesSubdir,
-    );
+    resumeState = await a.loadResumeState(input.resumeFromWorkspace, input.webUrl, input.repoPath, input.deliverablesSubdir);
 
     // 2. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState?.completedAgents.includes(agentName),
     ) as AgentName[];
 
-    await a.restoreGitCheckpoint(
-      input.repoPath,
-      resumeState.checkpointHash,
-      incompleteAgents,
-      input.deliverablesSubdir,
-    );
+    await a.restoreGitCheckpoint(input.repoPath, resumeState.checkpointHash, incompleteAgents, input.deliverablesSubdir);
 
-    // 3. Short-circuit when every agent expected by this run is done.
-    // Uses dynamic expectedAgents (not ALL_AGENTS) so a class-scoped run completes sooner.
-    const allExpectedDone = expectedAgents.every((a) => resumeState?.completedAgents.includes(a));
-    if (allExpectedDone) {
-      log.info(`All ${expectedAgents.length} expected agents already completed. Nothing to resume.`);
+    // 3. Short-circuit if all agents already completed
+    if (resumeState.completedAgents.length === ALL_AGENTS.length) {
+      log.info(`All ${ALL_AGENTS.length} agents already completed. Nothing to resume.`);
       state.status = 'completed';
       state.completedAgents = [...resumeState.completedAgents];
       state.summary = computeSummary(state);
@@ -297,7 +301,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.currentPhase = phaseName;
       state.currentAgent = agentName;
       await a.logPhaseTransition(activityInput, phaseName, 'start');
-      state.agentMetrics[agentName] = await runAgent(activityInput);
+      const metrics = await runAgent(activityInput);
+      state.agentMetrics[agentName] = metrics;
+      trackToolUsage(agentName, metrics);
       state.completedAgents.push(agentName);
       if (input.checkpointsEnabled) {
         await a.saveCheckpoint(activityInput, agentName, phaseName, state);
@@ -423,11 +429,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Initialize Deliverables Git ===
     await a.initDeliverableGit(activityInput);
 
-    // === Sync SDK deny rules ===
-    await a.syncCodePathDenyRules(activityInput);
-
-    log.info(`Run scope: vuln_classes=[${selectedVulnClasses.join(', ')}] exploit=${exploit}`);
-
     // === Phase 1: Pre-Reconnaissance ===
     await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
 
@@ -456,6 +457,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (!shouldSkip(vulnAgentName)) {
         vulnMetrics = await runVulnAgent();
         state.agentMetrics[vulnAgentName] = vulnMetrics;
+        trackToolUsage(vulnAgentName, vulnMetrics);
         state.completedAgents.push(vulnAgentName);
         if (input.checkpointsEnabled) {
           await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
@@ -471,17 +473,20 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       // 2. Check exploitation queue for actionable findings
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
 
-      // 3. Previously-completed exploits are preserved regardless of mode; new exploits gated by mode.
+      // 3. Conditionally run exploitation agent
       let exploitMetrics: AgentMetrics | null = null;
-      if (shouldSkip(exploitAgentName)) {
-        log.info(`Skipping ${exploitAgentName} (already complete)`);
-        state.completedAgents.push(exploitAgentName);
-      } else if (decision.shouldExploit && exploit) {
-        exploitMetrics = await runExploitAgent();
-        state.agentMetrics[exploitAgentName] = exploitMetrics;
-        state.completedAgents.push(exploitAgentName);
-        if (input.checkpointsEnabled) {
-          await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+      if (decision.shouldExploit) {
+        if (!shouldSkip(exploitAgentName)) {
+          exploitMetrics = await runExploitAgent();
+          state.agentMetrics[exploitAgentName] = exploitMetrics;
+          trackToolUsage(exploitAgentName, exploitMetrics);
+          state.completedAgents.push(exploitAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
+        } else {
+          log.info(`Skipping ${exploitAgentName} (already complete)`);
+          state.completedAgents.push(exploitAgentName);
         }
       }
 
@@ -503,11 +508,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
 
     for (const config of pipelineConfigs) {
-      // Excluded classes drop entirely; any prior deliverables stay on disk but don't count this run.
-      if (!selectedClassSet.has(config.vulnType)) {
-        log.info(`Skipping ${config.vulnType} pipeline (class not selected this run)`);
-        continue;
-      }
       if (!shouldSkip(config.vulnAgent) || !shouldSkip(config.exploitAgent)) {
         pipelineThunks.push(() => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit));
       } else {
@@ -529,11 +529,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.currentAgent = 'report';
       await a.logPhaseTransition(activityInput, 'reporting', 'start');
 
-      // First, assemble the concatenated report from per-class deliverables
+      // First, assemble the concatenated report from exploitation evidence files
+      const exploit: boolean = input.exploit ?? true;
       await a.assembleReportActivity(activityInput, exploit);
 
       // Then run the report agent to add executive summary and clean up
-      state.agentMetrics.report = await a.runReportAgent(activityInput);
+      const reportMetrics = await a.runReportAgent(activityInput);
+      state.agentMetrics.report = reportMetrics;
+      trackToolUsage('report', reportMetrics);
       state.completedAgents.push('report');
       if (input.checkpointsEnabled) {
         await a.saveCheckpoint(activityInput, 'report', 'reporting', state);
