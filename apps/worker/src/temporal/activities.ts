@@ -28,11 +28,12 @@ import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
+import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
-import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
+import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
@@ -184,11 +185,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
         attemptNumber,
         ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
         ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
-        ...(input.promptDir !== undefined && {
-          promptDir: path.isAbsolute(input.promptDir)
-            ? input.promptDir
-            : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
-        }),
+        ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
       },
       auditSession,
@@ -367,6 +364,94 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
 
     const failure = ApplicationFailure.nonRetryable(message, classified.type, [
       { phase: 'preflight', attemptNumber, elapsed: Date.now() - startTime },
+    ]);
+    truncateStackTrace(failure);
+    throw failure;
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
+}
+
+/**
+ * Authentication validation activity. No-ops without an authentication
+ * block; otherwise surfaces a classified failure (failurePoint +
+ * failureDetail in ApplicationFailure.details) on credential rejection.
+ */
+export async function runAuthenticationValidation(input: ActivityInput): Promise<void> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({ phase: 'auth-validation', elapsedSeconds: elapsed, attempt: attemptNumber });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  try {
+    const logger = createActivityLogger();
+
+    const sessionMetadata = buildSessionMetadata(input);
+    const container = getOrCreateContainer(input.workflowId, sessionMetadata, buildContainerConfig(input));
+    const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+    if (isErr(configResult)) {
+      // runPreflightValidation already validated parsing, so this is unexpected.
+      logger.warn(`runAuthenticationValidation: config load failed unexpectedly: ${configResult.error.message}`);
+      return;
+    }
+
+    const distributedConfig = configResult.value;
+    if (!distributedConfig?.authentication) {
+      logger.info('No authentication configured — skipping credential validation');
+      return;
+    }
+
+    const auditSession = new AuditSession(sessionMetadata);
+    await auditSession.initialize(input.workflowId);
+
+    const result = await validateAuthentication({
+      distributedConfig,
+      repoPath: input.repoPath,
+      webUrl: input.webUrl,
+      logger,
+      auditSession,
+      attemptNumber,
+      ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
+      ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
+      ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
+      ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
+      ...(input.pipelineTestingMode !== undefined && { pipelineTestingMode: input.pipelineTestingMode }),
+    });
+
+    if (isErr(result)) {
+      const classified = classifyErrorForTemporal(result.error);
+      const message = truncateErrorMessage(result.error.message);
+      const ctx = result.error.context;
+      const details = [
+        {
+          phase: 'auth-validation',
+          attemptNumber,
+          elapsed: Date.now() - startTime,
+          ...(ctx.failurePoint !== undefined && { failurePoint: ctx.failurePoint }),
+          ...(ctx.failureDetail !== undefined && { failureDetail: ctx.failureDetail }),
+        },
+      ];
+
+      const failure = classified.retryable
+        ? ApplicationFailure.create({ message, type: classified.type, details })
+        : ApplicationFailure.nonRetryable(message, classified.type, details);
+      truncateStackTrace(failure);
+      throw failure;
+    }
+  } catch (error) {
+    if (error instanceof ApplicationFailure) {
+      throw error;
+    }
+
+    const classified = classifyErrorForTemporal(error);
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const message = truncateErrorMessage(rawMessage);
+
+    const failure = ApplicationFailure.nonRetryable(message, classified.type, [
+      { phase: 'auth-validation', attemptNumber, elapsed: Date.now() - startTime },
     ]);
     truncateStackTrace(failure);
     throw failure;
@@ -879,17 +964,7 @@ export async function generateReportOutputActivity(input: ActivityInput): Promis
 
   const logger = createActivityLogger();
 
-  // Resolve promptDir against the worker root so providers are cwd-independent.
-  const resolvedInput: ActivityInput = {
-    ...input,
-    ...(input.promptDir !== undefined && {
-      promptDir: path.isAbsolute(input.promptDir)
-        ? input.promptDir
-        : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), input.promptDir),
-    }),
-  };
-
-  const result = await container.reportOutputProvider.generate(resolvedInput, logger);
+  const result = await container.reportOutputProvider.generate(input, logger);
   if (result.outputPath) {
     logger.info(`Report output written to ${result.outputPath}`);
   }

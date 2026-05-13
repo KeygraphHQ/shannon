@@ -362,8 +362,13 @@ export async function loadPrompt(
   promptDir?: string,
 ): Promise<string> {
   try {
-    // 1. Resolve prompt file path (promptDir override → default PROMPTS_DIR)
-    const basePromptsDir = promptDir ?? PROMPTS_DIR;
+    // Resolve promptDir override against SHANNON_WORKER_ROOT so relative
+    // paths from callers stay cwd-independent.
+    const basePromptsDir = promptDir
+      ? path.isAbsolute(promptDir)
+        ? promptDir
+        : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), promptDir)
+      : PROMPTS_DIR;
     const promptsDir = pipelineTestingMode ? path.join(basePromptsDir, 'pipeline-testing') : basePromptsDir;
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 

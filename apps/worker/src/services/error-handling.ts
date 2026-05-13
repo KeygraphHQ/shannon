@@ -138,6 +138,9 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
     case ErrorCode.AUTH_FAILED:
       return { type: 'AuthenticationError', retryable: false };
 
+    case ErrorCode.AUTH_LOGIN_FAILED:
+      return { type: 'AuthLoginFailedError', retryable: false };
+
     case ErrorCode.BILLING_ERROR:
       return { type: 'BillingError', retryable: true };
 
