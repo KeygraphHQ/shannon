@@ -352,6 +352,14 @@ async function interpolateVariables(
   }
 }
 
+// Resolve promptDir override against SHANNON_WORKER_ROOT so relative paths
+// from callers stay cwd-independent.
+function resolvePromptDir(promptDir: string | undefined): string {
+  if (!promptDir) return PROMPTS_DIR;
+  if (path.isAbsolute(promptDir)) return promptDir;
+  return path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), promptDir);
+}
+
 // Pure function: Load and interpolate prompt template
 export async function loadPrompt(
   promptName: string,
@@ -362,13 +370,7 @@ export async function loadPrompt(
   promptDir?: string,
 ): Promise<string> {
   try {
-    // Resolve promptDir override against SHANNON_WORKER_ROOT so relative
-    // paths from callers stay cwd-independent.
-    const basePromptsDir = promptDir
-      ? path.isAbsolute(promptDir)
-        ? promptDir
-        : path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), promptDir)
-      : PROMPTS_DIR;
+    const basePromptsDir = resolvePromptDir(promptDir);
     const promptsDir = pipelineTestingMode ? path.join(basePromptsDir, 'pipeline-testing') : basePromptsDir;
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 

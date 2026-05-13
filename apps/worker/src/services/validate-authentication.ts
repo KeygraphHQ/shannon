@@ -38,6 +38,7 @@ const AuthValidationSchema = z.object({
   failure_point: z.enum(FAILURE_POINTS).optional(),
   failure_detail: z
     .string()
+    .max(250)
     .optional()
     .describe(
       'Free-form 1-2 sentence diagnostic of what the page showed (error messages, page state) when login failed. Required when login_success is false.',
