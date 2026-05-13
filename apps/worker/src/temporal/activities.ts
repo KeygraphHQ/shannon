@@ -449,10 +449,11 @@ export async function runAuthenticationValidation(input: ActivityInput): Promise
     const classified = classifyErrorForTemporal(error);
     const rawMessage = error instanceof Error ? error.message : String(error);
     const message = truncateErrorMessage(rawMessage);
+    const details = [{ phase: 'auth-validation', attemptNumber, elapsed: Date.now() - startTime }];
 
-    const failure = ApplicationFailure.nonRetryable(message, classified.type, [
-      { phase: 'auth-validation', attemptNumber, elapsed: Date.now() - startTime },
-    ]);
+    const failure = classified.retryable
+      ? ApplicationFailure.create({ message, type: classified.type, details })
+      : ApplicationFailure.nonRetryable(message, classified.type, details);
     truncateStackTrace(failure);
     throw failure;
   } finally {

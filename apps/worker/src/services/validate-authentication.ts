@@ -24,11 +24,18 @@ import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
 import { loadPrompt } from './prompt-manager.js';
 
+const FAILURE_POINTS = ['username_or_password', 'totp_secret', 'out_of_band'] as const;
+type AuthFailurePoint = (typeof FAILURE_POINTS)[number];
+
+function isAuthFailurePoint(v: unknown): v is AuthFailurePoint {
+  return typeof v === 'string' && (FAILURE_POINTS as readonly string[]).includes(v);
+}
+
 // NOTE: SDK's AJV validator expects draft-07; Zod defaults to draft-2020-12,
 // which causes the SDK to silently skip structured output.
-const AuthValidationVerdict = z.object({
+const AuthValidationSchema = z.object({
   login_success: z.boolean(),
-  failure_point: z.enum(['username_or_password', 'totp_secret', 'out_of_band']).optional(),
+  failure_point: z.enum(FAILURE_POINTS).optional(),
   failure_detail: z
     .string()
     .optional()
@@ -37,18 +44,11 @@ const AuthValidationVerdict = z.object({
     ),
 });
 
-type AuthValidationVerdict = z.infer<typeof AuthValidationVerdict>;
-type AuthFailurePoint = NonNullable<AuthValidationVerdict['failure_point']>;
-
-const FAILURE_POINTS: readonly AuthFailurePoint[] = ['username_or_password', 'totp_secret', 'out_of_band'];
-
-function isAuthFailurePoint(v: unknown): v is AuthFailurePoint {
-  return typeof v === 'string' && (FAILURE_POINTS as readonly string[]).includes(v);
-}
+type AuthValidationVerdict = z.infer<typeof AuthValidationSchema>;
 
 const VALIDATION_SCHEMA: JsonSchemaOutputFormat = {
   type: 'json_schema',
-  schema: z.toJSONSchema(AuthValidationVerdict, { target: 'draft-07' }) as Record<string, unknown>,
+  schema: z.toJSONSchema(AuthValidationSchema, { target: 'draft-07' }) as Record<string, unknown>,
 };
 
 const AGENT_NAME = 'validate-authentication';
@@ -169,7 +169,9 @@ function classifyResult(
     return ok(undefined);
   }
 
-  const failurePoint: AuthFailurePoint = isAuthFailurePoint(verdict.failure_point) ? verdict.failure_point : 'out_of_band';
+  const failurePoint: AuthFailurePoint = isAuthFailurePoint(verdict.failure_point)
+    ? verdict.failure_point
+    : 'out_of_band';
   const failureDetail =
     verdict.failure_detail?.trim() || 'Login failed without a specific diagnostic from the validator agent.';
 
