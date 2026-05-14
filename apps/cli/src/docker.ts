@@ -11,6 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { isDeepseekMode } from './env.js';
 import { getMode } from './mode.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,27 +71,70 @@ export function isTemporalReady(): boolean {
 }
 
 /**
- * Ensure Temporal is running via compose.
+ * Check if the LiteLLM proxy (DeepSeek mode only) is up and responding to
+ * its built-in liveness probe.
+ */
+export function isLitellmReady(): boolean {
+  return runQuiet('docker', [
+    'exec',
+    'shannon-litellm',
+    'python',
+    '-c',
+    "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')",
+  ]);
+}
+
+/**
+ * Compose flags including the `deepseek` profile when DeepSeek mode is active.
+ * Activating the profile is what makes the litellm service start.
+ */
+function composeFlags(): string[] {
+  const flags = ['-f', getComposeFile()];
+  if (isDeepseekMode()) {
+    flags.push('--profile', 'deepseek');
+  }
+  return flags;
+}
+
+/**
+ * Ensure Temporal (and, in DeepSeek mode, LiteLLM) are running via compose.
  */
 export async function ensureInfra(): Promise<void> {
-  if (isTemporalReady()) {
+  const needsLitellm = isDeepseekMode();
+  if (isTemporalReady() && (!needsLitellm || isLitellmReady())) {
     return;
   }
 
-  const composeFile = getComposeFile();
   console.log('Starting Shannon infrastructure...');
-  execFileSync('docker', ['compose', '-f', composeFile, 'up', '-d'], { stdio: 'inherit' });
+  execFileSync('docker', ['compose', ...composeFlags(), 'up', '-d'], { stdio: 'inherit' });
 
   console.log('Waiting for Temporal to be ready...');
   for (let i = 0; i < 30; i++) {
     if (isTemporalReady()) {
       console.log('Temporal is ready!');
-      return;
+      break;
+    }
+    if (i === 29) {
+      console.error('Timeout waiting for Temporal');
+      process.exit(1);
     }
     await sleep(2000);
   }
-  console.error('Timeout waiting for Temporal');
-  process.exit(1);
+
+  if (needsLitellm) {
+    console.log('Waiting for LiteLLM proxy to be ready...');
+    for (let i = 0; i < 30; i++) {
+      if (isLitellmReady()) {
+        console.log('LiteLLM proxy is ready!');
+        return;
+      }
+      if (i === 29) {
+        console.error('Timeout waiting for LiteLLM proxy. Run: docker logs shannon-litellm');
+        process.exit(1);
+      }
+      await sleep(2000);
+    }
+  }
 }
 
 /**

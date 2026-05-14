@@ -1,0 +1,32 @@
+# LiteLLM proxy configuration for Shannon → DeepSeek routing.
+#
+# The Claude Agent SDK in the worker speaks Anthropic Messages API. LiteLLM's
+# proxy accepts those requests at /v1/messages and translates them to
+# DeepSeek's OpenAI-compatible chat completions endpoint.
+#
+# The three model_name entries here mirror Shannon's small / medium / large
+# tiers and match the ANTHROPIC_*_MODEL values written by the setup wizard.
+#
+# Reference: https://docs.litellm.ai/docs/proxy/configs
+
+model_list:
+  - model_name: shannon-small
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: shannon-medium
+    litellm_params:
+      model: deepseek/deepseek-chat
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+  - model_name: shannon-large
+    litellm_params:
+      model: deepseek/deepseek-reasoner
+      api_key: os.environ/DEEPSEEK_API_KEY
+
+litellm_settings:
+  drop_params: true
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY

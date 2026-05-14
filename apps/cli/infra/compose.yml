@@ -19,5 +19,24 @@ services:
       retries: 10
       start_period: 30s
 
+  # LiteLLM proxy — see docker-compose.yml at the repo root for the local-mode
+  # equivalent. Only started when the `deepseek` compose profile is enabled.
+  litellm:
+    image: ghcr.io/berriai/litellm:main-stable
+    container_name: shannon-litellm
+    profiles: ["deepseek"]
+    command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+    environment:
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
+    volumes:
+      - ./litellm-config.yaml:/etc/litellm/config.yaml:ro
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:4000/health/liveliness')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
 volumes:
   temporal-data:

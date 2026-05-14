@@ -46,6 +46,10 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
   { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
 
+  // DeepSeek (via embedded LiteLLM proxy)
+  { env: 'DEEPSEEK_API_KEY', toml: 'deepseek.api_key', type: 'string' },
+  { env: 'LITELLM_MASTER_KEY', toml: 'deepseek.master_key', type: 'string' },
+
   // Model tiers
   { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
   { env: 'ANTHROPIC_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
@@ -145,6 +149,15 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       break;
     }
 
+    case 'deepseek': {
+      const required = ['api_key', 'master_key'];
+      const missing = required.filter((k) => !keys.includes(k));
+      if (missing.length > 0) {
+        errors.push(`[deepseek] missing required keys: ${missing.join(', ')}`);
+      }
+      break;
+    }
+
     case 'bedrock': {
       const required = ['use', 'region', 'token'];
       const missing = required.filter((k) => !keys.includes(k));
@@ -227,7 +240,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex', 'deepseek'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

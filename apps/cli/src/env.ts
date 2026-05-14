@@ -30,16 +30,42 @@ const FORWARD_VARS = [
 ] as const;
 
 /**
+ * DeepSeek mode is active when DEEPSEEK_API_KEY is configured. The LiteLLM
+ * proxy container reads DEEPSEEK_API_KEY and LITELLM_MASTER_KEY from the
+ * compose-up environment, so they are NOT forwarded to worker containers.
+ */
+export function isDeepseekMode(): boolean {
+  return !!process.env.DEEPSEEK_API_KEY;
+}
+
+/**
  * Load credentials into process.env.
  * Local mode: loads ./.env via dotenv.
  * NPX mode: fills gaps from ~/.shannon/config.toml.
  * Exported env vars always take precedence in both modes.
+ *
+ * When DeepSeek mode is detected, also configure the worker to route through
+ * the embedded LiteLLM proxy on shannon-net by setting ANTHROPIC_BASE_URL,
+ * ANTHROPIC_AUTH_TOKEN, and the three model tier env vars. These derived
+ * values are skipped if already explicitly set by the user.
  */
 export function loadEnv(): void {
   if (getMode() === 'local') {
     dotenv.config({ path: '.env', quiet: true });
   } else {
     resolveConfig();
+  }
+
+  if (isDeepseekMode()) {
+    if (!process.env.ANTHROPIC_BASE_URL) {
+      process.env.ANTHROPIC_BASE_URL = 'http://shannon-litellm:4000';
+    }
+    if (!process.env.ANTHROPIC_AUTH_TOKEN && process.env.LITELLM_MASTER_KEY) {
+      process.env.ANTHROPIC_AUTH_TOKEN = process.env.LITELLM_MASTER_KEY;
+    }
+    if (!process.env.ANTHROPIC_SMALL_MODEL) process.env.ANTHROPIC_SMALL_MODEL = 'shannon-small';
+    if (!process.env.ANTHROPIC_MEDIUM_MODEL) process.env.ANTHROPIC_MEDIUM_MODEL = 'shannon-medium';
+    if (!process.env.ANTHROPIC_LARGE_MODEL) process.env.ANTHROPIC_LARGE_MODEL = 'shannon-large';
   }
 }
 
@@ -62,7 +88,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'deepseek';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -73,9 +99,10 @@ function isCustomBaseUrlConfigured(): boolean {
 /** Detect which providers are configured via environment variables. */
 function detectProviders(): string[] {
   const providers: string[] = [];
+  if (isDeepseekMode()) providers.push('DeepSeek');
   if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
-  if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
+  if (!isDeepseekMode() && isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
   if (process.env.CLAUDE_CODE_USE_VERTEX === '1') providers.push('Google Vertex');
   return providers;
@@ -95,6 +122,16 @@ export function validateCredentials(): CredentialValidation {
     };
   }
 
+  if (isDeepseekMode()) {
+    if (!process.env.LITELLM_MASTER_KEY) {
+      return {
+        valid: false,
+        mode: 'deepseek',
+        error: 'DeepSeek mode requires LITELLM_MASTER_KEY. Run `npx @keygraph/shannon setup` to reconfigure.',
+      };
+    }
+    return { valid: true, mode: 'deepseek' };
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     return { valid: true, mode: 'api-key' };
   }

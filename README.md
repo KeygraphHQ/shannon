@@ -117,6 +117,7 @@ Shannon Pro supports a self-hosted runner model (similar to GitHub Actions self-
   - [AWS Bedrock](#aws-bedrock)
   - [Google Vertex AI](#google-vertex-ai)
   - [Custom Base URL](#custom-base-url)
+  - [DeepSeek (experimental)](#deepseek-experimental)
   - [Platform-Specific Instructions](#platform-specific-instructions)
   - [Output and Results](#output-and-results)
 - [Sample Reports](#sample-reports)
@@ -577,6 +578,30 @@ ANTHROPIC_LARGE_MODEL=claude-opus-4-7
 ```
 
 </details>
+
+### DeepSeek (experimental)
+
+Shannon can route requests to [DeepSeek](https://platform.deepseek.com) instead of Anthropic via an embedded [LiteLLM](https://github.com/BerriAI/litellm) proxy. When DeepSeek mode is active, the `shannon-litellm` container starts automatically on `shannon-net` and translates Anthropic-format requests to DeepSeek's OpenAI-compatible chat completions API.
+
+> [!WARNING]
+> **This path is experimental and unsupported.** Shannon's prompts, evaluations, and agent harness are tuned for Claude. DeepSeek's tool-calling and reasoning behave differently — pentest quality may degrade, and some features (prompt caching, adaptive thinking) are silently dropped. Use at your own risk; do not rely on results for production security decisions.
+
+Run `npx @keygraph/shannon setup` and select **DeepSeek**. The wizard prompts for your DeepSeek API key and generates a master key for the local proxy.
+
+Or configure manually in `.env` (Clone and Build mode):
+
+```bash
+DEEPSEEK_API_KEY=your-deepseek-key
+LITELLM_MASTER_KEY=sk-shannon-pick-any-strong-random-string
+```
+
+With those two vars set, the CLI:
+
+- Starts the `shannon-litellm` container automatically (via the `deepseek` compose profile).
+- Auto-sets `ANTHROPIC_BASE_URL=http://shannon-litellm:4000`, `ANTHROPIC_AUTH_TOKEN=$LITELLM_MASTER_KEY`, and the three `ANTHROPIC_*_MODEL` vars to the `shannon-small` / `shannon-medium` / `shannon-large` aliases.
+- Routes them through the proxy to `deepseek/deepseek-chat` (small/medium) and `deepseek/deepseek-reasoner` (large).
+
+The model aliases are defined in [`apps/cli/infra/litellm-config.yaml`](apps/cli/infra/litellm-config.yaml). Edit that file to map tiers to different DeepSeek models or add new aliases.
 
 ### Platform-Specific Instructions
 

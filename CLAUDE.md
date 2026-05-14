@@ -111,11 +111,13 @@ Published as `@keygraph/shannon` on npm. Contains only Docker orchestration logi
 - `shannon` — Node.js entry point (`#!/usr/bin/env node`) that delegates to `apps/cli/dist/index.mjs`
 
 ### Docker Architecture
-Infra (Temporal) runs via `docker-compose.yml`. Workers are ephemeral `docker run --rm` containers, one per scan, each with a unique task queue and isolated volume mounts.
+Infra (Temporal, optionally LiteLLM) runs via `docker-compose.yml`. Workers are ephemeral `docker run --rm` containers, one per scan, each with a unique task queue and isolated volume mounts.
 
-- `docker-compose.yml` — Infra only: `shannon-temporal` (port 7233/8233). Network: `shannon-net`
+- `docker-compose.yml` — Infra: `shannon-temporal` (port 7233/8233) and `shannon-litellm` (gated by the `deepseek` compose profile, port 4000 on `shannon-net` only). Network: `shannon-net`
+- `apps/cli/infra/litellm-config.yaml` — LiteLLM model mapping. Exposes `shannon-small` / `shannon-medium` / `shannon-large` aliases that route to DeepSeek. Mounted into the proxy container by both compose files.
 - `Dockerfile` — 2-stage build (builder + Chainguard Wolfi runtime). Uses pnpm. Entrypoint: `CMD ["node", "apps/worker/dist/temporal/worker.js"]`
 - No `docker-compose.docker.yml` — host gateway handled via `--add-host` flag in CLI
+- DeepSeek mode is auto-detected via `DEEPSEEK_API_KEY` in `apps/cli/src/env.ts:isDeepseekMode`. When active, the CLI adds `--profile deepseek` to compose, and derives `ANTHROPIC_BASE_URL=http://shannon-litellm:4000`, `ANTHROPIC_AUTH_TOKEN=$LITELLM_MASTER_KEY`, and `ANTHROPIC_*_MODEL=shannon-*` for the worker — so the Claude Agent SDK transparently talks to the proxy.
 
 ### Worker Package (`apps/worker/`)
 - `apps/worker/src/paths.ts` — Centralized path constants (`PROMPTS_DIR`, `CONFIGS_DIR`, `WORKSPACES_DIR`)

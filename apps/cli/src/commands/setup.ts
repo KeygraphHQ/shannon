@@ -5,6 +5,7 @@
  * then persists everything to ~/.shannon/config.toml with 0o600 permissions.
  */
 
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -13,7 +14,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
+type Provider = 'anthropic' | 'deepseek' | 'custom_base_url' | 'bedrock' | 'vertex';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -23,6 +24,7 @@ export async function setup(): Promise<void> {
     message: 'Select your AI provider',
     options: [
       { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
+      { value: 'deepseek' as const, label: 'DeepSeek', hint: 'via embedded LiteLLM proxy' },
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
       { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
@@ -47,6 +49,8 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
   switch (provider) {
     case 'anthropic':
       return setupAnthropic();
+    case 'deepseek':
+      return setupDeepseek();
     case 'custom_base_url':
       return setupCustomBaseUrl();
     case 'bedrock':
@@ -54,6 +58,66 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
     case 'vertex':
       return setupVertex();
   }
+}
+
+async function setupDeepseek(): Promise<ShannonConfig> {
+  p.log.info(
+    'Shannon will route requests through an embedded LiteLLM proxy on shannon-net.\n' +
+      'The proxy translates Anthropic-format requests to DeepSeek and starts automatically.',
+  );
+
+  const apiKey = await promptSecret('Enter your DeepSeek API key (from https://platform.deepseek.com)');
+
+  // Generate a master key for the local LiteLLM proxy. The worker authenticates
+  // to the proxy with this key (as ANTHROPIC_AUTH_TOKEN); the proxy enforces it
+  // server-side. Prefix is informational only.
+  const masterKey = `sk-shannon-${crypto.randomBytes(16).toString('hex')}`;
+
+  const config: ShannonConfig = {
+    deepseek: { api_key: apiKey, master_key: masterKey },
+  };
+
+  const customizeModels = await p.confirm({
+    message:
+      'Override the default DeepSeek model mapping?\n' +
+      '    Small  - shannon-small  (→ deepseek/deepseek-chat)\n' +
+      '    Medium - shannon-medium (→ deepseek/deepseek-chat)\n' +
+      '    Large  - shannon-large  (→ deepseek/deepseek-reasoner)',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    p.log.info(
+      'These names must match `model_name` entries in apps/cli/infra/litellm-config.yaml.\n' +
+        'Edit the YAML to add new aliases (e.g. mapping a tier to a different DeepSeek model).',
+    );
+
+    const small = await p.text({
+      message: 'Small model alias',
+      initialValue: 'shannon-small',
+      validate: required('Small model alias is required'),
+    });
+    if (p.isCancel(small)) return cancelAndExit();
+
+    const medium = await p.text({
+      message: 'Medium model alias',
+      initialValue: 'shannon-medium',
+      validate: required('Medium model alias is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+
+    const large = await p.text({
+      message: 'Large model alias',
+      initialValue: 'shannon-large',
+      validate: required('Large model alias is required'),
+    });
+    if (p.isCancel(large)) return cancelAndExit();
+
+    config.models = { small, medium, large };
+  }
+
+  return config;
 }
 
 // === Provider Setup Flows ===
