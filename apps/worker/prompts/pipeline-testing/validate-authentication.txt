@@ -1,0 +1,1 @@
+Return the structured verdict `{ "login_success": true }` and stop.
