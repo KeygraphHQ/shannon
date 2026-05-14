@@ -711,6 +711,15 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
       username: auth.credentials.username.trim(),
       password: auth.credentials.password,
       ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
+      ...(auth.credentials.email_login && {
+        email_login: {
+          address: auth.credentials.email_login.address.trim(),
+          password: auth.credentials.email_login.password,
+          ...(auth.credentials.email_login.totp_secret && {
+            totp_secret: auth.credentials.email_login.totp_secret.trim(),
+          }),
+        },
+      }),
     },
     ...(auth.login_flow && { login_flow: auth.login_flow.map((step) => step.trim()) }),
     success_condition: {
