@@ -180,6 +180,21 @@ async function buildLoginInstructions(
           `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
         );
       }
+      if (authentication.credentials.email_login?.address) {
+        userInstructions = userInstructions.replace(/\$email_address/g, authentication.credentials.email_login.address);
+      }
+      if (authentication.credentials.email_login?.password) {
+        userInstructions = userInstructions.replace(
+          /\$email_password/g,
+          authentication.credentials.email_login.password,
+        );
+      }
+      if (authentication.credentials.email_login?.totp_secret) {
+        userInstructions = userInstructions.replace(
+          /\$email_totp/g,
+          `generated TOTP code using secret "${authentication.credentials.email_login.totp_secret}"`,
+        );
+      }
     }
 
     loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
