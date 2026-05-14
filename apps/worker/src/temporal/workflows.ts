@@ -144,10 +144,10 @@ const AUTH_VALIDATION_RETRY = {
   nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
 };
 
-// Browser-driving validation measured at 60–180s; 5 min start-to-close gives ~2x headroom.
+// Browser-driving validation measured at 60–180s; 10 min start-to-close leaves headroom for slow SSO/MFA flows.
 const authValidationActs = proxyActivities<typeof activities>({
-  startToCloseTimeout: '5 minutes',
-  heartbeatTimeout: '5 minutes',
+  startToCloseTimeout: '10 minutes',
+  heartbeatTimeout: '10 minutes',
   retry: AUTH_VALIDATION_RETRY,
 });
 
