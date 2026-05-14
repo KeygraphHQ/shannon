@@ -18,6 +18,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
+import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
@@ -484,6 +485,24 @@ export async function initDeliverableGit(input: ActivityInput): Promise<void> {
     deliverablesPath,
     'initial checkpoint',
   );
+}
+
+/**
+ * Drop a stealth cli.config.json into the repo's .playwright/ directory so
+ * `playwright-cli open` auto-loads anti-detection defaults from the agent's
+ * cwd (disables the Blink AutomationControlled flag, drops the
+ * --enable-automation default, and overrides the HeadlessChrome user agent).
+ *
+ * No-op when the repo already has its own .playwright/cli.config.json.
+ */
+export async function syncPlaywrightStealthConfig(input: ActivityInput): Promise<void> {
+  const logger = createActivityLogger();
+  const { result, configPath } = await writePlaywrightStealthConfig(input.repoPath);
+  if (result === 'skipped-existing') {
+    logger.info(`Playwright stealth config: leaving existing ${configPath} in place`);
+  } else {
+    logger.info(`Playwright stealth config: wrote ${configPath}`);
+  }
 }
 
 /**

@@ -185,11 +185,12 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
   args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
 
-  // Writable overlays: shadow .shannon/ inside the :ro repo with workspace-backed dirs
+  // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed dirs
   const workspacePath = path.join(opts.workspacesDir, opts.workspace);
   args.push('-v', `${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
   args.push('-v', `${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
   args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
+  args.push('-v', `${path.join(workspacePath, '.playwright')}:${opts.repo.containerPath}/.playwright`);
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {

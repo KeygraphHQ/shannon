@@ -437,6 +437,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     await preflightActs.runPreflightValidation(activityInput);
     log.info('Preflight validation passed');
 
+    // === Playwright stealth config ===
+    // Write the playwright-cli config before any browser session opens so the
+    // validator and downstream agents inherit anti-detection defaults.
+    await preflightActs.syncPlaywrightStealthConfig(activityInput);
+
     // === Authentication Validation ===
     state.currentPhase = 'auth-validation';
     state.currentAgent = 'validate-authentication';
