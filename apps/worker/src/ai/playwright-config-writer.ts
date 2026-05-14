@@ -14,7 +14,17 @@
  * and referenced by absolute path. Inline strings silently fail the daemon.
  */
 
-import { fs, path } from 'zx';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 const STEALTH_INIT_SCRIPT = `delete Object.getPrototypeOf(navigator).webdriver;
 
@@ -69,12 +79,12 @@ export async function writePlaywrightStealthConfig(
 ): Promise<{ result: StealthConfigWriteResult; configPath: string }> {
   const playwrightDir = path.join(sourceDir, '.playwright');
   const configPath = path.join(playwrightDir, 'cli.config.json');
-  if (await fs.pathExists(configPath)) {
+  if (await pathExists(configPath)) {
     return { result: 'skipped-existing', configPath };
   }
   const initScriptPath = path.join(playwrightDir, 'scripts', 'stealth.js');
-  await fs.ensureDir(path.dirname(initScriptPath));
+  await fs.mkdir(path.dirname(initScriptPath), { recursive: true });
   await fs.writeFile(initScriptPath, STEALTH_INIT_SCRIPT);
-  await fs.writeJson(configPath, buildStealthConfig(initScriptPath), { spaces: 2 });
+  await fs.writeFile(configPath, JSON.stringify(buildStealthConfig(initScriptPath), null, 2));
   return { result: 'wrote', configPath };
 }
