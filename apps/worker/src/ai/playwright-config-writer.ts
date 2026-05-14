@@ -16,9 +16,29 @@
 
 import { fs, path } from 'zx';
 
-const STEALTH_INIT_SCRIPT = `Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-Object.defineProperty(navigator, 'plugins', { get: () => [1, 2, 3, 4, 5] });
-Object.defineProperty(navigator, 'languages', { get: () => ['en-US', 'en'] });
+const STEALTH_INIT_SCRIPT = `delete Object.getPrototypeOf(navigator).webdriver;
+
+Object.defineProperty(navigator, 'plugins', {
+  get: () => {
+    const arr = [
+      { name: 'Chrome PDF Plugin', filename: 'internal-pdf-viewer', description: 'Portable Document Format' },
+      { name: 'Chrome PDF Viewer', filename: 'mhjfbmdgcfjbbpaeojofohoefgiehjai', description: '' },
+      { name: 'Native Client', filename: 'internal-nacl-plugin', description: '' },
+    ];
+    arr.__proto__ = PluginArray.prototype;
+    return arr;
+  },
+});
+
+window.chrome = window.chrome || {};
+window.chrome.runtime = window.chrome.runtime || {
+  PlatformOs: { MAC: 'mac', WIN: 'win', ANDROID: 'android', CROS: 'cros', LINUX: 'linux', OPENBSD: 'openbsd' },
+  PlatformArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+  PlatformNaclArch: { ARM: 'arm', X86_32: 'x86-32', X86_64: 'x86-64' },
+  RequestUpdateCheckStatus: { THROTTLED: 'throttled', NO_UPDATE: 'no_update', UPDATE_AVAILABLE: 'update_available' },
+  OnInstalledReason: { INSTALL: 'install', UPDATE: 'update', CHROME_UPDATE: 'chrome_update', SHARED_MODULE_UPDATE: 'shared_module_update' },
+  OnRestartRequiredReason: { APP_UPDATE: 'app_update', OS_UPDATE: 'os_update', PERIODIC: 'periodic' },
+};
 `;
 
 function buildStealthConfig(initScriptPath: string) {
@@ -33,6 +53,7 @@ function buildStealthConfig(initScriptPath: string) {
       contextOptions: {
         viewport: { width: 1920, height: 1080 },
         locale: 'en-US',
+        extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
         userAgent:
           'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
       },
