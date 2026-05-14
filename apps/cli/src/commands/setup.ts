@@ -349,6 +349,10 @@ async function setupVertex(): Promise<ShannonConfig> {
 // === Helpers ===
 
 async function maybePromptAdaptiveThinking(config: ShannonConfig): Promise<void> {
+  // Adaptive thinking only applies to Claude — skip for providers that route to
+  // non-Anthropic models (DeepSeek's `shannon-*` aliases can't match opus-4-[67]).
+  if (config.deepseek) return;
+
   const m = config.models;
   const hasOpus47 = !m || [m.small, m.medium, m.large].some((v) => v && /opus-4-[67]/.test(v));
   if (!hasOpus47) return;

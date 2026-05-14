@@ -26,6 +26,8 @@ services:
     container_name: shannon-litellm
     profiles: ["deepseek"]
     command: ["--config", "/etc/litellm/config.yaml", "--port", "4000"]
+    ports:
+      - "127.0.0.1:4000:4000"   # localhost-only — for debugging via curl
     environment:
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY}
