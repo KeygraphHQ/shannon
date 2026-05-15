@@ -428,15 +428,6 @@ const performSecurityValidation = (config: Config): void => {
             ErrorCode.CONFIG_VALIDATION_FAILED,
           );
         }
-        if (pattern.test(auth.credentials.password)) {
-          throw new PentestError(
-            `authentication.credentials.password contains potentially dangerous pattern: ${pattern.source}`,
-            'config',
-            false,
-            { field: 'credentials.password', pattern: pattern.source },
-            ErrorCode.CONFIG_VALIDATION_FAILED,
-          );
-        }
       }
     }
 
