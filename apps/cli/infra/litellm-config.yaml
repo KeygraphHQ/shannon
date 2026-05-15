@@ -8,17 +8,35 @@
 # tiers and match the ANTHROPIC_*_MODEL values written by the setup wizard.
 #
 # Reference: https://docs.litellm.ai/docs/proxy/configs
+#
+# IMPORTANT: `extra_body.thinking.type=disabled` is required on the chat-tier
+# models. DeepSeek V4 enables hybrid thinking by default on `deepseek-chat`,
+# and once the upstream returns `reasoning_content` on any turn, every
+# subsequent multi-turn request must echo it back or DeepSeek rejects the
+# request with HTTP 400 "reasoning_content in the thinking mode must be passed
+# back". LiteLLM strips `reasoning_content` during Anthropic↔OpenAI translation
+# (BerriAI/litellm#26395, fix in flight in PR #26660 but not yet released).
+# Disabling thinking sidesteps the bug entirely without losing tool-calling
+# quality on the chat tier. The large tier stays on `deepseek-reasoner` (R1),
+# which uses the older "reasoning_content must NOT be passed back" contract
+# that LiteLLM handles correctly.
 
 model_list:
   - model_name: shannon-small
     litellm_params:
       model: deepseek/deepseek-chat
       api_key: os.environ/DEEPSEEK_API_KEY
+      extra_body:
+        thinking:
+          type: disabled
 
   - model_name: shannon-medium
     litellm_params:
       model: deepseek/deepseek-chat
       api_key: os.environ/DEEPSEEK_API_KEY
+      extra_body:
+        thinking:
+          type: disabled
 
   - model_name: shannon-large
     litellm_params:
