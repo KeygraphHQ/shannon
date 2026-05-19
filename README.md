@@ -453,9 +453,32 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c ./my-app-
 
 </details>
 
-#### TOTP Setup for 2FA
+#### Writing Login Flow
 
-If your application uses two-factor authentication, simply add the TOTP secret to your config file. The AI will automatically generate the required codes during testing.
+Log in once in a fresh incognito/private window. Write the steps in the same order you perform them:
+- When you type into a field, reference the field by its exact label or placeholder.
+- When you click a button, reference the exact button text.
+
+Supported placeholders:
+
+- `$username`
+- `$password`
+- `$totp`
+- `$email_address`
+- `$email_password`
+- `$email_totp`
+
+At runtime, Shannon replaces these placeholders with the credentials passed in the config.
+
+```yaml
+login_flow:
+  - "Type $username in <exact email field label or placeholder>"
+  - "Click <exact button text>"
+  - "Type $password in <exact password field label or placeholder>"
+  - "Click <exact button text>"
+  - "If prompted for 2FA, type $totp in <exact code field label or placeholder>"
+  - "Click <exact button text>"
+```
 
 #### Adaptive Thinking (Opus 4.6/4.7)
 
