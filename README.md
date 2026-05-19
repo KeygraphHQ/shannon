@@ -396,6 +396,14 @@ authentication:
     password: "yourpassword"
     totp_secret: "LB2E2RX7XFHSTGCK"  # Optional for 2FA
 
+    # Optional mailbox credentials for magic-link / email-OTP flows.
+    # email_login:
+    #   address: "inbox@example.com"
+    #   password: "mailbox-password"
+    #   totp_secret: "JBSWY3DPEHPK3PXP"
+
+  # Natural language instructions for login flow
+  # Substitutions: $username, $password, $totp, $email_address, $email_password, $email_totp
   login_flow:
     - "Type $username into the email field"
     - "Type $password into the password field"
