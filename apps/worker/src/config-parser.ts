@@ -700,7 +700,7 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
     login_url: auth.login_url.trim(),
     credentials: {
       username: auth.credentials.username.trim(),
-      password: auth.credentials.password,
+      ...(auth.credentials.password && { password: auth.credentials.password }),
       ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
       ...(auth.credentials.email_login && {
         email_login: {

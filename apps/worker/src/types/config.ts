@@ -49,7 +49,7 @@ export interface EmailLogin {
 
 export interface Credentials {
   username: string;
-  password: string;
+  password?: string;
   totp_secret?: string;
   email_login?: EmailLogin;
 }

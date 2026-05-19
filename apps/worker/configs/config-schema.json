@@ -65,7 +65,7 @@
               "additionalProperties": false
             }
           },
-          "required": ["username", "password"],
+          "required": ["username"],
           "additionalProperties": false
         },
         "login_flow": {
