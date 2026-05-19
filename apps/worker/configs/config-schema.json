@@ -39,9 +39,33 @@
               "type": "string",
               "pattern": "^[A-Za-z2-7]+=*$",
               "description": "TOTP secret for two-factor authentication (Base32 encoded, case insensitive)"
+            },
+            "email_login": {
+              "type": "object",
+              "description": "Email account credentials for magic-link or OTP follow-through flows",
+              "properties": {
+                "address": {
+                  "type": "string",
+                  "format": "email",
+                  "description": "Email address used to receive magic links or OTPs"
+                },
+                "password": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 255,
+                  "description": "Password for the email account"
+                },
+                "totp_secret": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z2-7]+=*$",
+                  "description": "TOTP secret for the email account's two-factor authentication (Base32 encoded)"
+                }
+              },
+              "required": ["address", "password"],
+              "additionalProperties": false
             }
           },
-          "required": ["username", "password"],
+          "required": ["username"],
           "additionalProperties": false
         },
         "login_flow": {

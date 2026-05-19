@@ -76,6 +76,7 @@ const PRODUCTION_RETRY = {
     'ConfigurationError',
     'InvalidTargetError',
     'ExecutionLimitError',
+    'AuthLoginFailedError',
   ],
 };
 
@@ -132,6 +133,22 @@ const preflightActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 minutes',
   heartbeatTimeout: '2 minutes',
   retry: PREFLIGHT_RETRY,
+});
+
+// Credential rejection is not retryable; transient SDK errors get 3 attempts.
+const AUTH_VALIDATION_RETRY = {
+  initialInterval: '10 seconds',
+  maximumInterval: '1 minute',
+  backoffCoefficient: 2,
+  maximumAttempts: 3,
+  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
+};
+
+// Browser-driving validation measured at 60–180s; 10 min start-to-close leaves headroom for slow SSO/MFA flows.
+const authValidationActs = proxyActivities<typeof activities>({
+  startToCloseTimeout: '10 minutes',
+  heartbeatTimeout: '10 minutes',
+  retry: AUTH_VALIDATION_RETRY,
 });
 
 /**
@@ -419,6 +436,18 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.currentAgent = null;
     await preflightActs.runPreflightValidation(activityInput);
     log.info('Preflight validation passed');
+
+    // === Playwright stealth config ===
+    // Write the playwright-cli config before any browser session opens so the
+    // validator and downstream agents inherit anti-detection defaults.
+    await preflightActs.syncPlaywrightStealthConfig(activityInput);
+
+    // === Authentication Validation ===
+    state.currentPhase = 'auth-validation';
+    state.currentAgent = 'validate-authentication';
+    await authValidationActs.runAuthenticationValidation(activityInput);
+    state.currentAgent = null;
+    log.info('Authentication validation passed');
 
     // === Initialize Deliverables Git ===
     await a.initDeliverableGit(activityInput);
