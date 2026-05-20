@@ -4,7 +4,7 @@ networks:
 
 services:
   temporal:
-    image: temporalio/temporal:latest
+    image: temporalio/temporal:1.7.0
     container_name: shannon-temporal
     command: ["server", "start-dev", "--db-filename", "/home/temporal/temporal.db", "--ip", "0.0.0.0"]
     ports:
