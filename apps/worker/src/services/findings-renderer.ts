@@ -17,13 +17,7 @@
  */
 
 import { fs, path } from 'zx';
-import type {
-  AuthFinding,
-  AuthzFinding,
-  InjectionFinding,
-  SsrfFinding,
-  XssFinding,
-} from '../ai/queue-schemas.js';
+import type { AuthFinding, AuthzFinding, InjectionFinding, SsrfFinding, XssFinding } from '../ai/queue-schemas.js';
 import { deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { VulnClass } from '../types/config.js';
@@ -125,10 +119,7 @@ function renderInjectionEntry(e: InjectionFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    [
-      summaryRow('Vulnerable location', location),
-      summaryRow('Overview', e.mismatch_reason),
-    ],
+    [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );
 }
@@ -138,10 +129,7 @@ function renderXssEntry(e: XssFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    [
-      summaryRow('Vulnerable location', location),
-      summaryRow('Overview', e.mismatch_reason),
-    ],
+    [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );
 }

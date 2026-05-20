@@ -16,13 +16,15 @@
  * 2. Config file parses and validates (if provided)
  * 3. code_path rules match real entries in the repo (filesystem only)
  * 4. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
- * 5. Target URL is reachable from the container (DNS + HTTP)
+ * 5. Target URL resolves, is not link-local (cloud metadata), and is reachable (DNS + HTTP)
  */
 
+import type { LookupAddress } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
+import net, { type LookupFunction } from 'node:net';
 import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 import { glob } from 'zx';
@@ -40,9 +42,47 @@ function isLoopbackAddress(address: string): boolean {
   return address === '127.0.0.1' || address === '::1' || address === '0.0.0.0';
 }
 
+// 169.254.0.0/16 hosts the cloud metadata service. RFC1918 and loopback are
+// intentionally allowed — scanning local targets is a supported Shannon use case.
+const metadataBlockList = new net.BlockList();
+metadataBlockList.addSubnet('169.254.0.0', 16, 'ipv4');
+
+function isBlockedAddress(address: string): boolean {
+  switch (net.isIP(address)) {
+    case 4:
+      return metadataBlockList.check(address, 'ipv4');
+    case 6:
+      return metadataBlockList.check(address, 'ipv6');
+    default:
+      return false;
+  }
+}
+
+/** DNS lookup pinned to already-validated `addresses`, so the socket cannot be re-pointed after validation (DNS rebinding). */
+function pinnedLookup(addresses: LookupAddress[]): LookupFunction {
+  return (hostname, options, callback) => {
+    const matching = options.family ? addresses.filter((a) => a.family === options.family) : addresses;
+    const pool = matching.length > 0 ? matching : addresses;
+    if (options.all) {
+      callback(null, pool);
+      return;
+    }
+    const first = pool[0];
+    if (!first) {
+      callback(new Error(`no resolved address for ${hostname}`), '', 0);
+      return;
+    }
+    callback(null, first.address, first.family);
+  };
+}
+
 // === Repository Validation ===
 
-async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitCheck?: boolean): Promise<Result<void, PentestError>> {
+async function validateRepo(
+  repoPath: string,
+  logger: ActivityLogger,
+  skipGitCheck?: boolean,
+): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
   // 1. Check repo directory exists
@@ -254,11 +294,17 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
-async function validateCredentials(logger: ActivityLogger, apiKey?: string, providerConfig?: import('../types/config.js').ProviderConfig): Promise<Result<void, PentestError>> {
+async function validateCredentials(
+  logger: ActivityLogger,
+  apiKey?: string,
+  providerConfig?: import('../types/config.js').ProviderConfig,
+): Promise<Result<void, PentestError>> {
   // 0. If providerConfig is present, credentials are managed by the caller.
   //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
   if (providerConfig) {
-    logger.info(`Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`);
+    logger.info(
+      `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
+    );
     return ok(undefined);
   }
 
@@ -424,7 +470,7 @@ async function validateCredentials(logger: ActivityLogger, apiKey?: string, prov
 // === Target URL Validation ===
 
 /** HTTP HEAD with TLS verification disabled — we check reachability, not certificate validity. */
-function httpHead(url: string, timeoutMs: number): Promise<number> {
+function httpHead(url: string, timeoutMs: number, addresses: LookupAddress[]): Promise<number> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const isHttps = parsed.protocol === 'https:';
@@ -435,6 +481,7 @@ function httpHead(url: string, timeoutMs: number): Promise<number> {
       {
         method: 'HEAD',
         timeout: timeoutMs,
+        lookup: pinnedLookup(addresses),
         ...(isHttps && { rejectUnauthorized: false }),
       },
       (res) => {
@@ -472,12 +519,11 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
     );
   }
 
-  // 2. DNS lookup — detect loopback addresses early for a better hint
+  // 2. Resolve all records once — reused (pinned) for the connection below.
   const hostname = parsed.hostname;
-  let resolvedAddress: string | undefined;
+  let addresses: LookupAddress[];
   try {
-    const result = await lookup(hostname);
-    resolvedAddress = result.address;
+    addresses = await lookup(hostname, { all: true });
   } catch {
     return err(
       new PentestError(
@@ -490,25 +536,40 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
     );
   }
 
-  // 3. HTTP reachability check
+  // 3. Reject the link-local metadata range (169.254.0.0/16).
+  const blocked = addresses.find((entry) => isBlockedAddress(entry.address));
+  if (blocked) {
+    return err(
+      new PentestError(
+        `Target URL ${targetUrl} resolves to ${blocked.address}, a link-local address ` +
+          `(169.254.0.0/16). This range hosts the cloud instance metadata service and cannot be scanned.`,
+        'config',
+        false,
+        { targetUrl, hostname, address: blocked.address },
+        ErrorCode.TARGET_UNREACHABLE,
+      ),
+    );
+  }
+
+  // 4. HTTP reachability check (socket pinned to the resolved addresses).
   try {
-    await httpHead(targetUrl, TARGET_URL_TIMEOUT_MS);
+    await httpHead(targetUrl, TARGET_URL_TIMEOUT_MS, addresses);
 
     logger.info('Target URL OK');
     return ok(undefined);
   } catch (error) {
-    const isLoopback = isLoopbackAddress(resolvedAddress);
     const detail = error instanceof Error ? error.message : String(error);
+    const isLoopback = addresses.some((entry) => isLoopbackAddress(entry.address));
 
     if (isLoopback) {
       const suggestion = targetUrl.replace(hostname, 'host.docker.internal');
       return err(
         new PentestError(
-          `Target URL ${targetUrl} resolves to ${resolvedAddress} (loopback) and is not reachable. ` +
+          `Target URL ${targetUrl} resolves to a loopback address and is not reachable. ` +
             `For local services, use host.docker.internal instead of ${hostname} (e.g., ${suggestion})`,
           'network',
           false,
-          { targetUrl, resolvedAddress, hostname },
+          { targetUrl, hostname },
           ErrorCode.TARGET_UNREACHABLE,
         ),
       );
@@ -519,7 +580,7 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
         `Target URL ${targetUrl} is not reachable: ${detail}`,
         'network',
         false,
-        { targetUrl, resolvedAddress },
+        { targetUrl },
         ErrorCode.TARGET_UNREACHABLE,
       ),
     );

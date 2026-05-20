@@ -17,8 +17,7 @@ import type { AgentName } from '../types/agents.js';
 
 // === Common Fields ===
 
-const ANALYSIS_NOTES_DESCRIPTION =
-  'Plain context for defenders (caveats, scope, what is at risk). Not attack steps.';
+const ANALYSIS_NOTES_DESCRIPTION = 'Plain context for defenders (caveats, scope, what is at risk). Not attack steps.';
 
 function notesField(exploit: boolean) {
   const f = z.string().optional();
@@ -114,53 +113,83 @@ function toOutputFormat(zodSchema: z.ZodType): JsonSchemaOutputFormat {
 function buildOutputFormats(exploit: boolean): Partial<Record<AgentName, JsonSchemaOutputFormat>> {
   const base = makeBase(exploit);
   return {
-    'injection-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
-      source: z.string().optional(),
-      combined_sources: z.string().optional(),
-      path: z.string().optional(),
-      sink_call: z.string().optional(),
-      slot_type: z.string().optional(),
-      sanitization_observed: z.string().optional(),
-      concat_occurrences: z.string().optional(),
-      verdict: z.string().optional(),
-      mismatch_reason: z.string().optional(),
-      witness_payload: z.string().optional(),
-    })) })),
-    'xss-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
-      source: z.string().optional(),
-      source_detail: z.string().optional(),
-      path: z.string().optional(),
-      sink_function: z.string().optional(),
-      render_context: z.string().optional(),
-      encoding_observed: z.string().optional(),
-      verdict: z.string().optional(),
-      mismatch_reason: z.string().optional(),
-      witness_payload: z.string().optional(),
-    })) })),
-    'auth-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
-      source_endpoint: z.string().optional(),
-      vulnerable_code_location: z.string().optional(),
-      missing_defense: z.string().optional(),
-      exploitation_hypothesis: z.string().optional(),
-      suggested_exploit_technique: z.string().optional(),
-    })) })),
-    'ssrf-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
-      source_endpoint: z.string().optional(),
-      vulnerable_parameter: z.string().optional(),
-      vulnerable_code_location: z.string().optional(),
-      missing_defense: z.string().optional(),
-      exploitation_hypothesis: z.string().optional(),
-      suggested_exploit_technique: z.string().optional(),
-    })) })),
-    'authz-vuln': toOutputFormat(z.object({ vulnerabilities: z.array(base.extend({
-      endpoint: z.string().optional(),
-      vulnerable_code_location: z.string().optional(),
-      role_context: z.string().optional(),
-      guard_evidence: z.string().optional(),
-      side_effect: z.string().optional(),
-      reason: z.string().optional(),
-      minimal_witness: z.string().optional(),
-    })) })),
+    'injection-vuln': toOutputFormat(
+      z.object({
+        vulnerabilities: z.array(
+          base.extend({
+            source: z.string().optional(),
+            combined_sources: z.string().optional(),
+            path: z.string().optional(),
+            sink_call: z.string().optional(),
+            slot_type: z.string().optional(),
+            sanitization_observed: z.string().optional(),
+            concat_occurrences: z.string().optional(),
+            verdict: z.string().optional(),
+            mismatch_reason: z.string().optional(),
+            witness_payload: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+    'xss-vuln': toOutputFormat(
+      z.object({
+        vulnerabilities: z.array(
+          base.extend({
+            source: z.string().optional(),
+            source_detail: z.string().optional(),
+            path: z.string().optional(),
+            sink_function: z.string().optional(),
+            render_context: z.string().optional(),
+            encoding_observed: z.string().optional(),
+            verdict: z.string().optional(),
+            mismatch_reason: z.string().optional(),
+            witness_payload: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+    'auth-vuln': toOutputFormat(
+      z.object({
+        vulnerabilities: z.array(
+          base.extend({
+            source_endpoint: z.string().optional(),
+            vulnerable_code_location: z.string().optional(),
+            missing_defense: z.string().optional(),
+            exploitation_hypothesis: z.string().optional(),
+            suggested_exploit_technique: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+    'ssrf-vuln': toOutputFormat(
+      z.object({
+        vulnerabilities: z.array(
+          base.extend({
+            source_endpoint: z.string().optional(),
+            vulnerable_parameter: z.string().optional(),
+            vulnerable_code_location: z.string().optional(),
+            missing_defense: z.string().optional(),
+            exploitation_hypothesis: z.string().optional(),
+            suggested_exploit_technique: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
+    'authz-vuln': toOutputFormat(
+      z.object({
+        vulnerabilities: z.array(
+          base.extend({
+            endpoint: z.string().optional(),
+            vulnerable_code_location: z.string().optional(),
+            role_context: z.string().optional(),
+            guard_evidence: z.string().optional(),
+            side_effect: z.string().optional(),
+            reason: z.string().optional(),
+            minimal_witness: z.string().optional(),
+          }),
+        ),
+      }),
+    ),
   };
 }
 
