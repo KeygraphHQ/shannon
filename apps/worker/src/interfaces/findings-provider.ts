@@ -11,11 +11,7 @@ import type { ActivityInput } from '../temporal/activities.js';
 import type { VulnType } from '../types/agents.js';
 
 export interface FindingsProvider {
-  mergeFindingsIntoQueue(
-    repoPath: string,
-    vulnType: VulnType,
-    input: ActivityInput,
-  ): Promise<{ mergedCount: number }>;
+  mergeFindingsIntoQueue(repoPath: string, vulnType: VulnType, input: ActivityInput): Promise<{ mergedCount: number }>;
 }
 
 /** Default no-op implementation — no external findings to merge. */

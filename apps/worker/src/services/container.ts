@@ -99,11 +99,7 @@ const DEFAULT_CONFIG: ContainerConfig = {
  * setContainerFactory() at worker startup to inject custom provider
  * implementations into every container.
  */
-type ContainerFactory = (
-  workflowId: string,
-  sessionMetadata: SessionMetadata,
-  config: ContainerConfig,
-) => Container;
+type ContainerFactory = (workflowId: string, sessionMetadata: SessionMetadata, config: ContainerConfig) => Container;
 
 let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) =>
   new Container({ sessionMetadata, config });

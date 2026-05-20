@@ -78,7 +78,11 @@ function pinnedLookup(addresses: LookupAddress[]): LookupFunction {
 
 // === Repository Validation ===
 
-async function validateRepo(repoPath: string, logger: ActivityLogger, skipGitCheck?: boolean): Promise<Result<void, PentestError>> {
+async function validateRepo(
+  repoPath: string,
+  logger: ActivityLogger,
+  skipGitCheck?: boolean,
+): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
   // 1. Check repo directory exists
@@ -290,11 +294,17 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
-async function validateCredentials(logger: ActivityLogger, apiKey?: string, providerConfig?: import('../types/config.js').ProviderConfig): Promise<Result<void, PentestError>> {
+async function validateCredentials(
+  logger: ActivityLogger,
+  apiKey?: string,
+  providerConfig?: import('../types/config.js').ProviderConfig,
+): Promise<Result<void, PentestError>> {
   // 0. If providerConfig is present, credentials are managed by the caller.
   //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
   if (providerConfig) {
-    logger.info(`Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`);
+    logger.info(
+      `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
+    );
     return ok(undefined);
   }
 
