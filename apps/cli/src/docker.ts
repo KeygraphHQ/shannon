@@ -70,7 +70,25 @@ export function isTemporalReady(): boolean {
 }
 
 /**
+ * Check if the Temporal container reports healthy via Docker's own healthcheck.
+ * This avoids racing the compose healthcheck with our own poll loop.
+ */
+function isContainerHealthy(container: string): boolean {
+  const status = runOutput('docker', [
+    'inspect',
+    '--format',
+    '{{.State.Health.Status}}',
+    container,
+  ]);
+  return status === 'healthy';
+}
+
+/**
  * Ensure Temporal is running via compose.
+ *
+ * The timeout is configurable via SHANNON_TEMPORAL_TIMEOUT_MS (default: 120000).
+ * On Windows/WSL2, Temporal's SQLite journal writes can take 20-40s longer
+ * due to NTFS-backed Docker volumes, so the default is generous.
  */
 export async function ensureInfra(): Promise<void> {
   if (isTemporalReady()) {
@@ -81,15 +99,23 @@ export async function ensureInfra(): Promise<void> {
   console.log('Starting Shannon infrastructure...');
   execFileSync('docker', ['compose', '-f', composeFile, 'up', '-d'], { stdio: 'inherit' });
 
+  const timeoutMs = Number(process.env.SHANNON_TEMPORAL_TIMEOUT_MS) || 120_000;
+  const pollIntervalMs = 3_000;
+  const deadline = Date.now() + timeoutMs;
+
   console.log('Waiting for Temporal to be ready...');
-  for (let i = 0; i < 30; i++) {
-    if (isTemporalReady()) {
+  while (Date.now() < deadline) {
+    // Prefer Docker's own healthcheck verdict when available
+    if (isContainerHealthy('shannon-temporal') || isTemporalReady()) {
       console.log('Temporal is ready!');
       return;
     }
-    await sleep(2000);
+    await sleep(pollIntervalMs);
   }
-  console.error('Timeout waiting for Temporal');
+  console.error(
+    `Timeout waiting for Temporal after ${timeoutMs / 1000}s. ` +
+      'If you are on Windows/WSL2, try increasing SHANNON_TEMPORAL_TIMEOUT_MS.',
+  );
   process.exit(1);
 }
 
