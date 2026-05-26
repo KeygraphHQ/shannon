@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { authStateFile, PROMPTS_DIR } from '../paths.js';
+import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
@@ -408,11 +408,10 @@ export async function loadPrompt(
       throw new PentestError(`Prompt file not found: ${promptPath}`, 'prompt', false, { promptName, promptPath });
     }
 
-    // 2. Assign Playwright session based on agent name
-    const enhancedVariables: PromptVariables = {
-      ...variables,
-      AUTH_STATE_FILE: authStateFile(variables.repoPath, process.env.SHANNON_DELIVERABLES_SUBDIR),
-    };
+    // 2. Assign Playwright session based on agent name. AUTH_STATE_FILE must
+    //    be set by the caller (agent-execution / validate-authentication); it
+    //    lives inside the per-session audit directory.
+    const enhancedVariables: PromptVariables = { ...variables };
 
     const session = PLAYWRIGHT_SESSION_MAPPING[promptName as keyof typeof PLAYWRIGHT_SESSION_MAPPING];
     if (session) {

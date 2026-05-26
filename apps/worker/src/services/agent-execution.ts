@@ -25,6 +25,7 @@ import { fs, path } from 'zx';
 import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
 import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
+import { generateAuditPath } from '../audit/utils.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentName } from '../types/agents.js';
@@ -116,13 +117,15 @@ export class AgentExecutionService {
     }
     const distributedConfig = configResult.value;
 
-    // 2. Load prompt
+    // 2. Load prompt. AUTH_STATE_FILE lives inside the per-session audit dir
+    //    so it's owned by the run, not the target repo — keeps the path stable
+    //    regardless of the embedding workflow's repo layout.
     const promptTemplate = AGENTS[agentName].promptTemplate;
     let prompt: string;
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath },
+        { webUrl, repoPath, AUTH_STATE_FILE: path.join(generateAuditPath(auditSession.sessionMetadata), 'auth-state.json') },
         distributedConfig,
         pipelineTestingMode,
         logger,

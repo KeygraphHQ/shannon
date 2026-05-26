@@ -13,11 +13,12 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import path from 'node:path';
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runClaudePrompt } from '../ai/claude-executor.js';
 import type { AuditSession } from '../audit/index.js';
-import { authStateFile } from '../paths.js';
+import { generateAuditPath } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig, ProviderConfig } from '../types/config.js';
@@ -97,7 +98,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
 
   const prompt = await loadPrompt(
     AGENT_NAME,
-    { webUrl, repoPath },
+    { webUrl, repoPath, AUTH_STATE_FILE: path.join(generateAuditPath(auditSession.sessionMetadata), 'auth-state.json') },
     distributedConfig,
     pipelineTestingMode ?? false,
     logger,
@@ -125,7 +126,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   let classification = classifyResult(result, authentication);
 
   if (classification.ok) {
-    const sessionCheck = await verifySavedAuthState(repoPath, deliverablesSubdir, logger);
+    const sessionCheck = await verifySavedAuthState(path.join(generateAuditPath(auditSession.sessionMetadata), 'auth-state.json'), logger);
     if (!sessionCheck.ok) {
       classification = sessionCheck;
     }
@@ -145,12 +146,9 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
 }
 
 async function verifySavedAuthState(
-  repoPath: string,
-  deliverablesSubdir: string | undefined,
+  stateFile: string,
   logger: ActivityLogger,
 ): Promise<Result<void, PentestError>> {
-  const stateFile = authStateFile(repoPath, deliverablesSubdir);
-
   let contents: string;
   try {
     contents = await readFile(stateFile, 'utf8');

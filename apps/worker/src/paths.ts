@@ -43,17 +43,3 @@ function findRepoRoot(): string {
 
 const REPO_ROOT = findRepoRoot();
 export const WORKSPACES_DIR = path.join(REPO_ROOT, 'workspaces');
-
-/**
- * Shared scratch directory inside the target repo, mounted read-write across
- * the scan. It is the sibling of the deliverables directory, so a non-default
- * layout stays consistent — `.shannon/deliverables` → `.shannon/scratchpad`.
- */
-export function scratchpadDir(repoPath: string, deliverablesSubdir: string = DEFAULT_DELIVERABLES_SUBDIR): string {
-  return path.join(repoPath, path.dirname(deliverablesSubdir), 'scratchpad');
-}
-
-/** Path to the authenticated session saved by the preflight. */
-export function authStateFile(repoPath: string, deliverablesSubdir: string = DEFAULT_DELIVERABLES_SUBDIR): string {
-  return path.join(scratchpadDir(repoPath, deliverablesSubdir), 'auth-state.json');
-}
