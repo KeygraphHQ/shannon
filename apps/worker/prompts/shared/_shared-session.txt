@@ -1,0 +1,19 @@
+<shared_authenticated_session>
+The preflight already logged in and saved the authenticated browser
+session to:
+
+  {{AUTH_STATE_FILE}}
+
+Restore it before doing anything else:
+
+  playwright-cli -s={{PLAYWRIGHT_SESSION}} state-load {{AUTH_STATE_FILE}}
+
+Then run verification (per the success_condition in your authentication
+config) to confirm the restored session is still valid:
+
+- If verification passes → SKIP the login flow below entirely and
+  proceed with your primary task. You are authenticated.
+- If verification fails → the saved session is stale. Fall through to
+  the full login flow below and perform it on your own browser session.
+  Do NOT overwrite {{AUTH_STATE_FILE}}.
+</shared_authenticated_session>

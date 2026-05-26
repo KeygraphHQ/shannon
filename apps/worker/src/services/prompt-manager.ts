@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { PROMPTS_DIR } from '../paths.js';
+import { authStateFile, PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
@@ -119,6 +119,7 @@ interface PromptVariables {
   webUrl: string;
   repoPath: string;
   PLAYWRIGHT_SESSION?: string;
+  AUTH_STATE_FILE?: string;
 }
 
 interface IncludeReplacement {
@@ -129,6 +130,7 @@ interface IncludeReplacement {
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(
   authentication: Authentication,
+  variables: PromptVariables,
   logger: ActivityLogger,
   promptsBaseDir: string = PROMPTS_DIR,
 ): Promise<string> {
@@ -203,6 +205,10 @@ async function buildLoginInstructions(
     if (authentication.credentials?.totp_secret) {
       loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
+
+    // 6. Resolve {{PLAYWRIGHT_SESSION}} here — login instructions are injected
+    //    into the prompt after the outer pass has already substituted it.
+    loginInstructions = loginInstructions.replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION ?? 'agent1');
 
     return loginInstructions;
   } catch (error) {
@@ -291,6 +297,7 @@ async function interpolateVariables(
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
       .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
+      .replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE ?? '')
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
       .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
 
@@ -322,7 +329,7 @@ async function interpolateVariables(
     }
 
     if (config?.authentication?.login_flow) {
-      const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
+      const loginInstructions = await buildLoginInstructions(config.authentication, variables, logger, promptsBaseDir);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
     } else {
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
@@ -398,7 +405,10 @@ export async function loadPrompt(
     }
 
     // 2. Assign Playwright session based on agent name
-    const enhancedVariables: PromptVariables = { ...variables };
+    const enhancedVariables: PromptVariables = {
+      ...variables,
+      AUTH_STATE_FILE: authStateFile(variables.repoPath, process.env.SHANNON_DELIVERABLES_SUBDIR),
+    };
 
     const session = PLAYWRIGHT_SESSION_MAPPING[promptName as keyof typeof PLAYWRIGHT_SESSION_MAPPING];
     if (session) {

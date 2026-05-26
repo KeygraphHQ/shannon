@@ -12,10 +12,12 @@
  * pipeline burns hours on broken auth.
  */
 
+import { access } from 'node:fs/promises';
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runClaudePrompt } from '../ai/claude-executor.js';
 import type { AuditSession } from '../audit/index.js';
+import { authStateFile } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig, ProviderConfig } from '../types/config.js';
@@ -120,7 +122,14 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     providerConfig,
   );
 
-  const classification = classifyResult(result, authentication);
+  let classification = classifyResult(result, authentication);
+
+  if (classification.ok) {
+    const sessionCheck = await verifySavedAuthState(repoPath, deliverablesSubdir, logger);
+    if (!sessionCheck.ok) {
+      classification = sessionCheck;
+    }
+  }
 
   const endResult: AgentEndResult = {
     attemptNumber,
@@ -133,6 +142,31 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   await auditSession.endAgent(AGENT_NAME, endResult);
 
   return classification;
+}
+
+async function verifySavedAuthState(
+  repoPath: string,
+  deliverablesSubdir: string | undefined,
+  logger: ActivityLogger,
+): Promise<Result<void, PentestError>> {
+  const stateFile = authStateFile(repoPath, deliverablesSubdir);
+
+  try {
+    await access(stateFile);
+  } catch {
+    return err(
+      new PentestError(
+        `Preflight reported login success but did not save the authenticated session to ${stateFile}.`,
+        'validation',
+        true,
+        { stateFile },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('Preflight authenticated session saved', { stateFile });
+  return ok(undefined);
 }
 
 function classifyResult(
