@@ -12,7 +12,7 @@
  * pipeline burns hours on broken auth.
  */
 
-import { access } from 'node:fs/promises';
+import { readFile } from 'node:fs/promises';
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runClaudePrompt } from '../ai/claude-executor.js';
@@ -151,8 +151,9 @@ async function verifySavedAuthState(
 ): Promise<Result<void, PentestError>> {
   const stateFile = authStateFile(repoPath, deliverablesSubdir);
 
+  let contents: string;
   try {
-    await access(stateFile);
+    contents = await readFile(stateFile, 'utf8');
   } catch {
     return err(
       new PentestError(
@@ -165,8 +166,44 @@ async function verifySavedAuthState(
     );
   }
 
-  logger.info('Preflight authenticated session saved', { stateFile });
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch (parseErr) {
+    const detail = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    return err(
+      new PentestError(
+        `Preflight saved an authenticated session to ${stateFile}, but the file is not valid JSON: ${detail}`,
+        'validation',
+        true,
+        { stateFile, parseError: detail },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  const cookieCount = countStorageEntries(parsed, 'cookies');
+  const originCount = countStorageEntries(parsed, 'origins');
+  if (cookieCount === 0 && originCount === 0) {
+    return err(
+      new PentestError(
+        `Preflight saved an authenticated session to ${stateFile}, but it contains no cookies or origins — the browser was not actually logged in.`,
+        'validation',
+        true,
+        { stateFile, cookieCount, originCount },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('Preflight authenticated session saved', { stateFile, cookieCount, originCount });
   return ok(undefined);
+}
+
+function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): number {
+  if (typeof parsed !== 'object' || parsed === null) return 0;
+  const value = (parsed as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function classifyResult(
