@@ -328,6 +328,10 @@ async function interpolateVariables(
       result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
     }
 
+    if (!config?.authentication) {
+      result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+    }
+
     if (config?.authentication?.login_flow) {
       const loginInstructions = await buildLoginInstructions(config.authentication, variables, logger, promptsBaseDir);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
