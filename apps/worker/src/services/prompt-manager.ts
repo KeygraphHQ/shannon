@@ -404,9 +404,7 @@ export async function loadPrompt(
       throw new PentestError(`Prompt file not found: ${promptPath}`, 'prompt', false, { promptName, promptPath });
     }
 
-    // 2. Assign Playwright session based on agent name. AUTH_STATE_FILE must
-    //    be set by the caller (agent-execution / validate-authentication); it
-    //    lives inside the per-session audit directory.
+    // 2. Assign Playwright session based on agent name
     const enhancedVariables: PromptVariables = { ...variables };
 
     const session = PLAYWRIGHT_SESSION_MAPPING[promptName as keyof typeof PLAYWRIGHT_SESSION_MAPPING];

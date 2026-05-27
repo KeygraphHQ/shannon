@@ -117,9 +117,7 @@ export class AgentExecutionService {
     }
     const distributedConfig = configResult.value;
 
-    // 2. Load prompt. AUTH_STATE_FILE lives inside the per-session audit dir
-    //    so it's owned by the run, not the target repo — keeps the path stable
-    //    regardless of the embedding workflow's repo layout.
+    // 2. Load prompt
     const promptTemplate = AGENTS[agentName].promptTemplate;
     let prompt: string;
     try {
