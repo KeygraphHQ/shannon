@@ -12,13 +12,12 @@
  * pipeline burns hours on broken auth.
  */
 
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile, rm } from 'node:fs/promises';
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runClaudePrompt } from '../ai/claude-executor.js';
 import type { AuditSession } from '../audit/index.js';
-import { generateAuditPath } from '../audit/utils.js';
+import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig, ProviderConfig } from '../types/config.js';
@@ -96,9 +95,12 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     loginType: authentication.login_type,
   });
 
+  const stateFile = authStateFile(auditSession.sessionMetadata);
+  await rm(stateFile, { force: true });
+
   const prompt = await loadPrompt(
     AGENT_NAME,
-    { webUrl, repoPath, AUTH_STATE_FILE: path.join(generateAuditPath(auditSession.sessionMetadata), 'auth-state.json') },
+    { webUrl, repoPath, AUTH_STATE_FILE: stateFile },
     distributedConfig,
     pipelineTestingMode ?? false,
     logger,
@@ -126,7 +128,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   let classification = classifyResult(result, authentication);
 
   if (classification.ok) {
-    const sessionCheck = await verifySavedAuthState(path.join(generateAuditPath(auditSession.sessionMetadata), 'auth-state.json'), logger);
+    const sessionCheck = await verifySavedAuthState(stateFile, logger);
     if (!sessionCheck.ok) {
       classification = sessionCheck;
     }
