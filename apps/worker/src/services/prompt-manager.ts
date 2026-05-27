@@ -130,7 +130,6 @@ interface IncludeReplacement {
 // Pure function: Build complete login instructions from config
 async function buildLoginInstructions(
   authentication: Authentication,
-  variables: PromptVariables,
   logger: ActivityLogger,
   promptsBaseDir: string = PROMPTS_DIR,
 ): Promise<string> {
@@ -205,10 +204,6 @@ async function buildLoginInstructions(
     if (authentication.credentials?.totp_secret) {
       loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
-
-    // 6. Resolve {{PLAYWRIGHT_SESSION}} here — login instructions are injected
-    //    into the prompt after the outer pass has already substituted it.
-    loginInstructions = loginInstructions.replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION ?? 'agent1');
 
     return loginInstructions;
   } catch (error) {
@@ -333,7 +328,7 @@ async function interpolateVariables(
     }
 
     if (config?.authentication?.login_flow) {
-      const loginInstructions = await buildLoginInstructions(config.authentication, variables, logger, promptsBaseDir);
+      const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
     } else {
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
