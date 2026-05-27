@@ -118,8 +118,8 @@ function renderReportFilterRules(report: ReportConfig | undefined): string {
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
-  AUTH_STATE_FILE?: string;
 }
 
 interface IncludeReplacement {
@@ -292,7 +292,6 @@ async function interpolateVariables(
       .replace(/{{WEB_URL}}/g, variables.webUrl)
       .replace(/{{REPO_PATH}}/g, variables.repoPath)
       .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
-      .replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE ?? '')
       .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
       .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
 
@@ -325,6 +324,8 @@ async function interpolateVariables(
 
     if (!config?.authentication) {
       result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+    } else {
+      result = result.replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
     }
 
     if (config?.authentication?.login_flow) {
