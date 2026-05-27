@@ -28,7 +28,7 @@ const sessionMutex = new SessionMutex();
  * AuditSession - Main audit system facade
  */
 export class AuditSession {
-  private sessionMetadata: SessionMetadata;
+  readonly sessionMetadata: SessionMetadata;
   private sessionId: string;
   private metricsTracker: MetricsTracker;
   private workflowLogger: WorkflowLogger;

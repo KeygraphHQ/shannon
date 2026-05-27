@@ -118,6 +118,7 @@ function renderReportFilterRules(report: ReportConfig | undefined): string {
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
 
@@ -319,6 +320,12 @@ async function interpolateVariables(
       result = result.replace(/{{RULES_OF_ENGAGEMENT}}/g, roe);
     } else {
       result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
+    }
+
+    if (!config?.authentication) {
+      result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+    } else {
+      result = result.replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
     }
 
     if (config?.authentication?.login_flow) {

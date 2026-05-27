@@ -22,7 +22,7 @@ import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js'
 import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
-import { generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
+import { authStateFile, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
@@ -926,7 +926,15 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Clean up container
+  // 6. Drop the authenticated browser session
+  try {
+    await fs.rm(authStateFile(sessionMetadata), { force: true });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`Failed to clean up auth-state.json: ${detail}`);
+  }
+
+  // 7. Clean up container
   removeContainer(workflowId);
 }
 

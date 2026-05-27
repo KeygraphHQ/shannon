@@ -12,10 +12,12 @@
  * pipeline burns hours on broken auth.
  */
 
+import { readFile, rm } from 'node:fs/promises';
 import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
 import { z } from 'zod';
 import { runClaudePrompt } from '../ai/claude-executor.js';
 import type { AuditSession } from '../audit/index.js';
+import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig, ProviderConfig } from '../types/config.js';
@@ -93,9 +95,12 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     loginType: authentication.login_type,
   });
 
+  const stateFile = authStateFile(auditSession.sessionMetadata);
+  await rm(stateFile, { force: true });
+
   const prompt = await loadPrompt(
     AGENT_NAME,
-    { webUrl, repoPath },
+    { webUrl, repoPath, AUTH_STATE_FILE: stateFile },
     distributedConfig,
     pipelineTestingMode ?? false,
     logger,
@@ -120,7 +125,14 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     providerConfig,
   );
 
-  const classification = classifyResult(result, authentication);
+  let classification = classifyResult(result, authentication);
+
+  if (classification.ok) {
+    const sessionCheck = await verifySavedAuthState(stateFile, logger);
+    if (!sessionCheck.ok) {
+      classification = sessionCheck;
+    }
+  }
 
   const endResult: AgentEndResult = {
     attemptNumber,
@@ -133,6 +145,62 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   await auditSession.endAgent(AGENT_NAME, endResult);
 
   return classification;
+}
+
+async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
+  let contents: string;
+  try {
+    contents = await readFile(stateFile, 'utf8');
+  } catch {
+    return err(
+      new PentestError(
+        `Preflight reported login success but did not save the authenticated session to ${stateFile}.`,
+        'validation',
+        true,
+        { stateFile },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch (parseErr) {
+    const detail = parseErr instanceof Error ? parseErr.message : String(parseErr);
+    return err(
+      new PentestError(
+        `Preflight saved an authenticated session to ${stateFile}, but the file is not valid JSON: ${detail}`,
+        'validation',
+        true,
+        { stateFile, parseError: detail },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  const cookieCount = countStorageEntries(parsed, 'cookies');
+  const originCount = countStorageEntries(parsed, 'origins');
+  if (cookieCount === 0 && originCount === 0) {
+    return err(
+      new PentestError(
+        `Preflight saved an authenticated session to ${stateFile}, but it contains no cookies or origins — the browser was not actually logged in.`,
+        'validation',
+        true,
+        { stateFile, cookieCount, originCount },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('Preflight authenticated session saved', { stateFile, cookieCount, originCount });
+  return ok(undefined);
+}
+
+function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): number {
+  if (typeof parsed !== 'object' || parsed === null) return 0;
+  const value = (parsed as Record<string, unknown>)[key];
+  return Array.isArray(value) ? value.length : 0;
 }
 
 function classifyResult(

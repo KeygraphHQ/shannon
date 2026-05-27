@@ -25,6 +25,7 @@ import { fs, path } from 'zx';
 import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
 import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
+import { authStateFile } from '../audit/utils.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentName } from '../types/agents.js';
@@ -122,7 +123,7 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath },
+        { webUrl, repoPath, AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata) },
         distributedConfig,
         pipelineTestingMode,
         logger,

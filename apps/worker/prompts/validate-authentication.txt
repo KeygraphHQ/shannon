@@ -19,6 +19,14 @@ This runs as a preflight check for our AI pentester. The user supplies credentia
 {{LOGIN_INSTRUCTIONS}}
 </login_instructions>
 
+<publish_session>
+After verification confirms login_success, save the authenticated browser session so the rest of the pipeline can reuse it instead of logging in again:
+
+  playwright-cli -s={{PLAYWRIGHT_SESSION}} state-save {{AUTH_STATE_FILE}}
+
+Run this only when login_success is true. Skip it on failure.
+</publish_session>
+
 <critical>
 - Submit each field (username, password, captcha, TOTP) exactly once.
 - Any rejection = auth error: return `login_success: false` and stop. Do not retry.
