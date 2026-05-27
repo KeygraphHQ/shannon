@@ -147,10 +147,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   return classification;
 }
 
-async function verifySavedAuthState(
-  stateFile: string,
-  logger: ActivityLogger,
-): Promise<Result<void, PentestError>> {
+async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
   let contents: string;
   try {
     contents = await readFile(stateFile, 'utf8');
