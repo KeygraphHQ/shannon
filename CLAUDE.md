@@ -116,6 +116,7 @@ Infra (Temporal) runs via `docker-compose.yml`. Workers are ephemeral `docker ru
 - `docker-compose.yml` — Infra only: `shannon-temporal` (port 7233/8233). Network: `shannon-net`
 - `Dockerfile` — 2-stage build (builder + Chainguard Wolfi runtime). Uses pnpm. Entrypoint: `CMD ["node", "apps/worker/dist/temporal/worker.js"]`
 - No `docker-compose.docker.yml` — host gateway handled via `--add-host` flag in CLI
+- `/etc/hosts` forwarding — at worker spawn, `forwardEtcHostsFlags` in `apps/cli/src/docker.ts` reads the host's `/etc/hosts` and emits one `--add-host` flag per valid user-added entry. Loopback IPs (`127.x`, `::1`) are rewritten to `host-gateway`; IPv6 addresses are bracketed. Disable per-scan via `SHANNON_FORWARD_HOSTS=false`. No-op on Windows native (WSL2 reads its own `/etc/hosts` via the Linux path).
 
 ### Worker Package (`apps/worker/`)
 - `apps/worker/src/paths.ts` — Centralized path constants (`PROMPTS_DIR`, `CONFIGS_DIR`, `WORKSPACES_DIR`)

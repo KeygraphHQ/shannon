@@ -685,6 +685,12 @@ npx @keygraph/shannon start -u http://host.docker.internal:3000 -r /path/to/repo
 
 </details>
 
+**Custom hostnames in `/etc/hosts`:**
+
+If your local stack uses custom hostnames mapped in `/etc/hosts`, Shannon forwards those entries into the worker container at scan start:
+
+To disable, add `SHANNON_FORWARD_HOSTS=false` to `.env` (local mode) or export it in your shell: `export SHANNON_FORWARD_HOSTS=false`. In npx mode, the shell export is the only option since there's no `.env`.
+
 ### Output and Results
 
 All results are saved to the workspaces directory: `./workspaces/` (local mode) or `~/.shannon/workspaces/` (npx mode). Use `-o <path>` to copy deliverables to a custom output directory after the run completes.
