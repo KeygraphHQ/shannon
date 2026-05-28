@@ -7,6 +7,7 @@
 
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process';
 import crypto from 'node:crypto';
+import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
@@ -145,6 +146,87 @@ function addHostFlag(): string[] {
   return [];
 }
 
+/**
+ * Names whose standard IPs aren't covered by `shouldSkipHostsIp`. Loopback names
+ * stay because their IPs (127.x, ::1) get rewritten — not skipped. Others like
+ * `broadcasthost` and `ip6-mcastprefix` are intentionally omitted: their IPs
+ * (255.255.255.255, ff00::/8) are already dropped at the IP filter.
+ */
+const HOSTS_SKIP_NAMES = new Set([
+  'localhost',
+  'ip6-localhost',
+  'ip6-loopback',
+  'ip6-localnet',
+  'host.docker.internal',
+  'gateway.docker.internal',
+  'kubernetes.docker.internal',
+]);
+
+function isLoopbackIp(ip: string): boolean {
+  return ip.startsWith('127.') || ip === '::1';
+}
+
+function shouldSkipHostsIp(ip: string): boolean {
+  if (ip === '0.0.0.0' || ip === '255.255.255.255') return true;
+  // Cloud metadata range — consistent with Shannon's SSRF guard
+  if (ip.startsWith('169.254.')) return true;
+  const lower = ip.toLowerCase();
+  if (lower.startsWith('fe80:') || lower.startsWith('ff')) return true;
+  return false;
+}
+
+function shouldSkipHostsName(name: string, hostname: string): boolean {
+  const lower = name.toLowerCase();
+  if (HOSTS_SKIP_NAMES.has(lower)) return true;
+  if (lower === hostname.toLowerCase()) return true;
+  if (lower.endsWith('.localhost')) return true;
+  return false;
+}
+
+/**
+ * Read the host's /etc/hosts and emit --add-host flags so the worker resolves
+ * user-added entries the same way. Loopback IPs (127.x, ::1) are rewritten to
+ * `host-gateway` so they target the host's loopback instead of the container's.
+ */
+function forwardEtcHostsFlags(): string[] {
+  if (process.env.SHANNON_FORWARD_HOSTS === 'false') return [];
+  if (os.platform() === 'win32') return [];
+
+  let content: string;
+  try {
+    content = fs.readFileSync('/etc/hosts', 'utf-8');
+  } catch {
+    return [];
+  }
+
+  const hostname = os.hostname();
+  const flags: string[] = [];
+
+  for (const rawLine of content.split('\n')) {
+    const hashIdx = rawLine.indexOf('#');
+    const line = (hashIdx >= 0 ? rawLine.slice(0, hashIdx) : rawLine).trim();
+    if (!line) continue;
+
+    const tokens = line
+      .split(' ')
+      .flatMap((t) => t.split('\t'))
+      .filter(Boolean);
+    const ip = tokens[0];
+    const names = tokens.slice(1);
+    if (!ip || names.length === 0) continue;
+    if (shouldSkipHostsIp(ip)) continue;
+
+    const targetIp = isLoopbackIp(ip) ? 'host-gateway' : ip;
+    const formattedIp = targetIp.includes(':') ? `[${targetIp}]` : targetIp;
+    for (const name of names) {
+      if (shouldSkipHostsName(name, hostname)) continue;
+      flags.push('--add-host', `${name}:${formattedIp}`);
+    }
+  }
+
+  return flags;
+}
+
 export interface WorkerOptions {
   version: string;
   url: string;
@@ -175,6 +257,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   // Add host flag for Linux
   args.push(...addHostFlag());
+
+  // Forward user-added /etc/hosts entries into the worker
+  args.push(...forwardEtcHostsFlags());
 
   // UID remapping for Linux bind mounts
   if (os.platform() === 'linux' && process.getuid && process.getgid) {
