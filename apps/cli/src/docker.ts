@@ -145,6 +145,35 @@ function addHostFlag(): string[] {
   return [];
 }
 
+/**
+ * Detect if SELinux is in enforcing mode on the host.
+ * When true, bind mounts need the `:z` relabeling suffix so the container
+ * process can read/write the mounted paths. The shared `:z` label is used
+ * (rather than `:Z`) because multiple worker containers may access the same
+ * workspace directory concurrently.
+ */
+let _selinuxEnforcing: boolean | undefined;
+function isSelinuxEnforcing(): boolean {
+  if (_selinuxEnforcing !== undefined) return _selinuxEnforcing;
+  if (os.platform() !== 'linux') {
+    _selinuxEnforcing = false;
+    return false;
+  }
+  _selinuxEnforcing = runOutput('getenforce', []) === 'Enforcing';
+  return _selinuxEnforcing;
+}
+
+/** Append `:z` to a volume mount string when SELinux is enforcing. */
+function vol(mount: string): string {
+  return isSelinuxEnforcing() ? `${mount}:z` : mount;
+}
+
+/** Append `:z` to a volume mount that already has a trailing flag (e.g. `:ro`). */
+function volWithFlag(mount: string): string {
+  // :ro → :ro,z  (comma-separated Docker volume options)
+  return isSelinuxEnforcing() ? `${mount},z` : mount;
+}
+
 export interface WorkerOptions {
   version: string;
   url: string;
@@ -181,34 +210,34 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     args.push('-e', `SHANNON_HOST_UID=${process.getuid()}`, '-e', `SHANNON_HOST_GID=${process.getgid()}`);
   }
 
-  // Volume mounts
-  args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
-  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
+  // Volume mounts (with SELinux :z relabeling when enforcing)
+  args.push('-v', vol(`${opts.workspacesDir}:/app/workspaces`));
+  args.push('-v', volWithFlag(`${opts.repo.hostPath}:${opts.repo.containerPath}:ro`));
 
   // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed dirs
   const workspacePath = path.join(opts.workspacesDir, opts.workspace);
-  args.push('-v', `${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
-  args.push('-v', `${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
-  args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
-  args.push('-v', `${path.join(workspacePath, '.playwright')}:${opts.repo.containerPath}/.playwright`);
+  args.push('-v', vol(`${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`));
+  args.push('-v', vol(`${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`));
+  args.push('-v', vol(`${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`));
+  args.push('-v', vol(`${path.join(workspacePath, '.playwright')}:${opts.repo.containerPath}/.playwright`));
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
-    args.push('-v', `${opts.promptsDir}:/app/apps/worker/prompts:ro`);
+    args.push('-v', volWithFlag(`${opts.promptsDir}:/app/apps/worker/prompts:ro`));
   }
 
   if (opts.config) {
-    args.push('-v', `${opts.config.hostPath}:${opts.config.containerPath}:ro`);
+    args.push('-v', volWithFlag(`${opts.config.hostPath}:${opts.config.containerPath}:ro`));
   }
 
   // Output directory for deliverables copy
   if (opts.outputDir) {
-    args.push('-v', `${opts.outputDir}:/app/output`);
+    args.push('-v', vol(`${opts.outputDir}:/app/output`));
   }
 
   // Mount credentials file to fixed container path
   if (opts.credentials) {
-    args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
+    args.push('-v', volWithFlag(`${opts.credentials}:/app/credentials/google-sa-key.json:ro`));
   }
 
   // Environment
