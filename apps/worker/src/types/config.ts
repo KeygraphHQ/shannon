@@ -41,10 +41,17 @@ export interface SuccessCondition {
   value: string;
 }
 
-export interface Credentials {
-  username: string;
+export interface EmailLogin {
+  address: string;
   password: string;
   totp_secret?: string;
+}
+
+export interface Credentials {
+  username: string;
+  password?: string;
+  totp_secret?: string;
+  email_login?: EmailLogin;
 }
 
 export interface Authentication {

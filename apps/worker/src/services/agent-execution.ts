@@ -26,6 +26,7 @@ import { type ClaudePromptResult, validateAgentOutput } from '../ai/claude-execu
 import { augmentPromptForStructuredOutput, readStructuredOutputFromDisk } from '../ai/kiro-cli-executor.js';
 import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
+import { authStateFile } from '../audit/utils.js';
 import type { Executor } from '../interfaces/executor.js';
 import { AGENTS, PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -128,7 +129,7 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath },
+        { webUrl, repoPath, AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata) },
         distributedConfig,
         pipelineTestingMode,
         logger,
@@ -167,7 +168,7 @@ export class AgentExecutionService {
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
     // 5. Execute agent
-    const outputFormat = getOutputFormat(agentName);
+    const outputFormat = getOutputFormat(agentName, distributedConfig?.exploit ?? true);
     const queueFilename = getQueueFilename(agentName);
 
     // Augment prompt with queue-writing instructions for vuln agents.
@@ -200,10 +201,10 @@ export class AgentExecutionService {
         ...(queueFilename ? { queueFilename } : {}),
         ...(process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH
           ? {
-              playwrightExecutablePath: process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH,
-              playwrightOutputDir: path.join(repoPath, '.shannon', '.playwright-cli'),
-              playwrightSession: PLAYWRIGHT_SESSION_MAPPING[AGENTS[agentName].promptTemplate],
-            }
+            playwrightExecutablePath: process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH,
+            playwrightOutputDir: path.join(repoPath, '.shannon', '.playwright-cli'),
+            playwrightSession: PLAYWRIGHT_SESSION_MAPPING[AGENTS[agentName].promptTemplate],
+          }
           : {}),
         ...(input.onHeartbeat ? { onHeartbeat: input.onHeartbeat } : {}),
       },

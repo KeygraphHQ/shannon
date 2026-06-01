@@ -82,6 +82,26 @@ function generateTOTP(secret: string, timeStep: number = 30, digits: number = 6)
   return generateHOTP(secret, counter, digits);
 }
 
+// === Help ===
+
+function printHelp(): void {
+  console.log(
+    `generate-totp - emit a current 6-digit TOTP code for a base32-encoded secret.
+
+Usage:
+  generate-totp --secret <BASE32>
+  generate-totp --help
+
+Options:
+  --secret      Base32-encoded TOTP shared secret (characters A-Z, 2-7).
+  -h, --help    Show this help and exit.
+
+Output:
+  JSON to stdout. On success: {"status":"success","totpCode":"123456","expiresIn":<sec>}.
+  On error:   {"status":"error","message":"...","retryable":false} (exit 1).`,
+  );
+}
+
 // === Argument Parsing ===
 
 function parseSecret(argv: string[]): string {
@@ -97,6 +117,11 @@ function parseSecret(argv: string[]): string {
 // === Main ===
 
 function main(): void {
+  if (process.argv.includes('--help') || process.argv.includes('-h')) {
+    printHelp();
+    return;
+  }
+
   const secret = parseSecret(process.argv);
 
   if (!secret) {

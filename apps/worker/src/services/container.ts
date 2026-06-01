@@ -115,6 +115,13 @@ const DEFAULT_CONFIG: ContainerConfig = {
   auditDir: './workspaces',
 };
 
+/**
+ * Factory function for creating containers.
+ *
+ * Default: creates a plain Container with NoOp providers. Consumers can call
+ * setContainerFactory() at worker startup to inject custom provider
+ * implementations into every container.
+ */
 type ContainerFactory = (workflowId: string, sessionMetadata: SessionMetadata, config: ContainerConfig) => Container;
 
 let containerFactory: ContainerFactory = (_workflowId, sessionMetadata, config) =>

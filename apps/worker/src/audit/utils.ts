@@ -75,6 +75,14 @@ export function generateSessionJsonPath(sessionMetadata: SessionMetadata): strin
 }
 
 /**
+ * Path to the shared authenticated browser session saved by the preflight
+ * validator and consumed by downstream agents via `_shared-session.txt`.
+ */
+export function authStateFile(sessionMetadata: SessionMetadata): string {
+  return path.join(generateAuditPath(sessionMetadata), 'auth-state.json');
+}
+
+/**
  * Generate path to workflow.log file
  */
 export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): string {

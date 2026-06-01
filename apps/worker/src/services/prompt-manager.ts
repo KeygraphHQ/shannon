@@ -118,6 +118,7 @@ function renderReportFilterRules(report: ReportConfig | undefined): string {
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
 
@@ -178,6 +179,21 @@ async function buildLoginInstructions(
         userInstructions = userInstructions.replace(
           /\$totp/g,
           `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
+        );
+      }
+      if (authentication.credentials.email_login?.address) {
+        userInstructions = userInstructions.replace(/\$email_address/g, authentication.credentials.email_login.address);
+      }
+      if (authentication.credentials.email_login?.password) {
+        userInstructions = userInstructions.replace(
+          /\$email_password/g,
+          authentication.credentials.email_login.password,
+        );
+      }
+      if (authentication.credentials.email_login?.totp_secret) {
+        userInstructions = userInstructions.replace(
+          /\$email_totp/g,
+          `generated TOTP code using secret "${authentication.credentials.email_login.totp_secret}"`,
         );
       }
     }
@@ -306,6 +322,12 @@ async function interpolateVariables(
       result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
     }
 
+    if (!config?.authentication) {
+      result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+    } else {
+      result = result.replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
+    }
+
     if (config?.authentication?.login_flow) {
       const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
@@ -352,6 +374,14 @@ async function interpolateVariables(
   }
 }
 
+// Resolve promptDir override against SHANNON_WORKER_ROOT so relative paths
+// from callers stay cwd-independent.
+function resolvePromptDir(promptDir: string | undefined): string {
+  if (!promptDir) return PROMPTS_DIR;
+  if (path.isAbsolute(promptDir)) return promptDir;
+  return path.resolve(process.env.SHANNON_WORKER_ROOT ?? process.cwd(), promptDir);
+}
+
 // Pure function: Load and interpolate prompt template
 export async function loadPrompt(
   promptName: string,
@@ -362,8 +392,7 @@ export async function loadPrompt(
   promptDir?: string,
 ): Promise<string> {
   try {
-    // 1. Resolve prompt file path (promptDir override → default PROMPTS_DIR)
-    const basePromptsDir = promptDir ?? PROMPTS_DIR;
+    const basePromptsDir = resolvePromptDir(promptDir);
     const promptsDir = pipelineTestingMode ? path.join(basePromptsDir, 'pipeline-testing') : basePromptsDir;
     const promptPath = path.join(promptsDir, `${promptName}.txt`);
 

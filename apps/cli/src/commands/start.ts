@@ -65,7 +65,7 @@ export async function start(args: StartArgs): Promise<void> {
   const workspacePath = path.join(workspacesDir, workspace);
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.chmodSync(workspacePath, 0o777);
-  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', 'kiro-agents']) {
+  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright', 'kiro-agents']) {
     const dirPath = path.join(workspacePath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
     fs.chmodSync(dirPath, 0o777);
@@ -76,6 +76,7 @@ export async function start(args: StartArgs): Promise<void> {
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
     fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
   }
+  fs.mkdirSync(path.join(repo.hostPath, '.playwright'), { recursive: true });
   // Pre-create .kiro/agents mount point for kiro-cli backend
   fs.mkdirSync(path.join(repo.hostPath, '.kiro', 'agents'), { recursive: true });
 

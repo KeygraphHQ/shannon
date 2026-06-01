@@ -20,7 +20,7 @@ RUN apk update && apk add --no-cache \
     bash
 
 # Install pnpm
-RUN npm install -g pnpm@10.33.0
+RUN npm install -g --ignore-scripts pnpm@10.33.0
 
 # Install kiro-cli for headless mode executor backend
 RUN curl -fsSL https://cli.kiro.dev/install | bash && \
@@ -96,7 +96,7 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
 
-RUN npm install -g @anthropic-ai/claude-code@2.1.84 @playwright/cli@0.1.1
+RUN npm install -g --ignore-scripts @anthropic-ai/claude-code@2.1.84 @playwright/cli@0.1.1
 
 # Copy kiro-cli binaries from builder
 COPY --from=builder /usr/local/bin/kiro-cli* /usr/local/bin/

@@ -34,6 +34,8 @@ Areas to Focus On:
 
 @include(shared/_code-path-rules.txt)
 
+@include(shared/_shared-session.txt)
+
 <login_instructions>
 {{LOGIN_INSTRUCTIONS}}
 </login_instructions>

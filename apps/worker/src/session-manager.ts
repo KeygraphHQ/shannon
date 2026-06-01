@@ -151,6 +151,9 @@ function createExploitValidator(vulnType: VulnType): AgentValidator {
 // Playwright session mapping - assigns each agent to a specific session for browser isolation
 // Keys are promptTemplate values from AGENTS registry
 export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Object.freeze({
+  // Runs before any agent — non-concurrent, so agent1 is safe to share
+  'validate-authentication': 'agent1',
+
   // Phase 1: Pre-reconnaissance
   'pre-recon-code': 'agent1',
 
