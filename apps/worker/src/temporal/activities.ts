@@ -134,7 +134,11 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
  * 3. Service-based agent execution
  * 4. Error classification for Temporal retry
  */
-async function runAgentActivity(agentName: AgentName, input: ActivityInput): Promise<AgentMetrics> {
+async function runAgentActivity(
+  agentName: AgentName,
+  input: ActivityInput,
+  mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>,
+): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
 
   // Skip guard: the checkpoint provider decides whether to run the agent.
@@ -148,7 +152,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
     input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
   );
   if (decision.skip && decision.metrics) {
-    return decision.metrics;
+    return { ...decision.metrics, skipped: true };
   }
 
   const startTime = Date.now();
@@ -188,6 +192,7 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
         ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
+        ...(mcpServers && { mcpServers }),
       },
       auditSession,
       logger,
@@ -247,51 +252,201 @@ async function runAgentActivity(agentName: AgentName, input: ActivityInput): Pro
 }
 
 export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('pre-recon', input);
+  const { createPreReconCollectorServer } = await import('../mcp-server/pre-recon-collector.js');
+  const { renderPreRecon } = await import('../services/pre-recon-renderer.js');
+
+  const collector = createPreReconCollectorServer();
+  const metrics = await runAgentActivity('pre-recon', input, { 'pre-recon-collector': collector.server });
+
+  // On resume, the agent is skipped and the collector is never populated.
+  // The cached deliverable from the prior run is the source of truth.
+  if (metrics.skipped) {
+    return metrics;
+  }
+
+  const logger = createActivityLogger();
+  const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+
+  // Skipped tools surface as renderer placeholders, not as activity failures.
+  const callStatus = collector.getCallStatus();
+  logger.info('Pre-recon tool call status', { callStatus });
+
+  const collected = collector.getAll();
+  const markdown = renderPreRecon(collected);
+  const mdPath = path.join(dir, 'pre_recon_deliverable.md');
+  await atomicWrite(mdPath, markdown);
+  logger.info(`Wrote pre_recon_deliverable.md from structured data (${markdown.length} bytes)`);
+
+  return metrics;
 }
 
 export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('recon', input);
+  const { createReconCollectorServer } = await import('../mcp-server/recon-collector.js');
+  const { renderRecon } = await import('../services/recon-renderer.js');
+
+  const collector = createReconCollectorServer();
+  const metrics = await runAgentActivity('recon', input, { 'recon-collector': collector.server });
+
+  // On resume, the agent is skipped and the collector is never populated.
+  // The cached deliverable from the prior run is the source of truth.
+  if (metrics.skipped) {
+    return metrics;
+  }
+
+  const logger = createActivityLogger();
+  const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+
+  // Skipped tools surface as renderer placeholders, not as activity failures.
+  const callStatus = collector.getCallStatus();
+  logger.info('Recon tool call status', { callStatus });
+
+  const collected = collector.getAll();
+  const markdown = renderRecon(collected);
+  const mdPath = path.join(dir, 'recon_deliverable.md');
+  await atomicWrite(mdPath, markdown);
+  logger.info(`Wrote recon_deliverable.md from structured data (${markdown.length} bytes)`);
+
+  return metrics;
+}
+
+async function runVulnAgentWithCollector(
+  agentName: 'injection-vuln' | 'xss-vuln' | 'auth-vuln' | 'ssrf-vuln' | 'authz-vuln',
+  vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
+  input: ActivityInput,
+): Promise<AgentMetrics> {
+  const { createVulnCollector } = await import('../mcp-server/vuln-collector.js');
+  const { renderVulnDeliverable } = await import('../services/vuln-renderer.js');
+
+  const collector = createVulnCollector(vulnClass);
+  const metrics = await runAgentActivity(agentName, input, { 'vuln-collector': collector.server });
+
+  // On resume, the agent is skipped and the collector is never populated.
+  // The cached deliverable from the prior run is the source of truth.
+  if (metrics.skipped) {
+    return metrics;
+  }
+
+  const logger = createActivityLogger();
+  const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+
+  // Skipped tools surface as renderer placeholders, not as activity failures.
+  const callStatus = collector.getCallStatus();
+  logger.info(`${vulnClass} vuln tool call status`, { callStatus });
+
+  const collected = collector.getAll();
+  const markdown = renderVulnDeliverable(vulnClass, collected);
+  const mdPath = path.join(dir, `${vulnClass}_analysis_deliverable.md`);
+  await atomicWrite(mdPath, markdown);
+  logger.info(`Wrote ${vulnClass}_analysis_deliverable.md from structured data (${markdown.length} bytes)`);
+
+  return metrics;
 }
 
 export async function runInjectionVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('injection-vuln', input);
+  return runVulnAgentWithCollector('injection-vuln', 'injection', input);
 }
 
 export async function runXssVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('xss-vuln', input);
+  return runVulnAgentWithCollector('xss-vuln', 'xss', input);
 }
 
 export async function runAuthVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('auth-vuln', input);
+  return runVulnAgentWithCollector('auth-vuln', 'auth', input);
 }
 
 export async function runSsrfVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('ssrf-vuln', input);
+  return runVulnAgentWithCollector('ssrf-vuln', 'ssrf', input);
 }
 
 export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('authz-vuln', input);
+  return runVulnAgentWithCollector('authz-vuln', 'authz', input);
+}
+
+interface ExploitQueueEntry {
+  ID?: string;
+  vulnerability_type?: string;
+}
+
+interface ExploitQueueDocument {
+  vulnerabilities?: ExploitQueueEntry[];
+}
+
+async function readExploitQueue(queuePath: string): Promise<{ validIds: Set<string>; idToType: Map<string, string> }> {
+  const validIds = new Set<string>();
+  const idToType = new Map<string, string>();
+  if (!(await fileExists(queuePath))) {
+    return { validIds, idToType };
+  }
+  const doc = await readJson<ExploitQueueDocument>(queuePath);
+  for (const entry of doc.vulnerabilities ?? []) {
+    if (!entry.ID) continue;
+    validIds.add(entry.ID);
+    idToType.set(entry.ID, entry.vulnerability_type ?? 'unknown');
+  }
+  return { validIds, idToType };
+}
+
+async function runExploitAgentWithCollector(
+  agentName: 'injection-exploit' | 'xss-exploit' | 'auth-exploit' | 'ssrf-exploit' | 'authz-exploit',
+  vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
+  input: ActivityInput,
+): Promise<AgentMetrics> {
+  const { createExploitCollector } = await import('../mcp-server/exploit-collector.js');
+  const { renderExploitDeliverable } = await import('../services/exploit-renderer.js');
+
+  const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  const queuePath = path.join(dir, `${vulnClass}_exploitation_queue.json`);
+  const { validIds, idToType } = await readExploitQueue(queuePath);
+
+  const collector = createExploitCollector({ vulnClass, validIds });
+  const metrics = await runAgentActivity(agentName, input, { 'exploit-collector': collector.server });
+
+  // On resume, the agent is skipped and the collector is never populated.
+  // The cached deliverable from the prior run is the source of truth.
+  if (metrics.skipped) {
+    return metrics;
+  }
+
+  const logger = createActivityLogger();
+  const collected = collector.getAll();
+  const emittedIds = new Set(collected.map((e) => e.vulnerability_id));
+  const missingIds = [...validIds].filter((id) => !emittedIds.has(id));
+  const exploitedCount = collected.filter((e) => e.status === 'exploited').length;
+  const blockedCount = collected.filter((e) => e.status === 'blocked').length;
+
+  logger.info(`${vulnClass} exploit tool call metrics`, {
+    queueSize: validIds.size,
+    exploited: exploitedCount,
+    blocked: blockedCount,
+    missing: missingIds.length,
+  });
+
+  const markdown = renderExploitDeliverable(vulnClass, collected, idToType);
+  const mdPath = path.join(dir, `${vulnClass}_exploitation_evidence.md`);
+  await atomicWrite(mdPath, markdown);
+  logger.info(`Wrote ${vulnClass}_exploitation_evidence.md from structured data (${markdown.length} bytes)`);
+
+  return metrics;
 }
 
 export async function runInjectionExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('injection-exploit', input);
+  return runExploitAgentWithCollector('injection-exploit', 'injection', input);
 }
 
 export async function runXssExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('xss-exploit', input);
+  return runExploitAgentWithCollector('xss-exploit', 'xss', input);
 }
 
 export async function runAuthExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('auth-exploit', input);
+  return runExploitAgentWithCollector('auth-exploit', 'auth', input);
 }
 
 export async function runSsrfExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('ssrf-exploit', input);
+  return runExploitAgentWithCollector('ssrf-exploit', 'ssrf', input);
 }
 
 export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('authz-exploit', input);
+  return runExploitAgentWithCollector('authz-exploit', 'authz', input);
 }
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
