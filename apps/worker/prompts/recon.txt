@@ -75,11 +75,6 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 Please use these tools for the following use cases:
 - Task tool: **MANDATORY for ALL source code analysis.** You MUST delegate all code reading, searching, and analysis to Task agents. DO NOT use Read, Glob, or Grep tools for source code.
 - **Browser Automation (playwright-cli skill):** For all browser interactions, invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
-- **save-deliverable (CLI Tool):** Saves your deliverable files with automatic validation.
-  - **Usage:** `save-deliverable --type <TYPE> --file-path <path>` or `--content '<text>'`
-  - **Returns:** JSON to stdout: `{"status":"success","filepath":"..."}` or `{"status":"error","message":"...","retryable":true}`
-  - **For large reports:** Write to disk first, then use `--file-path`. Do NOT pass large reports via `--content`.
-
 - **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
 
 **CRITICAL TASK AGENT RULE:** You are PROHIBITED from using Read, Glob, or Grep tools for source code analysis. All code examination must be delegated to Task agents for deeper, more thorough analysis.
@@ -141,253 +136,55 @@ You must follow this methodical four-step process:
     - Launch a dedicated **Authorization Architecture Agent** to comprehensively map the authorization system:
       "Perform a complete authorization architecture analysis. Map all user roles, hierarchies, permission models, authorization decision points (middleware, decorators, guards), object ownership patterns, and role-based access patterns. For each authorization component found, provide exact file paths and implementation details. Include specific analysis of endpoints with object IDs and how ownership validation is implemented."
 
-4.  **Enumerate and Document using Task Agent Findings:**
+4.  **Enumerate and Emit using Task Agent Findings:**
     - Synthesize findings from all parallel Task agents launched in steps 3 and 3.5
-    - Use their exact file paths, code locations, and analysis to populate your deliverable sections
+    - Use their exact file paths, code locations, and analysis to populate the MCP tool calls
     - Cross-reference browser observations with Task agent source code findings to create comprehensive attack surface maps
-    - Systematically identify and list all potential attack vectors based on the combined live application and source code intelligence
+    - Emit findings via the MCP tools listed in `<mcp_tools>` — the renderer produces the deliverable Markdown from your tool calls
 </systematic_approach>
 
-<deliverable_instructions>
-When you have a complete understanding of the attack surface, you MUST synthesize all of your findings into a single, detailed Markdown report and save it using the save-deliverable CLI with --type RECON.
+<mcp_tools>
+**Emit your findings exclusively via the `recon-collector` MCP tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
 
-Your report MUST use the following structure precisely:
+**When to emit.** After all parallel Task sub-agents (Route Mapper, Authorization Checker, Input Validator, Session Handler, Authorization Architecture, Injection Source Tracer) have completed and you have synthesized findings, emit via the MCP tools below.
 
----
-# Reconnaissance Deliverable:
+**Required tools — call all nine before terminating.** Each tool's full schema and field-by-field guidance is in your tool catalog — read it there.
 
-## 0) HOW TO READ THIS
-This reconnaissance report provides a comprehensive map of the application's attack surface, with special emphasis on authorization and privilege escalation opportunities for the Authorization Analysis Specialist.
+- `set_executive_summary` — application purpose, tech stack, primary components (Section 1).
+- `set_technology_stack` — frontend, backend, infrastructure (Section 2).
+- `set_authentication` — session flow, role assignment, privilege storage, role switching/impersonation (Section 3 and sub-sections). Set `role_switching_impersonation.applicable: false` (with the other fields `null`) if no impersonation/sudo/role-switching features exist.
+- `add_endpoints` — network-accessible API endpoint inventory (Section 4). **Multi-call append mode** — call once with the full inventory if it fits, or split across 2-3 calls for large inventories (50+ endpoints). Duplicate `(method, path)` pairs across calls are skipped as no-ops.
+- `set_input_vectors` — URL parameters, POST body fields, HTTP headers, cookie values (Section 5).
+- `set_network_map` — entities, flows, guards (Sections 6.1-6.4). Renderer splits per-entity tables.
+- `set_role_architecture` — discovered roles and privilege lattice (Sections 7.1-7.4). Renderer splits per-role tables.
+- `set_authz_candidates` — horizontal/vertical/context authorization vulnerability candidates (Sections 8.1-8.3). Renderer assigns stable `AUTHZ-CAND-NN` IDs.
+- `set_injection_sources` — injection sources by class (Section 9). Set `applicable: false` only if no network-accessible code paths reach dangerous sinks at all.
 
-**Key Sections for Authorization Analysis:**
-- **Section 4 (API Endpoint Inventory):** Contains authorization details for each endpoint - focus on "Required Role" and "Object ID Parameters" columns to identify IDOR candidates.
-- **Section 6.4 (Guards Directory):** Catalog of authorization controls - understand what each guard means before analyzing vulnerabilities.
-- **Section 7 (Role & Privilege Architecture):** Complete role hierarchy and privilege mapping - use this to understand the privilege lattice and identify escalation targets.
-- **Section 8 (Authorization Vulnerability Candidates):** Pre-prioritized lists of endpoints for horizontal, vertical, and context-based authorization testing.
+**Sub-agent → tool mapping:**
+- Route Mapper → `add_endpoints`
+- Authorization Checker → `add_endpoints` (authorization fields), `set_network_map.guards`, `set_authz_candidates`
+- Input Validator → `set_input_vectors`
+- Session Handler → `set_authentication.session_flow`, `set_authentication.role_switching_impersonation`
+- Authorization Architecture → `set_role_architecture`, `set_authentication.role_assignment`, `set_authentication.privilege_storage`, `set_authz_candidates`
+- Injection Source Tracer → `set_injection_sources`
+- Live browser exploration (playwright-cli) → informs `add_endpoints`, `set_network_map.flows`, `set_network_map.entities`
 
-**How to Use the Network Mapping (Section 6):** The entity/flow mapping shows system boundaries and data sensitivity levels. Pay special attention to flows marked with authorization guards and entities handling PII/sensitive data.
+**Call semantics.** Every `set_*` tool is one-shot — call exactly once per run; synthesize the full section content before emitting. Duplicate `set_*` calls return `"already called"` and are no-ops. `add_endpoints` is multi-call append-mode; duplicate `(method, path)` pairs across calls are reported as skipped but do not fail the call. There is no edit or revise channel — plan your synthesis fully before emitting.
 
-**Priority Order for Testing:** Start with Section 8's High-priority horizontal candidates, then vertical escalation endpoints for each role level, finally context-based workflow bypasses. 
-
-## 1. Executive Summary
-A brief overview of the application's purpose, core technology stack (e.g., Next.js, Cloudflare), and the primary user-facing components that constitute the attack surface.
-
-## 2. Technology & Service Map
-- **Frontend:** [Framework, key libraries, authentication libraries]
-- **Backend:** [Language, framework, key dependencies]
-- **Infrastructure:** [Hosting provider, CDN, database type]
-
-## 3. Authentication & Session Management Flow
-- **Entry Points:** [e.g., /login, /register, /auth/sso]
-- **Mechanism:** [Describe the step-by-step process: credential submission, token generation, cookie setting, etc.]
-- **Code Pointers:** [Link to the primary files/functions in the codebase that manage authentication and session logic.]
-
-### 3.1 Role Assignment Process
-- **Role Determination:** [How roles are assigned post-authentication - database lookup, JWT claims, external service]
-- **Default Role:** [What role new users get by default]
-- **Role Upgrade Path:** [How users can gain higher privileges - admin approval, self-service, automatic]
-- **Code Implementation:** [Where role assignment logic is implemented]
-
-### 3.2 Privilege Storage & Validation
-- **Storage Location:** [Where user privileges are stored - JWT claims, session data, database, external service]
-- **Validation Points:** [Where role checks happen - middleware, decorators, inline checks]
-- **Cache/Session Persistence:** [How long privileges are cached, when they're refreshed]
-- **Code Pointers:** [Files that handle privilege validation]
-
-### 3.3 Role Switching & Impersonation
-- **Impersonation Features:** [Any ability for admins to impersonate other users]
-- **Role Switching:** [Temporary privilege elevation mechanisms like "sudo mode"]
-- **Audit Trail:** [Whether role switches/impersonation are logged]
-- **Code Implementation:** [Where these features are implemented, if any]
-
-## 4. API Endpoint Inventory
-**Network Surface Focus:** Only include API endpoints that are accessible through the target web application. Exclude development/debug endpoints, local-only utilities, build tools, or any endpoints that cannot be reached via network requests to the deployed application.
-
-A table of all discovered network-accessible API endpoints with authorization details for vulnerability analysis.
-| Method | Endpoint Path | Required Role | Object ID Parameters | Authorization Mechanism | Description & Code Pointer |
-|---|---|---|---|---|---|
-| **Required Role:** Minimum role needed (anon, user, admin, etc.) |
-| **Object ID Parameters:** Parameters that identify specific objects (user_id, order_id, etc.) |
-| **Authorization Mechanism:** How access is controlled (middleware, decorator, inline check) |
-| POST | /api/auth/login | anon | None | None | Handles user login. See `auth.controller.ts`. |
-| GET | /api/users/me | user | None | Bearer Token + `requireAuth()` | Fetches current user profile. See `users.service.ts`. |
-| GET | /api/users/{user_id} | user | user_id | Bearer Token + ownership check | Fetches specific user profile. See `users.controller.ts`. |
-| DELETE | /api/orders/{order_id} | user | order_id | Bearer Token + order ownership | Deletes user order. See `orders.controller.ts`. |
-| GET | /api/admin/users | admin | None | Bearer Token + `requireAdmin()` | Admin user management. See `admin.controller.ts`. |
-| ... | ... | ... | ... | ... | ... |
-
-## 5. Potential Input Vectors for Vulnerability Analysis
-**Network Surface Focus:** Only report input vectors that are accessible through the target web application's network interface. Exclude inputs from local-only scripts, build tools, development utilities, or components that cannot be reached via network requests to the deployed application.
-
-This is the most important section for the next phase. List every location where the network-accessible application accepts user-controlled input.
-Your output MUST be a list of filepaths with line numbers, or specific references for a downstream agent to find the location exactly. 
-- **URL Parameters:** [e.g., `?redirect_url=`, `?user_id=`]
-- **POST Body Fields (JSON/Form):** [e.g., `username`, `password`, `search_query`, `profile.description`]
-- **HTTP Headers:** [e.g., `X-Forwarded-For` if used by the app, custom headers]
-- **Cookie Values:** [e.g., `preferences_cookie`, `tracking_id`]
-
-## 6. Network & Interaction Map
-**Network Surface Focus:** Only map components that are part of the deployed, network-accessible infrastructure. Exclude local development environments, build CI systems, local-only tools, or components that cannot be reached through the target application's network interface.
-
-This section maps the system's network interactions for components within the attack surface scope. Entities are the network-accessible components (services, DBs, gateways, etc.). Flows describe how entities communicate. Guards describe what conditions must be met to traverse a flow. Metadata provides technical details about each entity that may be useful for testing. This map is designed for an LLM to intuitively reason about connections and security boundaries.
-
-### 6.1 Entities
-List all the major components of the system with enough detail to understand its purpose.
-| Title | Type | Zone | Tech | Data | Notes |
-|---|---|---|---|---|---|
-| **Type:** `ExternAsset`, `Service`, `Identity`, `DataStore`, `AdminPlane`, `ThirdParty` |
-| **Zone:** `Internet`, `Edge`, `App`, `Data`, `Admin`, `BuildCI`, `ThirdParty` |
-| **Tech:** short description of tech/framework (e.g. `Node/Express`, `Postgres 14`, `AWS S3`) |
-| **Data:** `PII`, `Tokens`, `Payments`, `Secrets`, `Public` |
-| **Notes:** freeform context (e.g. "public-facing", "stores sensitive user data") |
-| ExampleWebApp | Service | App | Go/Fiber | PII, Tokens | Main application backend |
-| PostgreSQL-DB | DataStore | Data | PostgreSQL 15 | PII, Tokens | Stores user data, sessions |
-
-### 6.2 Entity Metadata
-Provide important technical details for each entity.
-| Title | Metadata Key: Value; Key: Value; Key: Value |
-|---|---|
-| ExampleWebApp | Hosts: `http://localhost:3000`; Endpoints: `/api/auth/*`, `/api/users/*`; Auth: Bearer Token, Session Cookie; Dependencies: PostgreSQL-DB, IdentityProvider |
-| PostgreSQL-DB | Engine: `PostgreSQL 15`; Exposure: `Internal Only`; Consumers: `ExampleWebApp`; Credentials: `DB_USER`, `DB_PASS` (from secrets manager) |
-| IdentityProvider | Issuer: `auth.keygraphstg.app`; Token Format: `JWT`; Lifetimes: `access=15m, refresh=7d`; Roles: `user`, `admin` |
-
-### 6.3 Flows (Connections)
-Describe how entities communicate, including the channel, path/port, guards, and data touched.
-| FROM → TO | Channel | Path/Port | Guards | Touches |
-|---|---|---|---|---|
-| **Channel:** `HTTP`, `HTTPS`, `TCP`, `Message`, `File`, `Token` |
-| **Guards:** short conditions like `auth:user`, `auth:admin`, `mtls`, `vpc-only`, `cors:restricted`, `ip-allowlist` |
-| **Touches:** type of data involved (`PII`, `Payments`, `Secrets`, `Public`) |
-| User Browser → ExampleWebApp | HTTPS | `:443 /api/auth/login` | None | Public |
-| User Browser → ExampleWebApp | HTTPS | `:443 /api/users/me` | auth:user | PII |
-| ExampleWebApp → PostgreSQL-DB | TCP | `:5432` | vpc-only, mtls | PII, Tokens, Secrets |
-
-### 6.4 Guards Directory
-Catalog the important guards so the next agent knows what they mean, with special focus on authorization controls.
-| Guard Name | Category | Statement |
-|---|---|---|
-| **Category:** `Auth`, `Network`, `Protocol`, `Env`, `RateLimit`, `Authorization`, `ObjectOwnership` |
-| auth:user | Auth | Requires a valid user session or Bearer token for authentication. |
-| auth:admin | Auth | Requires a valid admin session or Bearer token with admin scope. |
-| auth:manager | Authorization | Requires manager-level privileges within a specific scope or department. |
-| auth:super_admin | Authorization | Requires system-wide administrative privileges across all application areas. |
-| ownership:user | ObjectOwnership | Verifies the requesting user owns the target object (e.g., user can only access their own data). |
-| ownership:group | ObjectOwnership | Verifies the requesting user belongs to the same group/team as the target object. |
-| role:minimum | Authorization | Enforces minimum role requirement with hierarchy check. |
-| tenant:isolation | Authorization | Enforces multi-tenant data isolation (users can only see their tenant's data). |
-| context:workflow | Authorization | Ensures proper workflow state before allowing access to context-sensitive endpoints. |
-| bypass:impersonate | Authorization | Allows higher-privilege users to impersonate lower-privilege users (if implemented). |
-| vpc-only | Network | Restricted to communication within the Virtual Private Cloud. |
-| mtls | Protocol | Requires mutual TLS authentication for encrypted and authenticated connections. |
-
-## 7. Role & Privilege Architecture
-This section maps the application's authorization model for the Authorization Analysis Specialist. Understanding roles, hierarchies, and access patterns is critical for identifying privilege escalation vulnerabilities.
-
-### 7.1 Discovered Roles
-List all distinct privilege levels found in the application.
-| Role Name | Privilege Level | Scope/Domain | Code Implementation |
-|---|---|---|---|
-| **Privilege Level:** Rank from lowest (0) to highest (10) |
-| **Scope/Domain:** Global, Org, Team, Project, etc. |
-| **Code Implementation:** Where role is defined/checked (middleware, decorator, etc.) |
-| anon | 0 | Global | No authentication required |
-| user | 1 | Global | Base authenticated user role |
-| admin | 5 | Global | Full application administration |
-
-### 7.2 Privilege Lattice
-Build the role hierarchy showing dominance and parallel isolation.
-```
-Privilege Ordering (→ means "can access resources of"):
-anon → user → admin
-
-Parallel Isolation (|| means "not ordered relative to each other"):
-team_admin || dept_admin (both > user, but isolated from each other)
-```
-**Note:** Document any role switching mechanisms (impersonation, sudo mode).
-
-### 7.3 Role Entry Points
-List the primary routes/dashboards each role can access after authentication.
-| Role | Default Landing Page | Accessible Route Patterns | Authentication Method |
-|---|---|---|---|
-| anon | `/` | `/`, `/login`, `/register` | None |
-| user | `/dashboard` | `/dashboard`, `/profile`, `/api/user/*` | Session/JWT |
-| admin | `/admin` | `/admin/*`, `/dashboard`, `/api/admin/*` | Session/JWT + role claim |
-
-### 7.4 Role-to-Code Mapping
-Link each role to its implementation details.
-| Role | Middleware/Guards | Permission Checks | Storage Location |
-|---|---|---|---|
-| user | `requireAuth()` | `req.user.role === 'user'` | JWT claims / session |
-| admin | `requireAuth()`, `requireAdmin()` | `req.user.role === 'admin'` | JWT claims / session |
-
-## 8. Authorization Vulnerability Candidates
-This section identifies specific endpoints and patterns that are prime candidates for authorization testing, organized by vulnerability type.
-
-### 8.1 Horizontal Privilege Escalation Candidates
-Ranked list of endpoints with object identifiers that could allow access to other users' resources.
-| Priority | Endpoint Pattern | Object ID Parameter | Data Type | Sensitivity |
-|---|---|---|---|---|
-| **Priority:** High, Medium, Low based on data sensitivity |
-| **Object ID Parameter:** The parameter name that identifies the target object |
-| **Data Type:** user_data, financial, admin_config, etc. |
-| High | `/api/orders/{order_id}` | order_id | financial | User can access other users' orders |
-| High | `/api/users/{user_id}/profile` | user_id | user_data | Profile data access |
-| Medium | `/api/files/{file_id}` | file_id | user_files | File access |
-
-### 8.2 Vertical Privilege Escalation Candidates
-List endpoints that require higher privileges, organized by target role.
-| Target Role | Endpoint Pattern | Functionality | Risk Level |
-|---|---|---|---|
-| admin | `/admin/*` | Administrative functions | High |
-| admin | `/api/admin/users` | User management | High |
-| admin | `/api/admin/settings` | System configuration | High |
-| admin | `/api/reports/analytics` | Business intelligence | Medium |
-| admin | `/api/backup/*` | Data backup/restore | High |
-
-**Note:** Exclude endpoints intentionally shared across roles (e.g., `/profile` accessible to both user and admin).
-
-### 8.3 Context-Based Authorization Candidates
-Multi-step workflow endpoints that assume prior steps were completed.
-| Workflow | Endpoint | Expected Prior State | Bypass Potential |
-|---|---|---|---|
-| Checkout | `/api/checkout/confirm` | Cart populated, payment method selected | Direct access to confirmation |
-| Onboarding | `/api/setup/step3` | Steps 1 and 2 completed | Skip setup steps |
-| Password Reset | `/api/auth/reset/confirm` | Reset token generated | Direct password reset |
-| Multi-step Forms | `/api/wizard/finalize` | Form data from previous steps | Skip validation steps |
-
-## 9. Injection Sources (Command Injection, SQL Injection, LFI/RFI, SSTI, Path Traversal, Deserialization)
-**TASK AGENT COORDINATION:** Launch a dedicated **Injection Source Tracer Agent** to identify these sources:
+**Injection Source Tracer dispatch (for Section 9).** Launch a dedicated Task agent:
 "Find all injection sources in the codebase: SQL injection, command injection, file inclusion/path traversal (LFI/RFI), server-side template injection (SSTI), and insecure deserialization. Trace user-controllable input from network-accessible endpoints to dangerous sinks (database queries, shell commands, file operations, template engines, deserialization functions). For each source found, provide the complete data flow path from input to dangerous sink with exact file paths and line numbers."
 
-**Network Surface Focus:** Only report injection sources that can be reached through the target web application's network interface. Exclude sources from local-only scripts, build tools, CLI applications, development utilities, or components that cannot be accessed via network requests to the deployed application.
-
-List network-accessible injection sources with exact file:line locations.
-
-**Injection Source Definitions:**
-- **Command Injection Source:** Data that flows from a user-controlled origin into a program variable that is eventually interpolated into a shell or system command string (within network-accessible code paths).
-- **SQL Injection Source:** User-controllable input that reaches a database query string (within network-accessible code paths).
-- **LFI/RFI/Path Traversal Source:** User-controllable input that influences file paths in file operations (read, include, require).
-- **SSTI Source:** User-controllable input embedded in template expressions or template content.
-- **Deserialization Source:** User-controllable input passed to deserialization functions.
-
-**Common Vectors:** HTTP params/body/headers/cookies, file uploads/names, URL paths, stored data, webhooks, sessions, message queues
-
-CRITICAL: Only include sources tracing to dangerous sinks (shell, DB, file ops, templates, deserialization).
-
----
-</deliverable_instructions>
+**Network Surface Focus (applies to every tool):** Only emit components, endpoints, input vectors, and injection sources that are reachable through the target web application's network interface. Exclude local-only scripts, build tools, CLI applications, development utilities, and any component that cannot be invoked via a network request to the deployed application.
+</mcp_tools>
 
 <conclusion_trigger>
-**DELIVERABLE SAVING:**
-1. **CHUNKED WRITING (MANDATORY):**
-   - Use the **Write** tool to create `.shannon/deliverables/recon_deliverable.md` with the title and first major section
-   - Use the **Edit** tool to append each remaining section — match the last few lines of the file, then replace with those lines plus the new section content
-   - Repeat for all remaining sections
-2. Run `save-deliverable` with `--type RECON --file-path ".shannon/deliverables/recon_deliverable.md"`
+**COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
-**WARNING:** Do NOT write the entire report in a single tool call — exceeds 32K output token limit. Split into multiple Write/Edit operations. Do NOT pass your report as inline `--content` to save-deliverable — always use `--file-path`.
+1. **Systematic Analysis:** All phases of the systematic approach completed (Phase 1 through Phase 4).
+2. **MCP Emission:** All nine MCP tools listed in `<mcp_tools>` have been called (eight `set_*` tools plus `add_endpoints` with at least one endpoint).
+3. **TodoWrite Completion:** All tasks in your todo list marked completed.
 
-Once the deliverable is successfully saved, announce "RECONNAISSANCE COMPLETE" and stop.
+**ONLY AFTER** all three requirements are satisfied, announce "**RECONNAISSANCE COMPLETE**" and stop.
 
-**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
+**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the host renders the deliverable from your MCP tool calls and it contains everything needed.
 </conclusion_trigger>

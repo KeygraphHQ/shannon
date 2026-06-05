@@ -6,7 +6,6 @@
 
 import { fs, path } from 'zx';
 
-import { validateQueueAndDeliverable } from './services/queue-validation.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
 
@@ -126,26 +125,34 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   report: 'reporting',
 });
 
-// Factory function for vulnerability queue validators
+// Factory function for vulnerability queue validators.
+//
+// Post-MCP-migration, the analysis_deliverable.md is rendered by the activity
+// wrapper after validateAgentOutput runs, so the previous "both files exist"
+// check would race the renderer. The validator only checks the queue.json —
+// that file is written by the SDK structured-output path in agent-execution.ts
+// before this validator runs. The downstream checkExploitationQueue still
+// renders the .md.
 function createVulnValidator(vulnType: VulnType): AgentValidator {
   return async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
-    try {
-      await validateQueueAndDeliverable(vulnType, sourceDir);
-      return true;
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-      logger.warn(`Queue validation failed for ${vulnType}: ${errMsg}`);
+    const queueFile = path.join(sourceDir, `${vulnType}_exploitation_queue.json`);
+    const queueExists = await fs.pathExists(queueFile);
+    if (!queueExists) {
+      logger.warn(`Queue validation failed for ${vulnType}: ${vulnType}_exploitation_queue.json missing`);
       return false;
     }
+    return true;
   };
 }
 
-// Factory function for exploit deliverable validators
-function createExploitValidator(vulnType: VulnType): AgentValidator {
-  return async (sourceDir: string): Promise<boolean> => {
-    const evidenceFile = path.join(sourceDir, `${vulnType}_exploitation_evidence.md`);
-    return await fs.pathExists(evidenceFile);
-  };
+// Exploitation agents — validation lives in runExploitAgentWithCollector post-processing
+// (collector harvest + renderer write). The deliverable file is written by the renderer
+// after the agent succeeds, so a file-existence check here would race the renderer.
+//
+// VulnType is kept in the import surface for createVulnValidator above; this factory
+// returns a no-op validator parameterized only for symmetry with the vuln-side factory.
+function createExploitValidator(_vulnType: VulnType): AgentValidator {
+  return async (): Promise<boolean> => true;
 }
 
 // Playwright session mapping - assigns each agent to a specific session for browser isolation
@@ -180,17 +187,15 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
-  // Pre-reconnaissance agent - validates the code analysis deliverable created by the agent
-  'pre-recon': async (sourceDir: string): Promise<boolean> => {
-    const codeAnalysisFile = path.join(sourceDir, 'pre_recon_deliverable.md');
-    return await fs.pathExists(codeAnalysisFile);
-  },
+  // Pre-reconnaissance agent — skipped tools surface as renderer placeholders, not
+  // activity failures. The deliverable file is written by the renderer after the agent
+  // succeeds, so a file-existence check here would race the renderer.
+  'pre-recon': async (): Promise<boolean> => true,
 
-  // Reconnaissance agent
-  recon: async (sourceDir: string): Promise<boolean> => {
-    const reconFile = path.join(sourceDir, 'recon_deliverable.md');
-    return await fs.pathExists(reconFile);
-  },
+  // Reconnaissance agent — validation lives in runReconAgent post-processing.
+  // The deliverable file is written by the renderer after the agent succeeds, so a
+  // file-existence check here would race the renderer.
+  recon: async (): Promise<boolean> => true,
 
   // Vulnerability analysis agents
   'injection-vuln': createVulnValidator('injection'),

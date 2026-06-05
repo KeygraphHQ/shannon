@@ -137,6 +137,7 @@ export async function runClaudePrompt(
   apiKey?: string,
   deliverablesSubdir?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
+  mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>,
 ): Promise<ClaudePromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -229,6 +230,7 @@ export async function runClaudePrompt(
     env: sdkEnv,
     ...(adaptiveThinking && { thinking: { type: 'adaptive' as const } }),
     ...(outputFormat && { outputFormat }),
+    ...(mcpServers && Object.keys(mcpServers).length > 0 && { mcpServers }),
   };
 
   if (!execContext.useCleanOutput) {
