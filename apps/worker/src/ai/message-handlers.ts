@@ -164,6 +164,33 @@ function handleStructuredError(errorType: SDKAssistantMessageError, content: str
           true, // Retryable - may succeed with different content
         ),
       };
+    case 'overloaded':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Anthropic API overloaded (structured): ${content.slice(0, 100)}`,
+          'network',
+          true, // Retryable with backoff
+        ),
+      };
+    case 'model_not_found':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Model not found: ${content.slice(0, 100)}`,
+          'config',
+          false, // Not retryable - model ID is misconfigured
+        ),
+      };
+    case 'oauth_org_not_allowed':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Organization not allowed for this credential: ${content.slice(0, 100)}`,
+          'config',
+          false, // Not retryable - needs credential/org fix
+        ),
+      };
     default:
       return { detected: true };
   }
