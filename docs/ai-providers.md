@@ -23,6 +23,8 @@ ANTHROPIC_API_KEY=your-api-key
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
+Each tier can be pointed at any Claude model via `ANTHROPIC_SMALL_MODEL` / `ANTHROPIC_MEDIUM_MODEL` / `ANTHROPIC_LARGE_MODEL` (or the setup wizard). If you set a tier to `claude-fable-5`, note that Fable's safety classifiers route cybersecurity tasks to Opus 4.8, so those phases run on Opus 4.8 regardless.
+
 ## AWS Bedrock
 
 Run `npx @keygraph/shannon setup` and select **AWS Bedrock**. The wizard prompts for region, bearer token, and model IDs.

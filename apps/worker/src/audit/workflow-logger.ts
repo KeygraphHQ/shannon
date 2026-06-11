@@ -12,6 +12,7 @@
  */
 
 import fs from 'node:fs/promises';
+import { isFableModel, resolveModel } from '../ai/models.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
 import { LogStream } from './log-stream.js';
 import { generateWorkflowLogPath, type SessionMetadata } from './utils.js';
@@ -77,18 +78,31 @@ export class WorkflowLogger {
    * Write header to log file
    */
   private async writeHeader(): Promise<void> {
-    const header = [
+    const lines = [
       `================================================================================`,
       `Shannon Pentest - Workflow Log`,
       `================================================================================`,
       `Workflow ID: ${this.workflowId ?? this.sessionMetadata.id}`,
       `Target URL:  ${this.sessionMetadata.webUrl}`,
       `Started:     ${formatTimestamp()}`,
-      `================================================================================`,
-      ``,
-    ].join('\n');
+    ];
 
-    return this.logStream.write(header);
+    // Surface Fable usage: its safety classifiers route cybersecurity tasks to
+    // Opus 4.8, so those phases run on Opus 4.8 regardless of the tier setting.
+    const fableTiers = (['small', 'medium', 'large'] as const)
+      .map((tier) => ({ tier, model: resolveModel(tier) }))
+      .filter(({ model }) => isFableModel(model));
+    if (fableTiers.length > 0) {
+      const tierList = fableTiers.map(({ tier, model }) => `${tier} (${model})`).join(', ');
+      lines.push(
+        `Note:        ${tierList} set to a Fable model. Fable's safety classifiers`,
+        `             route cybersecurity tasks to Opus 4.8, so those phases run on Opus 4.8.`,
+      );
+    }
+
+    lines.push(`================================================================================`, ``);
+
+    return this.logStream.write(lines.join('\n'));
   }
 
   /**

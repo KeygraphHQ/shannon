@@ -25,6 +25,7 @@ import type {
   AssistantResult,
   ContentBlock,
   ExecutionContext,
+  ModelRefusalFallbackMessage,
   ResultData,
   ResultMessage,
   SystemInitMessage,
@@ -342,6 +343,15 @@ export async function dispatchMessage(
           logger.info(`Model: ${initMsg.model}, Permission: ${initMsg.permissionMode}`);
         }
         return { type: 'continue', model: initMsg.model };
+      }
+      if (message.subtype === 'model_refusal_fallback') {
+        const fallback = message as ModelRefusalFallbackMessage;
+        const category = fallback.api_refusal_category ?? 'policy';
+        await auditLogger.logNote(
+          'model-fallback',
+          `Model refused (${category}); fell back ${fallback.original_model} → ${fallback.fallback_model}`,
+        );
+        return { type: 'continue' };
       }
       return { type: 'continue' };
     }
