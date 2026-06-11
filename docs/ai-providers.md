@@ -35,7 +35,7 @@ export AWS_REGION=us-east-1
 export AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
 export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-7
+export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
 ```
 
 Source-build `.env` equivalent:
@@ -46,7 +46,7 @@ AWS_REGION=us-east-1
 AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
 ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
 ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-7
+ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
 ```
 
 Shannon Lite uses three model tiers:
@@ -72,7 +72,7 @@ export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
 export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-sa-key.json
 export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
 export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-7
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-8
 ```
 
 Source-build `.env` equivalent:
@@ -84,7 +84,7 @@ ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
 GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-sa-key.json
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-7
+ANTHROPIC_LARGE_MODEL=claude-opus-4-8
 ```
 
 Set `CLOUD_ML_REGION=global` for global endpoints, or use a specific region like `us-east5`. Some models may not be available on global endpoints.
@@ -105,7 +105,7 @@ export ANTHROPIC_BASE_URL=https://your-proxy.example.com
 export ANTHROPIC_AUTH_TOKEN=your-auth-token
 export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
 export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-7
+export ANTHROPIC_LARGE_MODEL=claude-opus-4-8
 ```
 
 Source-build `.env` equivalent:
@@ -115,5 +115,5 @@ ANTHROPIC_BASE_URL=https://your-proxy.example.com
 ANTHROPIC_AUTH_TOKEN=your-auth-token
 ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
 ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-7
+ANTHROPIC_LARGE_MODEL=claude-opus-4-8
 ```
