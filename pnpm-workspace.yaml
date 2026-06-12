@@ -2,4 +2,4 @@ packages:
   - "apps/*"
 
 catalog:
-  "@anthropic-ai/claude-agent-sdk": ^0.3.163
+  "@anthropic-ai/claude-agent-sdk": ^0.3.173

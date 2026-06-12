@@ -98,6 +98,15 @@ export interface SystemInitMessage {
   permissionMode?: string;
 }
 
+/** Emitted when a model refuses a request and the SDK falls back to another model (e.g. Fable 5 routing cybersecurity tasks to Opus 4.8). */
+export interface ModelRefusalFallbackMessage {
+  type: 'system';
+  subtype: 'model_refusal_fallback';
+  original_model: string;
+  fallback_model: string;
+  api_refusal_category?: string | null;
+}
+
 export interface UserMessage {
   type: 'user';
 }

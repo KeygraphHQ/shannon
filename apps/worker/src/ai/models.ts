@@ -40,3 +40,12 @@ export function resolveModel(tier: ModelTier = 'medium'): string {
 export function supportsAdaptiveThinking(model: string): boolean {
   return /opus-4-[678]/.test(model);
 }
+
+/**
+ * Whether a model is in the Fable family. Fable's safety classifiers flag
+ * cybersecurity tasks and route them to Opus 4.8, so a security scan on Fable
+ * largely runs on Opus 4.8 anyway.
+ */
+export function isFableModel(model: string): boolean {
+  return /fable/i.test(model);
+}
