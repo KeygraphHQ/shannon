@@ -1,0 +1,145 @@
+# Source Build and CLI Commands
+
+This guide covers the source-build workflow, common CLI commands, repository paths, and output locations. For the fastest first run, use the `npx` workflow in the main README.
+
+## Prerequisites
+
+- Docker
+- Node.js 18+
+- pnpm
+- AI provider credentials
+
+## Clone and Build
+
+Use the source-build workflow if you want to run Shannon Lite from a local clone, modify the open-source CLI, or keep the worker image built locally.
+
+```bash
+# 1. Clone Shannon Lite.
+git clone https://github.com/KeygraphHQ/shannon.git
+cd shannon
+
+# 2. Configure credentials.
+cp .env.example .env
+
+# 3. Install dependencies and build.
+pnpm install
+pnpm build
+
+# 4. Run a pentest.
+./shannon start -u https://your-app.com -r /path/to/your-repo
+```
+
+At minimum, your `.env` file should include one supported AI provider credential, such as:
+
+```bash
+ANTHROPIC_API_KEY=your-api-key
+CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+Environment variables can also be exported directly:
+
+```bash
+export ANTHROPIC_API_KEY="your-api-key"
+export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
+```
+
+## Prepare Your Repository
+
+Shannon Lite can scan any repository on your machine. Pass an absolute or relative path with `-r`.
+
+```bash
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo
+./shannon start -u https://example.com -r ./relative/path
+```
+
+The target repository is mounted read-only inside the worker container.
+
+## Common Commands
+
+Monitor progress:
+
+```bash
+npx @keygraph/shannon logs <workspace>
+npx @keygraph/shannon status
+```
+
+Source-build equivalents:
+
+```bash
+./shannon logs <workspace>
+./shannon status
+```
+
+Open the Temporal Web UI for detailed monitoring:
+
+```bash
+open http://localhost:8233
+```
+
+Stop Shannon Lite:
+
+```bash
+npx @keygraph/shannon stop
+npx @keygraph/shannon stop --clean
+npx @keygraph/shannon uninstall
+```
+
+Source-build equivalents:
+
+```bash
+./shannon stop
+./shannon stop --clean
+```
+
+Usage examples:
+
+```bash
+# Basic pentest.
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo
+
+# With a configuration file.
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
+
+# Custom output directory.
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -o ./my-reports
+
+# Named workspace.
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
+
+# List all workspaces.
+npx @keygraph/shannon workspaces
+```
+
+Source-build examples:
+
+```bash
+./shannon start -u https://example.com -r /path/to/repo
+./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
+./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
+./shannon start -u https://example.com -r /path/to/repo -w q1-audit
+./shannon workspaces
+
+# Rebuild the worker image.
+./shannon build --no-cache
+```
+
+## Output and Results
+
+Results are saved to the workspaces directory:
+
+- `./workspaces/` in source-build mode
+- `~/.shannon/workspaces/` in `npx` mode
+
+Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
+
+Output structure:
+
+```text
+workspaces/{hostname}_{sessionId}/
+|-- session.json
+|-- workflow.log
+|-- agents/
+|-- prompts/
+`-- deliverables/
+    `-- comprehensive_security_assessment_report.md
+```

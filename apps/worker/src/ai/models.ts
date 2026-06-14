@@ -21,7 +21,7 @@ export type ModelTier = 'small' | 'medium' | 'large';
 const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
   small: 'claude-haiku-4-5-20251001',
   medium: 'claude-sonnet-4-6',
-  large: 'claude-opus-4-7',
+  large: 'claude-opus-4-8',
 };
 
 /** Resolve a model tier to a concrete model ID. */
@@ -36,7 +36,16 @@ export function resolveModel(tier: ModelTier = 'medium'): string {
   }
 }
 
-/** Whether a model supports adaptive thinking. Opus 4.6 and 4.7 only. */
+/** Whether a model supports adaptive thinking. Opus 4.6, 4.7, and 4.8 only. */
 export function supportsAdaptiveThinking(model: string): boolean {
-  return /opus-4-[67]/.test(model);
+  return /opus-4-[678]/.test(model);
+}
+
+/**
+ * Whether a model is in the Fable family. Fable's safety classifiers flag
+ * cybersecurity tasks and route them to Opus 4.8, so a security scan on Fable
+ * largely runs on Opus 4.8 anyway.
+ */
+export function isFableModel(model: string): boolean {
+  return /fable/i.test(model);
 }

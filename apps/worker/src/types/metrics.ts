@@ -43,4 +43,8 @@ export interface AgentMetrics {
   model?: string | undefined;
   toolUsage?: ToolUsageSummaryMetrics | undefined;
   toolInvocations?: readonly ToolInvocationRecord[] | undefined;
+  // True when the checkpoint provider skipped the agent (resume path).
+  // Callers that perform post-agent work on collected state should short-circuit
+  // when this is set, since no fresh state was produced this run.
+  skipped?: boolean;
 }

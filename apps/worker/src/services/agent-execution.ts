@@ -58,6 +58,7 @@ export interface AgentExecutionInput {
   providerConfig?: import('../types/config.js').ProviderConfig | undefined;
   /** Callback to signal liveness to the orchestrator (e.g., Temporal heartbeat). */
   onHeartbeat?: ((details: Record<string, unknown>) => void) | undefined;
+  mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>;
 }
 
 interface FailAgentOpts {
@@ -114,6 +115,7 @@ export class AgentExecutionService {
       apiKey,
       promptDir,
       providerConfig,
+      mcpServers,
     } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
@@ -199,6 +201,7 @@ export class AgentExecutionService {
         deliverablesSubdir: path.relative(repoPath, deliverablesPath),
         ...(providerConfig ? { providerConfig } : {}),
         ...(queueFilename ? { queueFilename } : {}),
+        ...(mcpServers ? { mcpServers } : {}),
         ...(process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH
           ? {
             playwrightExecutablePath: process.env.PLAYWRIGHT_MCP_EXECUTABLE_PATH,

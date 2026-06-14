@@ -25,6 +25,7 @@ export interface ExecutorOptions {
   readonly playwrightExecutablePath?: string;
   readonly playwrightOutputDir?: string;
   readonly playwrightSession?: string;
+  readonly mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>;
   /** Callback to signal liveness to the orchestrator (e.g., Temporal heartbeat). */
   readonly onHeartbeat?: (details: Record<string, unknown>) => void;
 }

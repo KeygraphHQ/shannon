@@ -159,6 +159,14 @@ export class AuditSession {
   }
 
   /**
+   * Write a human-readable note to the unified workflow log (e.g. a model
+   * refusal fallback). Independent of agent event logging.
+   */
+  async logWorkflowNote(category: string, message: string): Promise<void> {
+    await this.workflowLogger.logEvent(category, message);
+  }
+
+  /**
    * End agent execution (mutex-protected)
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {

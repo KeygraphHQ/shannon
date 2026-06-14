@@ -280,6 +280,32 @@ function classifySdkError(sdkError: SDKAssistantMessageError, authType: string):
           sdkError,
         }),
       );
+    case 'overloaded':
+      return err(
+        new PentestError(`Anthropic API is overloaded. Wait a few moments and try again.`, 'network', true, {
+          authType,
+          sdkError,
+        }),
+      );
+    case 'model_not_found':
+      return err(
+        new PentestError(
+          `Configured model is not available for this account. Check ANTHROPIC_*_MODEL in .env.`,
+          'config',
+          false,
+          { authType, sdkError },
+        ),
+      );
+    case 'oauth_org_not_allowed':
+      return err(
+        new PentestError(
+          `This credential's organization is not allowed. Check your ${authType} in .env.`,
+          'config',
+          false,
+          { authType, sdkError },
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
     default:
       return err(
         new PentestError(

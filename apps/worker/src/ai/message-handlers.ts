@@ -25,6 +25,7 @@ import type {
   AssistantResult,
   ContentBlock,
   ExecutionContext,
+  ModelRefusalFallbackMessage,
   ResultData,
   ResultMessage,
   SystemInitMessage,
@@ -162,6 +163,33 @@ function handleStructuredError(errorType: SDKAssistantMessageError, content: str
           `Max output tokens reached: ${content.slice(0, 100)}`,
           'billing',
           true, // Retryable - may succeed with different content
+        ),
+      };
+    case 'overloaded':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Anthropic API overloaded (structured): ${content.slice(0, 100)}`,
+          'network',
+          true, // Retryable with backoff
+        ),
+      };
+    case 'model_not_found':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Model not found: ${content.slice(0, 100)}`,
+          'config',
+          false, // Not retryable - model ID is misconfigured
+        ),
+      };
+    case 'oauth_org_not_allowed':
+      return {
+        detected: true,
+        shouldThrow: new PentestError(
+          `Organization not allowed for this credential: ${content.slice(0, 100)}`,
+          'config',
+          false, // Not retryable - needs credential/org fix
         ),
       };
     default:
@@ -315,6 +343,15 @@ export async function dispatchMessage(
           logger.info(`Model: ${initMsg.model}, Permission: ${initMsg.permissionMode}`);
         }
         return { type: 'continue', model: initMsg.model };
+      }
+      if (message.subtype === 'model_refusal_fallback') {
+        const fallback = message as ModelRefusalFallbackMessage;
+        const category = fallback.api_refusal_category ?? 'policy';
+        await auditLogger.logNote(
+          'model-fallback',
+          `Model refused (${category}); fell back ${fallback.original_model} → ${fallback.fallback_model}`,
+        );
+        return { type: 'continue' };
       }
       return { type: 'continue' };
     }
