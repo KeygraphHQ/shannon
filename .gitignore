@@ -1,7 +1,10 @@
 node_modules/
 .env
+.env.*
 workspaces/
 credentials/
 dist/
 repos/
 .turbo/
+.kiro/
+.vscode/

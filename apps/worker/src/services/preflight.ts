@@ -334,6 +334,23 @@ async function validateCredentials(
     return ok(undefined);
   }
 
+  // 0a. Kiro CLI backend manages its own credentials — skip traditional validation
+  if (process.env.SHANNON_EXECUTOR_BACKEND === 'kiro-cli') {
+    if (!process.env.KIRO_API_KEY) {
+      return err(
+        new PentestError(
+          'Kiro CLI backend requires KIRO_API_KEY in .env',
+          'config',
+          false,
+          {},
+          ErrorCode.AUTH_FAILED,
+        ),
+      );
+    }
+    logger.info('Kiro CLI backend credentials OK');
+    return ok(undefined);
+  }
+
   // 0b. If apiKey provided via config, set it in env for SDK validation
   //     This avoids requiring process.env.ANTHROPIC_API_KEY when key is threaded via input
   if (apiKey) {
