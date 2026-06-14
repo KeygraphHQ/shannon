@@ -180,7 +180,7 @@ export async function generateToolUsageHooks(sourceDir: string): Promise<KiroAge
  * Never throws — all errors are caught and logged as warnings.
  */
 export /** Result from reading tool usage — includes both summary and raw invocations. */
-interface ToolUsageResult {
+  interface ToolUsageResult {
   readonly summary: ToolUsageSummary;
   readonly invocations: ReadonlyArray<{ tool: string; timestamp: number; success?: boolean; durationMs?: number }>;
 }
@@ -397,7 +397,7 @@ interface HookDef {
 const KIRO_MODEL_MAP: Readonly<Record<ModelTier, string>> = {
   small: 'claude-haiku-4.5',
   medium: 'claude-sonnet-4.6',
-  large: 'claude-opus-4.6',
+  large: 'claude-opus-4.8',
 };
 
 const MODEL_TIER_ENV_VARS: Readonly<Record<ModelTier, string>> = {
@@ -816,9 +816,9 @@ function spawnKiroCli(
     const SPAWN_HEARTBEAT_MS = 30_000;
     const heartbeatTimer = onHeartbeat
       ? setInterval(() => {
-          const elapsed = Math.floor((Date.now() - spawnTime) / 1000);
-          onHeartbeat({ phase: 'kiro-cli-running', elapsedSeconds: elapsed, pid: child.pid });
-        }, SPAWN_HEARTBEAT_MS)
+        const elapsed = Math.floor((Date.now() - spawnTime) / 1000);
+        onHeartbeat({ phase: 'kiro-cli-running', elapsedSeconds: elapsed, pid: child.pid });
+      }, SPAWN_HEARTBEAT_MS)
       : null;
 
     child.stdout.on('data', (chunk: Buffer) => {
@@ -1302,7 +1302,7 @@ export class KiroCliExecutor implements Executor {
       if (agentNotFound) {
         logger.error(
           `[kiro-cli] Agent ${agentName} was not found by kiro-cli — fell back to default agent. ` +
-            `Stderr: ${stripAnsi(spawnResult.stderr).slice(0, 500)}`,
+          `Stderr: ${stripAnsi(spawnResult.stderr).slice(0, 500)}`,
         );
         return {
           success: false,

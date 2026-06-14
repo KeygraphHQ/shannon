@@ -35,6 +35,7 @@ export class ClaudeSdkExecutor implements Executor {
       options?.apiKey,
       options?.deliverablesSubdir,
       options?.providerConfig,
+      options?.mcpServers,
     );
   }
 }
