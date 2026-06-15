@@ -37,7 +37,7 @@ const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
   large: 'claude-opus-4-8',
 };
 
-interface EffectiveProvider {
+export interface EffectiveProvider {
   /** pi-ai provider id: 'anthropic' or 'amazon-bedrock'. */
   providerId: string;
   /** Custom-base-URL override applied to the resolved anthropic model. */
@@ -55,7 +55,7 @@ interface EffectiveProvider {
  * direct Anthropic (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock
  * authenticates from the AWS_ env vars via pi-ai, so it needs no anthropic token.
  */
-function resolveEffectiveProvider(apiKey?: string, providerConfig?: ProviderConfig): EffectiveProvider {
+export function resolveEffectiveProvider(apiKey?: string, providerConfig?: ProviderConfig): EffectiveProvider {
   const anthropicKey = apiKey ?? providerConfig?.apiKey ?? process.env.ANTHROPIC_API_KEY;
   const type = providerConfig?.providerType;
 

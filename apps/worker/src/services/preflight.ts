@@ -34,7 +34,7 @@ import {
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import { glob } from 'zx';
-import { resolveModelId } from '../ai/models.js';
+import { resolveEffectiveProvider, resolveModelId } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Config, Rule } from '../types/config.js';
@@ -304,10 +304,12 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
 }
 
 /** Minimal pi session probe to validate credentials. An optional baseUrl overrides the endpoint. */
-async function probeCredentialsWithPi(authType: string, baseUrl?: string): Promise<Result<void, PentestError>> {
+async function probeCredentialsWithPi(
+  authType: string,
+  token?: string,
+  baseUrl?: string,
+): Promise<Result<void, PentestError>> {
   const authStorage = AuthStorage.inMemory();
-  const token =
-    process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (token) authStorage.setRuntimeApiKey('anthropic', token);
 
   const baseModel = ModelRegistry.create(authStorage).find('anthropic', resolveModelId('small'));
@@ -370,18 +372,14 @@ async function validateCredentials(
   if (apiKey) {
     process.env.ANTHROPIC_API_KEY = apiKey;
   }
-  // 1. Custom base URL — validate the endpoint via a minimal pi session
-  if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
-    const baseUrl = process.env.ANTHROPIC_BASE_URL;
-    logger.info('Validating custom base URL');
-    const probe = await probeCredentialsWithPi(`custom endpoint (${baseUrl})`, baseUrl);
-    if (isErr(probe)) return probe;
-    logger.info('Custom base URL OK');
-    return ok(undefined);
-  }
 
-  // 2. Bedrock mode — validate required AWS credentials are present
-  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
+  // Resolve the active provider through the same precedence the executor uses, so
+  // preflight validates exactly the credentials the run will use (no drift).
+  const eff = resolveEffectiveProvider(apiKey);
+
+  // 1. Bedrock mode — validate required AWS credentials are present (pi-ai owns the
+  //    live AWS auth, so there is no cheap session probe here)
+  if (eff.providerId === 'amazon-bedrock') {
     const required = [
       'AWS_REGION',
       'AWS_BEARER_TOKEN_BEDROCK',
@@ -405,8 +403,17 @@ async function validateCredentials(
     return ok(undefined);
   }
 
-  // 3. Check that at least one credential is present
-  if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_AUTH_TOKEN) {
+  // 2. Custom base URL — validate the endpoint via a minimal pi session
+  if (eff.baseUrl) {
+    logger.info('Validating custom base URL');
+    const probe = await probeCredentialsWithPi(`custom endpoint (${eff.baseUrl})`, eff.anthropicToken, eff.baseUrl);
+    if (isErr(probe)) return probe;
+    logger.info('Custom base URL OK');
+    return ok(undefined);
+  }
+
+  // 3. Direct Anthropic — require a credential, then validate via a minimal pi session
+  if (!eff.anthropicToken) {
     return err(
       new PentestError(
         'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock)',
@@ -418,10 +425,10 @@ async function validateCredentials(
     );
   }
 
-  // 4. Validate via a minimal pi session
-  const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
+  const usingApiKey = Boolean(apiKey ?? process.env.ANTHROPIC_API_KEY);
+  const authType = usingApiKey ? 'API key' : 'OAuth token';
   logger.info(`Validating ${authType} via pi...`);
-  const probe = await probeCredentialsWithPi(authType);
+  const probe = await probeCredentialsWithPi(authType, eff.anthropicToken);
   if (isErr(probe)) return probe;
   logger.info(`${authType} OK`);
   return ok(undefined);
