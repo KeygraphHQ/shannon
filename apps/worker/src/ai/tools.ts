@@ -5,12 +5,12 @@
 // as published by the Free Software Foundation.
 
 /**
- * Universal custom tools registered for every agent: `task` and `todo_write`.
+ * Universal custom tools registered for every agent: `task`, `todo_write`, and `glob`.
  *
- * These replace the previous harness built-ins that pi does not ship. `task`
- * delegates a focused sub-task to an in-process child session (the Task sub-agent
- * replacement); `todo_write` is a full-state-replace planning scratchpad mirrored
- * to the workflow log.
+ * These replace harness built-ins that pi does not ship. `task` delegates a focused
+ * sub-task to an in-process child session (the Task sub-agent replacement);
+ * `todo_write` is a full-state-replace planning scratchpad mirrored to the workflow
+ * log; `glob` is fast-glob file matching (pi has no `Glob` built-in).
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
@@ -25,6 +25,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { fs, glob, path } from 'zx';
 import type { AuditLogger } from './audit-logger.js';
 
 /** Tool surface for child sessions: read/search plus `write`+`bash` to author and run scripts. */
@@ -151,6 +152,54 @@ export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
         content: [{ type: 'text' as const, text: `Todos updated (${current.length} items, ${completed} completed).` }],
         details: {},
       };
+    },
+  });
+}
+
+/**
+ * The `glob` tool — fast file pattern matching (pi ships no `Glob` built-in).
+ *
+ * Backed by the same fast-glob engine that classifies code_path rules as `[GLOB]`
+ * (see utils/glob.ts `isGlobPattern`), so it enumerates exactly the patterns the
+ * routing tags as globs — including `**` and `{a,b}`, which pi's `find` would not
+ * match the same way. Returns absolute paths, most-recently-modified first.
+ */
+export function createGlobTool(cwd: string): ToolDefinition {
+  return defineTool({
+    name: 'glob',
+    label: 'Glob',
+    description:
+      'Fast file pattern matching. Supports glob patterns like "**/*.ts" or "src/**/*.{js,ts}". Returns ' +
+      'matching file paths sorted by modification time (most recent first), one per line, or "No files found".',
+    promptSnippet: 'glob: find files by name pattern',
+    parameters: Type.Object({
+      pattern: Type.String({ description: 'The glob pattern to match files against.' }),
+      path: Type.Optional(Type.String({ description: 'Directory to search in. Omit to search the repository root.' })),
+    }),
+    execute: async (_toolCallId, params) => {
+      const searchRoot = params.path ? path.resolve(cwd, params.path) : cwd;
+      const matches = await glob.globby(params.pattern, {
+        cwd: searchRoot,
+        absolute: true,
+        dot: true,
+        onlyFiles: true,
+        followSymbolicLinks: false,
+      });
+      if (matches.length === 0) {
+        return { content: [{ type: 'text' as const, text: 'No files found' }], details: {} };
+      }
+      // Sort by mtime (most recent first) to match the canonical Glob contract.
+      const withMtime = await Promise.all(
+        matches.map(async (file) => {
+          try {
+            return { file, mtime: (await fs.stat(file)).mtimeMs };
+          } catch {
+            return { file, mtime: 0 };
+          }
+        }),
+      );
+      withMtime.sort((a, b) => b.mtime - a.mtime);
+      return { content: [{ type: 'text' as const, text: withMtime.map((m) => m.file).join('\n') }], details: {} };
     },
   });
 }

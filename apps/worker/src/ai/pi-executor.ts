@@ -40,7 +40,7 @@ import {
 } from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
 import { permissionConfigPath } from './settings-writer.js';
-import { createTaskTool, createTodoWriteTool } from './tools.js';
+import { createGlobTool, createTaskTool, createTodoWriteTool } from './tools.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -249,6 +249,7 @@ export async function runPiPrompt(
       ...(resourceLoader && { resourceLoader }),
     }),
     createTodoWriteTool(auditLogger),
+    createGlobTool(sourceDir),
     ...(callerTools ?? []),
   ];
   // pi's `tools` allowlist gates custom tools too — list every custom name.
