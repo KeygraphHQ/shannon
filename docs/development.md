@@ -33,14 +33,12 @@ At minimum, your `.env` file should include one supported AI provider credential
 
 ```bash
 ANTHROPIC_API_KEY=your-api-key
-CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
 Environment variables can also be exported directly:
 
 ```bash
 export ANTHROPIC_API_KEY="your-api-key"
-export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
 ## Prepare Your Repository

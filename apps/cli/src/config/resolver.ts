@@ -24,7 +24,6 @@ interface ConfigMapping {
 /** Maps every supported env var to its TOML path (section.key) and expected type. */
 const CONFIG_MAP: readonly ConfigMapping[] = [
   // Core
-  { env: 'CLAUDE_CODE_MAX_OUTPUT_TOKENS', toml: 'core.max_tokens', type: 'number' },
   { env: 'CLAUDE_ADAPTIVE_THINKING', toml: 'core.adaptive_thinking', type: 'boolean', boolFormat: 'literal' },
 
   // Anthropic
