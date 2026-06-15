@@ -16,10 +16,12 @@
  * ANTHROPIC_LARGE_MODEL, which works across all providers (Anthropic, Bedrock,
  * custom base URL).
  *
- * Resolution returns a pi `Model` object via `ModelRegistry.find`, plus the
- * `thinkingLevel` and an `AuthStorage` primed with runtime credentials. Bedrock
- * authenticates from the process environment (the AWS_ vars the CLI forwards), so
- * it needs no runtime API key.
+ * The active provider is chosen from an injected `providerConfig` (the Pro consumer)
+ * or, in OSS, from the env-var contract the CLI forwards (`CLAUDE_CODE_USE_BEDROCK`,
+ * `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else direct Anthropic). Resolution
+ * returns a pi `Model` via `ModelRegistry.find`, the `thinkingLevel`, and an
+ * `AuthStorage` primed with the right credential. Bedrock authenticates from the
+ * AWS_ env vars via pi-ai.
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
@@ -35,16 +37,56 @@ const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
   large: 'claude-opus-4-8',
 };
 
-/** pi-ai provider id for a Shannon ProviderConfig.providerType. Default: anthropic. */
-function piProviderId(providerConfig?: ProviderConfig): string {
-  switch (providerConfig?.providerType) {
-    case 'bedrock':
-      return 'amazon-bedrock';
-    default:
-      // 'anthropic_api', 'custom_base_url', or unset all resolve to the anthropic
-      // provider; custom_base_url overrides baseUrl/auth below.
-      return 'anthropic';
+interface EffectiveProvider {
+  /** pi-ai provider id: 'anthropic' or 'amazon-bedrock'. */
+  providerId: string;
+  /** Custom-base-URL override applied to the resolved anthropic model. */
+  baseUrl?: string;
+  /** Runtime credential to prime on AuthStorage for the 'anthropic' provider. */
+  anthropicToken?: string;
+}
+
+/**
+ * Determine the active provider + auth.
+ *
+ * An explicit `providerConfig` (injected by the Pro consumer) wins; otherwise we
+ * fall back to the OSS env-var contract the CLI forwards: `CLAUDE_CODE_USE_BEDROCK`
+ * → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN` → custom base URL; else
+ * direct Anthropic (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock
+ * authenticates from the AWS_ env vars via pi-ai, so it needs no anthropic token.
+ */
+function resolveEffectiveProvider(apiKey?: string, providerConfig?: ProviderConfig): EffectiveProvider {
+  const anthropicKey = apiKey ?? providerConfig?.apiKey ?? process.env.ANTHROPIC_API_KEY;
+  const type = providerConfig?.providerType;
+
+  // Bedrock — explicit providerConfig or the env flag.
+  if (type === 'bedrock' || (!type && process.env.CLAUDE_CODE_USE_BEDROCK === '1')) {
+    return { providerId: 'amazon-bedrock' };
   }
+
+  // Custom base URL — explicit providerConfig.
+  if (type === 'custom_base_url') {
+    const eff: EffectiveProvider = { providerId: 'anthropic' };
+    if (providerConfig?.baseUrl) eff.baseUrl = providerConfig.baseUrl;
+    const token = providerConfig?.authToken ?? anthropicKey;
+    if (token) eff.anthropicToken = token;
+    return eff;
+  }
+
+  // Custom base URL — OSS env contract (no providerConfig).
+  if (!type && process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
+    return {
+      providerId: 'anthropic',
+      baseUrl: process.env.ANTHROPIC_BASE_URL,
+      anthropicToken: process.env.ANTHROPIC_AUTH_TOKEN,
+    };
+  }
+
+  // Direct Anthropic (API key, or — env only — OAuth token).
+  const eff: EffectiveProvider = { providerId: 'anthropic' };
+  const token = anthropicKey ?? (type ? undefined : process.env.CLAUDE_CODE_OAUTH_TOKEN);
+  if (token) eff.anthropicToken = token;
+  return eff;
 }
 
 /** Resolve a model tier to a concrete model ID (env override → providerConfig → default). */
@@ -85,15 +127,10 @@ export interface ModelSelection {
 }
 
 /**
- * Build an AuthStorage primed with the right credential for the active provider,
- * then resolve the tier's model from a fresh ModelRegistry.
- *
- * - Anthropic: runtime API key from ContainerConfig.apiKey → ProviderConfig.apiKey
- *   → ANTHROPIC_API_KEY env. OAuth (CLAUDE_CODE_OAUTH_TOKEN) is read from env by pi.
- * - Custom base URL (custom_base_url): the auth token is set as the anthropic
- *   runtime key and the model's baseUrl is overridden.
- * - Bedrock: authenticates from the process environment (the AWS_ vars), no
- *   runtime key needed.
+ * Resolve the active provider (see resolveEffectiveProvider), prime an AuthStorage
+ * with its credential, and resolve the tier's model from a fresh ModelRegistry.
+ * Anthropic / custom-base-URL use a runtime anthropic key; Bedrock authenticates
+ * from the AWS_ env vars (bearer token primed explicitly as a belt-and-suspenders).
  */
 export function resolveModelSelection(
   registryFactory: (authStorage: AuthStorage) => ModelRegistry,
@@ -101,34 +138,34 @@ export function resolveModelSelection(
   apiKey?: string,
   providerConfig?: ProviderConfig,
 ): ModelSelection {
-  const providerId = piProviderId(providerConfig);
+  const eff = resolveEffectiveProvider(apiKey, providerConfig);
   const modelId = resolveModelId(modelTier, providerConfig);
 
   const authStorage = AuthStorage.inMemory();
-
-  const anthropicKey = apiKey ?? providerConfig?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-  if (providerId === 'anthropic') {
-    const token =
-      providerConfig?.providerType === 'custom_base_url' ? (providerConfig.authToken ?? anthropicKey) : anthropicKey;
-    if (token) authStorage.setRuntimeApiKey('anthropic', token);
+  if (eff.providerId === 'anthropic' && eff.anthropicToken) {
+    authStorage.setRuntimeApiKey('anthropic', eff.anthropicToken);
+  }
+  // Bedrock auth flows from the AWS_ env vars; prime the bearer token explicitly so
+  // it resolves via AuthStorage in addition to pi-ai's own env fallback.
+  if (eff.providerId === 'amazon-bedrock' && process.env.AWS_BEARER_TOKEN_BEDROCK) {
+    authStorage.setRuntimeApiKey('amazon-bedrock', process.env.AWS_BEARER_TOKEN_BEDROCK);
   }
 
   const registry = registryFactory(authStorage);
-  const found = registry.find(providerId, modelId);
+  const found = registry.find(eff.providerId, modelId);
   if (!found) {
-    throw new Error(`Model not found in pi registry: provider="${providerId}" model="${modelId}"`);
+    throw new Error(`Model not found in pi registry: provider="${eff.providerId}" model="${modelId}"`);
   }
 
   // Custom base URL: override the resolved model's endpoint.
-  const baseUrl = providerConfig?.providerType === 'custom_base_url' ? providerConfig.baseUrl : undefined;
-  const model: Model<Api> = baseUrl ? { ...found, baseUrl } : found;
+  const model: Model<Api> = eff.baseUrl ? { ...found, baseUrl: eff.baseUrl } : found;
 
   return {
     model,
     thinkingLevel: resolveThinkingLevel(),
     authStorage,
     modelId,
-    providerId,
+    providerId: eff.providerId,
   };
 }
 
