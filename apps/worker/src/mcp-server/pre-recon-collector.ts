@@ -28,12 +28,14 @@ import { type Static, Type } from 'typebox';
 
 export const SinkRefSchema = Type.Object({
   location: Type.String({
+    minLength: 1,
     description:
       'File path with line number (e.g., "templates/render.js:34") or richer prose ' +
       '(e.g., "innerHTML at templates/render.js:34", "lines 45-67"). Must contain enough ' +
       'detail for a downstream agent to find the exact location.',
   }),
   sink_function: Type.String({
+    minLength: 1,
     description: 'The sink function or property name (e.g., "innerHTML", "axios.get", "eval", "document.write").',
   }),
   notes: Type.Optional(
@@ -54,6 +56,7 @@ export type SinkRef = Static<typeof SinkRefSchema>;
 
 export const ExecutiveSummaryInputSchema = Type.Object({
   text: Type.String({
+    minLength: 1,
     description:
       "Provide a 2-3 paragraph overview of the application's security posture, highlighting " +
       'the most critical attack surfaces and architectural security decisions. Becomes ' +
@@ -63,24 +66,30 @@ export const ExecutiveSummaryInputSchema = Type.Object({
 
 const ArchitectureSchema = Type.Object({
   framework_and_language: Type.String({
+    minLength: 1,
     description: 'Framework and language details with their security implications.',
   }),
   architectural_pattern: Type.String({
+    minLength: 1,
     description: 'Architectural pattern (monolith, microservices, hybrid) with trust boundary analysis.',
   }),
   critical_security_components: Type.String({
+    minLength: 1,
     description: 'Critical security components with focus on auth, authz, and data protection.',
   }),
 });
 
 const DataSecuritySchema = Type.Object({
   database_security: Type.String({
+    minLength: 1,
     description: 'Analyze encryption, access controls, and query safety in database interactions.',
   }),
   data_flow_security: Type.String({
+    minLength: 1,
     description: 'Identify sensitive data paths and the protection mechanisms applied along them.',
   }),
   multi_tenant_isolation: Type.String({
+    minLength: 1,
     description:
       'Assess tenant separation effectiveness. If the application is single-tenant, state that ' +
       'explicitly rather than leaving the field thin.',
@@ -89,17 +98,21 @@ const DataSecuritySchema = Type.Object({
 
 const AttackSurfaceSchema = Type.Object({
   external_entry_points: Type.String({
+    minLength: 1,
     description: 'Detailed analysis of each public interface that is network-accessible.',
   }),
   internal_service_communication: Type.String({
+    minLength: 1,
     description:
       'Trust relationships and security assumptions between network-reachable services. ' +
       'If the application is a single service with no internal RPC fabric, state that.',
   }),
   input_validation_patterns: Type.String({
+    minLength: 1,
     description: 'How user input is handled and validated in network-accessible endpoints.',
   }),
   background_processing: Type.String({
+    minLength: 1,
     description:
       'Async job security and privilege models for jobs triggered by network requests. ' +
       'If no async/background processing exists, state that.',
@@ -107,15 +120,20 @@ const AttackSurfaceSchema = Type.Object({
 });
 
 const InfrastructureSchema = Type.Object({
-  secrets_management: Type.String({ description: 'How secrets are stored, rotated, and accessed.' }),
+  secrets_management: Type.String({ minLength: 1, description: 'How secrets are stored, rotated, and accessed.' }),
   configuration_security: Type.String({
+    minLength: 1,
     description:
       'Environment separation and secret handling. Specifically search for infrastructure ' +
       'configuration (e.g., Nginx, Kubernetes Ingress, CDN settings) that defines security ' +
       'headers like Strict-Transport-Security (HSTS) and Cache-Control, and report what was found.',
   }),
-  external_dependencies: Type.String({ description: 'Third-party services and their security implications.' }),
+  external_dependencies: Type.String({
+    minLength: 1,
+    description: 'Third-party services and their security implications.',
+  }),
   monitoring_and_logging: Type.String({
+    minLength: 1,
     description: 'Security event visibility — what is logged, where it goes, and who can see it.',
   }),
 });
@@ -144,17 +162,20 @@ export const ApplicationIntelligenceInputSchema = Type.Object({
 
 export const AuthDeepDiveInputSchema = Type.Object({
   authentication_mechanisms: Type.String({
+    minLength: 1,
     description:
       'Authentication mechanisms and their security properties. MUST include an exhaustive list of ' +
       'all API endpoints used for authentication (e.g., login, logout, token refresh, password reset).',
   }),
   session_management: Type.String({
+    minLength: 1,
     description:
       'Session management and token security. Pinpoint the exact file and line(s) of code where ' +
       'session cookie flags (HttpOnly, Secure, SameSite) are configured.',
   }),
-  authz_model: Type.String({ description: 'Authorization model and potential bypass scenarios.' }),
+  authz_model: Type.String({ minLength: 1, description: 'Authorization model and potential bypass scenarios.' }),
   multi_tenancy: Type.String({
+    minLength: 1,
     description: 'Multi-tenancy security implementation. If the application is single-tenant, state that explicitly.',
   }),
   sso_oauth_oidc: Type.Union([Type.String(), Type.Null()], {
@@ -167,6 +188,7 @@ export const AuthDeepDiveInputSchema = Type.Object({
 
 export const CodebaseIndexingInputSchema = Type.Object({
   text: Type.String({
+    minLength: 1,
     description:
       "A detailed, multi-sentence paragraph describing the codebase's directory structure, " +
       'organization, and significant tools or conventions used (e.g., build orchestration, code ' +
@@ -176,40 +198,40 @@ export const CodebaseIndexingInputSchema = Type.Object({
 });
 
 export const CriticalFilePathsInputSchema = Type.Object({
-  configuration: Type.Array(Type.String(), {
+  configuration: Type.Array(Type.String({ minLength: 1 }), {
     description: 'Configuration files (e.g., config/server.yaml, Dockerfile, docker-compose.yml).',
   }),
-  authentication_and_authorization: Type.Array(Type.String(), {
+  authentication_and_authorization: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'Auth/authz files (e.g., auth/jwt_middleware.go, internal/user/permissions.go, ' +
       'config/initializers/session_store.rb, src/services/oauth_callback.js).',
   }),
-  api_and_routing: Type.Array(Type.String(), {
+  api_and_routing: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'API and routing files (e.g., cmd/api/main.go, internal/handlers/user_routes.go, ' +
       'ts/graphql/schema.graphql).',
   }),
-  data_models_and_db: Type.Array(Type.String(), {
+  data_models_and_db: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'Data model and DB interaction files (e.g., db/migrations/001_initial.sql, ' +
       'internal/models/user.go, internal/repository/sql_queries.go).',
   }),
-  dependency_manifests: Type.Array(Type.String(), {
+  dependency_manifests: Type.Array(Type.String({ minLength: 1 }), {
     description: 'Dependency manifests (e.g., go.mod, package.json, requirements.txt).',
   }),
-  sensitive_data_and_secrets: Type.Array(Type.String(), {
+  sensitive_data_and_secrets: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'Sensitive data and secrets handling (e.g., internal/utils/encryption.go, ' + 'internal/secrets/manager.go).',
   }),
-  middleware_and_input_validation: Type.Array(Type.String(), {
+  middleware_and_input_validation: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'Middleware and input validation (e.g., internal/middleware/validator.go, ' +
       'internal/handlers/input_parsers.go).',
   }),
-  logging_and_monitoring: Type.Array(Type.String(), {
+  logging_and_monitoring: Type.Array(Type.String({ minLength: 1 }), {
     description: 'Logging and monitoring (e.g., internal/logging/logger.go, config/monitoring.yaml).',
   }),
-  infrastructure_and_deployment: Type.Array(Type.String(), {
+  infrastructure_and_deployment: Type.Array(Type.String({ minLength: 1 }), {
     description:
       'Infrastructure and deployment (e.g., infra/pulumi/main.go, kubernetes/deploy.yaml, ' +
       'nginx.conf, gateway-ingress.yaml).',
