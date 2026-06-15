@@ -27,7 +27,11 @@ After verification confirms login_success, save the authenticated browser sessio
 Run this only when login_success is true. Skip it on failure.
 </publish_session>
 
+<report_result>
+When the login attempt concludes, call the `submit_auth_result` tool to report the outcome.
+</report_result>
+
 <critical>
 - Submit each field (username, password, captcha, TOTP) exactly once.
-- Any rejection = auth error: return `login_success: false` and stop. Do not retry.
+- Any rejection = auth error: call `submit_auth_result` with `login_success: false` and stop. Do not retry.
 </critical>

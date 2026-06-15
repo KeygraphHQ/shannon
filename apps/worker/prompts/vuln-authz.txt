@@ -289,7 +289,7 @@ The MCP SDK injects each tool's complete description and per-field guidance into
 - `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-authz` agent reads.
 - `set_safe_vectors` and `set_blind_spots` are recommended. Empty arrays are acceptable on runs with no validated-secure endpoints or no constraint gaps, but explicit emission is preferred over skipping.
 
-**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is captured automatically from your final structured output at session end. The 4 MCP tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
+**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 MCP tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
 </mcp_tools>
 
 
@@ -299,7 +299,7 @@ The MCP SDK injects each tool's complete description and per-field guidance into
 1. **Todo Completion:** ALL tasks in your TodoWrite list must be marked as "completed".
 2. **Deliverable Emission:** Call the 4 MCP tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
 
-**Note:** The exploitation queue is captured automatically from your final structured output at session end — separate from the MCP tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the MCP tool calls.
+**Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the MCP tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the MCP tool calls.
 
 **ONLY AFTER** both todo completion AND the required MCP tool calls have been completed, announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
 

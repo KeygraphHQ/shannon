@@ -259,7 +259,7 @@ The MCP SDK injects each tool's complete description and per-field guidance into
 - `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-ssrf` agent reads.
 - `set_safe_vectors` is recommended. An empty array is acceptable on runs with no validated-secure components, but explicit emission is preferred over skipping.
 
-**Relationship to the exploitation queue:** The exploitation queue (`ssrf_exploitation_queue.json`) is captured automatically from your final structured output at session end. The 3 MCP tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
+**Relationship to the exploitation queue:** The exploitation queue (`ssrf_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 3 MCP tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
 </mcp_tools>
 
 
@@ -269,7 +269,7 @@ The MCP SDK injects each tool's complete description and per-field guidance into
 1.  **Systematic Analysis:** ALL relevant API endpoints and request-making features identified in the reconnaissance deliverable must be analyzed for SSRF vulnerabilities.
 2.  **Deliverable Emission:** Call the 3 MCP tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` is recommended (an empty array is acceptable but explicit emission is preferred).
 
-**Note:** The exploitation queue is captured automatically from your final structured output at session end — separate from the MCP tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the MCP tool calls.
+**Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the MCP tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the MCP tool calls.
 
 **ONLY AFTER** both systematic analysis AND the required MCP tool calls have been completed, announce "**SSRF ANALYSIS COMPLETE**" and stop.
 
