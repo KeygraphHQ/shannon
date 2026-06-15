@@ -8,7 +8,7 @@
  * Consolidated billing/spending cap detection utilities.
  *
  * Anthropic's spending cap behavior is inconsistent:
- * - Sometimes a proper SDK error (billing_error)
+ * - Sometimes a proper provider error (billing_error)
  * - Sometimes the agent responds with text about the cap
  * - Sometimes partial billing before cutoff
  *
@@ -17,8 +17,8 @@
  */
 
 /**
- * Text patterns for SDK output sniffing (what the agent says).
- * Used by message-handlers.ts and the behavioral heuristic.
+ * Text patterns for provider/harness output sniffing (what the agent says).
+ * Used by the pi event stream and the behavioral heuristic.
  */
 export const BILLING_TEXT_PATTERNS = [
   'spending cap',
@@ -48,7 +48,7 @@ export const BILLING_API_PATTERNS = [
 
 /**
  * Checks if text matches any billing text pattern.
- * Used for sniffing SDK output content for spending cap messages.
+ * Used for sniffing agent output content for spending cap messages.
  */
 export function matchesBillingTextPattern(text: string): boolean {
   const lowerText = text.toLowerCase();

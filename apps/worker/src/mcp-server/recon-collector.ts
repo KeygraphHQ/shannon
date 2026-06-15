@@ -16,7 +16,7 @@
  * A skipped tool renders a "not provided" placeholder in that section rather
  * than failing the activity. getCallStatus() exposes the per-run call pattern
  * for logging. Each schema's field-level descriptions carry the section
- * guidance, so the SDK injects it into the agent's tool catalog.
+ * guidance, so pi injects it into the agent's tool catalog.
  */
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';

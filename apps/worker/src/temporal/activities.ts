@@ -462,7 +462,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * 3. Credential validation (API key, OAuth, or Bedrock)
  * 4. Target URL reachable from the container
  *
- * NOT using runAgentActivity — preflight doesn't run an agent via the SDK.
+ * NOT using runAgentActivity — preflight doesn't run a full analysis agent.
  */
 export async function runPreflightValidation(input: ActivityInput): Promise<void> {
   const startTime = Date.now();

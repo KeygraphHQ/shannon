@@ -130,7 +130,7 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
 // Post-MCP-migration, the analysis_deliverable.md is rendered by the activity
 // wrapper after validateAgentOutput runs, so the previous "both files exist"
 // check would race the renderer. The validator only checks the queue.json —
-// that file is written by the SDK structured-output path in agent-execution.ts
+// that file is written by the submit-tool path in agent-execution.ts
 // before this validator runs. The downstream checkExploitationQueue still
 // renders the .md.
 function createVulnValidator(vulnType: VulnType): AgentValidator {

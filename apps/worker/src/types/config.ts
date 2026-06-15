@@ -125,6 +125,6 @@ export interface ContainerConfig {
   readonly apiKey?: string;
   /** Prompt directory override — when set, prompt manager loads from this path */
   readonly promptDir?: string;
-  /** LLM provider configuration — when set, executor maps to SDK env vars directly */
+  /** LLM provider configuration for the pi executor */
   readonly providerConfig?: ProviderConfig;
 }

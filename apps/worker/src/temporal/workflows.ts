@@ -92,7 +92,7 @@ const TESTING_RETRY = {
 // Activity proxy with production retry configuration (default)
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '60 minutes', // Extended for sub-agent execution (SDK blocks event loop during Task tool calls)
+  heartbeatTimeout: '60 minutes', // Extended for nested pi task execution
   retry: PRODUCTION_RETRY,
 });
 
@@ -135,7 +135,7 @@ const preflightActs = proxyActivities<typeof activities>({
   retry: PREFLIGHT_RETRY,
 });
 
-// Credential rejection is not retryable; transient SDK errors get 3 attempts.
+// Credential rejection is not retryable; transient provider errors get 3 attempts.
 const AUTH_VALIDATION_RETRY = {
   initialInterval: '10 seconds',
   maximumInterval: '1 minute',
@@ -452,7 +452,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Initialize Deliverables Git ===
     await a.initDeliverableGit(activityInput);
 
-    // === Sync SDK deny rules ===
+    // === Sync code_path deny rules ===
     await a.syncCodePathDenyRules(activityInput);
 
     log.info(`Run scope: vuln_classes=[${selectedVulnClasses.join(', ')}] exploit=${exploit}`);

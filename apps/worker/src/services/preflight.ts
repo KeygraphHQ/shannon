@@ -247,7 +247,7 @@ async function validateCodePathsExist(
 
 // === Credential Validation ===
 
-/** Map SDK error type to a human-readable preflight PentestError. */
+/** Map provider error text to a human-readable preflight PentestError. */
 /** Classify a provider error message (thrown or from a failed turn) into a PentestError. */
 function classifyCredentialError(text: string, authType: string): Result<void, PentestError> {
   const lower = text.toLowerCase();
@@ -357,7 +357,7 @@ async function validateCredentials(
   providerConfig?: import('../types/config.js').ProviderConfig,
 ): Promise<Result<void, PentestError>> {
   // 0. If providerConfig is present, credentials are managed by the caller.
-  //    The executor will map providerConfig directly to sdkEnv — no process.env needed.
+  //    The executor/provider layer owns providerConfig resolution — no env preflight needed.
   if (providerConfig) {
     logger.info(
       `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
@@ -365,7 +365,7 @@ async function validateCredentials(
     return ok(undefined);
   }
 
-  // 0b. If apiKey provided via config, set it in env for SDK validation
+  // 0b. If apiKey provided via config, set it in env for pi validation
   //     This avoids requiring process.env.ANTHROPIC_API_KEY when key is threaded via input
   if (apiKey) {
     process.env.ANTHROPIC_API_KEY = apiKey;
@@ -594,7 +594,7 @@ export async function runPreflightChecks(
     }
   }
 
-  // 4. Credential check (cheap — 1 SDK round-trip, skipped when providerConfig present)
+  // 4. Credential check (cheap — 1 pi round-trip, skipped when providerConfig present)
   const credResult = await validateCredentials(logger, apiKey, providerConfig);
   if (!credResult.ok) {
     return credResult;

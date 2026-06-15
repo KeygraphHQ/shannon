@@ -160,7 +160,7 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
  *
  * Classification priority:
  * 1. If error is PentestError with ErrorCode, classify by code (reliable)
- * 2. Fall through to string matching for external errors (SDK, network, etc.)
+ * 2. Fall through to string matching for external errors (provider, network, etc.)
  */
 export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
   // === CODE-BASED CLASSIFICATION (Preferred for internal errors) ===

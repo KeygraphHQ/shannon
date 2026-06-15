@@ -173,7 +173,7 @@ function extractAssistantText(message: AgentMessage): string {
 }
 
 /**
- * Classify error-bearing text into a PentestError, mirroring the prior SDK error
+ * Classify error-bearing text into a PentestError, mirroring the prior provider error
  * handling. Spending-cap / billing text is retryable (Temporal backs off and
  * recovers when the cap resets); session limit is permanent.
  */

@@ -9,7 +9,7 @@
  *
  * Used when exploit=false: the exploit agents didn't run, so there is no
  * `*_exploitation_evidence.md` to concatenate into the report. This module
- * reads each `*_exploitation_queue.json` (already SDK-validated against the
+ * reads each `*_exploitation_queue.json` (already validated by the submit tool against the
  * schemas in ../ai/queue-schemas.ts) and writes a `*_findings.md` per class
  * in the canonical body shape that report-executive.txt's cleanup expects.
  *

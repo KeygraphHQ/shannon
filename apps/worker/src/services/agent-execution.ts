@@ -312,7 +312,7 @@ export class AgentExecutionService {
   static toMetrics(endResult: AgentEndResult, result: PiPromptResult): AgentMetrics {
     return {
       durationMs: endResult.duration_ms,
-      inputTokens: null, // Not currently exposed by SDK wrapper
+      inputTokens: null, // Not currently exposed by the pi executor
       outputTokens: null,
       costUsd: endResult.cost_usd,
       numTurns: result.turns ?? null,
