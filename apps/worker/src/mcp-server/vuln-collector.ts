@@ -47,17 +47,21 @@ export const BLIND_SPOTS_CLASSES: ReadonlySet<VulnClass> = new Set<VulnClass>(['
 
 const PatternSchema = Type.Object({
   name: Type.String({
+    minLength: 1,
     description:
       'Concise pattern name, e.g. "Weak Session Management", "Reflected XSS in Search Parameter", ' +
       '"Insufficient URL Validation".',
   }),
   description: Type.String({
+    minLength: 1,
     description: 'One- to two-sentence description of the pattern observed in the codebase.',
   }),
   implication: Type.String({
+    minLength: 1,
     description: 'One- to two-sentence implication for exploitation — what does this pattern enable an attacker to do.',
   }),
-  representative_finding_ids: Type.Array(Type.String(), {
+  representative_finding_ids: Type.Array(Type.String({ minLength: 1 }), {
+    minItems: 1,
     description:
       'IDs of findings that exhibit this pattern (e.g. ["AUTH-VULN-01", "AUTH-VULN-02"]). Must match ' +
       'IDs the agent has assigned in the structured-output exploitation queue.',
@@ -66,6 +70,7 @@ const PatternSchema = Type.Object({
 
 export const FindingsSummaryInputSchema = Type.Object({
   key_outcome: Type.String({
+    minLength: 1,
     description:
       'One to two sentences capturing the headline result of your analysis — what was found and its ' +
       'severity profile (e.g. "Several high-confidence SQL injection vulnerabilities were identified; ' +
@@ -82,6 +87,7 @@ export const FindingsSummaryInputSchema = Type.Object({
 
 export const SafeVectorInputSchema = Type.Object({
   subject: Type.String({
+    minLength: 1,
     description:
       'The specific subject of analysis. For injection/xss runs, the input parameter name (e.g. ' +
       '"username", "redirect_url"). For auth/ssrf runs, the component or flow name (e.g. ' +
@@ -89,12 +95,14 @@ export const SafeVectorInputSchema = Type.Object({
       '"POST /api/auth/logout"). The renderer maps this to the class-appropriate column header.',
   }),
   location: Type.String({
+    minLength: 1,
     description:
       'File path with line number (e.g. "controllers/authController.js:45") or endpoint URL (e.g. ' +
       '"/profile"). For authz runs, this is the guard location specifically (e.g. ' +
       '"middleware/auth.js:45"). The renderer maps this to the class-appropriate column header.',
   }),
   defense_mechanism: Type.String({
+    minLength: 1,
     description:
       'The robust defense observed (e.g. "Prepared Statement (Parameter Binding)", "HTML Entity ' +
       'Encoding", "Strict URL Whitelist Validation", "bcrypt.compare for constant-time check").',
@@ -122,11 +130,13 @@ export const SafeVectorsInputSchema = Type.Object({
 
 export const BlindSpotItemSchema = Type.Object({
   heading: Type.String({
+    minLength: 1,
     description:
       'Short heading for the blind spot (e.g. "Untraced Asynchronous Flows", ' +
       '"Limited Visibility into Stored Procedures", "Minified JavaScript Bundle").',
   }),
   description: Type.String({
+    minLength: 1,
     description:
       'One to three sentences describing the analysis gap — what could not be traced, why, and what ' +
       'the residual risk is.',
@@ -149,18 +159,21 @@ export const BlindSpotsInputSchema = Type.Object({
 
 const InjectionStrategicIntelSchema = Type.Object({
   defensive_evasion_waf: Type.String({
+    minLength: 1,
     description:
       'WAF behavior observed during analysis: active rules, common payloads blocked, identified ' +
       'bypasses (e.g. "WAF blocks UNION SELECT but not time-based blind injection"). Write ' +
       '"Not applicable — no WAF observed" if none was detected.',
   }),
   error_based_potential: Type.String({
+    minLength: 1,
     description:
       'Whether endpoints leak verbose database errors that enable error-based injection (e.g. ' +
       '"/api/products returns verbose PostgreSQL error messages, prime target for error-based ' +
       'exploitation"). Write "Not applicable" if no injection findings exist.',
   }),
   confirmed_database_technology: Type.String({
+    minLength: 1,
     description:
       'Database engine(s) confirmed via error syntax or function calls (e.g. "PostgreSQL, confirmed ' +
       'via pg_sleep() and verbose error syntax"). Drives payload selection downstream. Write ' +
@@ -170,6 +183,7 @@ const InjectionStrategicIntelSchema = Type.Object({
 
 const XssStrategicIntelSchema = Type.Object({
   csp_analysis: Type.String({
+    minLength: 1,
     description:
       'Content Security Policy observed and its bypassability: current policy text, critical bypasses ' +
       "(e.g. \"script-src 'self' https://trusted-cdn.com — the trusted CDN hosts vulnerable AngularJS, " +
@@ -177,6 +191,7 @@ const XssStrategicIntelSchema = Type.Object({
       'if none.',
   }),
   cookie_security: Type.String({
+    minLength: 1,
     description:
       'Session cookie security observations: HttpOnly, Secure, SameSite flags, and storage mechanism ' +
       '(e.g. "Primary session cookie `sessionid` is missing HttpOnly; tokens are also stored in ' +
@@ -186,17 +201,20 @@ const XssStrategicIntelSchema = Type.Object({
 
 const AuthStrategicIntelSchema = Type.Object({
   authentication_method: Type.String({
+    minLength: 1,
     description:
       'How users authenticate: JWT, session cookie, OAuth, SAML, etc. Include any algorithm or library ' +
       'details (e.g. "JWT (RS256) with hardcoded private key in lib/insecurity.ts:23").',
   }),
   session_token_details: Type.String({
+    minLength: 1,
     description:
       'Where tokens live and how they are protected: cookie name, storage mechanism (cookie vs ' +
       'localStorage), cookie flags, expiration (e.g. "JWT stored in localStorage under key `token`; ' +
       'cookie copy lacks HttpOnly/Secure/SameSite; 6-hour TTL with no revocation").',
   }),
   password_policy: Type.String({
+    minLength: 1,
     description:
       'Observed server-side password policy and storage: complexity rules, hashing algorithm, salt, ' +
       '(e.g. "MD5 without salt via crypto.createHash; no server-side complexity policy; client-side ' +
@@ -206,17 +224,20 @@ const AuthStrategicIntelSchema = Type.Object({
 
 const SsrfStrategicIntelSchema = Type.Object({
   http_client_library: Type.String({
+    minLength: 1,
     description:
       'HTTP client library/libraries used for outbound requests (e.g. "axios 1.6", "node-fetch", ' +
       '"requests", "HttpClient (Spring)"). Include version where it informs known bypass techniques.',
   }),
   request_architecture: Type.String({
+    minLength: 1,
     description:
       'How outbound requests are constructed and routed: proxy/middleware patterns, internal routing ' +
       'rules (e.g. "Webhook URLs are POSTed directly without an outbound proxy; redirects are ' +
       'followed by default with no maxRedirects limit").',
   }),
   internal_services: Type.String({
+    minLength: 1,
     description:
       'Internal endpoints, services, or cloud-metadata addresses discovered during analysis that an ' +
       'SSRF could reach (e.g. "169.254.169.254 (AWS IMDS), internal admin API at admin.internal:8443, ' +
@@ -226,6 +247,7 @@ const SsrfStrategicIntelSchema = Type.Object({
 
 const AuthzStrategicIntelSchema = Type.Object({
   session_management_architecture: Type.String({
+    minLength: 1,
     description:
       'Session and authentication architecture relevant to authorization decisions: where user identity ' +
       'comes from, whether the user ID is trusted by downstream guards (e.g. "JWT tokens in cookies; ' +
@@ -233,18 +255,21 @@ const AuthzStrategicIntelSchema = Type.Object({
       're-validation").',
   }),
   role_permission_model: Type.String({
+    minLength: 1,
     description:
       'Roles, capabilities, and where they live: identified roles, their privilege levels, and where ' +
       'role/permission data is stored (e.g. "Three roles: user, moderator, admin. Role embedded in ' +
       'JWT and database; checks inconsistent — many admin routes only check `req.user` presence").',
   }),
   resource_access_patterns: Type.String({
+    minLength: 1,
     description:
       'How resource IDs flow through the system and ownership patterns: e.g. "Most endpoints use path ' +
       'parameters for resource IDs (/api/users/{id}); IDs are passed to DB queries without ownership ' +
       'validation". Critical for IDOR exploitation.',
   }),
   workflow_implementation: Type.String({
+    minLength: 1,
     description:
       'Multi-step processes and state transitions: how workflow stages are tracked, whether prior-state ' +
       'checks are enforced (e.g. "Multi-step processes use status fields in database; status ' +
