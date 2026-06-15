@@ -7,7 +7,7 @@
 /**
  * Universal custom tools registered for every agent: `task` and `todo_write`.
  *
- * These replace the Claude Agent SDK built-ins that pi does not ship. `task`
+ * These replace the previous harness built-ins that pi does not ship. `task`
  * delegates a focused analysis to an in-process read-only child session (the
  * Task sub-agent replacement); `todo_write` is a full-state-replace planning
  * scratchpad mirrored to the workflow log.
@@ -116,7 +116,7 @@ function renderTodos(todos: readonly TodoItem[]): string {
 /**
  * The `todo_write` tool — a full-state-replace planning scratchpad.
  *
- * Mirrors Claude Code's TodoWrite: each call carries the entire list and replaces
+ * Mirrors the TodoWrite tool: each call carries the entire list and replaces
  * stored state (no append/merge). No deliverable impact; every call is echoed to
  * the workflow log so `shannon logs` shows the agent's live plan. State is per
  * tool instance (one per agent execution).

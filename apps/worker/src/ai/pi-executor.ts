@@ -78,7 +78,7 @@ async function buildPermissionResourceLoader(cwd: string, logger: ActivityLogger
   return loader;
 }
 
-export interface ClaudePromptResult {
+export interface PiPromptResult {
   result?: string | null | undefined;
   success: boolean;
   duration: number;
@@ -109,7 +109,7 @@ async function writeErrorLog(
   try {
     const errorLog = {
       timestamp: formatTimestamp(),
-      agent: 'claude-executor',
+      agent: 'pi-executor',
       error: { name: err.constructor.name, message: err.message, code: err.code, status: err.status, stack: err.stack },
       context: { sourceDir, prompt: `${fullPrompt.slice(0, 200)}...`, retryable: isRetryableError(err) },
       duration,
@@ -122,7 +122,7 @@ async function writeErrorLog(
 }
 
 export async function validateAgentOutput(
-  result: ClaudePromptResult,
+  result: PiPromptResult,
   agentName: string | null,
   sourceDir: string,
   logger: ActivityLogger,
@@ -187,11 +187,11 @@ function classifyErrorText(content: string): PentestError | null {
 
 // Low-level pi execution. Drives one agent session to completion with progress and
 // audit logging. Exported for Temporal activities to call single-attempt execution.
-export async function runClaudePrompt(
+export async function runPiPrompt(
   prompt: string,
   sourceDir: string,
   context: string = '',
-  description: string = 'Claude analysis',
+  description: string = 'Agent analysis',
   _agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
@@ -200,7 +200,7 @@ export async function runClaudePrompt(
   apiKey?: string,
   deliverablesSubdir?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
-): Promise<ClaudePromptResult> {
+): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;

@@ -11,8 +11,8 @@
  * Services are pure domain logic with no Temporal dependencies.
  */
 
-export type { ClaudePromptResult } from '../ai/claude-executor.js';
-export { runClaudePrompt } from '../ai/claude-executor.js';
+export type { PiPromptResult } from '../ai/pi-executor.js';
+export { runPiPrompt } from '../ai/pi-executor.js';
 export type { AgentExecutionInput } from './agent-execution.js';
 export { AgentExecutionService } from './agent-execution.js';
 export { ConfigLoaderService } from './config-loader.js';

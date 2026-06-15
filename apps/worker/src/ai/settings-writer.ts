@@ -6,7 +6,7 @@
 
 /**
  * Writes the @gotgenes/pi-permission-system global config from `code_path` avoid
- * patterns. The executor loads the extension (see claude-executor) and pi enforces
+ * patterns. The executor loads the extension (see pi-executor) and pi enforces
  * these path denies at the tool layer for every agent. Written to the global config
  * dir under `agentDir` — the project-scoped path is gated behind project trust,
  * which our headless runs do not grant; the global path is not.

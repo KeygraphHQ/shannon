@@ -106,7 +106,7 @@ export function resolveModelId(tier: ModelTier = 'medium', providerConfig?: Prov
 /**
  * Resolve the thinking level for a run.
  *
- * The Claude Agent SDK enabled "adaptive" thinking only on capable models; pi uses
+ * The previous harness enabled "adaptive" thinking only on capable models; pi uses
  * explicit levels and clamps to model capability internally. We default to 'medium'
  * and honour the existing CLAUDE_ADAPTIVE_THINKING=false kill switch (→ 'off'). An
  * explicit CLAUDE_THINKING_LEVEL wins when set.

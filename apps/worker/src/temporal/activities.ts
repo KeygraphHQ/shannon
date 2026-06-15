@@ -663,7 +663,7 @@ export async function syncPlaywrightStealthConfig(input: ActivityInput): Promise
 /**
  * Sync code_path avoid rules into the @gotgenes/pi-permission-system global config
  * so pi enforces them at the tool layer for every agent in this run. The executor
- * loads the extension when this config is present (see claude-executor).
+ * loads the extension when this config is present (see pi-executor).
  *
  * Runs once per workflow before any analysis agent fires. Config is fixed for the
  * lifetime of the workflow, so writing once avoids a parallel-agent race on the

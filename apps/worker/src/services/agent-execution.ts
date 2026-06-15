@@ -12,7 +12,7 @@
  * - Load prompt template using AGENTS[agentName].promptTemplate
  * - Create git checkpoint
  * - Start audit logging
- * - Invoke Claude SDK via runClaudePrompt
+ * - Invoke the pi agent via runPiPrompt
  * - Spending cap check using isSpendingCapBehavior
  * - Handle failure (rollback, audit)
  * - Validate output using AGENTS[agentName].deliverableFilename
@@ -22,7 +22,7 @@
  */
 
 import { fs, path } from 'zx';
-import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
+import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi-executor.js';
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
@@ -59,7 +59,7 @@ export interface AgentExecutionInput {
 
 interface FailAgentOpts {
   attemptNumber: number;
-  result: ClaudePromptResult;
+  result: PiPromptResult;
   rollbackReason: string;
   errorMessage: string;
   errorCode: ErrorCode;
@@ -167,7 +167,7 @@ export class AgentExecutionService {
     //    exploitation queue (pi has no JSON-schema output format).
     const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
     const callerTools = [...(customTools ?? []), ...(submitTool ? [submitTool.tool] : [])];
-    const result: ClaudePromptResult = await runClaudePrompt(
+    const result: PiPromptResult = await runPiPrompt(
       prompt,
       repoPath,
       '', // context
@@ -309,7 +309,7 @@ export class AgentExecutionService {
   /**
    * Convert AgentEndResult to AgentMetrics for workflow state.
    */
-  static toMetrics(endResult: AgentEndResult, result: ClaudePromptResult): AgentMetrics {
+  static toMetrics(endResult: AgentEndResult, result: PiPromptResult): AgentMetrics {
     return {
       durationMs: endResult.duration_ms,
       inputTokens: null, // Not currently exposed by SDK wrapper

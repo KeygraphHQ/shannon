@@ -350,7 +350,7 @@ async function probeCredentialsWithPi(authType: string, baseUrl?: string): Promi
   return ok(undefined);
 }
 
-/** Validate credentials via a minimal Claude Agent SDK query. */
+/** Validate credentials via a minimal pi session. */
 async function validateCredentials(
   logger: ActivityLogger,
   apiKey?: string,
