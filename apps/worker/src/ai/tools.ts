@@ -8,9 +8,9 @@
  * Universal custom tools registered for every agent: `task` and `todo_write`.
  *
  * These replace the previous harness built-ins that pi does not ship. `task`
- * delegates a focused analysis to an in-process read-only child session (the
- * Task sub-agent replacement); `todo_write` is a full-state-replace planning
- * scratchpad mirrored to the workflow log.
+ * delegates a focused sub-task to an in-process child session (the Task sub-agent
+ * replacement); `todo_write` is a full-state-replace planning scratchpad mirrored
+ * to the workflow log.
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
@@ -27,8 +27,8 @@ import {
 import { Type } from 'typebox';
 import type { AuditLogger } from './audit-logger.js';
 
-/** Read-only tool surface for delegated child sessions. No bash/edit/write. */
-const CHILD_TOOLS = ['read', 'grep', 'find', 'ls'];
+/** Tool surface for child sessions: read/search plus `write`+`bash` to author and run scripts. */
+const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
 
 export interface TaskToolContext {
   model: Model<Api>;
@@ -46,26 +46,27 @@ export interface TaskToolContext {
 }
 
 /**
- * The `task` tool — delegate a focused, read-only analysis to a sub-agent.
+ * The `task` tool — launch a new agent to handle a multi-step task autonomously.
  *
- * Spawns an in-process child `createAgentSession` scoped to read-only tools,
- * drives it to completion, and returns its final text. Marked `parallel` so the
- * model can fan out multiple delegations in one turn (the pre-recon/recon prompts
- * rely on this). Children get no `task` tool of their own — delegation is one level.
+ * Spawns an in-process child session, drives it to completion, and returns its
+ * final text. Marked `parallel` for one-turn fan-out. Children get no `task` of
+ * their own — delegation is one level.
  */
 export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
   return defineTool({
     name: 'task',
     label: 'Task',
     description:
-      'Delegate a focused source-code analysis question to a read-only sub-agent and return its findings. ' +
-      'Use for deep code reading, tracing, and attack-surface mapping. Issue multiple task calls in one ' +
-      'message to run analyses in parallel.',
-    promptSnippet: 'task: delegate read-only code analysis to a parallel sub-agent',
+      'Launch a new agent to handle complex, multi-step tasks autonomously. The agent runs on its own and ' +
+      'its final report is returned to you as the tool result (it is not shown to the user). Each invocation ' +
+      'is stateless — you cannot send follow-up messages, so give a complete, detailed instruction in a single ' +
+      'prompt and specify exactly what information the agent should return. Launch multiple agents concurrently ' +
+      'by issuing multiple task calls in a single message.',
+    promptSnippet: 'task: launch a new agent to handle a multi-step task',
     executionMode: 'parallel',
     parameters: Type.Object({
-      description: Type.Optional(Type.String({ description: 'Short (3-5 word) label for the delegated analysis.' })),
-      prompt: Type.String({ description: 'The full analysis instruction for the sub-agent.' }),
+      description: Type.Optional(Type.String({ description: 'Short (3-5 word) label for the delegated sub-task.' })),
+      prompt: Type.String({ description: 'The full instruction for the sub-agent.' }),
     }),
     execute: async (_toolCallId, params) => {
       const { session: child } = await createAgentSession({
@@ -127,9 +128,12 @@ export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
     name: 'todo_write',
     label: 'Todo Write',
     description:
-      'Record or update the task plan. Pass the COMPLETE todo list every call (full replace, not append). ' +
-      'Keep exactly one task in_progress; mark tasks completed as soon as they are done.',
-    promptSnippet: 'todo_write: track a plan as a checklist (pass the full list each call)',
+      'Use this tool to create and manage a structured task list for your current session. This helps you ' +
+      'track progress and organize complex, multi-step work, and gives visibility into what you are doing. ' +
+      'Pass the COMPLETE todo list on every call — it replaces the stored list entirely (no append or merge). ' +
+      'Each todo has a status of pending, in_progress, or completed; keep exactly one task in_progress at a ' +
+      'time and mark a task completed as soon as it is finished.',
+    promptSnippet: 'todo_write: create and manage a structured task list',
     parameters: Type.Object({
       todos: Type.Array(
         Type.Object({
