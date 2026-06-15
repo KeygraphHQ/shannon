@@ -21,7 +21,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../audit/index.js';
-import { deliverablesDir } from '../paths.js';
+import { deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../paths.js';
 import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -64,22 +64,25 @@ function permissionExtensionDir(): string | null {
   return cachedExtensionDir;
 }
 
-/**
- * Build a resource loader that loads the pi-permission-system extension — but only
- * when a code_path deny config exists (written by settings-writer). Returns
- * undefined otherwise, preserving default behavior (and zero overhead) for runs
- * with no code_path avoids.
- */
-async function buildPermissionResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader | undefined> {
-  if (!fs.existsSync(permissionConfigPath())) return undefined;
-  const extDir = permissionExtensionDir();
-  if (!extDir) {
-    logger.warn(
-      'code_path deny config present but @gotgenes/pi-permission-system not resolvable — skipping enforcement',
-    );
-    return undefined;
+async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader> {
+  const additionalExtensionPaths: string[] = [];
+  if (fs.existsSync(permissionConfigPath())) {
+    const extDir = permissionExtensionDir();
+    if (extDir) {
+      additionalExtensionPaths.push(extDir);
+    } else {
+      logger.warn(
+        'code_path deny config present but @gotgenes/pi-permission-system not resolvable — skipping enforcement',
+      );
+    }
   }
-  const loader = new DefaultResourceLoader({ cwd, agentDir: getAgentDir(), additionalExtensionPaths: [extDir] });
+
+  const loader = new DefaultResourceLoader({
+    cwd,
+    agentDir: getAgentDir(),
+    additionalSkillPaths: [PLAYWRIGHT_SKILL_DIR],
+    ...(additionalExtensionPaths.length > 0 && { additionalExtensionPaths }),
+  });
   await loader.reload();
   return loader;
 }
@@ -233,9 +236,7 @@ export async function runPiPrompt(
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
   const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier, apiKey, providerConfig);
-  // Load the code_path deny extension only when a deny config was written; the same
-  // loader is reused by child task sessions so they inherit the policy.
-  const resourceLoader = await buildPermissionResourceLoader(sourceDir, logger);
+  const resourceLoader = await buildResourceLoader(sourceDir, logger);
   // Accumulates cost from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
   const childUsage = { cost: 0 };
@@ -246,7 +247,7 @@ export async function runPiPrompt(
       authStorage: selection.authStorage,
       cwd: sourceDir,
       childUsage,
-      ...(resourceLoader && { resourceLoader }),
+      resourceLoader,
     }),
     createTodoWriteTool(auditLogger),
     createGlobTool(sourceDir),
@@ -273,7 +274,7 @@ export async function runPiPrompt(
       // Temporal owns retry; pi compaction stays on (no analog previously, guards
       // against context overflow on long agent runs).
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: true } }),
-      ...(resourceLoader && { resourceLoader }),
+      resourceLoader,
     });
 
     // 5. Map pi events to audit logging + progress + error capture.
