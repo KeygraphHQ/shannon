@@ -272,8 +272,8 @@ For each analysis you perform from the lists above, you must make a final **verd
 
 </methodology_and_domain_expertise>
 
-<mcp_tools>
-After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 4 one-shot MCP tools provided by the `vuln-collector` server. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
+<deliverable_tools>
+After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 4 one-shot tools provided by the `vuln-collector`. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
 
 **Tool catalog:**
 - `set_findings_summary` — Section 1 (Executive Summary key outcome) and Section 2 (Dominant Vulnerability Patterns)
@@ -281,7 +281,7 @@ After completing your `todo_write` tasks and synthesizing findings, emit your sp
 - `set_safe_vectors` — Section 4 (vectors confirmed secure)
 - `set_blind_spots` — Section 5 (analysis constraints and blind spots)
 
-The MCP SDK injects each tool's complete description and per-field guidance into your tool catalog — refer to the tool catalog for what each parameter expects. For authz specifically, when populating `set_safe_vectors`, the renderer maps `subject` to the "Endpoint" column header and `location` to the "Guard Location" column header.
+The harness injects each tool's complete description and per-field guidance into your tool catalog — refer to the tool catalog for what each parameter expects. For authz specifically, when populating `set_safe_vectors`, the renderer maps `subject` to the "Endpoint" column header and `location` to the "Guard Location" column header.
 
 **Call semantics:** All 4 tools are one-shot — each may be called exactly once with the section's complete content. Duplicate calls return `"already called"` and are no-ops. There is no incremental/append mode; synthesize each section's full content in working memory before emitting.
 
@@ -289,21 +289,21 @@ The MCP SDK injects each tool's complete description and per-field guidance into
 - `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-authz` agent reads.
 - `set_safe_vectors` and `set_blind_spots` are recommended. Empty arrays are acceptable on runs with no validated-secure endpoints or no constraint gaps, but explicit emission is preferred over skipping.
 
-**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 MCP tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
-</mcp_tools>
+**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
+</deliverable_tools>
 
 
 <conclusion_trigger>
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Todo Completion:** ALL tasks in your `todo_write` list must be marked as "completed".
-2. **Deliverable Emission:** Call the 4 MCP tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
+2. **Deliverable Emission:** Call the 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
 
-**Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the MCP tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the MCP tool calls.
+**Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the tool calls.
 
-**ONLY AFTER** both todo completion AND the required MCP tool calls have been completed, announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
+**ONLY AFTER** both todo completion AND the required tool calls have been completed, announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
 
 **CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the deliverable contains everything needed.
 
-**FAILURE TO COMPLETE TODOS = INCOMPLETE ANALYSIS** - You will be considered to have failed the mission if you emit MCP deliverable calls before completing comprehensive testing of all authorization vectors.
+**FAILURE TO COMPLETE TODOS = INCOMPLETE ANALYSIS** - You will be considered to have failed the mission if you emit deliverable calls before completing comprehensive testing of all authorization vectors.
 </conclusion_trigger>

@@ -21,7 +21,7 @@ Filesystem:
 - Focus on SECURITY IMPLICATIONS and ACTIONABLE FINDINGS rather than just component listings
 - Identify trust boundaries, privilege escalation paths, and data flow security concerns
 - Include specific examples from the code when discussing security concerns
-- **MANDATORY:** You MUST emit your complete analysis by calling all seven `set_*` MCP tools listed in `<mcp_tools>` before terminating. The host renders the deliverable Markdown from those calls.
+- **MANDATORY:** You MUST emit your complete analysis by calling all seven `set_*` tools listed in `<deliverable_tools>` before terminating. The host renders the deliverable Markdown from those calls.
 
 **GIT AWARENESS:**
 Read `.gitignore` and run `git ls-files --others --ignored --exclude-standard --directory` to identify excluded paths. To check a specific file, use `git ls-files <filepath>` — output means tracked, empty means untracked. Only flag tracked files as vulnerabilities. Untracked files relevant to security (e.g., secrets, credentials, sensitive configs) may be noted as informational.
@@ -135,7 +135,7 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
   - Create the `.shannon/deliverables/schemas/` directory using mkdir -p
   - Copy all discovered schema files to `.shannon/deliverables/schemas/` with descriptive names
   - Include schema locations in your attack surface analysis
-- **Emit findings via MCP tools:** Call every tool listed in `<mcp_tools>` exactly once. The host renders the deliverable Markdown from your calls — there is no Markdown for you to write yourself.
+- **Emit findings via tools:** Call every tool listed in `<deliverable_tools>` exactly once. The host renders the deliverable Markdown from your calls — there is no Markdown for you to write yourself.
 
 **EXECUTION PATTERN:**
 1. **Use `todo_write` to create task list** tracking: Phase 1 agents, Phase 2 agents, and report synthesis
@@ -177,8 +177,8 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
 - Static files or scripts that require manual opening in a browser (not served by the application).
 </scope_boundaries>
 
-<mcp_tools>
-**Emit your findings exclusively via the `pre-recon-collector` MCP tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+<deliverable_tools>
+**Emit your findings exclusively via the `pre-recon-collector` tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
 
 You must call all seven of the following tools exactly once before terminating. Each tool's full schema and field-by-field guidance is in your tool catalog — read it there.
 
@@ -191,7 +191,7 @@ You must call all seven of the following tools exactly once before terminating. 
 - `set_ssrf_sinks` — SSRF sinks grouped by sink category (Section 10). Set `applicable: false` only if the application makes no outbound requests at all.
 
 Each `set_*` tool is one-shot. Duplicate calls return a `DuplicateError` and are no-ops; the first call wins. Plan your synthesis fully before emitting — there is no edit or revise channel.
-</mcp_tools>
+</deliverable_tools>
 
 <conclusion_trigger>
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
@@ -201,7 +201,7 @@ Each `set_*` tool is one-shot. Duplicate calls return a `DuplicateError` and are
    - Phase 2: All three vulnerability analysis agents (XSS/Injection Sink Hunter, SSRF/External Request Tracer, Data Security Auditor) completed
    - Phase 3: Synthesis and report generation completed
 
-2. **MCP Emission:** All seven `set_*` MCP tools listed in `<mcp_tools>` must have been called.
+2. **Deliverable Emission:** All seven `set_*` tools listed in `<deliverable_tools>` must have been called.
 
 3. **Schemas Side Output:** `.shannon/deliverables/schemas/` directory with all discovered schema files copied (if any schemas found).
 

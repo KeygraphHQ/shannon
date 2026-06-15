@@ -138,15 +138,15 @@ You must follow this methodical four-step process:
 
 4.  **Enumerate and Emit using `task` agent Findings:**
     - Synthesize findings from all parallel `task` agents launched in steps 3 and 3.5
-    - Use their exact file paths, code locations, and analysis to populate the MCP tool calls
+    - Use their exact file paths, code locations, and analysis to populate the tool calls
     - Cross-reference browser observations with `task` agent source code findings to create comprehensive attack surface maps
-    - Emit findings via the MCP tools listed in `<mcp_tools>` — the renderer produces the deliverable Markdown from your tool calls
+    - Emit findings via the tools listed in `<deliverable_tools>` — the renderer produces the deliverable Markdown from your tool calls
 </systematic_approach>
 
-<mcp_tools>
-**Emit your findings exclusively via the `recon-collector` MCP tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+<deliverable_tools>
+**Emit your findings exclusively via the `recon-collector` tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
 
-**When to emit.** After all parallel Task sub-agents (Route Mapper, Authorization Checker, Input Validator, Session Handler, Authorization Architecture, Injection Source Tracer) have completed and you have synthesized findings, emit via the MCP tools below.
+**When to emit.** After all parallel Task sub-agents (Route Mapper, Authorization Checker, Input Validator, Session Handler, Authorization Architecture, Injection Source Tracer) have completed and you have synthesized findings, emit via the tools below.
 
 **Required tools — call all nine before terminating.** Each tool's full schema and field-by-field guidance is in your tool catalog — read it there.
 
@@ -175,16 +175,16 @@ You must follow this methodical four-step process:
 "Find all injection sources in the codebase: SQL injection, command injection, file inclusion/path traversal (LFI/RFI), server-side template injection (SSTI), and insecure deserialization. Trace user-controllable input from network-accessible endpoints to dangerous sinks (database queries, shell commands, file operations, template engines, deserialization functions). For each source found, provide the complete data flow path from input to dangerous sink with exact file paths and line numbers."
 
 **Network Surface Focus (applies to every tool):** Only emit components, endpoints, input vectors, and injection sources that are reachable through the target web application's network interface. Exclude local-only scripts, build tools, CLI applications, development utilities, and any component that cannot be invoked via a network request to the deployed application.
-</mcp_tools>
+</deliverable_tools>
 
 <conclusion_trigger>
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Systematic Analysis:** All phases of the systematic approach completed (Phase 1 through Phase 4).
-2. **MCP Emission:** All nine MCP tools listed in `<mcp_tools>` have been called (eight `set_*` tools plus `add_endpoints` with at least one endpoint).
+2. **Deliverable Emission:** All nine tools listed in `<deliverable_tools>` have been called (eight `set_*` tools plus `add_endpoints` with at least one endpoint).
 3. **`todo_write` Completion:** All tasks in your todo list marked completed.
 
 **ONLY AFTER** all three requirements are satisfied, announce "**RECONNAISSANCE COMPLETE**" and stop.
 
-**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the host renders the deliverable from your MCP tool calls and it contains everything needed.
+**CRITICAL:** After announcing completion, STOP IMMEDIATELY. Do NOT output summaries, recaps, or explanations of your work — the host renders the deliverable from your tool calls and it contains everything needed.
 </conclusion_trigger>
