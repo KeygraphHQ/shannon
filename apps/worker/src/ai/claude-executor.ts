@@ -230,12 +230,16 @@ export async function runClaudePrompt(
   // Load the code_path deny extension only when a deny config was written; the same
   // loader is reused by child task sessions so they inherit the policy.
   const resourceLoader = await buildPermissionResourceLoader(sourceDir, logger);
+  // Accumulates cost from in-process `task` child sessions so the parent's reported
+  // cost includes sub-agent spend (their getSessionStats is separate from ours).
+  const childUsage = { cost: 0 };
   const customTools: ToolDefinition[] = [
     createTaskTool({
       model: selection.model,
       thinkingLevel: selection.thinkingLevel,
       authStorage: selection.authStorage,
       cwd: sourceDir,
+      childUsage,
       ...(resourceLoader && { resourceLoader }),
     }),
     createTodoWriteTool(auditLogger),
@@ -292,6 +296,14 @@ export async function runClaudePrompt(
         case 'tool_execution_end':
           void auditLogger.logToolEnd(event.result);
           break;
+        case 'compaction_end':
+          if (!event.aborted && !event.willRetry && event.errorMessage) {
+            pendingError =
+              pendingError ??
+              classifyErrorText(event.errorMessage) ??
+              new PentestError(`Context compaction failed: ${event.errorMessage.slice(0, 200)}`, 'unknown', true);
+          }
+          break;
         default:
           break;
       }
@@ -306,7 +318,7 @@ export async function runClaudePrompt(
 
     // 8. Read usage/cost and final text.
     const stats = session.getSessionStats();
-    const totalCost = stats.cost;
+    const totalCost = stats.cost + childUsage.cost;
     const result = session.getLastAssistantText() ?? null;
 
     // 9. Defense-in-depth: detect a spending cap that produced an empty/cheap run.

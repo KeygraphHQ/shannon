@@ -37,6 +37,12 @@ export interface TaskToolContext {
   cwd: string;
   /** When set, child sessions inherit the code_path deny policy. */
   resourceLoader?: ResourceLoader;
+  /**
+   * Mutable accumulator: each child (sub-agent) session's cost is added here so the
+   * parent executor can include sub-agent spend in its reported cost. Child sessions
+   * keep their own `getSessionStats`, separate from the parent's.
+   */
+  childUsage?: { cost: number };
 }
 
 /**
@@ -80,6 +86,15 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         const text = child.getLastAssistantText() ?? '(sub-agent produced no output)';
         return { content: [{ type: 'text' as const, text }], details: {} };
       } finally {
+        // Roll the child's cost up to the parent before disposing (best-effort, and
+        // captured in `finally` so a failed child's partial spend still counts).
+        if (ctx.childUsage) {
+          try {
+            ctx.childUsage.cost += child.getSessionStats().cost;
+          } catch {
+            // ignore — cost capture is best-effort
+          }
+        }
         child.dispose();
       }
     },
