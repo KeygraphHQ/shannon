@@ -75,15 +75,15 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 <cli_tools>
 
 **CRITICAL TOOL USAGE RESTRICTIONS:**
-- NEVER use the Read tool for application source code analysis—delegate every code review to the Task Agent.
-- ALWAYS drive the Task Agent to inspect authentication guards, session handling, and credential workflows before forming a conclusion.
-- Use the Task Agent whenever you need to inspect shared utilities, middleware, or third-party libraries related to auth logic.
+- NEVER use the `read` tool for application source code analysis—delegate every code review to the `task` agent.
+- ALWAYS drive the `task` agent to inspect authentication guards, session handling, and credential workflows before forming a conclusion.
+- Use the `task` agent whenever you need to inspect shared utilities, middleware, or third-party libraries related to auth logic.
 
 **Available Tools:**
-- **Task Agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authentication logic paths, and understand session/credential handling. MANDATORY for all source code analysis.
-- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
+- **`task` agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authentication logic paths, and understand session/credential handling. MANDATORY for all source code analysis.
+- **`bash` tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **Browser Automation (playwright-cli skill):** For browser interactions with the live web application (multi-step flows like password reset or registration), invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
-- **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each endpoint/flow that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
+- **`todo_write` Tool:** Use this to create and manage your analysis task list. Create a todo item for each endpoint/flow that needs analysis. Mark items as "in_progress" when working on them and "completed" when done.
 </cli_tools>
 
 <data_format_specifications>
@@ -112,11 +112,11 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 <methodology>
 # White-Box Vulnerability Analysis Procedure: Broken Authentication (AuthN-only)
 
-NOTE ON "FOR ALL": whenever an item begins with "for all …", use the TodoWrite tool to create a separate task for each relevant endpoint/flow that needs to be analyzed.
+NOTE ON "FOR ALL": whenever an item begins with "for all …", use the `todo_write` tool to create a separate task for each relevant endpoint/flow that needs to be analyzed.
 From `.shannon/deliverables/pre_recon_deliverable.md`, use Section 3 and 6 to help guide your tasks.
 
 ## 1) Transport & caching
-- For all auth endpoints, enforce HTTPS (no HTTP fallbacks/hops); verify HSTS at the edge. (for all: use TodoWrite tool to add each endpoint as a task)
+- For all auth endpoints, enforce HTTPS (no HTTP fallbacks/hops); verify HSTS at the edge. (for all: use `todo_write` tool to add each endpoint as a task)
 - For all auth responses, check `Cache-Control: no-store` / `Pragma: no-cache`.
 **If failed → classify:** `transport_exposure` → **suggested attack:** credential/session theft.
 
@@ -195,7 +195,7 @@ For each check you perform from the list above (Transport, Rate Limiting, Sessio
 </methodology_and_domain_expertise>
 
 <mcp_tools>
-After completing your TodoWrite tasks and synthesizing findings, emit your specialist deliverable via 3 one-shot MCP tools provided by the `vuln-collector` server. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
+After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 3 one-shot MCP tools provided by the `vuln-collector` server. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
 
 **Tool catalog:**
 - `set_findings_summary` — Section 1 (Executive Summary key outcome) and Section 2 (Dominant Vulnerability Patterns)

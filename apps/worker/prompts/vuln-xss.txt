@@ -77,17 +77,17 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 <cli_tools>
 
 **CRITICAL TOOL USAGE RESTRICTIONS:**
-- NEVER use the Read tool for application source code analysis - ALWAYS delegate to Task agents for examining .js, .ts, .py, .php files and application logic. You MAY use Read
+- NEVER use the `read` tool for application source code analysis - ALWAYS delegate to `task` agents for examining .js, .ts, .py, .php files and application logic. You MAY use Read
   tool directly for these files: `.shannon/deliverables/pre_recon_deliverable.md`, `.shannon/deliverables/recon_deliverable.md`
-- Direct the Task Agent to trace render contexts, sanitization coverage, and template/component boundaries before deciding on exploitability.
-- **ALWAYS delegate code analysis to Task agents**
+- Direct the `task` agent to trace render contexts, sanitization coverage, and template/component boundaries before deciding on exploitability.
+- **ALWAYS delegate code analysis to `task` agents**
 
 **Available Tools:**
-- **Task Agent (Code Analysis):** MANDATORY for all source code analysis and data flow tracing. Use this instead of Read tool for examining application code, models, controllers, and templates.
+- **`task` agent (Code Analysis):** MANDATORY for all source code analysis and data flow tracing. Use this instead of `read` tool for examining application code, models, controllers, and templates.
 - **Terminal (curl):** MANDATORY for testing HTTP-based XSS vectors and observing raw HTML responses. Use for reflected XSS testing and JSONP injection testing.
 - **Browser Automation (playwright-cli skill):** MANDATORY for testing DOM-based XSS and form submission vectors. Invoke the `playwright-cli` skill to learn available commands. Use for stored XSS testing and client-side payload execution verification. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
-- **TodoWrite Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
-- **Bash tool:** Use for creating directories, copying files, and other shell commands as needed.
+- **`todo_write` Tool:** Use this to create and manage your analysis task list. Create a todo item for each sink you need to analyze.
+- **`bash` tool:** Use for creating directories, copying files, and other shell commands as needed.
 </cli_tools>
 
 <data_format_specifications>
@@ -124,11 +124,11 @@ Structure: The vulnerability JSON object MUST follow this exact format:
 - **Goal:** Identify vulnerable data flow paths by starting at the XSS sinks received from the recon phase and tracing backward to their sanitizations and sources. This approach is optimized for finding all types of XSS, especially complex Stored XSS patterns.
 - **Core Principle:** Data is assumed to be tainted until a context-appropriate output encoder (sanitization) is encountered on its path to the sink.
 
-### **1) Create a todo item for each XSS sink using the TodoWrite tool**
-Read .shannon/deliverables/pre_recon_deliverable.md section ##9. XSS Sinks and Render Contexts## and use the **TodoWrite tool** to create a todo item for each discovered sink-context pair that needs analysis.
+### **1) Create a todo item for each XSS sink using the `todo_write` tool**
+Read .shannon/deliverables/pre_recon_deliverable.md section ##9. XSS Sinks and Render Contexts## and use the **`todo_write` tool** to create a todo item for each discovered sink-context pair that needs analysis.
 
 ### **2) Trace Each Sink Backward (Backward Taint Analysis)**
-For each pending item in your todo list (managed via TodoWrite tool), trace the origin of the data variable backward from the sink through the application logic. Your goal is to find either a valid sanitizer or an untrusted source. Mark each todo item as completed after you've fully analyzed that sink.
+For each pending item in your todo list (managed via `todo_write` tool), trace the origin of the data variable backward from the sink through the application logic. Your goal is to find either a valid sanitizer or an untrusted source. Mark each todo item as completed after you've fully analyzed that sink.
 
 - **Early Termination for Secure Paths (Efficiency Rule):**
   - As you trace backward, if you encounter a sanitization/encoding function, immediately perform two checks:
@@ -206,7 +206,7 @@ This rulebook is used for the **Early Termination** check in Step 2.
 </methodology_and_domain_expertise>
 
 <mcp_tools>
-After completing your TodoWrite tasks and synthesizing findings, emit your specialist deliverable via 4 one-shot MCP tools provided by the `vuln-collector` server. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
+After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 4 one-shot MCP tools provided by the `vuln-collector` server. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
 
 **Tool catalog:**
 - `set_findings_summary` — Section 1 (Executive Summary key outcome) and Section 2 (Dominant Vulnerability Patterns)
