@@ -103,19 +103,21 @@ export function resolveModelId(tier: ModelTier = 'medium', providerConfig?: Prov
   }
 }
 
+/** Whether a model supports adaptive thinking. Opus 4.6, 4.7, and 4.8 only. */
+export function supportsAdaptiveThinking(model: string): boolean {
+  return /opus-4-[678]/.test(model);
+}
+
 /**
  * Resolve the thinking level for a run.
  *
- * The previous harness enabled "adaptive" thinking only on capable models; pi uses
- * explicit levels and clamps to model capability internally. We default to 'medium'
- * and honour the existing CLAUDE_ADAPTIVE_THINKING=false kill switch (→ 'off'). An
- * explicit CLAUDE_THINKING_LEVEL wins when set.
+ * Adaptive thinking is enabled only on capable models (Opus 4.6/4.7/4.8), mapped to
+ * pi's 'medium' level; every other model runs with thinking 'off'. The
+ * CLAUDE_ADAPTIVE_THINKING=false kill switch forces 'off' regardless of model.
  */
-export function resolveThinkingLevel(): ThinkingLevel {
+export function resolveThinkingLevel(modelId: string): ThinkingLevel {
   if (process.env.CLAUDE_ADAPTIVE_THINKING === 'false') return 'off';
-  const explicit = process.env.CLAUDE_THINKING_LEVEL as ThinkingLevel | undefined;
-  if (explicit) return explicit;
-  return 'medium';
+  return supportsAdaptiveThinking(modelId) ? 'medium' : 'off';
 }
 
 export interface ModelSelection {
@@ -162,7 +164,7 @@ export function resolveModelSelection(
 
   return {
     model,
-    thinkingLevel: resolveThinkingLevel(),
+    thinkingLevel: resolveThinkingLevel(modelId),
     authStorage,
     modelId,
     providerId: eff.providerId,
