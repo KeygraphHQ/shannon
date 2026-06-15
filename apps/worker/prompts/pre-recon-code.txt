@@ -178,7 +178,7 @@ After Phase 1 completes, launch all three vulnerability-focused agents in parall
 </scope_boundaries>
 
 <deliverable_tools>
-**Emit your findings exclusively via the `pre-recon-collector` tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+**Emit your findings exclusively via the deliverable tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
 
 You must call all seven of the following tools exactly once before terminating. Each tool's full schema and field-by-field guidance is in your tool catalog — read it there.
 

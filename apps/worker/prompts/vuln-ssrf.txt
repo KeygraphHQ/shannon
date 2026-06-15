@@ -244,7 +244,7 @@ For each check you perform from the list above, you must make a final **verdict*
 </methodology_and_domain_expertise>
 
 <deliverable_tools>
-After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 3 one-shot tools provided by the `vuln-collector`. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
+After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 3 one-shot tools. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
 
 **Tool catalog:**
 - `set_findings_summary` — Section 1 (Executive Summary key outcome) and Section 2 (Dominant Vulnerability Patterns)

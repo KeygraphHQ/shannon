@@ -144,7 +144,7 @@ You must follow this methodical four-step process:
 </systematic_approach>
 
 <deliverable_tools>
-**Emit your findings exclusively via the `recon-collector` tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+**Emit your findings exclusively via the deliverable tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
 
 **When to emit.** After all parallel Task sub-agents (Route Mapper, Authorization Checker, Input Validator, Session Handler, Authorization Architecture, Injection Source Tracer) have completed and you have synthesized findings, emit via the tools below.
 
