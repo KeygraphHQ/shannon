@@ -13,7 +13,7 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 
 - [Development](docs/development.md): Source-build workflow, common CLI commands, repository paths, and output locations.
 - [Configuration](docs/configuration.md): Authenticated testing, login flows, rules of engagement, report filters, credential precedence, adaptive thinking, and rate-limit settings.
-- [AI Providers](docs/ai-providers.md): Anthropic, AWS Bedrock, Google Vertex AI, and custom Anthropic-compatible endpoint setup.
+- [AI Providers](docs/ai-providers.md): Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoint setup.
 - [Platforms and Networking](docs/platforms.md): Windows/WSL2, Linux, macOS, Docker networking, local applications, and custom hostnames.
 - [Workspaces and Resuming](docs/workspaces.md): Workspace storage, naming, resuming interrupted scans, and examples.
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.
