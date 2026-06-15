@@ -5,7 +5,6 @@
  * then persists everything to ~/.shannon/config.toml with 0o600 permissions.
  */
 
-import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
@@ -13,7 +12,7 @@ import { type ShannonConfig, saveConfig } from '../config/writer.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
+type Provider = 'anthropic' | 'custom_base_url' | 'bedrock';
 
 export async function setup(): Promise<void> {
   p.intro('Shannon Setup');
@@ -25,7 +24,6 @@ export async function setup(): Promise<void> {
       { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
-      { value: 'vertex' as const, label: 'Claude via Google Vertex AI' },
     ],
   });
   if (p.isCancel(provider)) return cancelAndExit();
@@ -51,8 +49,6 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
       return setupCustomBaseUrl();
     case 'bedrock':
       return setupBedrock();
-    case 'vertex':
-      return setupVertex();
   }
 }
 
@@ -210,75 +206,6 @@ async function setupBedrock(): Promise<ShannonConfig> {
   return {
     bedrock: { use: true, region, token },
     models: { small, medium, large },
-  };
-}
-
-async function setupVertex(): Promise<ShannonConfig> {
-  // 1. Collect region and project ID
-  const region = await p.text({
-    message: 'Google Cloud region',
-    placeholder: 'us-east5',
-    validate: required('Region is required'),
-  });
-  if (p.isCancel(region)) return cancelAndExit();
-
-  const projectId = await p.text({
-    message: 'GCP Project ID',
-    validate: required('Project ID is required'),
-  });
-  if (p.isCancel(projectId)) return cancelAndExit();
-
-  // 2. File picker for service account key
-  p.log.info('Select the path to your GCP Service Account JSON key file.');
-  const keySourcePath = await p.path({
-    message: 'Service Account JSON key file',
-    validate: (value) => {
-      if (!value) return 'Path is required';
-      if (!fs.existsSync(value)) return 'File not found';
-      if (!value.endsWith('.json')) return 'Must be a .json file';
-      return undefined;
-    },
-  });
-  if (p.isCancel(keySourcePath)) return cancelAndExit();
-
-  // 3. Copy key to ~/.shannon/ and lock permissions
-  const destPath = path.join(SHANNON_HOME, 'google-sa-key.json');
-  fs.mkdirSync(SHANNON_HOME, { recursive: true });
-  fs.copyFileSync(keySourcePath, destPath);
-  fs.chmodSync(destPath, 0o600);
-  p.log.success(`Key copied to ${destPath} (permissions: 0600)`);
-
-  // 4. Model tiers
-  const models = await p.group({
-    small: () =>
-      p.text({
-        message: 'Small model ID',
-        placeholder: 'claude-haiku-4-5@20251001',
-        validate: required('Small model ID is required'),
-      }),
-    medium: () =>
-      p.text({
-        message: 'Medium model ID',
-        placeholder: 'claude-sonnet-4-6',
-        validate: required('Medium model ID is required'),
-      }),
-    large: () =>
-      p.text({
-        message: 'Large model ID',
-        placeholder: 'claude-opus-4-8',
-        validate: required('Large model ID is required'),
-      }),
-  });
-  if (p.isCancel(models)) return cancelAndExit();
-
-  return {
-    vertex: {
-      use: true,
-      region,
-      project_id: projectId,
-      key_path: destPath,
-    },
-    models: { small: models.small, medium: models.medium, large: models.large },
   };
 }
 

@@ -18,10 +18,6 @@ const FORWARD_VARS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
   'AWS_BEARER_TOKEN_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLOUD_ML_REGION',
-  'ANTHROPIC_VERTEX_PROJECT_ID',
-  'GOOGLE_APPLICATION_CREDENTIALS',
   'ANTHROPIC_SMALL_MODEL',
   'ANTHROPIC_MEDIUM_MODEL',
   'ANTHROPIC_LARGE_MODEL',
@@ -62,7 +58,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -77,7 +73,6 @@ function detectProviders(): string[] {
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
   if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
-  if (process.env.CLAUDE_CODE_USE_VERTEX === '1') providers.push('Google Vertex');
   return providers;
 }
 
@@ -119,29 +114,6 @@ export function validateCredentials(): CredentialValidation {
       };
     }
     return { valid: true, mode: 'bedrock' };
-  }
-  if (process.env.CLAUDE_CODE_USE_VERTEX === '1') {
-    const missing: string[] = [];
-    if (!process.env.CLOUD_ML_REGION) missing.push('CLOUD_ML_REGION');
-    if (!process.env.ANTHROPIC_VERTEX_PROJECT_ID) missing.push('ANTHROPIC_VERTEX_PROJECT_ID');
-    if (!process.env.ANTHROPIC_SMALL_MODEL) missing.push('ANTHROPIC_SMALL_MODEL');
-    if (!process.env.ANTHROPIC_MEDIUM_MODEL) missing.push('ANTHROPIC_MEDIUM_MODEL');
-    if (!process.env.ANTHROPIC_LARGE_MODEL) missing.push('ANTHROPIC_LARGE_MODEL');
-    if (missing.length > 0) {
-      return {
-        valid: false,
-        mode: 'vertex',
-        error: `Vertex AI mode requires: ${missing.join(', ')}`,
-      };
-    }
-    if (!process.env.GOOGLE_APPLICATION_CREDENTIALS) {
-      return {
-        valid: false,
-        mode: 'vertex',
-        error: 'Vertex AI mode requires GOOGLE_APPLICATION_CREDENTIALS',
-      };
-    }
-    return { valid: true, mode: 'vertex' };
   }
 
   const hint =

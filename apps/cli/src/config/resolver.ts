@@ -36,12 +36,6 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
   { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
 
-  // Vertex
-  { env: 'CLAUDE_CODE_USE_VERTEX', toml: 'vertex.use', type: 'boolean' },
-  { env: 'CLOUD_ML_REGION', toml: 'vertex.region', type: 'string' },
-  { env: 'ANTHROPIC_VERTEX_PROJECT_ID', toml: 'vertex.project_id', type: 'string' },
-  { env: 'GOOGLE_APPLICATION_CREDENTIALS', toml: 'vertex.key_path', type: 'string' },
-
   // Custom Base URL
   { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
   { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
@@ -154,20 +148,10 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
       validateModelTiers(config, 'bedrock', errors);
       break;
     }
-
-    case 'vertex': {
-      const required = ['use', 'region', 'project_id', 'key_path'];
-      const missing = required.filter((k) => !keys.includes(k));
-      if (missing.length > 0) {
-        errors.push(`[vertex] missing required keys: ${missing.join(', ')}`);
-      }
-      validateModelTiers(config, 'vertex', errors);
-      break;
-    }
   }
 }
 
-/** Bedrock and Vertex require a [models] section with all three tiers. */
+/** Bedrock requires a [models] section with all three tiers. */
 function validateModelTiers(config: TOMLConfig, provider: string, errors: string[]): void {
   const models = config.models as Record<string, unknown> | undefined;
   if (!models || typeof models !== 'object') {
@@ -227,7 +211,7 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock', 'vertex'] as const;
+  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
     return section && typeof section === 'object' && Object.keys(section).length > 0;

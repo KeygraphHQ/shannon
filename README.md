@@ -78,7 +78,7 @@ Sample Shannon Lite penetration test reports from intentionally vulnerable appli
 
 - **Docker** - required for the worker container.
 - **Node.js 18+** - required for the recommended `npx` workflow.
-- **AI provider credentials** - Anthropic is recommended; AWS Bedrock, Google Vertex AI, and compatible proxy setups are documented separately.
+- **AI provider credentials** - Anthropic is recommended; AWS Bedrock and compatible proxy setups are documented separately.
 
 ### Run Shannon Lite
 
@@ -194,7 +194,7 @@ Use these guides for operational detail:
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
 | [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, report filters, and rate-limit settings. |
-| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, Google Vertex AI, and custom Anthropic-compatible endpoints. |
+| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
 | [Workspaces and resuming](docs/workspaces.md) | Naming workspaces, resuming interrupted scans, and workspace storage. |
 | [Safety and limitations](docs/safety.md) | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats. |

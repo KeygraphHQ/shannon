@@ -236,7 +236,6 @@ export interface WorkerOptions {
   containerName: string;
   envFlags: string[];
   config?: { hostPath: string; containerPath: string };
-  credentials?: string;
   promptsDir?: string;
   outputDir?: string;
   workspace: string;
@@ -289,11 +288,6 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Output directory for deliverables copy
   if (opts.outputDir) {
     args.push('-v', `${opts.outputDir}:/app/output`);
-  }
-
-  // Mount credentials file to fixed container path
-  if (opts.credentials) {
-    args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
   }
 
   // Environment

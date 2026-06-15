@@ -95,7 +95,7 @@ export interface DistributedConfig {
  * LLM provider configuration for multi-provider support.
  *
  * Resolved by the pi model/provider layer at execution time. Recognized
- * providerType values: 'bedrock', 'vertex', 'custom_base_url', 'anthropic_api'.
+ * providerType values: 'bedrock', 'custom_base_url', 'anthropic_api'.
  * When omitted or 'anthropic_api', falls back to apiKey + ANTHROPIC_API_KEY.
  */
 export interface ProviderConfig {
@@ -104,9 +104,6 @@ export interface ProviderConfig {
   readonly awsRegion?: string;
   readonly awsAccessKeyId?: string;
   readonly awsSecretAccessKey?: string;
-  readonly gcpRegion?: string;
-  readonly gcpProjectId?: string;
-  readonly gcpCredentialsPath?: string;
   readonly baseUrl?: string;
   readonly authToken?: string;
   readonly modelOverrides?: Record<string, string>;

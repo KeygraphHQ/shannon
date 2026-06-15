@@ -15,7 +15,7 @@
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if provided)
  * 3. code_path rules match real entries in the repo (filesystem only)
- * 4. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
+ * 4. Credentials validate via a minimal pi session (API key, OAuth, or Bedrock)
  * 5. Target URL resolves, is not link-local (cloud metadata), and is reachable (DNS + HTTP)
  */
 
@@ -405,62 +405,11 @@ async function validateCredentials(
     return ok(undefined);
   }
 
-  // 3. Vertex AI mode — validate required GCP credentials are present
-  if (process.env.CLAUDE_CODE_USE_VERTEX === '1') {
-    const required = [
-      'CLOUD_ML_REGION',
-      'ANTHROPIC_VERTEX_PROJECT_ID',
-      'ANTHROPIC_SMALL_MODEL',
-      'ANTHROPIC_MEDIUM_MODEL',
-      'ANTHROPIC_LARGE_MODEL',
-    ];
-    const missing = required.filter((v) => !process.env[v]);
-    if (missing.length > 0) {
-      return err(
-        new PentestError(
-          `Vertex AI mode requires the following env vars in .env: ${missing.join(', ')}`,
-          'config',
-          false,
-          { missing },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
-    // Validate service account credentials file is accessible
-    const credPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
-    if (!credPath) {
-      return err(
-        new PentestError(
-          'Vertex AI mode requires GOOGLE_APPLICATION_CREDENTIALS pointing to a service account key JSON file',
-          'config',
-          false,
-          {},
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
-    try {
-      await fs.access(credPath);
-    } catch {
-      return err(
-        new PentestError(
-          `Service account key file not found at: ${credPath}`,
-          'config',
-          false,
-          { credPath },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
-    logger.info('Vertex AI credentials OK');
-    return ok(undefined);
-  }
-
-  // 4. Check that at least one credential is present
+  // 3. Check that at least one credential is present
   if (!process.env.ANTHROPIC_API_KEY && !process.env.CLAUDE_CODE_OAUTH_TOKEN && !process.env.ANTHROPIC_AUTH_TOKEN) {
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock, or CLAUDE_CODE_USE_VERTEX=1 for Google Vertex AI)',
+        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock)',
         'config',
         false,
         {},
@@ -469,7 +418,7 @@ async function validateCredentials(
     );
   }
 
-  // 5. Validate via a minimal pi session
+  // 4. Validate via a minimal pi session
   const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
   logger.info(`Validating ${authType} via pi...`);
   const probe = await probeCredentialsWithPi(authType);
@@ -606,7 +555,7 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
  * 1. Repository path exists and contains .git
  * 2. Config file parses and validates (if configPath provided)
  * 3. code_path rules match at least one entry in the repo (skipped without config)
- * 4. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
+ * 4. Credentials validate (API key, OAuth, or Bedrock)
  * 5. Target URL is reachable from the container
  *
  * Returns on first failure.

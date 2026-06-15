@@ -12,7 +12,6 @@ export interface ShannonConfig {
   anthropic?: { api_key?: string; oauth_token?: string };
   custom_base_url?: { base_url?: string; auth_token?: string };
   bedrock?: { use?: boolean; region?: string; token?: string };
-  vertex?: { use?: boolean; region?: string; project_id?: string; key_path?: string };
   models?: { small?: string; medium?: string; large?: string };
 }
 

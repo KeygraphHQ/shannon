@@ -1,6 +1,6 @@
 # AI Providers
 
-Shannon Lite works best with Claude models. Anthropic API keys are recommended for most users, and Shannon Lite also supports AWS Bedrock, Google Vertex AI, and custom Anthropic-compatible endpoints.
+Shannon Lite works best with Claude models. Anthropic API keys are recommended for most users, and Shannon Lite also supports AWS Bedrock and custom Anthropic-compatible endpoints.
 
 ## Anthropic
 
@@ -58,38 +58,6 @@ Shannon Lite uses three model tiers:
 - **large** for deep reasoning
 
 Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to Bedrock model IDs available in your region.
-
-## Google Vertex AI
-
-Create a service account with the `roles/aiplatform.user` role in the GCP Console, then download a JSON key file.
-
-Run `npx @keygraph/shannon setup` and select **Google Vertex AI**. The wizard prompts for region, project ID, service account key file path, and model IDs. The key file is copied to `~/.shannon/google-sa-key.json`.
-
-Or export environment variables directly:
-
-```bash
-export CLAUDE_CODE_USE_VERTEX=1
-export CLOUD_ML_REGION=us-east5
-export ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
-export GOOGLE_APPLICATION_CREDENTIALS=/path/to/your-sa-key.json
-export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
-export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-8
-```
-
-Source-build `.env` equivalent:
-
-```bash
-CLAUDE_CODE_USE_VERTEX=1
-CLOUD_ML_REGION=us-east5
-ANTHROPIC_VERTEX_PROJECT_ID=your-gcp-project-id
-GOOGLE_APPLICATION_CREDENTIALS=./credentials/google-sa-key.json
-ANTHROPIC_SMALL_MODEL=claude-haiku-4-5@20251001
-ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-8
-```
-
-Set `CLOUD_ML_REGION=global` for global endpoints, or use a specific region like `us-east5`. Some models may not be available on global endpoints.
 
 ## Custom Base URL
 

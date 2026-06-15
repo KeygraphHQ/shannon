@@ -14,12 +14,12 @@
  *
  * Users override per tier via ANTHROPIC_SMALL_MODEL / ANTHROPIC_MEDIUM_MODEL /
  * ANTHROPIC_LARGE_MODEL, which works across all providers (Anthropic, Bedrock,
- * Vertex, custom base URL).
+ * custom base URL).
  *
  * Resolution returns a pi `Model` object via `ModelRegistry.find`, plus the
  * `thinkingLevel` and an `AuthStorage` primed with runtime credentials. Bedrock
- * and Vertex authenticate from the process environment (the AWS_ and GOOGLE_ vars
- * the CLI forwards), so they need no runtime API key.
+ * authenticates from the process environment (the AWS_ vars the CLI forwards), so
+ * it needs no runtime API key.
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
@@ -40,8 +40,6 @@ function piProviderId(providerConfig?: ProviderConfig): string {
   switch (providerConfig?.providerType) {
     case 'bedrock':
       return 'amazon-bedrock';
-    case 'vertex':
-      return 'google-vertex';
     default:
       // 'anthropic_api', 'custom_base_url', or unset all resolve to the anthropic
       // provider; custom_base_url overrides baseUrl/auth below.
@@ -94,8 +92,8 @@ export interface ModelSelection {
  *   → ANTHROPIC_API_KEY env. OAuth (CLAUDE_CODE_OAUTH_TOKEN) is read from env by pi.
  * - Custom base URL (custom_base_url): the auth token is set as the anthropic
  *   runtime key and the model's baseUrl is overridden.
- * - Bedrock / Vertex: authenticate from the process environment (the AWS_ and
- *   GOOGLE_ vars), no runtime key needed.
+ * - Bedrock: authenticates from the process environment (the AWS_ vars), no
+ *   runtime key needed.
  */
 export function resolveModelSelection(
   registryFactory: (authStorage: AuthStorage) => ModelRegistry,
