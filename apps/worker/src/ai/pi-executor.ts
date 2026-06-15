@@ -31,7 +31,13 @@ import { formatTimestamp } from '../utils/formatting.js';
 import { Timer } from '../utils/metrics.js';
 import { createAuditLogger } from './audit-logger.js';
 import { type ModelTier, resolveModelSelection } from './models.js';
-import { detectExecutionContext, formatCompletionMessage, formatErrorOutput } from './output-formatters.js';
+import {
+  detectExecutionContext,
+  formatAssistantOutput,
+  formatCompletionMessage,
+  formatErrorOutput,
+  formatToolCall,
+} from './output-formatters.js';
 import { createProgressManager } from './progress-manager.js';
 import { permissionConfigPath } from './settings-writer.js';
 import { createTaskTool, createTodoWriteTool } from './tools.js';
@@ -278,6 +284,9 @@ export async function runPiPrompt(
           const text = extractAssistantText(msg);
           if (text.trim()) {
             void auditLogger.logLlmResponse(turnCount, text);
+            progress.stop();
+            outputLines(formatAssistantOutput(text, execContext, turnCount, description));
+            progress.start();
             const billing = classifyErrorText(text);
             if (billing) pendingError = billing;
           }
@@ -290,9 +299,21 @@ export async function runPiPrompt(
           }
           break;
         }
-        case 'tool_execution_start':
+        case 'tool_execution_start': {
           void auditLogger.logToolStart(event.toolName, event.args);
+          const toolLines = formatToolCall(
+            event.toolName,
+            event.args as Record<string, unknown>,
+            execContext,
+            description,
+          );
+          if (toolLines.length > 0) {
+            progress.stop();
+            outputLines(toolLines);
+            progress.start();
+          }
           break;
+        }
         case 'tool_execution_end':
           void auditLogger.logToolEnd(event.result);
           break;

@@ -12,13 +12,3 @@ export interface ExecutionContext {
   agentType: string;
   agentKey: string;
 }
-
-export interface ResultData {
-  result: string | null;
-  cost: number;
-  duration_ms: number;
-  subtype?: string;
-  stop_reason?: string | null;
-  permissionDenials: number;
-  structuredOutput?: unknown;
-}
