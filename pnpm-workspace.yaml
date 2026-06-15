@@ -1,5 +1,2 @@
 packages:
   - "apps/*"
-
-catalog:
-  "@anthropic-ai/claude-agent-sdk": ^0.3.173

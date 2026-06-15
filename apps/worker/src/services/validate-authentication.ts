@@ -13,8 +13,8 @@
  */
 
 import { readFile, rm } from 'node:fs/promises';
-import type { JsonSchemaOutputFormat } from '@anthropic-ai/claude-agent-sdk';
-import { z } from 'zod';
+import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 import { runClaudePrompt } from '../ai/claude-executor.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
@@ -33,26 +33,38 @@ function isAuthFailurePoint(v: unknown): v is AuthFailurePoint {
   return typeof v === 'string' && (FAILURE_POINTS as readonly string[]).includes(v);
 }
 
-// NOTE: SDK's AJV validator expects draft-07; Zod defaults to draft-2020-12,
-// which causes the SDK to silently skip structured output.
-const AuthValidationSchema = z.object({
-  login_success: z.boolean(),
-  failure_point: z.enum(FAILURE_POINTS).optional(),
-  failure_detail: z
-    .string()
-    .max(250)
-    .optional()
-    .describe(
-      'Free-form 1-2 sentence diagnostic of what the page showed (error messages, page state) when login failed. Required when login_success is false. Mask any sensitive values.',
-    ),
-});
+interface AuthValidationVerdict {
+  login_success: boolean;
+  failure_point?: AuthFailurePoint;
+  failure_detail?: string;
+}
 
-type AuthValidationVerdict = z.infer<typeof AuthValidationSchema>;
-
-const VALIDATION_SCHEMA: JsonSchemaOutputFormat = {
-  type: 'json_schema',
-  schema: z.toJSONSchema(AuthValidationSchema, { target: 'draft-07' }) as Record<string, unknown>,
-};
+/** Submit tool capturing the login verdict (pi has no JSON-schema output format). */
+function createAuthSubmitTool(): { tool: ToolDefinition; getCaptured: () => AuthValidationVerdict | undefined } {
+  let captured: AuthValidationVerdict | undefined;
+  const tool = defineTool({
+    name: 'submit_auth_result',
+    label: 'Submit Auth Result',
+    description: 'Report the login outcome. Call exactly once when the login attempt has concluded.',
+    parameters: Type.Object({
+      login_success: Type.Boolean(),
+      failure_point: Type.Optional(
+        Type.Union([Type.Literal('username_or_password'), Type.Literal('totp_secret'), Type.Literal('out_of_band')]),
+      ),
+      failure_detail: Type.Optional(
+        Type.String({
+          description:
+            'Free-form 1-2 sentence diagnostic of what the page showed (error messages, page state) when login failed. Required when login_success is false. Mask any sensitive values.',
+        }),
+      ),
+    }),
+    execute: async (_toolCallId, params) => {
+      captured = params as AuthValidationVerdict;
+      return { content: [{ type: 'text' as const, text: 'Auth result recorded.' }], details: {} };
+    },
+  });
+  return { tool, getCaptured: () => captured };
+}
 
 const AGENT_NAME = 'validate-authentication';
 
@@ -110,6 +122,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   await auditSession.startAgent(AGENT_NAME, prompt, attemptNumber);
   const startTime = Date.now();
 
+  const submit = createAuthSubmitTool();
   const result = await runClaudePrompt(
     prompt,
     repoPath,
@@ -119,11 +132,13 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     auditSession,
     logger,
     'medium',
-    VALIDATION_SCHEMA,
+    [submit.tool],
     apiKey,
     deliverablesSubdir,
     providerConfig,
   );
+  const verdict = submit.getCaptured();
+  if (verdict !== undefined) result.structuredOutput = verdict;
 
   let classification = classifyResult(result, authentication);
 

@@ -19,7 +19,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "catalog:",
+    "@earendil-works/pi-agent-core": "^0.79.1",
+    "@earendil-works/pi-ai": "^0.79.1",
+    "@earendil-works/pi-coding-agent": "^0.79.1",
+    "@gotgenes/pi-permission-system": "^10.9.0",
     "@temporalio/activity": "^1.11.0",
     "@temporalio/client": "^1.11.0",
     "@temporalio/worker": "^1.11.0",
@@ -28,6 +31,7 @@
     "ajv-formats": "^2.1.1",
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.0",
+    "typebox": "1.1.38",
     "zod": "^4.3.6",
     "zx": "^8.0.0"
   },

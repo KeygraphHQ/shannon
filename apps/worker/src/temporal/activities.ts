@@ -19,7 +19,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
-import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
+import { writeCodePathPermissionConfig } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
@@ -137,7 +137,7 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
 async function runAgentActivity(
   agentName: AgentName,
   input: ActivityInput,
-  mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>,
+  customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
 ): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
 
@@ -192,7 +192,7 @@ async function runAgentActivity(
         ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
-        ...(mcpServers && { mcpServers }),
+        ...(customTools && { customTools }),
       },
       auditSession,
       logger,
@@ -256,7 +256,7 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
   const { renderPreRecon } = await import('../services/pre-recon-renderer.js');
 
   const collector = createPreReconCollectorServer();
-  const metrics = await runAgentActivity('pre-recon', input, { 'pre-recon-collector': collector.server });
+  const metrics = await runAgentActivity('pre-recon', input, collector.tools);
 
   // On resume, the agent is skipped and the collector is never populated.
   // The cached deliverable from the prior run is the source of truth.
@@ -285,7 +285,7 @@ export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics>
   const { renderRecon } = await import('../services/recon-renderer.js');
 
   const collector = createReconCollectorServer();
-  const metrics = await runAgentActivity('recon', input, { 'recon-collector': collector.server });
+  const metrics = await runAgentActivity('recon', input, collector.tools);
 
   // On resume, the agent is skipped and the collector is never populated.
   // The cached deliverable from the prior run is the source of truth.
@@ -318,7 +318,7 @@ async function runVulnAgentWithCollector(
   const { renderVulnDeliverable } = await import('../services/vuln-renderer.js');
 
   const collector = createVulnCollector(vulnClass);
-  const metrics = await runAgentActivity(agentName, input, { 'vuln-collector': collector.server });
+  const metrics = await runAgentActivity(agentName, input, collector.tools);
 
   // On resume, the agent is skipped and the collector is never populated.
   // The cached deliverable from the prior run is the source of truth.
@@ -399,7 +399,7 @@ async function runExploitAgentWithCollector(
   const { validIds, idToType } = await readExploitQueue(queuePath);
 
   const collector = createExploitCollector({ vulnClass, validIds });
-  const metrics = await runAgentActivity(agentName, input, { 'exploit-collector': collector.server });
+  const metrics = await runAgentActivity(agentName, input, collector.tools);
 
   // On resume, the agent is skipped and the collector is never populated.
   // The cached deliverable from the prior run is the source of truth.
@@ -661,12 +661,13 @@ export async function syncPlaywrightStealthConfig(input: ActivityInput): Promise
 }
 
 /**
- * Sync code_path avoid rules into Claude's user-scope settings.json so the
- * SDK enforces them at the tool layer for every agent in this run.
+ * Sync code_path avoid rules into the @gotgenes/pi-permission-system global config
+ * so pi enforces them at the tool layer for every agent in this run. The executor
+ * loads the extension when this config is present (see claude-executor).
  *
- * Runs once per workflow before any agent fires. Config is fixed for the
- * lifetime of the workflow, so writing once avoids the parallel-agent race
- * on the global ~/.claude/settings.json file.
+ * Runs once per workflow before any analysis agent fires. Config is fixed for the
+ * lifetime of the workflow, so writing once avoids a parallel-agent race on the
+ * global config file.
  */
 export async function syncCodePathDenyRules(input: ActivityInput): Promise<void> {
   const logger = createActivityLogger();
@@ -680,8 +681,12 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
 
   const config = configResult.value;
   const denyCount = (config?.avoid ?? []).filter((r) => r.type === 'code_path').length;
-  await writeUserSettingsForCodePathAvoids(config);
-  logger.info(`Synced code_path deny rules to user settings (${denyCount} entries)`);
+  await writeCodePathPermissionConfig(config);
+  logger.info(
+    denyCount > 0
+      ? `Synced ${denyCount} code_path deny rule(s) to the pi-permission-system config`
+      : 'No code_path deny rules; pi-permission-system config cleared',
+  );
 }
 
 /**

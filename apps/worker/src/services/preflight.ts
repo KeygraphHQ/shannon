@@ -25,16 +25,23 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import https from 'node:https';
 import net, { type LookupFunction } from 'node:net';
-import type { SDKAssistantMessageError } from '@anthropic-ai/claude-agent-sdk';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import os from 'node:os';
+import {
+  AuthStorage,
+  createAgentSession,
+  ModelRegistry,
+  SessionManager,
+  SettingsManager,
+} from '@earendil-works/pi-coding-agent';
 import { glob } from 'zx';
-import { resolveModel } from '../ai/models.js';
+import { resolveModelId } from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Config, Rule } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
-import { err, ok, type Result } from '../types/result.js';
-import { isRetryableError, PentestError } from './error-handling.js';
+import { err, isErr, ok, type Result } from '../types/result.js';
+import { matchesBillingTextPattern } from '../utils/billing-detection.js';
+import { PentestError } from './error-handling.js';
 
 const TARGET_URL_TIMEOUT_MS = 10_000;
 
@@ -241,82 +248,106 @@ async function validateCodePathsExist(
 // === Credential Validation ===
 
 /** Map SDK error type to a human-readable preflight PentestError. */
-function classifySdkError(sdkError: SDKAssistantMessageError, authType: string): Result<void, PentestError> {
-  switch (sdkError) {
-    case 'authentication_failed':
-      return err(
-        new PentestError(
-          `Invalid ${authType}. Check your credentials in .env and try again.`,
-          'config',
-          false,
-          { authType, sdkError },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    case 'billing_error':
-      return err(
-        new PentestError(
-          `Anthropic account has a billing issue. Add credits or check your billing dashboard.`,
-          'billing',
-          true,
-          { authType, sdkError },
-          ErrorCode.BILLING_ERROR,
-        ),
-      );
-    case 'rate_limit':
-      return err(
-        new PentestError(
-          `Anthropic rate limit or spending cap reached. Wait a few minutes and try again.`,
-          'billing',
-          true,
-          { authType, sdkError },
-          ErrorCode.BILLING_ERROR,
-        ),
-      );
-    case 'server_error':
-      return err(
-        new PentestError(`Anthropic API is temporarily unavailable. Try again shortly.`, 'network', true, {
-          authType,
-          sdkError,
-        }),
-      );
-    case 'overloaded':
-      return err(
-        new PentestError(`Anthropic API is overloaded. Wait a few moments and try again.`, 'network', true, {
-          authType,
-          sdkError,
-        }),
-      );
-    case 'model_not_found':
-      return err(
-        new PentestError(
-          `Configured model is not available for this account. Check ANTHROPIC_*_MODEL in .env.`,
-          'config',
-          false,
-          { authType, sdkError },
-        ),
-      );
-    case 'oauth_org_not_allowed':
-      return err(
-        new PentestError(
-          `This credential's organization is not allowed. Check your ${authType} in .env.`,
-          'config',
-          false,
-          { authType, sdkError },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    default:
-      return err(
-        new PentestError(
-          `${authType} validation failed unexpectedly. Check your credentials in .env.`,
-          'config',
-          false,
-          { authType, sdkError },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
+/** Classify a provider error message (thrown or from a failed turn) into a PentestError. */
+function classifyCredentialError(text: string, authType: string): Result<void, PentestError> {
+  const lower = text.toLowerCase();
+  if (matchesBillingTextPattern(text)) {
+    return err(
+      new PentestError(
+        `Anthropic account has a billing or rate-limit issue during ${authType} validation. Add credits or wait and retry.`,
+        'billing',
+        true,
+        { authType },
+        ErrorCode.BILLING_ERROR,
+      ),
+    );
   }
+  if (/401|403|invalid[ _-]?api[ _-]?key|unauthorized|authentication|forbidden|not allowed|x-api-key/.test(lower)) {
+    return err(
+      new PentestError(
+        `Invalid ${authType}. Check your credentials in .env and try again.`,
+        'config',
+        false,
+        { authType },
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+  if (/model/.test(lower) && /not found|not available|unknown/.test(lower)) {
+    return err(
+      new PentestError(
+        `Configured model is not available for this account. Check ANTHROPIC_*_MODEL in .env.`,
+        'config',
+        false,
+        { authType },
+      ),
+    );
+  }
+  if (
+    /network|timeout|enotfound|econnrefused|fetch failed|getaddrinfo|socket|overloaded|unavailable|50\d/.test(lower)
+  ) {
+    return err(
+      new PentestError(`Anthropic API unreachable or temporarily unavailable. Try again shortly.`, 'network', true, {
+        authType,
+      }),
+    );
+  }
+  return err(
+    new PentestError(
+      `${authType} validation failed: ${text.slice(0, 150)}`,
+      'config',
+      false,
+      { authType },
+      ErrorCode.AUTH_FAILED,
+    ),
+  );
+}
+
+/** Minimal pi session probe to validate credentials. An optional baseUrl overrides the endpoint. */
+async function probeCredentialsWithPi(authType: string, baseUrl?: string): Promise<Result<void, PentestError>> {
+  const authStorage = AuthStorage.inMemory();
+  const token =
+    process.env.ANTHROPIC_AUTH_TOKEN ?? process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
+  if (token) authStorage.setRuntimeApiKey('anthropic', token);
+
+  const baseModel = ModelRegistry.create(authStorage).find('anthropic', resolveModelId('small'));
+  if (!baseModel) {
+    return err(
+      new PentestError(
+        `Model not found in pi registry: ${resolveModelId('small')}`,
+        'config',
+        false,
+        {},
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+  const model = baseUrl ? { ...baseModel, baseUrl } : baseModel;
+
+  let errText: string | undefined;
+  try {
+    const { session } = await createAgentSession({
+      cwd: os.tmpdir(),
+      model,
+      thinkingLevel: 'off',
+      noTools: 'all',
+      authStorage,
+      sessionManager: SessionManager.inMemory(),
+      settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }),
+    });
+    session.subscribe((e) => {
+      if (e.type === 'turn_end' && e.message.role === 'assistant' && e.message.stopReason === 'error') {
+        errText = e.message.errorMessage ?? 'unknown provider error';
+      }
+    });
+    await session.prompt('hi');
+    session.dispose();
+  } catch (error) {
+    errText = error instanceof Error ? error.message : String(error);
+  }
+
+  if (errText) return classifyCredentialError(errText, authType);
+  return ok(undefined);
 }
 
 /** Validate credentials via a minimal Claude Agent SDK query. */
@@ -339,35 +370,14 @@ async function validateCredentials(
   if (apiKey) {
     process.env.ANTHROPIC_API_KEY = apiKey;
   }
-  // 1. Custom base URL — validate endpoint is reachable via SDK query
+  // 1. Custom base URL — validate the endpoint via a minimal pi session
   if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     const baseUrl = process.env.ANTHROPIC_BASE_URL;
     logger.info('Validating custom base URL');
-
-    try {
-      for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
-        if (message.type === 'assistant' && message.error) {
-          return classifySdkError(message.error, `custom endpoint (${baseUrl})`);
-        }
-        if (message.type === 'result') {
-          break;
-        }
-      }
-
-      logger.info('Custom base URL OK');
-      return ok(undefined);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return err(
-        new PentestError(
-          `Custom base URL unreachable: ${baseUrl} — ${message}`,
-          'network',
-          false,
-          { baseUrl },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
+    const probe = await probeCredentialsWithPi(`custom endpoint (${baseUrl})`, baseUrl);
+    if (isErr(probe)) return probe;
+    logger.info('Custom base URL OK');
+    return ok(undefined);
   }
 
   // 2. Bedrock mode — validate required AWS credentials are present
@@ -459,38 +469,13 @@ async function validateCredentials(
     );
   }
 
-  // 5. Validate via SDK query
+  // 5. Validate via a minimal pi session
   const authType = process.env.CLAUDE_CODE_OAUTH_TOKEN ? 'OAuth token' : 'API key';
-  logger.info(`Validating ${authType} via SDK...`);
-
-  try {
-    for await (const message of query({ prompt: 'hi', options: { model: resolveModel('small'), maxTurns: 1 } })) {
-      if (message.type === 'assistant' && message.error) {
-        return classifySdkError(message.error, authType);
-      }
-      if (message.type === 'result') {
-        break;
-      }
-    }
-
-    logger.info(`${authType} OK`);
-    return ok(undefined);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    const retryable = isRetryableError(error instanceof Error ? error : new Error(message));
-
-    return err(
-      new PentestError(
-        retryable
-          ? `Failed to reach Anthropic API. Check your network connection.`
-          : `${authType} validation failed: ${message}`,
-        retryable ? 'network' : 'config',
-        retryable,
-        { authType },
-        retryable ? undefined : ErrorCode.AUTH_FAILED,
-      ),
-    );
-  }
+  logger.info(`Validating ${authType} via pi...`);
+  const probe = await probeCredentialsWithPi(authType);
+  if (isErr(probe)) return probe;
+  logger.info(`${authType} OK`);
+  return ok(undefined);
 }
 
 // === Target URL Validation ===

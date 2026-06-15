@@ -23,7 +23,7 @@
 
 import { fs, path } from 'zx';
 import { type ClaudePromptResult, runClaudePrompt, validateAgentOutput } from '../ai/claude-executor.js';
-import { getOutputFormat, getQueueFilename } from '../ai/queue-schemas.js';
+import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
 import { AGENTS } from '../session-manager.js';
@@ -54,7 +54,7 @@ export interface AgentExecutionInput {
   apiKey?: string | undefined;
   promptDir?: string | undefined;
   providerConfig?: import('../types/config.js').ProviderConfig | undefined;
-  mcpServers?: Record<string, import('@anthropic-ai/claude-agent-sdk').McpServerConfig>;
+  customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
 }
 
 interface FailAgentOpts {
@@ -109,7 +109,7 @@ export class AgentExecutionService {
       apiKey,
       promptDir,
       providerConfig,
-      mcpServers,
+      customTools,
     } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
@@ -163,8 +163,10 @@ export class AgentExecutionService {
     // 4. Start audit logging
     await auditSession.startAgent(agentName, prompt, attemptNumber);
 
-    // 5. Execute agent
-    const outputFormat = getOutputFormat(agentName, distributedConfig?.exploit ?? true);
+    // 5. Execute agent. Vuln agents get a submit tool that captures the structured
+    //    exploitation queue (pi has no JSON-schema output format).
+    const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
+    const callerTools = [...(customTools ?? []), ...(submitTool ? [submitTool.tool] : [])];
     const result: ClaudePromptResult = await runClaudePrompt(
       prompt,
       repoPath,
@@ -174,11 +176,10 @@ export class AgentExecutionService {
       auditSession,
       logger,
       AGENTS[agentName].modelTier,
-      outputFormat,
+      callerTools,
       apiKey,
       path.relative(repoPath, deliverablesPath),
       providerConfig,
-      mcpServers,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -212,13 +213,17 @@ export class AgentExecutionService {
       });
     }
 
-    // 8. Write structured output to disk (vuln agents only)
+    // 8. Write structured output to disk (vuln agents only) from the submit-tool capture
     const queueFilename = getQueueFilename(agentName);
-    if (result.structuredOutput !== undefined && queueFilename) {
-      await fs.ensureDir(deliverablesPath);
-      const queuePath = path.join(deliverablesPath, queueFilename);
-      await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
-      logger.info(`Wrote structured output queue to ${queueFilename}`);
+    if (submitTool && queueFilename) {
+      const captured = submitTool.getCaptured();
+      if (captured !== undefined) {
+        result.structuredOutput = captured; // carry for the validation gate below
+        await fs.ensureDir(deliverablesPath);
+        const queuePath = path.join(deliverablesPath, queueFilename);
+        await fs.writeFile(queuePath, JSON.stringify(captured, null, 2), 'utf8');
+        logger.info(`Wrote structured output queue to ${queueFilename}`);
+      }
     }
 
     // 9. Validate output

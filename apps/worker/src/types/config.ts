@@ -94,8 +94,9 @@ export interface DistributedConfig {
 /**
  * LLM provider configuration for multi-provider support.
  *
- * Maps to SDK environment variables at execution time. When providerType
- * is omitted or 'anthropic_api', falls back to apiKey + ANTHROPIC_API_KEY.
+ * Resolved by the pi model/provider layer at execution time. Recognized
+ * providerType values: 'bedrock', 'vertex', 'custom_base_url', 'anthropic_api'.
+ * When omitted or 'anthropic_api', falls back to apiKey + ANTHROPIC_API_KEY.
  */
 export interface ProviderConfig {
   readonly providerType?: string;
