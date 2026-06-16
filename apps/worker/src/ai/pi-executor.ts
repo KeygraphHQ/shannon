@@ -21,7 +21,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../audit/index.js';
-import { deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../paths.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../paths.js';
 import { isRetryableError, PentestError } from '../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -65,7 +65,8 @@ function permissionExtensionDir(): string | null {
 }
 
 async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader> {
-  const additionalExtensionPaths: string[] = [];
+  // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
+  const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
   if (fs.existsSync(permissionConfigPath())) {
     const extDir = permissionExtensionDir();
     if (extDir) {
