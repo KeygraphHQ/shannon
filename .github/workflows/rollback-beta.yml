@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Beta version to roll back to (example: 1.0.0-beta.2)"
+        description: "Beta version to roll back to (example: 2.0.0-beta.2)"
         required: true
         type: string
 
@@ -31,7 +31,7 @@ jobs:
           VERSION="${RAW_VERSION#v}"
 
           if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-beta\.[0-9]+$ ]]; then
-            echo "Version must be in format X.Y.Z-beta.N (e.g. 1.0.0-beta.2)"
+            echo "Version must be in format X.Y.Z-beta.N (e.g. 2.0.0-beta.2)"
             exit 1
           fi
 
