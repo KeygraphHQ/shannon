@@ -215,7 +215,7 @@ function printInfo(
   repoPath: string,
   workspacesDir: string,
 ): void {
-  const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
+  const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon@beta logs ${workspace}`;
   const reportsPath = path.join(workspacesDir, workspace);
 
   console.log(`  Target:     ${args.url}`);

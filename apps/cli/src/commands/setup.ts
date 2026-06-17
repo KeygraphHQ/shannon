@@ -38,7 +38,7 @@ export async function setup(): Promise<void> {
 
   const configPath = path.join(SHANNON_HOME, 'config.toml');
   p.log.success(`Configuration saved to ${configPath}`);
-  p.outro('Run `npx @keygraph/shannon start` to begin a scan.');
+  p.outro('Run `npx @keygraph/shannon@beta start` to begin a scan.');
 }
 
 async function setupProvider(provider: Provider): Promise<ShannonConfig> {
