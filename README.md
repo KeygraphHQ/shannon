@@ -1,5 +1,5 @@
 >[!NOTE]
-> **[Better Steerability, Authentication Improvements, and the Migration to the Pi Harness](https://github.com/KeygraphHQ/shannon/discussions/348)**
+> **[Shannon Now Runs on the Pi Harness (Beta) - run it today with `npx @keygraph/shannon@beta`](https://github.com/KeygraphHQ/shannon/discussions/358)**
 
 <div align="center">
 
