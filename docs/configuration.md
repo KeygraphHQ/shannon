@@ -1,6 +1,6 @@
 # Configuration
 
-Shannon Lite can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, report filtering, and rate-limit tuning.
+Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, report filtering, and rate-limit tuning.
 
 ## Credential Precedence
 
@@ -119,7 +119,7 @@ Supported placeholders:
 - `$email_password`
 - `$email_totp`
 
-At runtime, Shannon Lite replaces these placeholders with the credentials passed in the config.
+At runtime, Shannon replaces these placeholders with the credentials passed in the config.
 
 ```yaml
 login_flow:

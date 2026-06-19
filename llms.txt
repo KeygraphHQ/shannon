@@ -1,15 +1,15 @@
 # Shannon
 
-> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon Lite, the AGPL-3.0 open-source white-box pentesting CLI. Shannon Pro is Keygraph's commercial continuous pentesting and AppSec platform.
+> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon, the AGPL-3.0 open-source white-box pentesting CLI. Keygraph is the commercial continuous pentesting and AppSec platform.
 
 Use this file as the concise entry point for AI agents and LLMs reading this repository. For a single combined context file, use [llms-full.txt](llms-full.txt).
 
 ## Start Here
 
-- [README](README.md): Main project overview, product line, quick start, Shannon Lite capabilities, Shannon Pro positioning, safety notes, licensing, and support links.
+- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph positioning, safety notes, licensing, and support links.
 - [Full Combined Context](llms-full.txt): README and documentation combined into one file for agents that need maximum local context.
 
-## Shannon Lite
+## Shannon
 
 - [Development](docs/development.md): Source-build workflow, common CLI commands, repository paths, and output locations.
 - [Configuration](docs/configuration.md): Authenticated testing, login flows, rules of engagement, report filters, credential precedence, adaptive thinking, and rate-limit settings.
@@ -17,20 +17,20 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 - [Platforms and Networking](docs/platforms.md): Windows/WSL2, Linux, macOS, Docker networking, local applications, and custom hostnames.
 - [Workspaces and Resuming](docs/workspaces.md): Workspace storage, naming, resuming interrupted scans, and examples.
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.
-- [Coverage and Roadmap](docs/coverage-roadmap.md): Current Shannon Lite coverage and roadmap direction.
+- [Coverage and Roadmap](docs/coverage-roadmap.md): Current Shannon coverage and roadmap direction.
 
-## Shannon Pro
+## Keygraph
 
-- [Shannon Pro](docs/shannon-pro.md): Commercial continuous pentesting and AppSec platform, including black-box and white-box pentesting, parsed-code SAST, source-to-sink analysis, remediation workflows, CI/CD gating, SLA tracking, reporting, and enterprise deployment.
+- [Keygraph](docs/keygraph-platform.md): Commercial continuous pentesting and AppSec platform, including black-box and white-box pentesting, parsed-code SAST, source-to-sink analysis, remediation workflows, CI/CD gating, SLA tracking, reporting, and enterprise deployment.
 
 ## External Links
 
 - [Keygraph website](https://keygraph.io): Company and commercial product information.
-- [Shannon Pro demo](https://cal.com/team/keygraph/shannon-pro): Demo and trial contact path.
+- [Keygraph demo](https://cal.com/team/keygraph/shannon-pro): Demo and trial contact path.
 - [Community Discord](https://discord.gg/cmctpMBXwE): Community support and discussion.
 
 ## Optional
 
-- [Sample Juice Shop report](sample-reports/shannon-report-juice-shop.md): Shannon Lite sample report for OWASP Juice Shop.
-- [Sample c{api}tal API report](sample-reports/shannon-report-capital-api.md): Shannon Lite sample report for c{api}tal API.
-- [Sample crAPI report](sample-reports/shannon-report-crapi.md): Shannon Lite sample report for OWASP crAPI.
+- [Sample Juice Shop report](sample-reports/shannon-report-juice-shop.md): Shannon sample report for OWASP Juice Shop.
+- [Sample c{api}tal API report](sample-reports/shannon-report-capital-api.md): Shannon sample report for c{api}tal API.
+- [Sample crAPI report](sample-reports/shannon-report-crapi.md): Shannon sample report for OWASP crAPI.

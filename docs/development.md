@@ -11,10 +11,10 @@ This guide covers the source-build workflow, common CLI commands, repository pat
 
 ## Clone and Build
 
-Use the source-build workflow if you want to run Shannon Lite from a local clone, modify the open-source CLI, or keep the worker image built locally.
+Use the source-build workflow if you want to run Shannon from a local clone, modify the open-source CLI, or keep the worker image built locally.
 
 ```bash
-# 1. Clone Shannon Lite.
+# 1. Clone Shannon.
 git clone https://github.com/KeygraphHQ/shannon.git
 cd shannon
 
@@ -45,7 +45,7 @@ export CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 
 ## Prepare Your Repository
 
-Shannon Lite can scan any repository on your machine. Pass an absolute or relative path with `-r`.
+Shannon can scan any repository on your machine. Pass an absolute or relative path with `-r`.
 
 ```bash
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo
@@ -76,7 +76,7 @@ Open the Temporal Web UI for detailed monitoring:
 open http://localhost:8233
 ```
 
-Stop Shannon Lite:
+Stop Shannon:
 
 ```bash
 npx @keygraph/shannon stop
