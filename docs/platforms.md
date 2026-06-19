@@ -4,7 +4,7 @@ This guide covers platform-specific notes and Docker networking behavior.
 
 ## Windows
 
-Shannon Lite on Windows is supported through WSL2. Native Windows, including Git Bash, is not supported.
+Shannon on Windows is supported through WSL2. Native Windows, including Git Bash, is not supported.
 
 ### Ensure WSL2
 
@@ -25,7 +25,7 @@ wsl --set-version <distro-name> 2
 
 Install Docker Desktop on Windows and enable the WSL2 backend under **Settings > General > Use the WSL 2 based engine**.
 
-Run Shannon Lite inside WSL:
+Run Shannon inside WSL:
 
 ```bash
 npx @keygraph/shannon setup
@@ -43,7 +43,7 @@ cp .env.example .env
 
 To access the Temporal Web UI, run `ip addr` inside WSL to find your WSL IP address, then navigate to `http://<wsl-ip>:8233` in your Windows browser.
 
-Windows Defender may flag exploit code in reports as false positives. Add an exclusion for the Shannon Lite directory or use Docker/WSL2 isolation.
+Windows Defender may flag exploit code in reports as false positives. Add an exclusion for the Shannon directory or use Docker/WSL2 isolation.
 
 ## Linux
 
@@ -69,7 +69,7 @@ Source-build equivalent:
 
 ## Custom Hostnames
 
-If your local stack uses custom hostnames mapped in `/etc/hosts`, Shannon Lite forwards those entries into the worker container at scan start.
+If your local stack uses custom hostnames mapped in `/etc/hosts`, Shannon forwards those entries into the worker container at scan start.
 
 To disable forwarding:
 
