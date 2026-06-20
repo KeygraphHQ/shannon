@@ -43,7 +43,7 @@ Shannon currently targets exploitable vulnerabilities in these classes:
 
 Shannon's proof-by-exploitation model means it does not report issues it cannot actively exploit, such as many vulnerable dependency, insecure configuration, or broad policy findings.
 
-For broader coverage, Keygraph adds black-box and white-box agentic pentesting, graph-based static analysis, SCA reachability, secrets detection, business logic testing, remediation workflows, SLA tracking, and reporting dashboards.
+For broader coverage, the Keygraph platform adds black-box and white-box agentic pentesting, graph-based static analysis, SCA reachability, secrets detection, business logic testing, remediation workflows, SLA tracking, and reporting dashboards.
 
 ## Cost and Performance
 

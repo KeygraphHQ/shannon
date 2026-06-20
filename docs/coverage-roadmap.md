@@ -20,4 +20,4 @@ This reduces speculative noise, but it also means Shannon does not aim to report
 
 Planned coverage areas should continue to live in the repository's canonical roadmap document if one exists. The README should link to that document rather than carrying detailed roadmap history inline.
 
-For organizations that need broader static and organizational coverage now, see [Keygraph](keygraph-platform.md).
+For organizations that need broader static and organizational coverage now, see [the Keygraph platform](keygraph-platform.md).
