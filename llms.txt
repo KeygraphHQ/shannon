@@ -1,12 +1,12 @@
 # Shannon
 
-> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon, the AGPL-3.0 open-source white-box pentesting CLI. Keygraph is the commercial continuous pentesting and AppSec platform.
+> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon, the AGPL-3.0 open-source white-box pentesting CLI. The Keygraph platform is Keygraph's commercial continuous pentesting and AppSec platform.
 
 Use this file as the concise entry point for AI agents and LLMs reading this repository. For a single combined context file, use [llms-full.txt](llms-full.txt).
 
 ## Start Here
 
-- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph positioning, safety notes, licensing, and support links.
+- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph platform positioning, safety notes, licensing, and support links.
 - [Full Combined Context](llms-full.txt): README and documentation combined into one file for agents that need maximum local context.
 
 ## Shannon
@@ -19,9 +19,9 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.
 - [Coverage and Roadmap](docs/coverage-roadmap.md): Current Shannon coverage and roadmap direction.
 
-## Keygraph
+## Keygraph Platform
 
-- [Keygraph](docs/keygraph-platform.md): Commercial continuous pentesting and AppSec platform, including black-box and white-box pentesting, parsed-code SAST, source-to-sink analysis, remediation workflows, CI/CD gating, SLA tracking, reporting, and enterprise deployment.
+- [Keygraph platform](docs/keygraph-platform.md): Commercial continuous pentesting and AppSec platform, including black-box and white-box pentesting, parsed-code SAST, source-to-sink analysis, remediation workflows, CI/CD gating, SLA tracking, reporting, and enterprise deployment.
 
 ## External Links
 
