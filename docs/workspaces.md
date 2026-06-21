@@ -1,6 +1,6 @@
 # Workspaces and Resuming
 
-Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverables. Workspaces allow interrupted or failed runs to resume without re-running completed agents.
+Shannon uses workspaces to store scan state, logs, prompts, and deliverables. Workspaces allow interrupted or failed runs to resume without re-running completed agents.
 
 ## How Workspaces Work
 
@@ -13,7 +13,7 @@ Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverable
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
 
 > [!NOTE]
-> The URL must match the original workspace URL when resuming. Shannon Lite rejects mismatched URLs to prevent cross-target contamination.
+> The URL must match the original workspace URL when resuming. Shannon rejects mismatched URLs to prevent cross-target contamination.
 
 ## Examples
 

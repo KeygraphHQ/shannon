@@ -30,15 +30,17 @@ jobs:
         run: |
           set -euo pipefail
 
+          BASE="2.0.0"
           LATEST=$(npm view "@keygraph/shannon" dist-tags.beta 2>/dev/null || echo "")
 
-          if [[ -z "$LATEST" ]]; then
-            echo "version=1.0.0-beta.1" >> "$GITHUB_OUTPUT"
-          else
-            # Extract N from 1.0.0-beta.N and increment
+          if [[ "$LATEST" == "$BASE-beta."* ]]; then
+            # Same base version — increment the beta counter (e.g. 2.0.0-beta.2 -> 2.0.0-beta.3)
             N=$(echo "$LATEST" | grep -oE 'beta\.([0-9]+)' | grep -oE '[0-9]+')
             NEXT=$((N + 1))
-            echo "version=1.0.0-beta.$NEXT" >> "$GITHUB_OUTPUT"
+            echo "version=$BASE-beta.$NEXT" >> "$GITHUB_OUTPUT"
+          else
+            # No prior beta, or a different base (e.g. last beta was 1.0.0-beta.N) — start over.
+            echo "version=$BASE-beta.1" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Print version
