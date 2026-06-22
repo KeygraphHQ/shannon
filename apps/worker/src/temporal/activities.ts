@@ -76,7 +76,6 @@ export interface ActivityInput {
   auditDir?: string;
   promptDir?: string;
   sastSarifPath?: string;
-  skipGitCheck?: boolean;
   providerConfig?: ProviderConfig;
 }
 
@@ -457,7 +456,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
  * Preflight validation activity.
  *
  * Runs cheap checks before any agent execution:
- * 1. Repository path exists with .git
+ * 1. Repository path exists and is a directory
  * 2. Config file validates (if provided)
  * 3. Credential validation (API key, OAuth, Bedrock, or Vertex AI)
  * 4. Target URL reachable from the container
@@ -482,7 +481,6 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
       input.repoPath,
       input.configPath,
       logger,
-      input.skipGitCheck,
       input.apiKey,
       input.providerConfig,
     );
