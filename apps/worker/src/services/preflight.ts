@@ -12,7 +12,7 @@
  * time and API costs compared to failing mid-pipeline.
  *
  * Checks run sequentially, cheapest first:
- * 1. Repository path exists and contains .git
+ * 1. Repository path exists and is a directory
  * 2. Config file parses and validates (if provided)
  * 3. code_path rules match real entries in the repo (filesystem only)
  * 4. Credentials validate via Claude Agent SDK query (API key, OAuth, Bedrock, or Vertex AI)
@@ -78,14 +78,12 @@ function pinnedLookup(addresses: LookupAddress[]): LookupFunction {
 
 // === Repository Validation ===
 
-async function validateRepo(
-  repoPath: string,
-  logger: ActivityLogger,
-  skipGitCheck?: boolean,
-): Promise<Result<void, PentestError>> {
+async function validateRepo(repoPath: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
   logger.info('Checking repository path...', { repoPath });
 
-  // 1. Check repo directory exists
+  // Check repo directory exists. The repo is not required to be a git repository:
+  // multi-repo targets (a parent directory containing several repos) have no top-level
+  // .git, and git-based checkpoint/rollback in git-manager already no-ops on non-git dirs.
   try {
     const stats = await fs.stat(repoPath);
     if (!stats.isDirectory()) {
@@ -109,36 +107,6 @@ async function validateRepo(
         ErrorCode.REPO_NOT_FOUND,
       ),
     );
-  }
-
-  // 2. Check .git directory exists (skipped when consumer removes .git after clone)
-  if (!skipGitCheck) {
-    try {
-      const gitStats = await fs.stat(`${repoPath}/.git`);
-      if (!gitStats.isDirectory()) {
-        return err(
-          new PentestError(
-            `Not a git repository (no .git directory): ${repoPath}`,
-            'config',
-            false,
-            { repoPath },
-            ErrorCode.REPO_NOT_FOUND,
-          ),
-        );
-      }
-    } catch {
-      return err(
-        new PentestError(
-          `Not a git repository (no .git directory): ${repoPath}`,
-          'config',
-          false,
-          { repoPath },
-          ErrorCode.REPO_NOT_FOUND,
-        ),
-      );
-    }
-  } else {
-    logger.info('Skipping .git check (skipGitCheck enabled)');
   }
 
   logger.info('Repository path OK');
@@ -618,7 +586,7 @@ async function validateTargetUrl(targetUrl: string, logger: ActivityLogger): Pro
 /**
  * Run all preflight checks sequentially (cheapest first).
  *
- * 1. Repository path exists and contains .git
+ * 1. Repository path exists and is a directory
  * 2. Config file parses and validates (if configPath provided)
  * 3. code_path rules match at least one entry in the repo (skipped without config)
  * 4. Credentials validate (API key, OAuth, Bedrock, or Vertex AI)
@@ -631,12 +599,11 @@ export async function runPreflightChecks(
   repoPath: string,
   configPath: string | undefined,
   logger: ActivityLogger,
-  skipGitCheck?: boolean,
   apiKey?: string,
   providerConfig?: import('../types/config.js').ProviderConfig,
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (free — filesystem only)
-  const repoResult = await validateRepo(repoPath, logger, skipGitCheck);
+  const repoResult = await validateRepo(repoPath, logger);
   if (!repoResult.ok) {
     return repoResult;
   }
