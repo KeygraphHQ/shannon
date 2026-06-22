@@ -20,7 +20,8 @@
     "@clack/prompts": "^1.1.0",
     "chokidar": "^5.0.0",
     "dotenv": "^17.3.1",
-    "smol-toml": "^1.6.1"
+    "smol-toml": "^1.6.1",
+    "typescript": "^6.0.3"
   },
   "keywords": [
     "security",
@@ -45,6 +46,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/node": "^26.0.0",
     "tsdown": "^0.21.5"
   }
 }

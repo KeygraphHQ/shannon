@@ -6,6 +6,17 @@ import type { DistributedConfig, PipelineConfig, ProviderConfig, VulnClass } fro
 import type { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 
+export interface BountyConfig {
+  program: {
+    name: string;
+    platform: string;
+  };
+  rules: {
+    focus: { type: string; value: string; description: string }[];
+    avoid: { type: string; value: string; description: string }[];
+  };
+}
+
 export interface PipelineInput {
   webUrl: string;
   repoPath: string;
@@ -30,6 +41,7 @@ export interface PipelineInput {
   providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, Vertex, etc.)
   vulnClasses?: VulnClass[]; // omitted = all five
   exploit?: boolean; // false skips the exploitation phase
+  bountyConfig?: BountyConfig; // Bug bounty program configuration
 }
 
 export interface ResumeState {
