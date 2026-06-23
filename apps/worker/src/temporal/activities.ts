@@ -967,9 +967,18 @@ export async function restoreGitCheckpoint(
     deliverablesPath,
     'reset deliverables to checkpoint',
   );
-  await executeGitCommandWithRetry(['git', 'clean', '-fd'], deliverablesPath, 'clean untracked deliverables');
 
-  // Explicitly delete partial deliverables for incomplete agents
+  // Delete only the partial deliverables for incomplete agents.
+  //
+  // NOTE: We intentionally avoid `git clean -fd` here. A completed agent's
+  // deliverable can exist on disk while being untracked in the deliverables git
+  // (e.g. written by the agent after its checkpoint commit was created).
+  // `git reset --hard` leaves untracked files in place, but `git clean -fd`
+  // would delete them — wiping a finished agent's analysis even though
+  // session.json marks it successful. checkExploitationQueue would then fail on
+  // every retry (queue file present, analysis deliverable gone). Targeted
+  // per-agent cleanup removes exactly the work that must re-run and nothing a
+  // completed agent already produced.
   for (const agentName of incompleteAgents) {
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
     const deliverablePath = path.join(deliverablesPath, deliverableFilename);
