@@ -16,6 +16,7 @@
  * - Spending cap check using isSpendingCapBehavior
  * - Handle failure (rollback, audit)
  * - Validate output using AGENTS[agentName].deliverableFilename
+ * - Render the deliverable to disk via the writeDeliverable hook (if provided)
  * - Commit on success, log metrics
  *
  * No Temporal dependencies - pure domain logic.
@@ -55,6 +56,8 @@ export interface AgentExecutionInput {
   promptDir?: string | undefined;
   providerConfig?: import('../types/config.js').ProviderConfig | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
+  // Renders the deliverable to disk; invoked after validation, before the success commit.
+  writeDeliverable?: (deliverablesPath: string) => Promise<void>;
 }
 
 interface FailAgentOpts {
@@ -110,6 +113,7 @@ export class AgentExecutionService {
       promptDir,
       providerConfig,
       customTools,
+      writeDeliverable,
     } = input;
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
@@ -241,7 +245,12 @@ export class AgentExecutionService {
       });
     }
 
-    // 10. Success - commit deliverables, then capture checkpoint hash
+    // 10. Render the deliverable to disk so the success commit below stages it
+    if (writeDeliverable) {
+      await writeDeliverable(deliverablesPath);
+    }
+
+    // 11. Success - commit deliverables, then capture checkpoint hash
     await commitGitSuccess(deliverablesPath, agentName, logger);
     const commitHash = await getGitCommitHash(deliverablesPath);
 

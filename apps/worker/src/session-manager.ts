@@ -127,12 +127,11 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
 
 // Factory function for vulnerability queue validators.
 //
-// Post-MCP-migration, the analysis_deliverable.md is rendered by the activity
-// wrapper after validateAgentOutput runs, so the previous "both files exist"
-// check would race the renderer. The validator only checks the queue.json —
-// that file is written by the submit-tool path in agent-execution.ts
-// before this validator runs. The downstream checkExploitationQueue still
-// renders the .md.
+// The analysis_deliverable.md is rendered via the writeDeliverable hook, which
+// AgentExecutionService runs after validateAgentOutput but before the success
+// commit — so a "both files exist" check here would race the renderer. The
+// validator only checks queue.json, written by the submit-tool path in
+// agent-execution.ts before this validator runs.
 function createVulnValidator(vulnType: VulnType): AgentValidator {
   return async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
     const queueFile = path.join(sourceDir, `${vulnType}_exploitation_queue.json`);
@@ -145,9 +144,9 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
   };
 }
 
-// Exploitation agents — validation lives in runExploitAgentWithCollector post-processing
-// (collector harvest + renderer write). The deliverable file is written by the renderer
-// after the agent succeeds, so a file-existence check here would race the renderer.
+// Exploitation agents — the evidence deliverable is rendered via the writeDeliverable
+// hook after the agent succeeds (before the success commit), so a file-existence check
+// here would race the renderer.
 //
 // VulnType is kept in the import surface for createVulnValidator above; this factory
 // returns a no-op validator parameterized only for symmetry with the vuln-side factory.
