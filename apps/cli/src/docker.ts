@@ -242,6 +242,7 @@ export interface WorkerOptions {
   workspace: string;
   pipelineTesting?: boolean;
   debug?: boolean;
+  bountyConfig?: { program: { name: string; platform: string }; rules: { focus: { type: string; value: string; description: string }[]; avoid: { type: string; value: string; description: string }[] } };
 }
 
 /**
@@ -294,6 +295,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Mount credentials file to fixed container path
   if (opts.credentials) {
     args.push('-v', `${opts.credentials}:/app/credentials/google-sa-key.json:ro`);
+  }
+
+  // Bounty mode: pass config as env var and inject bounty prompt
+  if (opts.bountyConfig) {
+    args.push('-e', `SHANNON_BOUNTY_CONFIG=${JSON.stringify(opts.bountyConfig)}`);
   }
 
   // Environment
