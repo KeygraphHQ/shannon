@@ -2,13 +2,28 @@
  * Splash screen display — pure terminal output, no npm dependencies.
  */
 
+/**
+ * Decide whether to emit ANSI color codes.
+ *
+ * Honors the NO_COLOR convention (https://no-color.org): any non-empty value
+ * disables color. FORCE_COLOR opts back in even when stdout is not a terminal.
+ * Otherwise color is only emitted when writing to an interactive TTY, so the
+ * escape codes don't leak into piped or redirected output.
+ */
+function shouldUseColor(): boolean {
+  if (process.env.NO_COLOR) return false;
+  if (process.env.FORCE_COLOR) return true;
+  return process.stdout.isTTY === true;
+}
+
 export function displaySplash(version?: string): void {
-  const GOLD = '\x1b[38;2;244;197;66m';
-  const CYAN = '\x1b[36;1m';
-  const WHITE = '\x1b[1;37m';
-  const GRAY = '\x1b[0;37m';
-  const YELLOW = '\x1b[1;33m';
-  const RESET = '\x1b[0m';
+  const useColor = shouldUseColor();
+  const GOLD = useColor ? '\x1b[38;2;244;197;66m' : '';
+  const CYAN = useColor ? '\x1b[36;1m' : '';
+  const WHITE = useColor ? '\x1b[1;37m' : '';
+  const GRAY = useColor ? '\x1b[0;37m' : '';
+  const YELLOW = useColor ? '\x1b[1;33m' : '';
+  const RESET = useColor ? '\x1b[0m' : '';
 
   const B = `${CYAN}\u2551${RESET}`;
   const S67 = ' '.repeat(67);
