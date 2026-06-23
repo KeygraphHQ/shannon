@@ -1,5 +1,5 @@
 /**
- * `shn setup` — interactive TUI wizard for one-time credential configuration.
+ * `npx @keygraph/shannon setup` — interactive TUI wizard for one-time credential configuration.
  *
  * Walks the user through selecting a provider and entering credentials,
  * then persists everything to ~/.shannon/config.toml with 0o600 permissions.

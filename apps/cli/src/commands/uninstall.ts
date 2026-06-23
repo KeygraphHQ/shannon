@@ -1,5 +1,5 @@
 /**
- * `shn uninstall` command — remove ~/.shannon/ after confirmation (npx only).
+ * `npx @keygraph/shannon uninstall` command — remove ~/.shannon/ after confirmation (npx only).
  */
 
 import fs from 'node:fs';

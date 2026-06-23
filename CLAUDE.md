@@ -4,7 +4,7 @@ AI-powered penetration testing agent for defensive security analysis. Automates 
 
 ## Commands
 
-**Prerequisites:** Docker, AI provider credentials (`.env` for local, `shn setup` or env vars for npx)
+**Prerequisites:** Docker, AI provider credentials (`.env` for local, `npx @keygraph/shannon setup` or env vars for npx)
 
 ### Dual CLI
 
@@ -15,8 +15,8 @@ Shannon supports two CLI modes, auto-detected based on the current working direc
 | **Install** | Zero-install via npm | Clone the repo |
 | **Image** | Pulled from Docker Hub (`keygraph/shannon:latest`) | Built locally (`shannon-worker`) |
 | **State** | `~/.shannon/` | Project directory |
-| **Credentials** | `~/.shannon/config.toml` (via `shn setup`) or env vars | `./.env` |
-| **Config** | `~/.shannon/config.toml` (via `shn setup`) | N/A |
+| **Credentials** | `~/.shannon/config.toml` (via `npx @keygraph/shannon setup`) or env vars | `./.env` |
+| **Config** | `~/.shannon/config.toml` (via `npx @keygraph/shannon setup`) | N/A |
 | **Prompts** | Bundled in Docker image | Mounted from `./apps/worker/prompts/` (live-editable) |
 
 Mode auto-detection: local mode activates when env var `SHANNON_LOCAL=1` is set by the `./shannon` entry point (`apps/cli/src/mode.ts`). Otherwise npx mode.
@@ -145,7 +145,7 @@ Durable workflow orchestration with crash recovery, queryable progress, intellig
 5. **Reporting** (`report`) — Executive-level security report
 
 ### Supporting Systems
-- **Configuration** — YAML configs in `apps/worker/configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings (MFA/TOTP), URL/code rule scoping (`rules.avoid`/`rules.focus`), run-scope steering (`vuln_classes`, `exploit`), free-form `rules_of_engagement`, and post-hoc `report` filters (`min_severity`, `min_confidence`, `guidance`). `code_path` avoid rules are written into `~/.claude/settings.json` `permissions.deny` (`Read`/`Edit`) once per workflow by `apps/worker/src/temporal/activities.ts:syncCodePathDenyRules` so the SDK enforces them at the tool layer even in `bypassPermissions` mode. `vuln_classes`/`exploit` scope is locked into `session.json` on first run; resumes with a different scope fail fast (`persistOrValidateRunScope`). Credential resolution — local mode: env vars → `./.env`; npx mode: env vars → `~/.shannon/config.toml` (via `shn setup`)
+- **Configuration** — YAML configs in `apps/worker/configs/` with JSON Schema validation (`config-schema.json`). Supports auth settings (MFA/TOTP), URL/code rule scoping (`rules.avoid`/`rules.focus`), run-scope steering (`vuln_classes`, `exploit`), free-form `rules_of_engagement`, and post-hoc `report` filters (`min_severity`, `min_confidence`, `guidance`). `code_path` avoid rules are written into `~/.claude/settings.json` `permissions.deny` (`Read`/`Edit`) once per workflow by `apps/worker/src/temporal/activities.ts:syncCodePathDenyRules` so the SDK enforces them at the tool layer even in `bypassPermissions` mode. `vuln_classes`/`exploit` scope is locked into `session.json` on first run; resumes with a different scope fail fast (`persistOrValidateRunScope`). Credential resolution — local mode: env vars → `./.env`; npx mode: env vars → `~/.shannon/config.toml` (via `npx @keygraph/shannon setup`)
 - **Prompts** — Per-phase templates in `apps/worker/prompts/` with variable substitution (`{{TARGET_URL}}`, `{{CONFIG_CONTEXT}}`). Shared partials in `apps/worker/prompts/shared/` via `apps/worker/src/services/prompt-manager.ts`, including `_code-path-rules.txt` (focus/avoid `[FILE]`/`[GLOB]` routing) and `_rules-of-engagement.txt` (free-text engagement rules). When `exploit: false`, `apps/worker/src/services/findings-renderer.ts` deterministically converts each `*_exploitation_queue.json` into a `*_findings.md` for report assembly — no LLM in the loop
 - **SDK Integration** — Uses `@anthropic-ai/claude-agent-sdk` with `maxTurns: 10_000` and `bypassPermissions` mode. Adaptive thinking is enabled by default on Opus 4.6/4.7/4.8 (`supportsAdaptiveThinking` in `apps/worker/src/ai/models.ts`); disable per-scan via `CLAUDE_ADAPTIVE_THINKING=false` (env) or `core.adaptive_thinking = false` (npx TOML). Browser automation via `playwright-cli` with session isolation (`-s=<session>`). TOTP generation via `generate-totp` CLI tool. Login flow template at `apps/worker/prompts/shared/login-instructions.txt` supports form, SSO, API, and basic auth. On authenticated whitebox scans, the `validate-authentication` preflight performs the single real login and saves the browser session to `auth-state.json` in the per-session audit directory (path from `authStateFile()` in `apps/worker/src/audit/utils.ts`, derived from `generateAuditPath()`). The validation activity (`apps/worker/src/services/validate-authentication.ts`) removes any stale file from a prior run before the agent runs and verifies the file parses and contains cookies or storage before the preflight is marked complete; `logWorkflowComplete` deletes it when the workflow ends so authenticated cookies don't sit on disk between scans. Agent prompts opt in to session reuse by `@include(shared/_shared-session.txt)` before their `<login_instructions>` block — the partial restores the session and falls through to the full login flow if verification fails. `vuln-auth`/`exploit-auth` omit the include and own their own login
 - **Audit System** — Crash-safe append-only logging in `workspaces/{hostname}_{sessionId}/`. Tracks session metrics, per-agent logs, prompts, and deliverables. WorkflowLogger (`apps/worker/src/audit/workflow-logger.ts`) provides unified human-readable per-workflow logs, backed by LogStream (`apps/worker/src/audit/log-stream.ts`) shared stream primitive
