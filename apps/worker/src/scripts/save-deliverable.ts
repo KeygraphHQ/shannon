@@ -16,7 +16,8 @@
  */
 
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
 
 // === Help ===
@@ -77,14 +78,14 @@ function parseArgs(argv: string[]): ParsedArgs {
 // === File Operations ===
 
 function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
-  const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
-  const deliverablesDir = join(targetDir, ...subdir.split('/'));
-  const filepath = join(deliverablesDir, filename);
+  const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || DEFAULT_DELIVERABLES_SUBDIR;
+  const targetSubdir = deliverablesDir(targetDir, subdir);
+  const filepath = join(targetSubdir, filename);
 
   try {
-    mkdirSync(deliverablesDir, { recursive: true });
+    mkdirSync(targetSubdir, { recursive: true });
   } catch {
-    throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
+    throw new Error(`Cannot create deliverables directory at ${targetSubdir}`);
   }
 
   writeFileSync(filepath, content, 'utf8');
@@ -123,10 +124,14 @@ function main(): void {
   if (args.content) {
     content = args.content;
   } else if (args.filePath) {
-    // Path traversal protection: must resolve inside cwd
+    // Path traversal protection: the resolved path must stay within cwd.
+    // Compare via path.relative so the check is separator-correct on every
+    // platform and never false-matches a sibling dir by string prefix.
     const cwd = process.cwd();
     const resolved = resolve(cwd, args.filePath);
-    if (!resolved.startsWith(`${cwd}/`) && resolved !== cwd) {
+    const relativePath = relative(cwd, resolved);
+    const escapesCwd = relativePath === '..' || relativePath.startsWith(`..${sep}`) || isAbsolute(relativePath);
+    if (escapesCwd) {
       console.log(
         JSON.stringify({ status: 'error', message: `Path traversal detected: ${args.filePath}`, retryable: false }),
       );
