@@ -270,7 +270,7 @@ export function resolveConfig(): void {
     for (const err of errors) {
       console.error(`  - ${err}`);
     }
-    console.error(`\nRun 'shn setup' to reconfigure.\n`);
+    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
     process.exit(1);
   }
 
