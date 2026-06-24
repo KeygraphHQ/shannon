@@ -4,6 +4,8 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
+import type { ToolUsageSummary } from '../ai/kiro-cli-executor.js';
+
 /**
  * Audit system type definitions
  */
@@ -32,4 +34,8 @@ export interface AgentEndResult {
   error?: string | undefined;
   checkpoint?: string | undefined;
   isFinalAttempt?: boolean | undefined;
+  /** Tool usage summary for this agent execution. */
+  toolUsage?: ToolUsageSummary | undefined;
+  /** Per-invocation tool usage records (kiro-cli backend only). */
+  toolInvocations?: ReadonlyArray<{ tool: string; timestamp: number; success?: boolean; durationMs?: number }> | undefined;
 }

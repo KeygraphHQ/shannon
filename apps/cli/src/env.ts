@@ -27,6 +27,8 @@ const FORWARD_VARS = [
   'ANTHROPIC_LARGE_MODEL',
   'CLAUDE_CODE_MAX_OUTPUT_TOKENS',
   'CLAUDE_ADAPTIVE_THINKING',
+  'SHANNON_EXECUTOR_BACKEND',
+  'KIRO_API_KEY',
 ] as const;
 
 /**
@@ -45,11 +47,24 @@ export function loadEnv(): void {
 
 /**
  * Build `-e KEY=VALUE` flags for docker run, only for set variables.
+ * When using kiro-cli backend, excludes conflicting provider vars that
+ * would trigger Bedrock/Vertex validation inside the worker container.
  */
 export function buildEnvFlags(): string[] {
   const flags: string[] = ['-e', 'TEMPORAL_ADDRESS=shannon-temporal:7233'];
 
+  const isKiroCli = process.env.SHANNON_EXECUTOR_BACKEND === 'kiro-cli';
+  const excludeForKiroCli = new Set([
+    'CLAUDE_CODE_USE_BEDROCK',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'CLAUDE_CODE_USE_VERTEX',
+    'CLOUD_ML_REGION',
+    'ANTHROPIC_VERTEX_PROJECT_ID',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+  ]);
+
   for (const key of FORWARD_VARS) {
+    if (isKiroCli && excludeForKiroCli.has(key)) continue;
     const value = process.env[key];
     if (value) {
       flags.push('-e', `${key}=${value}`);
@@ -62,7 +77,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex';
+  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock' | 'vertex' | 'kiro-cli';
 }
 
 /** Check if a custom Anthropic-compatible base URL is configured. */
@@ -85,6 +100,18 @@ function detectProviders(): string[] {
  * Validate that exactly one authentication method is configured.
  */
 export function validateCredentials(): CredentialValidation {
+  // Kiro CLI backend bypasses traditional credential validation
+  if (process.env.SHANNON_EXECUTOR_BACKEND === 'kiro-cli') {
+    if (!process.env.KIRO_API_KEY) {
+      return {
+        valid: false,
+        mode: 'kiro-cli',
+        error: 'Kiro CLI backend requires KIRO_API_KEY',
+      };
+    }
+    return { valid: true, mode: 'kiro-cli' };
+  }
+
   // Reject multiple providers
   const providers = detectProviders();
   if (providers.length > 1) {

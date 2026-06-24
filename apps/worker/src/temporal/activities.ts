@@ -21,6 +21,7 @@ import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
+import { readLiveToolUsage } from '../ai/kiro-cli-executor.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
@@ -207,6 +208,8 @@ async function runAgentActivity(
       costUsd: endResult.cost_usd,
       numTurns: null,
       model: endResult.model,
+      ...(endResult.toolUsage !== undefined && { toolUsage: endResult.toolUsage }),
+      ...(endResult.toolInvocations !== undefined && { toolInvocations: endResult.toolInvocations }),
     };
   } catch (error) {
     // If error is already an ApplicationFailure, re-throw directly
@@ -1125,4 +1128,15 @@ export async function generateReportOutputActivity(input: ActivityInput): Promis
   if (result.outputPath) {
     logger.info(`Report output written to ${result.outputPath}`);
   }
+}
+
+/**
+ * Poll the live tool-usage.jsonl file and return the current summary.
+ *
+ * Lightweight activity called by the workflow on a timer to provide
+ * real-time tool usage data while agents are running.
+ */
+export async function pollLiveToolUsage(): Promise<import('../types/metrics.js').ToolUsageSummaryMetrics | null> {
+  const summary = await readLiveToolUsage();
+  return summary ?? null;
 }

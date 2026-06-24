@@ -129,4 +129,6 @@ export interface ContainerConfig {
   readonly promptDir?: string;
   /** LLM provider configuration — when set, executor maps to SDK env vars directly */
   readonly providerConfig?: ProviderConfig;
+  /** Executor backend selection — 'claude-sdk' (default) or 'kiro-cli' */
+  readonly executorBackend?: 'claude-sdk' | 'kiro-cli';
 }
