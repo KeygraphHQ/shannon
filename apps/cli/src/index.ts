@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bountyList, bountyStart, showBountyHelp } from './commands/bounty.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
@@ -20,7 +21,6 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
-import { bountyStart, bountyList, showBountyHelp } from './commands/bounty.js';
 import { getMode } from './mode.js';
 import { displaySplash } from './splash.js';
 
@@ -224,20 +224,40 @@ function parseBountyArgs(argv: string[]): ParsedBountyArgs {
     const arg = argv[i];
     const next = argv[i + 1];
     switch (arg) {
-      case '-u': case '--url':
-        if (next && !next.startsWith('-')) { url = next; i++; }
+      case '-u':
+      case '--url':
+        if (next && !next.startsWith('-')) {
+          url = next;
+          i++;
+        }
         break;
-      case '-r': case '--repo':
-        if (next && !next.startsWith('-')) { repo = next; i++; }
+      case '-r':
+      case '--repo':
+        if (next && !next.startsWith('-')) {
+          repo = next;
+          i++;
+        }
         break;
-      case '-p': case '--program':
-        if (next && !next.startsWith('-')) { program = next; i++; }
+      case '-p':
+      case '--program':
+        if (next && !next.startsWith('-')) {
+          program = next;
+          i++;
+        }
         break;
-      case '-w': case '--workspace':
-        if (next && !next.startsWith('-')) { workspace = next; i++; }
+      case '-w':
+      case '--workspace':
+        if (next && !next.startsWith('-')) {
+          workspace = next;
+          i++;
+        }
         break;
-      case '-o': case '--output':
-        if (next && !next.startsWith('-')) { output = next; i++; }
+      case '-o':
+      case '--output':
+        if (next && !next.startsWith('-')) {
+          output = next;
+          i++;
+        }
         break;
       case '--refresh-program':
         refreshProgram = true;
@@ -291,7 +311,12 @@ switch (command) {
       const parsed = parseBountyArgs(args.slice(2));
       const { url, repo, program, refreshProgram, pipelineTesting, debug } = parsed;
       await bountyStart({
-        url, repo, program, refreshProgram, pipelineTesting, debug,
+        url,
+        repo,
+        program,
+        refreshProgram,
+        pipelineTesting,
+        debug,
         ...(parsed.workspace !== undefined && { workspace: parsed.workspace }),
         ...(parsed.output !== undefined && { output: parsed.output }),
         version: getVersion(),

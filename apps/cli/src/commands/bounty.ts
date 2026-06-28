@@ -1,16 +1,16 @@
-import type { BountyConfig, ProgramConfig } from '../programs/types.js';
-import { fetchProgram } from '../programs/fetcher.js';
-import { parseProgram } from '../programs/parser.js';
-import { saveProgram, loadProgram, listPrograms } from '../programs/store.js';
-import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
-import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
-import { getWorkspacesDir, initHome } from '../home.js';
-import { resolveRepo } from '../paths.js';
-import { displaySplash } from '../splash.js';
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
+import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
+import { getWorkspacesDir, initHome } from '../home.js';
 import { getMode } from '../mode.js';
+import { resolveRepo } from '../paths.js';
+import { fetchProgram } from '../programs/fetcher.js';
+import { parseProgram } from '../programs/parser.js';
+import { listPrograms, loadProgram, saveProgram } from '../programs/store.js';
+import type { BountyConfig, ProgramConfig } from '../programs/types.js';
+import { displaySplash } from '../splash.js';
 
 export interface BountyStartArgs {
   url: string;
@@ -76,7 +76,8 @@ export async function bountyStart(args: BountyStartArgs): Promise<void> {
   const suffix = randomSuffix();
   const taskQueue = `shannon-${suffix}`;
   const containerName = `shannon-worker-${suffix}`;
-  const workspace = args.workspace ?? `bounty_${programConfig.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}_${Date.now()}`;
+  const workspace =
+    args.workspace ?? `bounty_${programConfig.name.toLowerCase().replace(/[^a-z0-9-]/g, '-')}_${Date.now()}`;
   const workspacePath = path.join(workspacesDir, workspace);
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.chmodSync(workspacePath, 0o777);
@@ -167,10 +168,18 @@ export async function bountyStart(args: BountyStartArgs): Promise<void> {
     cleaned = true;
     clearInterval(pollInterval);
     console.log(`\nStopping worker ${containerName}...`);
-    try { execFileSync('docker', ['stop', containerName], { stdio: 'pipe' }); } catch {}
+    try {
+      execFileSync('docker', ['stop', containerName], { stdio: 'pipe' });
+    } catch {}
   };
-  process.on('SIGINT', () => { cleanup(); process.exit(0); });
-  process.on('SIGTERM', () => { cleanup(); process.exit(0); });
+  process.on('SIGINT', () => {
+    cleanup();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    cleanup();
+    process.exit(0);
+  });
   process.on('exit', cleanup);
 }
 

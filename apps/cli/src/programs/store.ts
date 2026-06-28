@@ -12,7 +12,10 @@ function getProgramsDir(): string {
 }
 
 function slugify(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 }
 
 export function saveProgram(config: ProgramConfig, sourceUrl?: string): StoredProgram {
@@ -38,7 +41,8 @@ export function loadProgram(name: string): StoredProgram | null {
 export function listPrograms(): StoredProgram[] {
   const dir = getProgramsDir();
   if (!fs.existsSync(dir)) return [];
-  return fs.readdirSync(dir)
+  return fs
+    .readdirSync(dir)
     .filter((f) => f.endsWith('.json'))
     .map((f) => JSON.parse(fs.readFileSync(path.join(dir, f), 'utf-8')) as StoredProgram);
 }

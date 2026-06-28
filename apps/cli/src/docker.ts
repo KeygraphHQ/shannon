@@ -242,7 +242,13 @@ export interface WorkerOptions {
   workspace: string;
   pipelineTesting?: boolean;
   debug?: boolean;
-  bountyConfig?: { program: { name: string; platform: string }; rules: { focus: { type: string; value: string; description: string }[]; avoid: { type: string; value: string; description: string }[] } };
+  bountyConfig?: {
+    program: { name: string; platform: string };
+    rules: {
+      focus: { type: string; value: string; description: string }[];
+      avoid: { type: string; value: string; description: string }[];
+    };
+  };
 }
 
 /**

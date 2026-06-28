@@ -1,8 +1,6 @@
 import fs from 'node:fs';
 
-export async function fetchProgram(
-  input: string,
-): Promise<{ text: string; source: string }> {
+export async function fetchProgram(input: string): Promise<{ text: string; source: string }> {
   if (input.startsWith('http://') || input.startsWith('https://')) {
     const resp = await fetch(input);
     if (!resp.ok) {
