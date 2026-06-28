@@ -12,6 +12,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { bountyList, bountyStart, showBountyHelp } from './commands/bounty.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
@@ -71,7 +72,10 @@ Usage:${
   ${prefix} stop [--clean]                               Stop all containers
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Tail workflow log
-  ${prefix} status                                       Show running workers${
+  ${prefix} status                                       Show running workers
+  ${prefix} bounty start -u <url> -r <path> -p <prog>   Bug bounty mode scan
+  ${prefix} bounty list                                  List saved programs
+  ${prefix} bounty --help                                Bounty command help${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
@@ -195,6 +199,99 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   };
 }
 
+interface ParsedBountyArgs {
+  url: string;
+  repo: string;
+  program: string;
+  refreshProgram: boolean;
+  workspace?: string | undefined;
+  output?: string | undefined;
+  pipelineTesting: boolean;
+  debug: boolean;
+}
+
+function parseBountyArgs(argv: string[]): ParsedBountyArgs {
+  let url = '';
+  let repo = '';
+  let program = '';
+  let refreshProgram = false;
+  let workspace: string | undefined;
+  let output: string | undefined;
+  let pipelineTesting = false;
+  let debug = false;
+
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i];
+    const next = argv[i + 1];
+    switch (arg) {
+      case '-u':
+      case '--url':
+        if (next && !next.startsWith('-')) {
+          url = next;
+          i++;
+        }
+        break;
+      case '-r':
+      case '--repo':
+        if (next && !next.startsWith('-')) {
+          repo = next;
+          i++;
+        }
+        break;
+      case '-p':
+      case '--program':
+        if (next && !next.startsWith('-')) {
+          program = next;
+          i++;
+        }
+        break;
+      case '-w':
+      case '--workspace':
+        if (next && !next.startsWith('-')) {
+          workspace = next;
+          i++;
+        }
+        break;
+      case '-o':
+      case '--output':
+        if (next && !next.startsWith('-')) {
+          output = next;
+          i++;
+        }
+        break;
+      case '--refresh-program':
+        refreshProgram = true;
+        break;
+      case '--pipeline-testing':
+        pipelineTesting = true;
+        break;
+      case '--debug':
+        debug = true;
+        break;
+      default:
+        console.error(`Unknown option: ${arg}`);
+        process.exit(1);
+    }
+  }
+
+  if (!url || !repo || !program) {
+    console.error('ERROR: --url, --repo, and --program are required');
+    console.error('Usage: ./shannon bounty start -u <url> -r <path> -p <program_file_or_url>');
+    process.exit(1);
+  }
+
+  return {
+    url,
+    repo,
+    program,
+    refreshProgram,
+    ...(workspace !== undefined && { workspace }),
+    ...(output !== undefined && { output }),
+    pipelineTesting,
+    debug,
+  };
+}
+
 // === Main Dispatch ===
 
 blockSudo();
@@ -206,6 +303,33 @@ switch (command) {
   case 'start': {
     const parsed = parseStartArgs(args.slice(1));
     await start({ ...parsed, version: getVersion() });
+    break;
+  }
+  case 'bounty': {
+    const sub = args[1];
+    if (sub === 'start') {
+      const parsed = parseBountyArgs(args.slice(2));
+      const { url, repo, program, refreshProgram, pipelineTesting, debug } = parsed;
+      await bountyStart({
+        url,
+        repo,
+        program,
+        refreshProgram,
+        pipelineTesting,
+        debug,
+        ...(parsed.workspace !== undefined && { workspace: parsed.workspace }),
+        ...(parsed.output !== undefined && { output: parsed.output }),
+        version: getVersion(),
+      });
+    } else if (sub === 'list') {
+      bountyList();
+    } else if (sub === '--help' || sub === '-h' || !sub) {
+      showBountyHelp();
+    } else {
+      console.error(`Unknown bounty subcommand: ${sub}`);
+      showBountyHelp();
+      process.exit(1);
+    }
     break;
   }
   case 'stop':
