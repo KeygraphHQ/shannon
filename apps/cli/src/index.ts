@@ -16,6 +16,7 @@ import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
+import { bountyStart, type BountyStartArgs } from './commands/bounty.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
@@ -68,6 +69,7 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
+  ${prefix} bounty start --url <url> --repo <path> --program <program> [options]   Start a bug bounty scan
   ${prefix} stop [--clean]                               Stop all containers
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Tail workflow log
@@ -206,6 +208,35 @@ switch (command) {
   case 'start': {
     const parsed = parseStartArgs(args.slice(1));
     await start({ ...parsed, version: getVersion() });
+    break;
+  }
+  case 'bounty': {
+    if (args[1] === 'start') {
+      const parsed = parseStartArgs(args.slice(2));
+      
+      // Extract --program and --refresh-program
+      let program = '';
+      let refreshProgram = false;
+      const bountyArgs = args.slice(2);
+      for (let i = 0; i < bountyArgs.length; i++) {
+        if (bountyArgs[i] === '--program') {
+          program = bountyArgs[i + 1];
+        } else if (bountyArgs[i] === '--refresh-program') {
+          refreshProgram = true;
+        }
+      }
+      
+      if (!program) {
+        console.error('ERROR: --program is required for bounty start');
+        process.exit(1);
+      }
+      
+      await bountyStart({ ...parsed, program, refreshProgram, version: getVersion() });
+    } else {
+      console.error('Unknown bounty command. Supported: bounty start');
+      showHelp();
+      process.exit(1);
+    }
     break;
   }
   case 'stop':

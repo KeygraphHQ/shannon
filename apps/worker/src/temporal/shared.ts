@@ -30,6 +30,7 @@ export interface PipelineInput {
   providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, Vertex, etc.)
   vulnClasses?: VulnClass[]; // omitted = all five
   exploit?: boolean; // false skips the exploitation phase
+  bountyConfig?: any; // bounty program configuration
 }
 
 export interface ResumeState {
