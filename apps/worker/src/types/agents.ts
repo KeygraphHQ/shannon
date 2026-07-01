@@ -20,11 +20,17 @@ export const ALL_AGENTS = [
   'auth-vuln',
   'ssrf-vuln',
   'authz-vuln',
+  'cors-vuln',
+  'info-disclosure-vuln',
+  'open-redirects-vuln',
   'injection-exploit',
   'xss-exploit',
   'auth-exploit',
   'ssrf-exploit',
   'authz-exploit',
+  'cors-exploit',
+  'info-disclosure-exploit',
+  'open-redirects-exploit',
   'report',
 ] as const;
 
@@ -54,7 +60,7 @@ export interface AgentDefinition {
 /**
  * Vulnerability types supported by the pipeline.
  */
-export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz';
+export type VulnType = 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz' | 'cors' | 'info-disclosure' | 'open-redirects';
 
 /**
  * Decision returned by queue validation for exploitation phase.

@@ -61,6 +61,27 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'vuln-authz',
     deliverableFilename: 'authz_analysis_deliverable.md',
   },
+  'cors-vuln': {
+    name: 'cors-vuln',
+    displayName: 'CORS vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-cors',
+    deliverableFilename: 'cors_analysis_deliverable.md',
+  },
+  'info-disclosure-vuln': {
+    name: 'info-disclosure-vuln',
+    displayName: 'Info disclosure vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-info-disclosure',
+    deliverableFilename: 'info-disclosure_analysis_deliverable.md',
+  },
+  'open-redirects-vuln': {
+    name: 'open-redirects-vuln',
+    displayName: 'Open redirects vuln agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'vuln-open-redirects',
+    deliverableFilename: 'open-redirects_analysis_deliverable.md',
+  },
   'injection-exploit': {
     name: 'injection-exploit',
     displayName: 'Injection exploit agent',
@@ -96,10 +117,31 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'exploit-authz',
     deliverableFilename: 'authz_exploitation_evidence.md',
   },
+  'cors-exploit': {
+    name: 'cors-exploit',
+    displayName: 'CORS exploit agent',
+    prerequisites: ['cors-vuln'],
+    promptTemplate: 'exploit-cors',
+    deliverableFilename: 'cors_exploitation_evidence.md',
+  },
+  'info-disclosure-exploit': {
+    name: 'info-disclosure-exploit',
+    displayName: 'Info disclosure exploit agent',
+    prerequisites: ['info-disclosure-vuln'],
+    promptTemplate: 'exploit-info-disclosure',
+    deliverableFilename: 'info-disclosure_exploitation_evidence.md',
+  },
+  'open-redirects-exploit': {
+    name: 'open-redirects-exploit',
+    displayName: 'Open redirects exploit agent',
+    prerequisites: ['open-redirects-vuln'],
+    promptTemplate: 'exploit-open-redirects',
+    deliverableFilename: 'open-redirects_exploitation_evidence.md',
+  },
   report: {
     name: 'report',
     displayName: 'Report agent',
-    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
+    prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit', 'cors-exploit', 'info-disclosure-exploit', 'open-redirects-exploit'],
     promptTemplate: 'report-executive',
     deliverableFilename: 'comprehensive_security_assessment_report.md',
   },
@@ -117,11 +159,17 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'auth-vuln': 'vulnerability-analysis',
   'authz-vuln': 'vulnerability-analysis',
   'ssrf-vuln': 'vulnerability-analysis',
+  'cors-vuln': 'vulnerability-analysis',
+  'info-disclosure-vuln': 'vulnerability-analysis',
+  'open-redirects-vuln': 'vulnerability-analysis',
   'injection-exploit': 'exploitation',
   'xss-exploit': 'exploitation',
   'auth-exploit': 'exploitation',
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
+  'cors-exploit': 'exploitation',
+  'info-disclosure-exploit': 'exploitation',
+  'open-redirects-exploit': 'exploitation',
   report: 'reporting',
 });
 
@@ -172,6 +220,9 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
   'vuln-auth': 'agent3',
   'vuln-ssrf': 'agent4',
   'vuln-authz': 'agent5',
+  'vuln-cors': 'agent1',
+  'vuln-info-disclosure': 'agent2',
+  'vuln-open-redirects': 'agent3',
 
   // Phase 4: Exploitation (5 parallel agents - same as vuln counterparts)
   'exploit-injection': 'agent1',
@@ -179,6 +230,9 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
   'exploit-auth': 'agent3',
   'exploit-ssrf': 'agent4',
   'exploit-authz': 'agent5',
+  'exploit-cors': 'agent1',
+  'exploit-info-disclosure': 'agent2',
+  'exploit-open-redirects': 'agent3',
 
   // Phase 5: Reporting
   'report-executive': 'agent3',
@@ -202,6 +256,9 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'auth-vuln': createVulnValidator('auth'),
   'ssrf-vuln': createVulnValidator('ssrf'),
   'authz-vuln': createVulnValidator('authz'),
+  'cors-vuln': createVulnValidator('cors'),
+  'info-disclosure-vuln': createVulnValidator('info-disclosure'),
+  'open-redirects-vuln': createVulnValidator('open-redirects'),
 
   // Exploitation agents
   'injection-exploit': createExploitValidator('injection'),
@@ -209,6 +266,9 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'auth-exploit': createExploitValidator('auth'),
   'ssrf-exploit': createExploitValidator('ssrf'),
   'authz-exploit': createExploitValidator('authz'),
+  'cors-exploit': createExploitValidator('cors'),
+  'info-disclosure-exploit': createExploitValidator('info-disclosure'),
+  'open-redirects-exploit': createExploitValidator('open-redirects'),
 
   // Executive report agent
   report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
