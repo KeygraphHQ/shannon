@@ -4,8 +4,8 @@ import type { ScopeViolation } from './scope-validator.js';
 
 export async function generateHackerOneReports(
   workspaceDir: string,
-  findings: any[], // TODO: type this properly based on how we load deliverables
-  bountyConfig: any, 
+  findings: Record<string, any>[],
+  bountyConfig: Record<string, any>, 
   violations: ScopeViolation[]
 ): Promise<void> {
   const h1Dir = path.join(workspaceDir, 'hackerone');

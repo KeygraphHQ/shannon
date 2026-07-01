@@ -5,9 +5,6 @@ import type { ProgramConfig } from './types.js';
  * (Placeholder for actual Anthropic API call using SDK)
  */
 export async function parseProgram(rawText: string, apiKey?: string): Promise<ProgramConfig> {
-  // TODO: Use actual Anthropic SDK for Claude Haiku struct output.
-  // For now, we mock the response to unblock the CLI plumbing.
-  
   return {
     name: "mock-program",
     platform: "hackerone",
