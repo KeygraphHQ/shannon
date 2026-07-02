@@ -12,7 +12,7 @@ import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.j
 import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
-import { resolveConfig, resolveRepo } from '../paths.js';
+import { INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
 
 export interface StartArgs {
@@ -24,6 +24,29 @@ export interface StartArgs {
   pipelineTesting: boolean;
   debug: boolean;
   version: string;
+}
+
+/**
+ * Upgrade a pre-restructure workspace (flat layout, no INTERNAL_DIR) before it is mounted,
+ * so resume finds the old deliverables and their git checkpoints instead of re-running every
+ * agent. For a legacy run every top-level entry is internal, so move them all into INTERNAL_DIR
+ * (a same-filesystem rename carries the deliverables .git along).
+ */
+function migrateLegacyWorkspaceLayout(workspacePath: string): void {
+  const legacySessionJson = path.join(workspacePath, 'session.json');
+  const internalPath = path.join(workspacePath, INTERNAL_DIR);
+  if (!fs.existsSync(legacySessionJson) || fs.existsSync(internalPath)) {
+    return;
+  }
+
+  fs.mkdirSync(internalPath, { recursive: true });
+  for (const entry of fs.readdirSync(workspacePath)) {
+    if (entry === INTERNAL_DIR) {
+      continue;
+    }
+    fs.renameSync(path.join(workspacePath, entry), path.join(internalPath, entry));
+  }
+  console.log(`Migrated workspace to ${INTERNAL_DIR}/ layout: ${workspacePath}`);
 }
 
 export async function start(args: StartArgs): Promise<void> {
@@ -61,12 +84,17 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
-  // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
+  // The run dir and its INTERNAL_DIR must be 0o777 so the container user can create audit
+  // subdirs and the overlay backing dirs.
   const workspacePath = path.join(workspacesDir, workspace);
+  const internalPath = path.join(workspacePath, INTERNAL_DIR);
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.chmodSync(workspacePath, 0o777);
+  migrateLegacyWorkspaceLayout(workspacePath);
+  fs.mkdirSync(internalPath, { recursive: true });
+  fs.chmodSync(internalPath, 0o777);
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright']) {
-    const dirPath = path.join(workspacePath, dir);
+    const dirPath = path.join(internalPath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
     fs.chmodSync(dirPath, 0o777);
   }
@@ -121,7 +149,7 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // Detect whether this is a fresh workspace or a resume by checking session.json existence
-  const sessionJson = path.join(workspacesDir, workspace, 'session.json');
+  const sessionJson = resolveRunFile(path.join(workspacesDir, workspace), 'session.json');
   const isResume = fs.existsSync(sessionJson);
   let initialResumeCount = 0;
   if (isResume) {

@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { watch } from 'chokidar';
 import { getWorkspacesDir } from '../home.js';
+import { resolveRunFile } from '../paths.js';
 
 // Match the exact line the worker writes — anchored to prevent false positives from agent output
 const COMPLETION_PATTERN = /^Workflow (COMPLETED|FAILED)$/m;
@@ -31,20 +32,20 @@ function resolveLogFile(workspaceId: string): string {
   const workspacesDir = getWorkspacesDir();
 
   // 1. Direct match
-  const directPath = path.join(workspacesDir, workspaceId, 'workflow.log');
+  const directPath = resolveRunFile(path.join(workspacesDir, workspaceId), 'workflow.log');
   if (fs.existsSync(directPath)) return directPath;
 
   // 2. Resume workflow ID (e.g. workspace_resume_123)
   const resumeBase = workspaceId.replace(/_resume_\d+$/, '');
   if (resumeBase !== workspaceId) {
-    const resumePath = path.join(workspacesDir, resumeBase, 'workflow.log');
+    const resumePath = resolveRunFile(path.join(workspacesDir, resumeBase), 'workflow.log');
     if (fs.existsSync(resumePath)) return resumePath;
   }
 
   // 3. Named workspace ID (e.g. workspace_shannon-123)
   const namedBase = workspaceId.replace(/_shannon-\d+$/, '');
   if (namedBase !== workspaceId) {
-    const namedPath = path.join(workspacesDir, namedBase, 'workflow.log');
+    const namedPath = resolveRunFile(path.join(workspacesDir, namedBase), 'workflow.log');
     if (fs.existsSync(namedPath)) return namedPath;
   }
 
