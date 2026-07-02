@@ -12,7 +12,7 @@ import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.j
 import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
-import { INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
+import { FINAL_REPORT_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
 
 export interface StartArgs {
@@ -244,8 +244,10 @@ function printInfo(
   workspacesDir: string,
 ): void {
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon@beta logs ${workspace}`;
-  const reportsPath = path.join(workspacesDir, workspace);
+  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_FILENAME);
 
+  console.log('  Scan started — it runs in the background, so you can close this terminal.');
+  console.log('');
   console.log(`  Target:     ${args.url}`);
   console.log(`  Repository: ${repoPath}`);
   console.log(`  Workspace:  ${workspace}`);
@@ -272,15 +274,15 @@ function printInfo(
   }
 
   console.log('');
-  console.log('  Monitor:');
+  console.log('  Watch scan progress:');
+  console.log(`    Live logs:  ${logsCmd}`);
   if (workflowId) {
-    console.log(`    Dashboard: http://localhost:8233/namespaces/default/workflows/${workflowId}`);
+    console.log(`    Dashboard:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
   } else {
-    console.log('    Web UI:  http://localhost:8233');
+    console.log('    Dashboard:  http://localhost:8233');
   }
-  console.log(`    Logs:    ${logsCmd}`);
   console.log('');
-  console.log('  Output:');
-  console.log(`    Reports: ${reportsPath}/`);
+  console.log('  Report (when the scan finishes):');
+  console.log(`    ${reportPath}`);
   console.log('');
 }
