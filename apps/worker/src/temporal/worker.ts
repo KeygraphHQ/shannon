@@ -192,16 +192,16 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
       const description = await handle.describe();
 
       if (description.status.name === 'RUNNING') {
-        console.log(`Terminating running workflow: ${wfId}`);
+        console.log(`Terminating running scan: ${wfId}`);
         await handle.terminate('Superseded by resume workflow');
         terminated.push(wfId);
         console.log(`Terminated: ${wfId}`);
       } else {
-        console.log(`Workflow already ${description.status.name}: ${wfId}`);
+        console.log(`Scan already ${description.status.name}: ${wfId}`);
       }
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
-        console.log(`Workflow not found (already cleaned up): ${wfId}`);
+        console.log(`Scan not found (already cleaned up): ${wfId}`);
       } else {
         console.log(`Failed to terminate ${wfId}: ${error}`);
       }
@@ -233,7 +233,7 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
 
     const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
     if (terminatedWorkflows.length > 0) {
-      console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
+      console.log(`Terminated ${terminatedWorkflows.length} previous scan(s)\n`);
     }
 
     const session = await readJson<SessionJson>(sessionPath);
@@ -420,7 +420,7 @@ async function run(): Promise<void> {
 
   try {
     // 3. Bundle workflows and create worker on per-invocation task queue
-    console.log('Bundling workflows...');
+    console.log('Preparing scan...');
     const workflowBundle = await bundleWorkflowCode({
       workflowsPath: path.join(__dirname, 'workflows.js'),
     });

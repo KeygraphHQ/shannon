@@ -139,7 +139,7 @@ export async function start(args: StartArgs): Promise<void> {
   const dockerExitCode = await new Promise<number>((resolve) => {
     proc.once('exit', (code) => resolve(code ?? 1));
     proc.once('error', (err) => {
-      console.error(`Failed to start worker: ${err.message}`);
+      console.error(`Failed to start the scan: ${err.message}`);
       resolve(1);
     });
   });
@@ -162,7 +162,7 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // Poll for workflow to register in session.json
-  process.stdout.write('Waiting for workflow to start...');
+  process.stdout.write('Waiting for the scan to start...');
   let workflowId = '';
   let started = false;
   let attempts = 0;
@@ -171,7 +171,7 @@ export async function start(args: StartArgs): Promise<void> {
     if (attempts > 60) {
       clearInterval(pollInterval);
       process.stdout.write('\n');
-      console.error('Timeout waiting for workflow to start');
+      console.error('Timed out waiting for the scan to start');
       process.exit(1);
     }
 
@@ -206,7 +206,7 @@ export async function start(args: StartArgs): Promise<void> {
     if (cleaned || started) return;
     cleaned = true;
     clearInterval(pollInterval);
-    console.log(`\nStopping worker ${containerName}...`);
+    console.log('\nStopping scan...');
     try {
       execFileSync('docker', ['stop', containerName], { stdio: 'pipe' });
     } catch {
@@ -274,7 +274,7 @@ function printInfo(
   console.log('');
   console.log('  Monitor:');
   if (workflowId) {
-    console.log(`    Web UI:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
+    console.log(`    Dashboard: http://localhost:8233/namespaces/default/workflows/${workflowId}`);
   } else {
     console.log('    Web UI:  http://localhost:8233');
   }

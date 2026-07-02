@@ -80,7 +80,7 @@ export class WorkflowLogger {
   private async writeHeader(): Promise<void> {
     const lines = [
       `================================================================================`,
-      `Shannon Pentest - Workflow Log`,
+      `Shannon Pentest - Scan Log`,
       `================================================================================`,
       `Workflow ID: ${this.workflowId ?? this.sessionMetadata.id}`,
       `Target URL:  ${this.sessionMetadata.webUrl}`,
@@ -337,7 +337,7 @@ export class WorkflowLogger {
     const lines: string[] = [
       '',
       '================================================================================',
-      `Workflow ${status}`,
+      `Scan ${status}`,
       '────────────────────────────────────────',
       `Workflow ID: ${this.workflowId ?? this.sessionMetadata.id}`,
       `Status:      ${summary.status}`,

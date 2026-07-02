@@ -9,16 +9,16 @@ export function status(): void {
   const temporalUp = isTemporalReady();
   console.log(`Temporal: ${temporalUp ? 'running' : 'not running'}`);
   if (temporalUp) {
-    console.log('  Web UI: http://localhost:8233');
+    console.log('  Dashboard: http://localhost:8233');
   }
   console.log('');
 
-  // 2. Running workers
+  // 2. Running scans
   const workers = listRunningWorkers();
   if (workers) {
-    console.log('Workers:');
+    console.log('Running scans:');
     console.log(workers);
   } else {
-    console.log('Workers: none running');
+    console.log('No scans running');
   }
 }
