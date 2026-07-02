@@ -1,5 +1,5 @@
 /**
- * `shannon status` command — show running workers and Temporal health.
+ * `shannon status` command — show running scans and Temporal health.
  */
 
 import { isTemporalReady, listRunningWorkers } from '../docker.js';

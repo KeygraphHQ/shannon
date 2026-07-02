@@ -1,5 +1,5 @@
 /**
- * `shannon logs` command — tail a workspace's workflow log.
+ * `shannon logs` command — tail a scan's live log.
  *
  * Uses chokidar for reliable cross-platform file watching and
  * bounded synchronous reads to prevent duplicate output.
