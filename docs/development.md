@@ -130,14 +130,16 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure:
+Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- session.json
-|-- workflow.log
-|-- agents/
-|-- prompts/
-`-- deliverables/
-    `-- comprehensive_security_assessment_report.md
+|-- Security-Assessment-Report.md   # the final report (the deliverable)
+`-- .shannon/                       # internals
+    |-- deliverables/               # report source, per-phase analysis, queues
+    |-- agents/                     # per-agent logs
+    |-- prompts/                    # rendered prompts
+    |-- scratchpad/                 # screenshots, scripts
+    |-- session.json                # resume state
+    `-- workflow.log
 ```

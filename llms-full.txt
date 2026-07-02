@@ -395,16 +395,18 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure:
+Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- session.json
-|-- workflow.log
-|-- agents/
-|-- prompts/
-`-- deliverables/
-    `-- comprehensive_security_assessment_report.md
+|-- Security-Assessment-Report.md   # the final report (the deliverable)
+`-- .shannon/                       # internals
+    |-- deliverables/               # report source, per-phase analysis, queues
+    |-- agents/                     # per-agent logs
+    |-- prompts/                    # rendered prompts
+    |-- scratchpad/                 # screenshots, scripts
+    |-- session.json                # resume state
+    `-- workflow.log
 ```
 
 ---
@@ -760,6 +762,7 @@ Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverable
 - Use `-w <name>` to give a run a custom name.
 - To resume a run, pass the same workspace name with `-w`.
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
+- The final report is surfaced at the workspace root as `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]
 > The URL must match the original workspace URL when resuming. Shannon Lite rejects mismatched URLs to prevent cross-target contamination.
