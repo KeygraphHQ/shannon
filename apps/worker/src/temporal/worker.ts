@@ -35,7 +35,7 @@ import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
-import { deliverablesDir } from '../paths.js';
+import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
 import type { PipelineConfig, VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
@@ -171,7 +171,7 @@ interface WorkspaceResolution {
 }
 
 async function terminateExistingWorkflows(client: Client, workspaceName: string): Promise<string[]> {
-  const sessionPath = path.join('./workspaces', workspaceName, 'session.json');
+  const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspaceName));
 
   if (!(await fileExists(sessionPath))) {
     throw new Error(`Workspace not found: ${workspaceName}\n` + `Expected path: ${sessionPath}`);
@@ -224,7 +224,7 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
   }
 
   const workspace = args.resumeFromWorkspace;
-  const sessionPath = path.join('./workspaces', workspace, 'session.json');
+  const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspace));
   const workspaceExists = await fileExists(sessionPath);
 
   if (workspaceExists) {
@@ -355,7 +355,9 @@ async function waitForWorkflowResult(
 
       if (workspace.isResume) {
         try {
-          const session = await readJson<SessionJson>(path.join('./workspaces', workspace.sessionId, 'session.json'));
+          const session = await readJson<SessionJson>(
+            resolveSessionJsonPath(path.join('./workspaces', workspace.sessionId)),
+          );
           console.log(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`);
         } catch {
           // Non-fatal
@@ -391,6 +393,12 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
     const src = path.join(outputDir, file);
     const dest = path.join(outputPath, file);
     fs.cpSync(src, dest, { recursive: true });
+  }
+
+  // Surface the report under its human-facing name alongside the raw deliverables
+  const assembledReport = path.join(outputDir, ASSEMBLED_REPORT_FILENAME);
+  if (fs.existsSync(assembledReport)) {
+    fs.copyFileSync(assembledReport, path.join(outputPath, FINAL_REPORT_FILENAME));
   }
 
   console.log(`Copied ${files.length} deliverable(s) to ${outputPath}`);

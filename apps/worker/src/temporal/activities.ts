@@ -22,10 +22,10 @@ import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js'
 import { writeUserSettingsForCodePathAvoids } from '../ai/settings-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
-import { authStateFile, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
+import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
-import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir } from '../paths.js';
+import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -33,7 +33,7 @@ import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
-import { assembleFinalReport, injectModelIntoReport } from '../services/reporting.js';
+import { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
@@ -756,8 +756,8 @@ export async function loadResumeState(
   expectedRepoPath: string,
   deliverablesSubdir?: string,
 ): Promise<ResumeState> {
-  // 1. Validate workspace exists
-  const sessionPath = path.join('./workspaces', workspaceName, 'session.json');
+  // 1. Validate workspace exists (prefers .shannon/, falls back to legacy run-root layout)
+  const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspaceName));
 
   const exists = await fileExists(sessionPath);
   if (!exists) {
@@ -1055,7 +1055,23 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Drop the authenticated browser session
+  // 6. Surface the final report at the run root. Done here (not in the report phase)
+  // so it also runs when a resume skips an already-complete report phase.
+  if (summary.status === 'completed') {
+    try {
+      await copyReportToRunRoot(
+        input.repoPath,
+        input.deliverablesSubdir,
+        generateAuditPath(sessionMetadata),
+        createActivityLogger(),
+      );
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      console.warn(`Failed to surface report at run root: ${detail}`);
+    }
+  }
+
+  // 7. Drop the authenticated browser session
   try {
     await fs.rm(authStateFile(sessionMetadata), { force: true });
   } catch (error) {
@@ -1063,7 +1079,7 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
     console.warn(`Failed to clean up auth-state.json: ${detail}`);
   }
 
-  // 7. Clean up container
+  // 8. Clean up container
   removeContainer(workflowId);
 }
 

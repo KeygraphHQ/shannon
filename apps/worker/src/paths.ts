@@ -16,6 +16,36 @@ export const DEFAULT_DELIVERABLES_SUBDIR = '.shannon/deliverables';
 export const DEFAULT_AUDIT_DIR = './workspaces';
 
 /**
+ * Hidden subdirectory inside each run directory that holds all internals
+ * (logs, prompts, session state, deliverables, browser artifacts). Keeps the
+ * run folder's top level clean so only the final report is visible.
+ */
+export const INTERNAL_DIR = '.shannon';
+
+/** Filename of the assembled report inside the deliverables dir (internal, source of the surfaced copy) */
+export const ASSEMBLED_REPORT_FILENAME = 'comprehensive_security_assessment_report.md';
+
+/** Filename of the human-facing final report surfaced at the run directory root */
+export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
+
+/**
+ * Resolve the session.json path for a run directory, preferring the current
+ * `.shannon/` location and falling back to the legacy run-root location so
+ * pre-restructure workspaces remain listable and resumable.
+ */
+export function resolveSessionJsonPath(runDir: string): string {
+  const current = path.join(runDir, INTERNAL_DIR, 'session.json');
+  if (fs.existsSync(current)) {
+    return current;
+  }
+  const legacy = path.join(runDir, 'session.json');
+  if (fs.existsSync(legacy)) {
+    return legacy;
+  }
+  return current;
+}
+
+/**
  * Resolve the deliverables directory for a given repoPath and optional subdir override.
  * @param repoPath - Absolute path to the target repository
  * @param subdir - Subdirectory relative to repoPath (default: '.shannon/deliverables')
