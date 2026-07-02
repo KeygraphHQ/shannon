@@ -23,6 +23,12 @@ export interface MountPair {
 export const INTERNAL_DIR = '.shannon';
 
 /**
+ * Filename of the human-facing final report surfaced at the run directory root.
+ * Must match FINAL_REPORT_FILENAME in the worker package.
+ */
+export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
+
+/**
  * Resolve a run-directory file (e.g. session.json, workflow.log), preferring the
  * current INTERNAL_DIR location and falling back to the legacy run-root location
  * so pre-restructure workspaces keep working. Returns the INTERNAL_DIR path when
