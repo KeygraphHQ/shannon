@@ -117,7 +117,7 @@ export function ensureImage(version: string): void {
   if (exists) return;
 
   if (getMode() === 'local') {
-    console.log('Worker image not found, building...');
+    console.log('Shannon image not found, building...');
     buildImage(false);
   } else {
     console.log(`Pulling ${image}...`);
@@ -338,7 +338,7 @@ export function stopWorkers(): void {
   if (!workers) return;
 
   const ids = workers.split('\n').filter(Boolean);
-  console.log('Stopping worker containers...');
+  console.log('Stopping running scans...');
   execFileSync('docker', ['stop', ...ids], { stdio: 'inherit' });
 }
 

@@ -12,7 +12,7 @@ import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
 
 // Match the exact line the worker writes — anchored to prevent false positives from agent output
-const COMPLETION_PATTERN = /^Workflow (COMPLETED|FAILED)$/m;
+const COMPLETION_PATTERN = /^Scan (COMPLETED|FAILED)$/m;
 
 /** Read a byte range from a file and return it as a UTF-8 string. */
 function readRange(filePath: string, start: number, end: number): string {
@@ -49,13 +49,13 @@ function resolveLogFile(workspaceId: string): string {
     if (fs.existsSync(namedPath)) return namedPath;
   }
 
-  console.error(`ERROR: Workflow log not found for: ${workspaceId}`);
+  console.error(`ERROR: No scan found named: ${workspaceId}`);
   console.error('');
   console.error('Possible causes:');
-  console.error("  - Workflow hasn't started yet");
-  console.error('  - Workspace ID is incorrect');
+  console.error("  - The scan hasn't started yet");
+  console.error('  - The workspace name is incorrect');
   console.error('');
-  console.error('Check the Temporal Web UI at http://localhost:8233 for workflow details');
+  console.error('Check the dashboard at http://localhost:8233 for scan details');
   process.exit(1);
 }
 
@@ -83,7 +83,7 @@ export function logs(workspaceId: string): void {
     }
   }
 
-  console.log(`Tailing workflow log: ${logFile}`);
+  console.log(`Tailing scan log: ${logFile}`);
 
   // 1. Output existing content
   if (flush()) {

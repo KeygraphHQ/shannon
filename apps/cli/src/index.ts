@@ -68,10 +68,10 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop [--clean]                               Stop all containers
+  ${prefix} stop [--clean]                               Stop all running scans
   ${prefix} workspaces                                   List all workspaces
-  ${prefix} logs <workspace>                             Tail workflow log
-  ${prefix} status                                       Show running workers${
+  ${prefix} logs <workspace>                             Show a scan's live log
+  ${prefix} status                                       Show running scans${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
@@ -102,7 +102,7 @@ State directory: ./workspaces/`
     : `
 State directory: ~/.shannon/`
 }
-Monitor workflows at http://localhost:8233
+Monitor scans at http://localhost:8233
 `);
 }
 
