@@ -98,7 +98,7 @@ Shannon supports pointing the SDK at an Anthropic-compatible endpoint with `ANTH
 > [!IMPORTANT]
 > Only Claude models are officially supported. Shannon's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon's instructions or tool-use constraints. Use them at your own risk.
 
-The experimental `claude-code-router` integration is being removed. If you rely on it, migrate to an Anthropic-compatible proxy such as LiteLLM before upgrading.
+The experimental `claude-code-router` integration has been removed. If you previously relied on it, migrate to an Anthropic-compatible proxy such as LiteLLM.
 
 Run `npx @keygraph/shannon setup` and select **Custom Base URL**, or export variables directly:
 
