@@ -9,9 +9,6 @@
  * in the current working directory.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
@@ -21,9 +18,7 @@ import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
 import { getMode } from './mode.js';
-import { displaySplash } from './splash.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getVersion, getVersionLine } from './version.js';
 
 function blockSudo(): void {
   const isSudo = !!process.env.SUDO_USER;
@@ -42,16 +37,6 @@ function blockSudo(): void {
     console.error('https://docs.docker.com/engine/install/linux-postinstall');
   }
   process.exit(1);
-}
-
-function getVersion(): string {
-  try {
-    const pkgPath = path.join(__dirname, '..', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: string };
-    return pkg.version || '1.0.0';
-  } catch {
-    return '1.0.0';
-  }
 }
 
 function showHelp(): void {
@@ -78,7 +63,7 @@ Usage:${
       : `
   ${prefix} uninstall                                    Remove ~/.shannon/ and all data`
   }
-  ${prefix} info                                         Show splash screen
+  ${prefix} version                                      Show version
   ${prefix} help                                         Show this help
 
 Options for 'start':
@@ -244,8 +229,10 @@ switch (command) {
     }
     uninstall();
     break;
-  case 'info':
-    displaySplash(getMode() === 'local' ? undefined : getVersion());
+  case 'version':
+  case '--version':
+  case '-v':
+    console.log(getVersionLine());
     break;
   case 'help':
   case '--help':
