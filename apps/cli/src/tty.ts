@@ -20,7 +20,7 @@ export function supportsColor(): boolean {
     return force !== '0' && force !== 'false' && force !== '';
   }
 
-  if (process.env.NO_COLOR) return false;
+  if (process.env.NO_COLOR !== undefined) return false;
 
   return stdoutIsTerminal();
 }
