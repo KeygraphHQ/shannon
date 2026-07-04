@@ -15,12 +15,12 @@ function isInteractive(): boolean {
 
 /** True when color escapes should be emitted. NO_COLOR disables; FORCE_COLOR overrides (0/false/empty = off). */
 export function supportsColor(): boolean {
-  if (process.env.NO_COLOR) return false;
-
   const force = process.env.FORCE_COLOR;
   if (force !== undefined) {
     return force !== '0' && force !== 'false' && force !== '';
   }
+
+  if (process.env.NO_COLOR) return false;
 
   return stdoutIsTerminal();
 }
