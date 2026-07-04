@@ -67,11 +67,14 @@ npx @keygraph/shannon setup
 
 # Stop
 ./shannon stop                        # Preserves scan data
-./shannon stop --clean                # Full cleanup including volumes (confirms first)
+./shannon stop --clean                # Full cleanup including volumes (confirms first; --yes/-y to skip)
+
+# Version
+./shannon version                     # npx: package version; local: git SHA
 
 # Image management
 ./shannon build [--no-cache]          # Local mode: build worker image
-npx @keygraph/shannon uninstall             # npx mode: remove ~/.shannon/ (confirms first)
+npx @keygraph/shannon uninstall             # npx mode: remove ~/.shannon/ (confirms first; --yes/-y to skip)
 
 # Build TypeScript (development)
 pnpm run build                       # Build all packages via Turborepo
@@ -82,7 +85,7 @@ pnpm biome:fix                       # Auto-fix lint, format, and import sorting
 
 **Monorepo tooling:** pnpm workspaces, Turborepo for task orchestration, Biome for linting/formatting. TypeScript compiler options shared via `tsconfig.base.json` at the root. All packages extend it, overriding only `rootDir` and `outDir`. Shared devDependencies (`typescript`, `@types/node`, `turbo`, `@biomejs/biome`) are hoisted to the root workspace.
 
-**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--debug` (preserve worker container after exit for log inspection)
+**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--debug` (preserve worker container after exit for log inspection), `--yes`/`-y` (skip the confirmation prompt on `stop --clean`/`uninstall`; required for non-interactive use)
 
 ## Architecture
 
@@ -105,6 +108,8 @@ Published as `@keygraph/shannon` on npm. Contains only Docker orchestration logi
 - `apps/cli/src/config/writer.ts` — TOML serialization and secure file persistence (0o600)
 - `apps/cli/src/commands/setup.ts` — Interactive TUI wizard (`@clack/prompts`) for provider credential setup (npx only)
 - `apps/cli/src/paths.ts` — Repo/config path resolution (bare name → `./repos/<name>`, or any absolute/relative path)
+- `apps/cli/src/version.ts` — Version reporting (npx: `package.json` version; local: `git-<sha>`)
+- `apps/cli/src/tty.ts` — Terminal capability detection: `requireInteractive` guard (fails fast off-TTY instead of hanging on a prompt), `supportsColor` color gating (`NO_COLOR`/`FORCE_COLOR`), and `stdoutIsTerminal` for spinner/cursor output
 - `apps/cli/src/commands/` — Command handlers
 - `apps/cli/infra/compose.yml` — Bundled Temporal compose file for npx mode
 - `apps/cli/tsdown.config.ts` — tsdown bundler config
