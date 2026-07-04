@@ -10,12 +10,14 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
+import { requireInteractive } from '../tty.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
 type Provider = 'anthropic' | 'custom_base_url' | 'bedrock' | 'vertex';
 
 export async function setup(): Promise<void> {
+  requireInteractive('setup', 'For non-interactive use, export credentials as env vars (e.g. ANTHROPIC_API_KEY).');
   p.intro('Shannon Setup');
 
   // 1. Select provider

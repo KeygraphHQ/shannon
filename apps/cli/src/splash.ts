@@ -1,14 +1,18 @@
 /**
  * Splash screen display — pure terminal output, no npm dependencies.
+ * Color escapes are gated on terminal support; the Unicode art is always kept.
  */
 
+import { supportsColor } from './tty.js';
+
 export function displaySplash(version?: string): void {
-  const GOLD = '\x1b[38;2;244;197;66m';
-  const CYAN = '\x1b[36;1m';
-  const WHITE = '\x1b[1;37m';
-  const GRAY = '\x1b[0;37m';
-  const YELLOW = '\x1b[1;33m';
-  const RESET = '\x1b[0m';
+  const color = supportsColor();
+  const GOLD = color ? '\x1b[38;2;244;197;66m' : '';
+  const CYAN = color ? '\x1b[36;1m' : '';
+  const WHITE = color ? '\x1b[1;37m' : '';
+  const GRAY = color ? '\x1b[0;37m' : '';
+  const YELLOW = color ? '\x1b[1;33m' : '';
+  const RESET = color ? '\x1b[0m' : '';
 
   const B = `${CYAN}\u2551${RESET}`;
   const S67 = ' '.repeat(67);

@@ -53,7 +53,7 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop [--clean]                               Stop all running scans
+  ${prefix} stop [--clean] [--yes]                       Stop all running scans
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Show a scan's live log
   ${prefix} status                                       Show running scans${
@@ -61,7 +61,7 @@ Usage:${
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
       : `
-  ${prefix} uninstall                                    Remove ~/.shannon/ and all data`
+  ${prefix} uninstall [--yes]                            Remove ~/.shannon/ and all data`
   }
   ${prefix} version                                      Show version
   ${prefix} help                                         Show this help
@@ -194,7 +194,7 @@ switch (command) {
     break;
   }
   case 'stop':
-    stop(args.includes('--clean'));
+    stop(args.includes('--clean'), args.includes('--yes') || args.includes('-y'));
     break;
   case 'logs': {
     const workspaceId = args[1];
@@ -227,7 +227,7 @@ switch (command) {
       console.error('ERROR: uninstall is only available in npx mode.');
       process.exit(1);
     }
-    uninstall();
+    uninstall(args.includes('--yes') || args.includes('-y'));
     break;
   case 'version':
   case '--version':
