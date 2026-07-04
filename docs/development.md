@@ -61,6 +61,7 @@ Monitor progress:
 ```bash
 npx @keygraph/shannon logs <workspace>
 npx @keygraph/shannon status
+npx @keygraph/shannon version
 ```
 
 Source-build equivalents:
@@ -68,6 +69,7 @@ Source-build equivalents:
 ```bash
 ./shannon logs <workspace>
 ./shannon status
+./shannon version
 ```
 
 Open the Temporal Web UI for detailed monitoring:
@@ -80,15 +82,15 @@ Stop Shannon:
 
 ```bash
 npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean
-npx @keygraph/shannon uninstall
+npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
 ```
 
 Source-build equivalents:
 
 ```bash
 ./shannon stop
-./shannon stop --clean
+./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
 ```
 
 Usage examples:
