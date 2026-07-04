@@ -12,7 +12,7 @@
  */
 
 import path from 'node:path';
-import { WORKSPACES_DIR } from '../paths.js';
+import { INTERNAL_DIR, WORKSPACES_DIR } from '../paths.js';
 import { ensureDirectory } from '../utils/file-io.js';
 
 export type { SessionMetadata } from '../types/audit.js';
@@ -35,13 +35,22 @@ export function generateSessionIdentifier(sessionMetadata: SessionMetadata): str
 }
 
 /**
- * Generate path to audit log directory for a session
- * Uses custom outputPath if provided, otherwise defaults to WORKSPACES_DIR
+ * Generate path to a run directory for a session (its top level).
+ * Uses custom outputPath if provided, otherwise defaults to WORKSPACES_DIR.
+ * Only the final report lives here; all internals live under INTERNAL_DIR.
  */
 export function generateAuditPath(sessionMetadata: SessionMetadata): string {
   const sessionIdentifier = generateSessionIdentifier(sessionMetadata);
   const baseDir = sessionMetadata.outputPath || WORKSPACES_DIR;
   return path.join(baseDir, sessionIdentifier);
+}
+
+/**
+ * Generate path to the hidden internals directory inside a run directory.
+ * Holds logs, prompts, session state, deliverables, and browser artifacts.
+ */
+export function generateInternalPath(sessionMetadata: SessionMetadata): string {
+  return path.join(generateAuditPath(sessionMetadata), INTERNAL_DIR);
 }
 
 /**
@@ -53,25 +62,25 @@ export function generateLogPath(
   timestamp: number,
   attemptNumber: number,
 ): string {
-  const auditPath = generateAuditPath(sessionMetadata);
+  const internalPath = generateInternalPath(sessionMetadata);
   const filename = `${timestamp}_${agentName}_attempt-${attemptNumber}.log`;
-  return path.join(auditPath, 'agents', filename);
+  return path.join(internalPath, 'agents', filename);
 }
 
 /**
  * Generate path to prompt snapshot file
  */
 export function generatePromptPath(sessionMetadata: SessionMetadata, agentName: string): string {
-  const auditPath = generateAuditPath(sessionMetadata);
-  return path.join(auditPath, 'prompts', `${agentName}.md`);
+  const internalPath = generateInternalPath(sessionMetadata);
+  return path.join(internalPath, 'prompts', `${agentName}.md`);
 }
 
 /**
  * Generate path to session.json file
  */
 export function generateSessionJsonPath(sessionMetadata: SessionMetadata): string {
-  const auditPath = generateAuditPath(sessionMetadata);
-  return path.join(auditPath, 'session.json');
+  const internalPath = generateInternalPath(sessionMetadata);
+  return path.join(internalPath, 'session.json');
 }
 
 /**
@@ -79,29 +88,28 @@ export function generateSessionJsonPath(sessionMetadata: SessionMetadata): strin
  * validator and consumed by downstream agents via `_shared-session.txt`.
  */
 export function authStateFile(sessionMetadata: SessionMetadata): string {
-  return path.join(generateAuditPath(sessionMetadata), 'auth-state.json');
+  return path.join(generateInternalPath(sessionMetadata), 'auth-state.json');
 }
 
 /**
  * Generate path to workflow.log file
  */
 export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): string {
-  const auditPath = generateAuditPath(sessionMetadata);
-  return path.join(auditPath, 'workflow.log');
+  const internalPath = generateInternalPath(sessionMetadata);
+  return path.join(internalPath, 'workflow.log');
 }
 
 /**
- * Initialize audit directory structure for a session
- * Creates: workspaces/{sessionId}/, agents/, prompts/, deliverables/
+ * Initialize audit directory structure for a session.
+ * Creates: workspaces/{sessionId}/.shannon/{agents,prompts}. The deliverables,
+ * scratchpad, and browser dirs are created host-side and bind-mounted in.
  */
 export async function initializeAuditStructure(sessionMetadata: SessionMetadata): Promise<void> {
-  const auditPath = generateAuditPath(sessionMetadata);
-  const agentsPath = path.join(auditPath, 'agents');
-  const promptsPath = path.join(auditPath, 'prompts');
-  const deliverablesPath = path.join(auditPath, 'deliverables');
+  const internalPath = generateInternalPath(sessionMetadata);
+  const agentsPath = path.join(internalPath, 'agents');
+  const promptsPath = path.join(internalPath, 'prompts');
 
-  await ensureDirectory(auditPath);
+  await ensureDirectory(internalPath);
   await ensureDirectory(agentsPath);
   await ensureDirectory(promptsPath);
-  await ensureDirectory(deliverablesPath);
 }

@@ -9,9 +9,6 @@
  * in the current working directory.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { setup } from './commands/setup.js';
@@ -21,9 +18,7 @@ import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
 import { getMode } from './mode.js';
-import { displaySplash } from './splash.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+import { getVersion, getVersionLine } from './version.js';
 
 function blockSudo(): void {
   const isSudo = !!process.env.SUDO_USER;
@@ -44,16 +39,6 @@ function blockSudo(): void {
   process.exit(1);
 }
 
-function getVersion(): string {
-  try {
-    const pkgPath = path.join(__dirname, '..', 'package.json');
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf-8')) as { version?: string };
-    return pkg.version || '1.0.0';
-  } catch {
-    return '1.0.0';
-  }
-}
-
 function showHelp(): void {
   const mode = getMode();
   const prefix = mode === 'local' ? './shannon' : 'npx @keygraph/shannon@beta';
@@ -68,17 +53,17 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop [--clean]                               Stop all containers
+  ${prefix} stop [--clean] [--yes]                       Stop all running scans
   ${prefix} workspaces                                   List all workspaces
-  ${prefix} logs <workspace>                             Tail workflow log
-  ${prefix} status                                       Show running workers${
+  ${prefix} logs <workspace>                             Show a scan's live log
+  ${prefix} status                                       Show running scans${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
       : `
-  ${prefix} uninstall                                    Remove ~/.shannon/ and all data`
+  ${prefix} uninstall [--yes]                            Remove ~/.shannon/ and all data`
   }
-  ${prefix} info                                         Show splash screen
+  ${prefix} version                                      Show version
   ${prefix} help                                         Show this help
 
 Options for 'start':
@@ -102,7 +87,7 @@ State directory: ./workspaces/`
     : `
 State directory: ~/.shannon/`
 }
-Monitor workflows at http://localhost:8233
+Monitor scans at http://localhost:8233
 `);
 }
 
@@ -180,7 +165,9 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 
   if (!url || !repo) {
     console.error('ERROR: --url and --repo are required');
-    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon@beta'} start -u <url> -r <path>`);
+    console.error(
+      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon@beta'} start -u <url> -r <path>`,
+    );
     process.exit(1);
   }
 
@@ -209,7 +196,7 @@ switch (command) {
     break;
   }
   case 'stop':
-    stop(args.includes('--clean'));
+    stop(args.includes('--clean'), args.includes('--yes') || args.includes('-y'));
     break;
   case 'logs': {
     const workspaceId = args[1];
@@ -242,10 +229,12 @@ switch (command) {
       console.error('ERROR: uninstall is only available in npx mode.');
       process.exit(1);
     }
-    uninstall();
+    uninstall(args.includes('--yes') || args.includes('-y'));
     break;
-  case 'info':
-    displaySplash(getMode() === 'local' ? undefined : getVersion());
+  case 'version':
+  case '--version':
+  case '-v':
+    console.log(getVersionLine());
     break;
   case 'help':
   case '--help':

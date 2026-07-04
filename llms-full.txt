@@ -324,6 +324,7 @@ Monitor progress:
 ```bash
 npx @keygraph/shannon logs <workspace>
 npx @keygraph/shannon status
+npx @keygraph/shannon version
 ```
 
 Source-build equivalents:
@@ -331,6 +332,7 @@ Source-build equivalents:
 ```bash
 ./shannon logs <workspace>
 ./shannon status
+./shannon version
 ```
 
 Open the Temporal Web UI for detailed monitoring:
@@ -343,15 +345,15 @@ Stop Shannon Lite:
 
 ```bash
 npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean
-npx @keygraph/shannon uninstall
+npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
 ```
 
 Source-build equivalents:
 
 ```bash
 ./shannon stop
-./shannon stop --clean
+./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
 ```
 
 Usage examples:
@@ -395,16 +397,18 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure:
+Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- session.json
-|-- workflow.log
-|-- agents/
-|-- prompts/
-`-- deliverables/
-    `-- comprehensive_security_assessment_report.md
+|-- Security-Assessment-Report.md   # the final report (the deliverable)
+`-- .shannon/                       # internals
+    |-- deliverables/               # report source, per-phase analysis, queues
+    |-- agents/                     # per-agent logs
+    |-- prompts/                    # rendered prompts
+    |-- scratchpad/                 # screenshots, scripts
+    |-- session.json                # resume state
+    `-- workflow.log
 ```
 
 ---
@@ -632,7 +636,7 @@ Shannon Lite supports pointing the SDK at an Anthropic-compatible endpoint with 
 > [!IMPORTANT]
 > Only Claude models are officially supported. Shannon Lite's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon Lite's instructions or tool-use constraints. Use them at your own risk.
 
-The experimental `claude-code-router` integration is being removed. If you rely on it, migrate to an Anthropic-compatible proxy such as LiteLLM before upgrading.
+The experimental `claude-code-router` integration has been removed. If you previously relied on it, migrate to an Anthropic-compatible proxy such as LiteLLM.
 
 Run `npx @keygraph/shannon setup` and select **Custom Base URL**, or export variables directly:
 
@@ -760,6 +764,7 @@ Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverable
 - Use `-w <name>` to give a run a custom name.
 - To resume a run, pass the same workspace name with `-w`.
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
+- The final report is surfaced at the workspace root as `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]
 > The URL must match the original workspace URL when resuming. Shannon Lite rejects mismatched URLs to prevent cross-target contamination.

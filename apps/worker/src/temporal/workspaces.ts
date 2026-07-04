@@ -20,7 +20,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { WORKSPACES_DIR as DEFAULT_WORKSPACES_DIR } from '../paths.js';
+import { WORKSPACES_DIR as DEFAULT_WORKSPACES_DIR, resolveSessionJsonPath } from '../paths.js';
 
 interface SessionJson {
   session: {
@@ -82,7 +82,7 @@ async function listWorkspaces(): Promise<void> {
   const workspaces: WorkspaceInfo[] = [];
 
   for (const entry of entries) {
-    const sessionPath = path.join(workspacesDir, entry, 'session.json');
+    const sessionPath = resolveSessionJsonPath(path.join(workspacesDir, entry));
     try {
       const content = await fs.readFile(sessionPath, 'utf8');
       const data = JSON.parse(content) as SessionJson;

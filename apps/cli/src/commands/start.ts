@@ -12,8 +12,9 @@ import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.j
 import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
-import { resolveConfig, resolveRepo } from '../paths.js';
+import { FINAL_REPORT_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
+import { stdoutIsTerminal } from '../tty.js';
 
 export interface StartArgs {
   url: string;
@@ -24,6 +25,29 @@ export interface StartArgs {
   pipelineTesting: boolean;
   debug: boolean;
   version: string;
+}
+
+/**
+ * Upgrade a pre-restructure workspace (flat layout, no INTERNAL_DIR) before it is mounted,
+ * so resume finds the old deliverables and their git checkpoints instead of re-running every
+ * agent. For a legacy run every top-level entry is internal, so move them all into INTERNAL_DIR
+ * (a same-filesystem rename carries the deliverables .git along).
+ */
+function migrateLegacyWorkspaceLayout(workspacePath: string): void {
+  const legacySessionJson = path.join(workspacePath, 'session.json');
+  const internalPath = path.join(workspacePath, INTERNAL_DIR);
+  if (!fs.existsSync(legacySessionJson) || fs.existsSync(internalPath)) {
+    return;
+  }
+
+  fs.mkdirSync(internalPath, { recursive: true });
+  for (const entry of fs.readdirSync(workspacePath)) {
+    if (entry === INTERNAL_DIR) {
+      continue;
+    }
+    fs.renameSync(path.join(workspacePath, entry), path.join(internalPath, entry));
+  }
+  console.log(`Migrated workspace to ${INTERNAL_DIR}/ layout: ${workspacePath}`);
 }
 
 export async function start(args: StartArgs): Promise<void> {
@@ -61,12 +85,17 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
-  // Workspace dir must be 0o777 so the container user (UID 1001) can create audit subdirs
+  // The run dir and its INTERNAL_DIR must be 0o777 so the container user can create audit
+  // subdirs and the overlay backing dirs.
   const workspacePath = path.join(workspacesDir, workspace);
+  const internalPath = path.join(workspacePath, INTERNAL_DIR);
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.chmodSync(workspacePath, 0o777);
+  migrateLegacyWorkspaceLayout(workspacePath);
+  fs.mkdirSync(internalPath, { recursive: true });
+  fs.chmodSync(internalPath, 0o777);
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright']) {
-    const dirPath = path.join(workspacePath, dir);
+    const dirPath = path.join(internalPath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
     fs.chmodSync(dirPath, 0o777);
   }
@@ -111,7 +140,7 @@ export async function start(args: StartArgs): Promise<void> {
   const dockerExitCode = await new Promise<number>((resolve) => {
     proc.once('exit', (code) => resolve(code ?? 1));
     proc.once('error', (err) => {
-      console.error(`Failed to start worker: ${err.message}`);
+      console.error(`Failed to start the scan: ${err.message}`);
       resolve(1);
     });
   });
@@ -121,7 +150,7 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // Detect whether this is a fresh workspace or a resume by checking session.json existence
-  const sessionJson = path.join(workspacesDir, workspace, 'session.json');
+  const sessionJson = resolveRunFile(path.join(workspacesDir, workspace), 'session.json');
   const isResume = fs.existsSync(sessionJson);
   let initialResumeCount = 0;
   if (isResume) {
@@ -133,8 +162,10 @@ export async function start(args: StartArgs): Promise<void> {
     }
   }
 
-  // Poll for workflow to register in session.json
-  process.stdout.write('Waiting for workflow to start...');
+  // Poll for workflow to register in session.json. Off-TTY, skip the dots and
+  // clear-line escape so redirected logs stay clean.
+  const animate = stdoutIsTerminal();
+  process.stdout.write('Waiting for the scan to start...');
   let workflowId = '';
   let started = false;
   let attempts = 0;
@@ -143,7 +174,7 @@ export async function start(args: StartArgs): Promise<void> {
     if (attempts > 60) {
       clearInterval(pollInterval);
       process.stdout.write('\n');
-      console.error('Timeout waiting for workflow to start');
+      console.error('Timed out waiting for the scan to start');
       process.exit(1);
     }
 
@@ -161,15 +192,15 @@ export async function start(args: StartArgs): Promise<void> {
         // Latest workflow ID: last resume attempt, or originalWorkflowId for fresh scans
         workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
 
-        // Clear waiting line and show info
-        process.stdout.write('\r\x1b[K');
+        // Clear the waiting line, or just break it off-TTY
+        process.stdout.write(animate ? '\r\x1b[K' : '\n');
         printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
         return;
       }
     } catch {
       // File doesn't exist yet
     }
-    process.stdout.write('.');
+    if (animate) process.stdout.write('.');
   }, 2000);
 
   // Stop the worker container only if it hasn't started yet
@@ -178,7 +209,7 @@ export async function start(args: StartArgs): Promise<void> {
     if (cleaned || started) return;
     cleaned = true;
     clearInterval(pollInterval);
-    console.log(`\nStopping worker ${containerName}...`);
+    console.log('\nStopping scan...');
     try {
       execFileSync('docker', ['stop', containerName], { stdio: 'pipe' });
     } catch {
@@ -216,8 +247,10 @@ function printInfo(
   workspacesDir: string,
 ): void {
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon@beta logs ${workspace}`;
-  const reportsPath = path.join(workspacesDir, workspace);
+  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_FILENAME);
 
+  console.log('  Scan started — it runs in the background, so you can close this terminal.');
+  console.log('');
   console.log(`  Target:     ${args.url}`);
   console.log(`  Repository: ${repoPath}`);
   console.log(`  Workspace:  ${workspace}`);
@@ -244,15 +277,15 @@ function printInfo(
   }
 
   console.log('');
-  console.log('  Monitor:');
+  console.log('  Watch scan progress:');
+  console.log(`    Live logs:  ${logsCmd}`);
   if (workflowId) {
-    console.log(`    Web UI:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
+    console.log(`    Dashboard:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
   } else {
-    console.log('    Web UI:  http://localhost:8233');
+    console.log('    Dashboard:  http://localhost:8233');
   }
-  console.log(`    Logs:    ${logsCmd}`);
   console.log('');
-  console.log('  Output:');
-  console.log(`    Reports: ${reportsPath}/`);
+  console.log('  Report (when the scan finishes):');
+  console.log(`    ${reportPath}`);
   console.log('');
 }

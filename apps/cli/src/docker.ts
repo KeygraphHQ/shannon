@@ -13,6 +13,7 @@ import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import { getMode } from './mode.js';
+import { INTERNAL_DIR } from './paths.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -116,7 +117,7 @@ export function ensureImage(version: string): void {
   if (exists) return;
 
   if (getMode() === 'local') {
-    console.log('Worker image not found, building...');
+    console.log('Shannon image not found, building...');
     buildImage(false);
   } else {
     console.log(`Pulling ${image}...`);
@@ -269,12 +270,13 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
   args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
 
-  // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed dirs
-  const workspacePath = path.join(opts.workspacesDir, opts.workspace);
-  args.push('-v', `${path.join(workspacePath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
-  args.push('-v', `${path.join(workspacePath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
-  args.push('-v', `${path.join(workspacePath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
-  args.push('-v', `${path.join(workspacePath, '.playwright')}:${opts.repo.containerPath}/.playwright`);
+  // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed
+  // dirs, nested under the run's INTERNAL_DIR. Container paths are unchanged.
+  const internalPath = path.join(opts.workspacesDir, opts.workspace, INTERNAL_DIR);
+  args.push('-v', `${path.join(internalPath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
+  args.push('-v', `${path.join(internalPath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
+  args.push('-v', `${path.join(internalPath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
+  args.push('-v', `${path.join(internalPath, '.playwright')}:${opts.repo.containerPath}/.playwright`);
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
@@ -330,7 +332,7 @@ export function stopWorkers(): void {
   if (!workers) return;
 
   const ids = workers.split('\n').filter(Boolean);
-  console.log('Stopping worker containers...');
+  console.log('Stopping running scans...');
   execFileSync('docker', ['stop', ...ids], { stdio: 'inherit' });
 }
 

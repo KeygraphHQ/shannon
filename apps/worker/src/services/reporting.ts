@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { deliverablesDir } from '../paths.js';
+import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
@@ -68,7 +68,7 @@ export async function assembleFinalReport(
   }
 
   const finalContent = sections.join('\n\n');
-  const finalReportPath = path.join(dir, 'comprehensive_security_assessment_report.md');
+  const finalReportPath = path.join(dir, ASSEMBLED_REPORT_FILENAME);
 
   try {
     await fs.ensureDir(dir);
@@ -97,7 +97,7 @@ export async function injectModelIntoReport(
   logger: ActivityLogger,
 ): Promise<void> {
   // 1. Read session.json to get model information
-  const sessionJsonPath = path.join(outputPath, 'session.json');
+  const sessionJsonPath = resolveSessionJsonPath(outputPath);
 
   if (!(await fs.pathExists(sessionJsonPath))) {
     logger.warn('session.json not found, skipping model injection');
@@ -129,10 +129,7 @@ export async function injectModelIntoReport(
   logger.info(`Injecting model info into report: ${modelStr}`);
 
   // 3. Read the final report
-  const reportPath = path.join(
-    deliverablesDir(repoPath, deliverablesSubdir),
-    'comprehensive_security_assessment_report.md',
-  );
+  const reportPath = path.join(deliverablesDir(repoPath, deliverablesSubdir), ASSEMBLED_REPORT_FILENAME);
 
   if (!(await fs.pathExists(reportPath))) {
     logger.warn('Final report not found, skipping model injection');
@@ -166,4 +163,27 @@ export async function injectModelIntoReport(
 
   // 5. Write modified report back
   await fs.writeFile(reportPath, reportContent);
+}
+
+/**
+ * Surface the assembled report at the run directory's top level as the single
+ * human-facing deliverable, so a customer opening the run folder sees only the
+ * report. The source stays in the deliverables dir (git-checkpointed, used by resume).
+ */
+export async function copyReportToRunRoot(
+  repoPath: string,
+  deliverablesSubdir: string | undefined,
+  runDir: string,
+  logger: ActivityLogger,
+): Promise<void> {
+  const source = path.join(deliverablesDir(repoPath, deliverablesSubdir), ASSEMBLED_REPORT_FILENAME);
+
+  if (!(await fs.pathExists(source))) {
+    logger.warn(`Final report not found, skipping ${FINAL_REPORT_FILENAME}`);
+    return;
+  }
+
+  const destination = path.join(runDir, FINAL_REPORT_FILENAME);
+  await fs.copy(source, destination, { overwrite: true });
+  logger.info(`Surfaced report at ${destination}`);
 }

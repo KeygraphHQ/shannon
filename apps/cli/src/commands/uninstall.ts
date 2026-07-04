@@ -7,24 +7,34 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { stopInfra, stopWorkers } from '../docker.js';
+import { requireInteractive } from '../tty.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-export async function uninstall(): Promise<void> {
-  p.intro('Shannon Uninstall');
+export async function uninstall(yes: boolean): Promise<void> {
+  const interactive = !yes;
+  if (interactive) p.intro('Shannon Uninstall');
 
   if (!fs.existsSync(SHANNON_HOME)) {
-    p.log.info('Nothing to remove. Shannon is not configured on this machine.');
-    p.outro('Done.');
+    const message = 'Nothing to remove. Shannon is not configured on this machine.';
+    if (interactive) {
+      p.log.info(message);
+      p.outro('Done.');
+    } else {
+      console.log(message);
+    }
     return;
   }
 
-  const confirmed = await p.confirm({
-    message: 'This will permanently remove all past scan data, saved configurations, and API keys. Continue?',
-  });
-  if (p.isCancel(confirmed) || !confirmed) {
-    p.cancel('Aborted.');
-    process.exit(0);
+  if (interactive) {
+    requireInteractive('uninstall', 'Re-run with --yes to skip this confirmation.');
+    const confirmed = await p.confirm({
+      message: 'This will permanently remove all past scan data, saved configurations, and API keys. Continue?',
+    });
+    if (p.isCancel(confirmed) || !confirmed) {
+      p.cancel('Aborted.');
+      process.exit(0);
+    }
   }
 
   // Stop any running containers first
@@ -32,6 +42,14 @@ export async function uninstall(): Promise<void> {
   stopInfra(false);
 
   fs.rmSync(SHANNON_HOME, { recursive: true, force: true });
-  p.log.success('All Shannon data has been removed.');
-  p.outro('Shannon has been uninstalled. Run `npx @keygraph/shannon@beta setup` to start fresh.');
+
+  const done = 'All Shannon data has been removed.';
+  const hint = 'Shannon has been uninstalled. Run `npx @keygraph/shannon@beta setup` to start fresh.';
+  if (interactive) {
+    p.log.success(done);
+    p.outro(hint);
+  } else {
+    console.log(done);
+    console.log(hint);
+  }
 }

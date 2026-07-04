@@ -35,7 +35,7 @@ import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
-import { deliverablesDir } from '../paths.js';
+import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
 import type { PipelineConfig, VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
@@ -171,7 +171,7 @@ interface WorkspaceResolution {
 }
 
 async function terminateExistingWorkflows(client: Client, workspaceName: string): Promise<string[]> {
-  const sessionPath = path.join('./workspaces', workspaceName, 'session.json');
+  const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspaceName));
 
   if (!(await fileExists(sessionPath))) {
     throw new Error(`Workspace not found: ${workspaceName}\n` + `Expected path: ${sessionPath}`);
@@ -192,16 +192,16 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
       const description = await handle.describe();
 
       if (description.status.name === 'RUNNING') {
-        console.log(`Terminating running workflow: ${wfId}`);
+        console.log(`Terminating running scan: ${wfId}`);
         await handle.terminate('Superseded by resume workflow');
         terminated.push(wfId);
         console.log(`Terminated: ${wfId}`);
       } else {
-        console.log(`Workflow already ${description.status.name}: ${wfId}`);
+        console.log(`Scan already ${description.status.name}: ${wfId}`);
       }
     } catch (error) {
       if (error instanceof WorkflowNotFoundError) {
-        console.log(`Workflow not found (already cleaned up): ${wfId}`);
+        console.log(`Scan not found (already cleaned up): ${wfId}`);
       } else {
         console.log(`Failed to terminate ${wfId}: ${error}`);
       }
@@ -224,7 +224,7 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
   }
 
   const workspace = args.resumeFromWorkspace;
-  const sessionPath = path.join('./workspaces', workspace, 'session.json');
+  const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspace));
   const workspaceExists = await fileExists(sessionPath);
 
   if (workspaceExists) {
@@ -233,7 +233,7 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
 
     const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
     if (terminatedWorkflows.length > 0) {
-      console.log(`Terminated ${terminatedWorkflows.length} previous workflow(s)\n`);
+      console.log(`Terminated ${terminatedWorkflows.length} previous scan(s)\n`);
     }
 
     const session = await readJson<SessionJson>(sessionPath);
@@ -355,7 +355,9 @@ async function waitForWorkflowResult(
 
       if (workspace.isResume) {
         try {
-          const session = await readJson<SessionJson>(path.join('./workspaces', workspace.sessionId, 'session.json'));
+          const session = await readJson<SessionJson>(
+            resolveSessionJsonPath(path.join('./workspaces', workspace.sessionId)),
+          );
           console.log(`Cumulative cost: $${session.metrics.total_cost_usd.toFixed(4)}`);
         } catch {
           // Non-fatal
@@ -393,6 +395,12 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
     fs.cpSync(src, dest, { recursive: true });
   }
 
+  // Surface the report under its human-facing name alongside the raw deliverables
+  const assembledReport = path.join(outputDir, ASSEMBLED_REPORT_FILENAME);
+  if (fs.existsSync(assembledReport)) {
+    fs.copyFileSync(assembledReport, path.join(outputPath, FINAL_REPORT_FILENAME));
+  }
+
   console.log(`Copied ${files.length} deliverable(s) to ${outputPath}`);
 }
 
@@ -412,7 +420,7 @@ async function run(): Promise<void> {
 
   try {
     // 3. Bundle workflows and create worker on per-invocation task queue
-    console.log('Bundling workflows...');
+    console.log('Preparing scan...');
     const workflowBundle = await bundleWorkflowCode({
       workflowsPath: path.join(__dirname, 'workflows.js'),
     });

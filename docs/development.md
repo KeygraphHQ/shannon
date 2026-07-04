@@ -59,6 +59,7 @@ Monitor progress:
 ```bash
 npx @keygraph/shannon logs <workspace>
 npx @keygraph/shannon status
+npx @keygraph/shannon version
 ```
 
 Source-build equivalents:
@@ -66,6 +67,7 @@ Source-build equivalents:
 ```bash
 ./shannon logs <workspace>
 ./shannon status
+./shannon version
 ```
 
 Open the Temporal Web UI for detailed monitoring:
@@ -78,15 +80,15 @@ Stop Shannon Lite:
 
 ```bash
 npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean
-npx @keygraph/shannon uninstall
+npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
 ```
 
 Source-build equivalents:
 
 ```bash
 ./shannon stop
-./shannon stop --clean
+./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
 ```
 
 Usage examples:
@@ -130,14 +132,16 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure:
+Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- session.json
-|-- workflow.log
-|-- agents/
-|-- prompts/
-`-- deliverables/
-    `-- comprehensive_security_assessment_report.md
+|-- Security-Assessment-Report.md   # the final report (the deliverable)
+`-- .shannon/                       # internals
+    |-- deliverables/               # report source, per-phase analysis, queues
+    |-- agents/                     # per-agent logs
+    |-- prompts/                    # rendered prompts
+    |-- scratchpad/                 # screenshots, scripts
+    |-- session.json                # resume state
+    `-- workflow.log
 ```

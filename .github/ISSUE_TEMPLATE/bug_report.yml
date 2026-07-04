@@ -69,9 +69,9 @@ body:
 
         Issues without this information may be difficult to triage.
 
-        - Check the workflow log:
-            - **npx mode:** `~/.shannon/workspaces/<workspace>/workflow.log`
-            - **Local mode:** `./workspaces/<workspace>/workflow.log`
+        - Check the scan log:
+            - **npx mode:** `~/.shannon/workspaces/<workspace>/.shannon/workflow.log`
+            - **Local mode:** `./workspaces/<workspace>/.shannon/workflow.log`
           Use `grep` or search to identify errors.
           Paste the relevant error output below.
         - Temporal:
