@@ -14,6 +14,7 @@ import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { FINAL_REPORT_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
+import { stdoutIsTerminal } from '../tty.js';
 
 export interface StartArgs {
   url: string;
@@ -161,7 +162,9 @@ export async function start(args: StartArgs): Promise<void> {
     }
   }
 
-  // Poll for workflow to register in session.json
+  // Poll for workflow to register in session.json. Off-TTY, skip the dots and
+  // clear-line escape so redirected logs stay clean.
+  const animate = stdoutIsTerminal();
   process.stdout.write('Waiting for the scan to start...');
   let workflowId = '';
   let started = false;
@@ -189,15 +192,15 @@ export async function start(args: StartArgs): Promise<void> {
         // Latest workflow ID: last resume attempt, or originalWorkflowId for fresh scans
         workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
 
-        // Clear waiting line and show info
-        process.stdout.write('\r\x1b[K');
+        // Clear the waiting line, or just break it off-TTY
+        process.stdout.write(animate ? '\r\x1b[K' : '\n');
         printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
         return;
       }
     } catch {
       // File doesn't exist yet
     }
-    process.stdout.write('.');
+    if (animate) process.stdout.write('.');
   }, 2000);
 
   // Stop the worker container only if it hasn't started yet
