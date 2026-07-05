@@ -13,6 +13,10 @@ catalogs:
 importers:
 
   .:
+    dependencies:
+      hono:
+        specifier: 4.12.25
+        version: 4.12.25
     devDependencies:
       '@biomejs/biome':
         specifier: ^2.0.0
@@ -1091,6 +1095,10 @@ packages:
 
   hono@4.12.14:
     resolution: {integrity: sha512-am5zfg3yu6sqn5yjKBNqhnTX7Cv+m00ox+7jbaKkrLMRJ4rAdldd1xPd/JzbBWspqaQv6RSTrgFN95EsfhC+7w==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.12.25:
+    resolution: {integrity: sha512-2NFaIyNVgJmBs/ecmtGzlmluTFs5cHEWGTdu0t1HBwYzoGXOL5nUQBRMXsXWla5i4KkG//QMzVP88m1+I3fdAQ==}
     engines: {node: '>=16.9.0'}
 
   hookable@6.1.0:
@@ -2629,6 +2637,8 @@ snapshots:
   heap-js@2.7.1: {}
 
   hono@4.12.14: {}
+
+  hono@4.12.25: {}
 
   hookable@6.1.0: {}
 

@@ -24,5 +24,8 @@
       "@swc/core",
       "protobufjs"
     ]
+  },
+  "dependencies": {
+    "hono": "4.12.25"
   }
 }
