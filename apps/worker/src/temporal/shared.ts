@@ -52,6 +52,9 @@ export interface PipelineState {
   currentPhase: string | null;
   currentAgent: string | null;
   completedAgents: string[];
+  // Exploit agents that failed and were gracefully skipped (e.g. Claude content-policy
+  // refusal). Their vuln analysis findings are preserved; the run still reaches Reporting.
+  skippedExploits: string[];
   failedAgent: string | null;
   error: string | null;
   errorCode?: ErrorCode;

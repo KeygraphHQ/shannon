@@ -20,7 +20,8 @@
  * - Automatic retry with backoff for transient/billing errors
  * - Non-retryable classification for permanent errors
  * - Audit correlation via workflowId
- * - Graceful failure handling: pipelines continue if one fails
+ * - Graceful failure handling: a failed or refused exploit agent is skipped so sibling
+ *   pipelines and the Reporting phase still run; only analysis failures abort the run
  */
 
 import {
@@ -60,6 +61,27 @@ function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boole
   }
   expected.push('report');
   return expected;
+}
+
+/** Substrings that mark a Claude content-policy refusal surfaced through the agent SDK. */
+const CONTENT_POLICY_MARKERS = ['usage policy', 'unable to respond'] as const;
+
+/**
+ * Detect whether an exploit-agent failure is a Claude content-policy refusal.
+ * Walks the error's `.cause` chain (Temporal wraps ApplicationFailure in ActivityFailure)
+ * and matches known refusal phrasing case-insensitively. Duck-typed because workflow code
+ * cannot import @temporalio/activity error types.
+ */
+function isContentPolicyRefusal(error: unknown): boolean {
+  let current: unknown = error;
+  while (current instanceof Error) {
+    const message = current.message.toLowerCase();
+    if (CONTENT_POLICY_MARKERS.some((marker) => message.includes(marker))) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 // Retry configuration for production (long intervals for billing recovery)
@@ -203,6 +225,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     currentPhase: null,
     currentAgent: null,
     completedAgents: [],
+    skippedExploits: [],
     failedAgent: null,
     error: null,
     startTime: Date.now(),
@@ -501,15 +524,36 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
       // 3. Previously-completed exploits are preserved regardless of mode; new exploits gated by mode.
       let exploitMetrics: AgentMetrics | null = null;
+      let exploitError: string | null = null;
       if (shouldSkip(exploitAgentName)) {
         log.info(`Skipping ${exploitAgentName} (already complete)`);
         state.completedAgents.push(exploitAgentName);
       } else if (decision.shouldExploit && exploit) {
-        exploitMetrics = await runExploitAgent();
-        state.agentMetrics[exploitAgentName] = exploitMetrics;
-        state.completedAgents.push(exploitAgentName);
-        if (input.checkpointsEnabled) {
-          await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+        // Isolate exploit-agent failures. A single agent refusing (Claude content policy)
+        // or erroring must NOT reject this pipeline: a rejection propagates through
+        // runWithConcurrencyLimit to the top-level catch, aborting sibling pipelines and
+        // skipping Reporting. The vuln analysis findings recorded in step 1 are the durable
+        // value and are preserved on skip. Analysis-agent failures are intentionally not
+        // caught here — they still propagate and fail the run.
+        try {
+          exploitMetrics = await runExploitAgent();
+          state.agentMetrics[exploitAgentName] = exploitMetrics;
+          state.completedAgents.push(exploitAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
+        } catch (error) {
+          // Temporal cancellation must always propagate — it is not an exploit failure.
+          if (isCancellation(error)) {
+            throw error;
+          }
+          const reason = isContentPolicyRefusal(error) ? 'content-policy refusal' : 'execution error';
+          const detail = error instanceof Error ? error.message : String(error);
+          exploitError = `${exploitAgentName} skipped (${reason}): ${detail.replaceAll('|', '/')}`;
+          state.skippedExploits.push(exploitAgentName);
+          log.warn(
+            `Exploit agent ${exploitAgentName} failed (${reason}); skipping exploitation for ${vulnType} and continuing. Analysis findings preserved.`,
+          );
         }
       }
 
@@ -521,7 +565,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           shouldExploit: decision.shouldExploit,
           vulnerabilityCount: decision.vulnerabilityCount,
         },
-        error: null,
+        error: exploitError,
       };
     }
 
