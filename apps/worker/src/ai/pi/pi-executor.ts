@@ -20,27 +20,28 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
-import type { AuditSession } from '../audit/index.js';
-import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../paths.js';
-import { isRetryableError, PentestError } from '../services/error-handling.js';
-import { AGENT_VALIDATORS } from '../session-manager.js';
-import type { ActivityLogger } from '../types/activity-logger.js';
-import { ErrorCode } from '../types/errors.js';
-import { isSpendingCapBehavior, matchesBillingTextPattern } from '../utils/billing-detection.js';
-import { formatTimestamp } from '../utils/formatting.js';
-import { Timer } from '../utils/metrics.js';
-import { createAuditLogger } from './audit-logger.js';
-import { type ModelTier, resolveModelSelection } from './models.js';
+import type { AuditSession } from '../../audit/index.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../../paths.js';
+import { isRetryableError, PentestError } from '../../services/error-handling.js';
+import { AGENT_VALIDATORS } from '../../session-manager.js';
+import type { ActivityLogger } from '../../types/activity-logger.js';
+import { ErrorCode } from '../../types/errors.js';
+import { isSpendingCapBehavior, matchesBillingTextPattern } from '../../utils/billing-detection.js';
+import { formatTimestamp } from '../../utils/formatting.js';
+import { Timer } from '../../utils/metrics.js';
+import { createAuditLogger } from '../audit-logger.js';
+import { type ModelTier, resolveModelSelection } from '../models.js';
 import {
   detectExecutionContext,
   formatAssistantOutput,
   formatCompletionMessage,
   formatErrorOutput,
   formatToolCall,
-} from './output-formatters.js';
-import { createProgressManager } from './progress-manager.js';
-import { permissionConfigPath } from './settings-writer.js';
-import { createGlobTool, createTaskTool, createTodoWriteTool } from './tools.js';
+} from '../output-formatters.js';
+import { createProgressManager } from '../progress-manager.js';
+import { permissionConfigPath } from './permission-system.js';
+import { createTaskTool } from './task-tool.js';
+import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -209,7 +210,8 @@ export async function runPiPrompt(
   callerTools?: ToolDefinition[],
   apiKey?: string,
   deliverablesSubdir?: string,
-  providerConfig?: import('../types/config.js').ProviderConfig,
+  providerConfig?: import('../../types/config.js').ProviderConfig,
+  cancellationSignal?: AbortSignal,
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -249,6 +251,7 @@ export async function runPiPrompt(
       cwd: sourceDir,
       childUsage,
       resourceLoader,
+      ...(cancellationSignal && { cancellationSignal }),
     }),
     createTodoWriteTool(auditLogger),
     createGlobTool(sourceDir),

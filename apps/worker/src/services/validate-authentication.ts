@@ -15,7 +15,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { runPiPrompt } from '../ai/pi-executor.js';
+import { runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -219,7 +219,7 @@ function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): numbe
 }
 
 function classifyResult(
-  result: import('../ai/pi-executor.js').PiPromptResult,
+  result: import('../ai/pi/pi-executor.js').PiPromptResult,
   authentication: NonNullable<DistributedConfig['authentication']>,
 ): Result<void, PentestError> {
   if (!result.success) {

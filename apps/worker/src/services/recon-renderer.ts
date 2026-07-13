@@ -36,7 +36,7 @@ import type {
   SinkRef,
   TechnologyStackInput,
   VerticalCandidate,
-} from '../mcp-server/recon-collector.js';
+} from '../collectors/recon-collector.js';
 
 type RoleSwitchingImpersonation = AuthenticationInput['role_switching_impersonation'];
 type EntityZone = Entity['zone'];

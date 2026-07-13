@@ -27,7 +27,7 @@ import type {
   SinkRef,
   SsrfSinksInput,
   XssSinksInput,
-} from '../mcp-server/pre-recon-collector.js';
+} from '../collectors/pre-recon-collector.js';
 
 // ============================================================================
 // STATIC PROSE

@@ -19,7 +19,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
-import { writeCodePathPermissionConfig } from '../ai/settings-writer.js';
+import { writeCodePathPermissionConfig } from '../ai/pi/permission-system.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
@@ -255,7 +255,7 @@ async function runAgentActivity(
 }
 
 export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  const { createPreReconCollectorServer } = await import('../mcp-server/pre-recon-collector.js');
+  const { createPreReconCollectorServer } = await import('../collectors/pre-recon-collector.js');
   const { renderPreRecon } = await import('../services/pre-recon-renderer.js');
 
   const collector = createPreReconCollectorServer();
@@ -277,7 +277,7 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
 }
 
 export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  const { createReconCollectorServer } = await import('../mcp-server/recon-collector.js');
+  const { createReconCollectorServer } = await import('../collectors/recon-collector.js');
   const { renderRecon } = await import('../services/recon-renderer.js');
 
   const collector = createReconCollectorServer();
@@ -303,7 +303,7 @@ async function runVulnAgentWithCollector(
   vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
   input: ActivityInput,
 ): Promise<AgentMetrics> {
-  const { createVulnCollector } = await import('../mcp-server/vuln-collector.js');
+  const { createVulnCollector } = await import('../collectors/vuln-collector.js');
   const { renderVulnDeliverable } = await import('../services/vuln-renderer.js');
 
   const collector = createVulnCollector(vulnClass);
@@ -373,7 +373,7 @@ async function runExploitAgentWithCollector(
   vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
   input: ActivityInput,
 ): Promise<AgentMetrics> {
-  const { createExploitCollector } = await import('../mcp-server/exploit-collector.js');
+  const { createExploitCollector } = await import('../collectors/exploit-collector.js');
   const { renderExploitDeliverable } = await import('../services/exploit-renderer.js');
 
   const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);

@@ -14,7 +14,7 @@
 
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
-import type { DistributedConfig } from '../types/config.js';
+import type { DistributedConfig } from '../../types/config.js';
 
 /** Absolute path to the pi-permission-system global config.json. */
 export function permissionConfigPath(): string {

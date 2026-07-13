@@ -25,8 +25,8 @@ import type {
   StrategicIntelligenceInput,
   VulnClass,
   VulnCollectorData,
-} from '../mcp-server/vuln-collector.js';
-import { BLIND_SPOTS_CLASSES } from '../mcp-server/vuln-collector.js';
+} from '../collectors/vuln-collector.js';
+import { BLIND_SPOTS_CLASSES } from '../collectors/vuln-collector.js';
 
 // ============================================================================
 // PER-CLASS CONSTANTS

@@ -23,7 +23,7 @@
  */
 
 import { fs, path } from 'zx';
-import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi-executor.js';
+import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/pi-executor.js';
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
