@@ -633,13 +633,13 @@ function endpointKey(method: string, path: string): string {
 // SERVER FACTORY
 // ============================================================================
 
-export interface ReconCollectorServer {
+export interface ReconCollector {
   tools: ToolDefinition[];
   getAll(): ReconData;
   getCallStatus(): ReconCallStatus;
 }
 
-export function createReconCollectorServer(): ReconCollectorServer {
+export function createReconCollector(): ReconCollector {
   const state: {
     executive_summary?: ExecutiveSummaryInput;
     technology_stack?: TechnologyStackInput;

@@ -255,10 +255,10 @@ async function runAgentActivity(
 }
 
 export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  const { createPreReconCollectorServer } = await import('../collectors/pre-recon-collector.js');
+  const { createPreReconCollector } = await import('../collectors/pre-recon-collector.js');
   const { renderPreRecon } = await import('../services/pre-recon-renderer.js');
 
-  const collector = createPreReconCollectorServer();
+  const collector = createPreReconCollector();
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
@@ -277,10 +277,10 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
 }
 
 export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics> {
-  const { createReconCollectorServer } = await import('../collectors/recon-collector.js');
+  const { createReconCollector } = await import('../collectors/recon-collector.js');
   const { renderRecon } = await import('../services/recon-renderer.js');
 
-  const collector = createReconCollectorServer();
+  const collector = createReconCollector();
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();

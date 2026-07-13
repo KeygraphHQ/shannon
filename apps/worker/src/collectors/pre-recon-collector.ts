@@ -413,13 +413,13 @@ function errorResult(message: string, errorType = 'ValidationError', retryable =
 // TOOLS FACTORY
 // ============================================================================
 
-export interface PreReconCollectorServer {
+export interface PreReconCollector {
   tools: ToolDefinition[];
   getAll(): PreReconData;
   getCallStatus(): PreReconCallStatus;
 }
 
-export function createPreReconCollectorServer(): PreReconCollectorServer {
+export function createPreReconCollector(): PreReconCollector {
   const state: {
     executive_summary?: ExecutiveSummaryInput;
     application_intelligence?: ApplicationIntelligenceInput;

@@ -362,13 +362,13 @@ function errorResult(message: string, errorType = 'ValidationError', retryable =
 // COLLECTOR FACTORY
 // ============================================================================
 
-export interface VulnCollectorServer {
+export interface VulnCollector {
   tools: ToolDefinition[];
   getAll(): VulnCollectorData;
   getCallStatus(): VulnCallStatus;
 }
 
-export function createVulnCollector(vulnClass: VulnClass): VulnCollectorServer {
+export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
   const state: {
     findings_summary?: FindingsSummaryInput;
     strategic_intelligence?: StrategicIntelligenceInput;
