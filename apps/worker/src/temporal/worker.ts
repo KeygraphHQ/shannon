@@ -299,8 +299,12 @@ async function loadOrchestrationConfig(configPath: string | undefined): Promise<
       ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
       ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
     };
-  } catch {
-    return { pipelineConfig: {} };
+  } catch (error) {
+    // A broken config must fail the run, not silently fall back to empty
+    // defaults that quietly change scope (vuln classes, exploit, retries).
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`Failed to parse config ${configPath}: ${message}`);
+    process.exit(1);
   }
 }
 

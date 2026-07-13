@@ -49,16 +49,34 @@ export interface PipelineSummary {
 }
 
 export interface PipelineState {
-  status: 'running' | 'completed' | 'failed' | 'cancelled';
+  status: 'running' | 'completed' | 'failed' | 'cancelled' | 'partial';
   currentPhase: string | null;
   currentAgent: string | null;
   completedAgents: string[];
+  // Vuln classes whose pipeline failed while at least one other succeeded. Drives the
+  // partial terminal status so a crashed class isn't reported as if it fully passed.
+  failedPipelines: { vulnType: VulnClass; error: string }[];
   failedAgent: string | null;
   error: string | null;
   errorCode?: ErrorCode;
   startTime: number;
   agentMetrics: Record<string, AgentMetrics>;
   summary: PipelineSummary | null;
+}
+
+/**
+ * Thrown by pentestPipeline() when the run fails, carrying the fully-populated
+ * PipelineState (real agentMetrics, completedAgents, summary) so a consumer can
+ * report actual spend instead of synthesizing a zeroed failed state. `cause`
+ * preserves the original error for classification and Temporal failure reporting.
+ */
+export class PipelineExecutionError extends Error {
+  override name = 'PipelineExecutionError' as const;
+  readonly state: PipelineState;
+  constructor(message: string, state: PipelineState, options?: { cause?: unknown }) {
+    super(message, options);
+    this.state = state;
+  }
 }
 
 // Extended state returned by getProgress query (includes computed fields)
@@ -69,7 +87,7 @@ export interface PipelineProgress extends PipelineState {
 
 // Result from a single vuln→exploit pipeline
 export interface VulnExploitPipelineResult {
-  vulnType: string;
+  vulnType: VulnClass;
   vulnMetrics: AgentMetrics | null;
   exploitMetrics: AgentMetrics | null;
   exploitDecision: {

@@ -15,3 +15,4 @@ export type {
   VulnExploitPipelineResult,
 } from './shared.js';
 export { pentestPipeline } from './workflows.js';
+export { PipelineExecutionError } from './shared.js';

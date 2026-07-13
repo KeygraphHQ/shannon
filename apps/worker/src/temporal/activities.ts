@@ -27,6 +27,7 @@ import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
+import { getAgentGitPaths } from '../services/agent-git-paths.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
@@ -950,7 +951,13 @@ export async function restoreGitCheckpoint(
     deliverablesPath,
     'reset deliverables to checkpoint',
   );
-  await executeGitCommandWithRetry(['git', 'clean', '-fd'], deliverablesPath, 'clean untracked deliverables');
+
+  // Scope the untracked clean so a completed agent's deliverables survive: exclude every
+  // completed agent's paths, cleaning only leftovers from the incomplete agents being re-run.
+  const incompleteSet = new Set<AgentName>(incompleteAgents);
+  const completedPaths = ALL_AGENTS.filter((name) => !incompleteSet.has(name)).flatMap(getAgentGitPaths);
+  const cleanArgs = ['git', 'clean', '-fd', ...completedPaths.flatMap((completedPath) => ['-e', completedPath])];
+  await executeGitCommandWithRetry(cleanArgs, deliverablesPath, 'clean untracked deliverables');
 
   // Explicitly delete partial deliverables for incomplete agents
   for (const agentName of incompleteAgents) {
@@ -1063,8 +1070,9 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
   // 6. Surface the final report at the run root. Done here (not in the report phase)
-  // so it also runs when a resume skips an already-complete report phase.
-  if (summary.status === 'completed') {
+  // so it also runs when a resume skips an already-complete report phase. A partial
+  // run still assembles a report (only some classes were not assessed), so surface it too.
+  if (summary.status === 'completed' || summary.status === 'partial') {
     try {
       await copyReportToRunRoot(
         input.repoPath,

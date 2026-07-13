@@ -170,39 +170,46 @@ async function buildLoginInstructions(
 
     if (authentication.credentials) {
       if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+        userInstructions = replaceLiteral(userInstructions, /\$username/g, authentication.credentials.username);
       }
       if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
+        userInstructions = replaceLiteral(userInstructions, /\$password/g, authentication.credentials.password);
       }
       if (authentication.credentials.totp_secret) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$totp/g,
           `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
         );
       }
       if (authentication.credentials.email_login?.address) {
-        userInstructions = userInstructions.replace(/\$email_address/g, authentication.credentials.email_login.address);
+        userInstructions = replaceLiteral(
+          userInstructions,
+          /\$email_address/g,
+          authentication.credentials.email_login.address,
+        );
       }
       if (authentication.credentials.email_login?.password) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$email_password/g,
           authentication.credentials.email_login.password,
         );
       }
       if (authentication.credentials.email_login?.totp_secret) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$email_totp/g,
           `generated TOTP code using secret "${authentication.credentials.email_login.totp_secret}"`,
         );
       }
     }
 
-    loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
+    loginInstructions = replaceLiteral(loginInstructions, /{{user_instructions}}/g, userInstructions);
 
     // 5. Replace TOTP secret placeholder if present in template
     if (authentication.credentials?.totp_secret) {
-      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+      loginInstructions = replaceLiteral(loginInstructions, /{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
 
     return loginInstructions;
@@ -242,9 +249,19 @@ async function processIncludes(content: string, baseDir: string): Promise<string
   );
 
   for (const replacement of replacements) {
-    content = content.replace(replacement.placeholder, replacement.content);
+    content = replaceLiteral(content, replacement.placeholder, replacement.content);
   }
   return content;
+}
+
+/**
+ * Replaces `pattern` with `replacement` treating the replacement as a literal
+ * string. Native `String.replace` interprets `$&`, `$1`, `$$` in the replacement
+ * as special patterns, which mangles credential and config values that legitimately
+ * contain `$`. The function form of `replace` bypasses that interpretation.
+ */
+function replaceLiteral(input: string, pattern: RegExp | string, replacement: string): string {
+  return input.replace(pattern, () => replacement);
 }
 
 function buildAuthContext(config: DistributedConfig | null): string {

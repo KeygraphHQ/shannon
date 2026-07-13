@@ -31,7 +31,7 @@ export interface AgentMetricsSummary {
 }
 
 export interface WorkflowSummary {
-  status: 'completed' | 'failed' | 'cancelled';
+  status: 'completed' | 'failed' | 'cancelled' | 'partial';
   totalDurationMs: number;
   totalCostUsd: number;
   completedAgents: string[];
