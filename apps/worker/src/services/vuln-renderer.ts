@@ -26,7 +26,6 @@ import type {
   VulnClass,
   VulnCollectorData,
 } from '../collectors/vuln-collector.js';
-import { BLIND_SPOTS_CLASSES } from '../collectors/vuln-collector.js';
 
 // ============================================================================
 // PER-CLASS CONSTANTS
@@ -222,8 +221,6 @@ export function renderVulnDeliverable(vulnClass: VulnClass, data: VulnCollectorD
     renderSafeVectors(vulnClass, data.safe_vectors),
     '',
   ];
-  if (BLIND_SPOTS_CLASSES.has(vulnClass)) {
-    sections.push(renderBlindSpots(data.blind_spots), '');
-  }
+  sections.push(renderBlindSpots(data.blind_spots), '');
   return `${sections.join('\n').trimEnd()}\n`;
 }

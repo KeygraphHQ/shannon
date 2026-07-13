@@ -35,12 +35,6 @@ import { type Static, Type } from 'typebox';
 export const VULN_CLASSES = ['injection', 'xss', 'auth', 'ssrf', 'authz'] as const;
 export type VulnClass = (typeof VULN_CLASSES)[number];
 
-// Classes whose deliverables carry a Section 5 (blind spots). The auth and ssrf
-// analyses have no blind-spots section, so the set_blind_spots tool is withheld
-// from those agents and the renderer omits the section. Single source of truth
-// for both the tool registration and the rendering gate.
-export const BLIND_SPOTS_CLASSES: ReadonlySet<VulnClass> = new Set<VulnClass>(['injection', 'xss', 'authz']);
-
 // ============================================================================
 // SHARED SCHEMAS — set_findings_summary, set_safe_vectors, set_blind_spots
 // ============================================================================
@@ -455,13 +449,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     },
   });
 
-  // set_blind_spots is withheld from classes without a Section 5 (auth, ssrf).
-  const tools = [
-    setFindingsSummary,
-    setStrategicIntelligence,
-    setSafeVectors,
-    ...(BLIND_SPOTS_CLASSES.has(vulnClass) ? [setBlindSpots] : []),
-  ];
+  const tools = [setFindingsSummary, setStrategicIntelligence, setSafeVectors, setBlindSpots];
 
   function statusOf<K extends VulnToolName>(key: K): VulnToolStatus {
     const flagMap: Record<VulnToolName, unknown> = {
