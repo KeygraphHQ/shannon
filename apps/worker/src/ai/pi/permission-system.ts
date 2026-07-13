@@ -38,7 +38,9 @@ export function permissionConfigPath(): string {
  * denies the directory entry itself.
  */
 export function toPathPatterns(value: string): string[] {
-  const base = value.replace(/^[./]+/, '').replace(/\/+$/, '');
+  // Strip only leading path prefixes ("/", "./", "../"); preserve a dotfile's dot
+  // (so `.env` stays `.env`, not `env`).
+  const base = value.replace(/^(?:\.{0,2}\/)+/, '').replace(/\/+$/, '');
   if (!base) return [];
 
   if (base.includes('*') || base.includes('?')) {
