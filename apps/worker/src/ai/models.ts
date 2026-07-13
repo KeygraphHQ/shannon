@@ -16,18 +16,16 @@
  * ANTHROPIC_LARGE_MODEL, which works across all providers (Anthropic, Bedrock,
  * custom base URL).
  *
- * The active provider is chosen from an injected `providerConfig` (the Pro consumer)
- * or, in OSS, from the env-var contract the CLI forwards (`CLAUDE_CODE_USE_BEDROCK`,
- * `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else direct Anthropic). Resolution
- * returns a pi `Model` via `ModelRegistry.find`, the `thinkingLevel`, and an
- * `AuthStorage` primed with the right credential. Bedrock authenticates from the
- * AWS_ env vars via pi-ai.
+ * The active provider is chosen from the env-var contract the CLI forwards
+ * (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else
+ * direct Anthropic). Resolution returns a pi `Model` via `ModelRegistry.find`, the
+ * `thinkingLevel`, and an `AuthStorage` primed with the right credential. Bedrock
+ * authenticates from the AWS_ env vars via pi-ai.
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, Model } from '@earendil-works/pi-ai';
 import { AuthStorage, type ModelRegistry } from '@earendil-works/pi-coding-agent';
-import type { ProviderConfig } from '../types/config.js';
 
 export type ModelTier = 'small' | 'medium' | 'large';
 
@@ -47,34 +45,20 @@ export interface EffectiveProvider {
 }
 
 /**
- * Determine the active provider + auth.
- *
- * An explicit `providerConfig` (injected by the Pro consumer) wins; otherwise we
- * fall back to the OSS env-var contract the CLI forwards: `CLAUDE_CODE_USE_BEDROCK`
- * → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN` → custom base URL; else
- * direct Anthropic (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock
- * authenticates from the AWS_ env vars via pi-ai, so it needs no anthropic token.
+ * Determine the active provider + auth from the env-var contract the CLI forwards:
+ * `CLAUDE_CODE_USE_BEDROCK` → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`
+ * → custom base URL; else direct Anthropic (`ANTHROPIC_API_KEY`, or
+ * `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock authenticates from the AWS_ env vars via
+ * pi-ai, so it needs no anthropic token.
  */
-export function resolveEffectiveProvider(apiKey?: string, providerConfig?: ProviderConfig): EffectiveProvider {
-  const anthropicKey = apiKey ?? providerConfig?.apiKey ?? process.env.ANTHROPIC_API_KEY;
-  const type = providerConfig?.providerType;
-
-  // Bedrock — explicit providerConfig or the env flag.
-  if (type === 'bedrock' || (!type && process.env.CLAUDE_CODE_USE_BEDROCK === '1')) {
+export function resolveEffectiveProvider(): EffectiveProvider {
+  // Bedrock — env flag.
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
     return { providerId: 'amazon-bedrock' };
   }
 
-  // Custom base URL — explicit providerConfig.
-  if (type === 'custom_base_url') {
-    const eff: EffectiveProvider = { providerId: 'anthropic' };
-    if (providerConfig?.baseUrl) eff.baseUrl = providerConfig.baseUrl;
-    const token = providerConfig?.authToken ?? anthropicKey;
-    if (token) eff.anthropicToken = token;
-    return eff;
-  }
-
-  // Custom base URL — OSS env contract (no providerConfig).
-  if (!type && process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
+  // Custom base URL — env contract.
+  if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
     return {
       providerId: 'anthropic',
       baseUrl: process.env.ANTHROPIC_BASE_URL,
@@ -82,17 +66,15 @@ export function resolveEffectiveProvider(apiKey?: string, providerConfig?: Provi
     };
   }
 
-  // Direct Anthropic (API key, or — env only — OAuth token).
+  // Direct Anthropic (API key, or OAuth token).
   const eff: EffectiveProvider = { providerId: 'anthropic' };
-  const token = anthropicKey ?? (type ? undefined : process.env.CLAUDE_CODE_OAUTH_TOKEN);
+  const token = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
   if (token) eff.anthropicToken = token;
   return eff;
 }
 
-/** Resolve a model tier to a concrete model ID (env override → providerConfig → default). */
-export function resolveModelId(tier: ModelTier = 'medium', providerConfig?: ProviderConfig): string {
-  const override = providerConfig?.modelOverrides?.[tier];
-  if (override) return override;
+/** Resolve a model tier to a concrete model ID (env override → default). */
+export function resolveModelId(tier: ModelTier = 'medium'): string {
   switch (tier) {
     case 'small':
       return process.env.ANTHROPIC_SMALL_MODEL || DEFAULT_MODELS.small;
@@ -137,11 +119,9 @@ export interface ModelSelection {
 export function resolveModelSelection(
   registryFactory: (authStorage: AuthStorage) => ModelRegistry,
   modelTier: ModelTier,
-  apiKey?: string,
-  providerConfig?: ProviderConfig,
 ): ModelSelection {
-  const eff = resolveEffectiveProvider(apiKey, providerConfig);
-  const modelId = resolveModelId(modelTier, providerConfig);
+  const eff = resolveEffectiveProvider();
+  const modelId = resolveModelId(modelTier);
 
   const authStorage = AuthStorage.inMemory();
   if (eff.providerId === 'anthropic' && eff.anthropicToken) {

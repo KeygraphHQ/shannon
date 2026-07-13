@@ -353,29 +353,10 @@ async function probeCredentialsWithPi(
 }
 
 /** Validate credentials via a minimal pi session. */
-async function validateCredentials(
-  logger: ActivityLogger,
-  apiKey?: string,
-  providerConfig?: import('../types/config.js').ProviderConfig,
-): Promise<Result<void, PentestError>> {
-  // 0. If providerConfig is present, credentials are managed by the caller.
-  //    The executor/provider layer owns providerConfig resolution — no env preflight needed.
-  if (providerConfig) {
-    logger.info(
-      `Provider config present (type: ${providerConfig.providerType || 'anthropic_api'}) — skipping env-based credential validation`,
-    );
-    return ok(undefined);
-  }
-
-  // 0b. If apiKey provided via config, set it in env for pi validation
-  //     This avoids requiring process.env.ANTHROPIC_API_KEY when key is threaded via input
-  if (apiKey) {
-    process.env.ANTHROPIC_API_KEY = apiKey;
-  }
-
+async function validateCredentials(logger: ActivityLogger): Promise<Result<void, PentestError>> {
   // Resolve the active provider through the same precedence the executor uses, so
   // preflight validates exactly the credentials the run will use (no drift).
-  const eff = resolveEffectiveProvider(apiKey);
+  const eff = resolveEffectiveProvider();
 
   // 1. Bedrock mode — validate required AWS credentials are present (pi-ai owns the
   //    live AWS auth, so there is no cheap session probe here)
@@ -425,7 +406,7 @@ async function validateCredentials(
     );
   }
 
-  const usingApiKey = Boolean(apiKey ?? process.env.ANTHROPIC_API_KEY);
+  const usingApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
   const authType = usingApiKey ? 'API key' : 'OAuth token';
   logger.info(`Validating ${authType} via pi...`);
   const probe = await probeCredentialsWithPi(authType, eff.anthropicToken);
@@ -573,8 +554,6 @@ export async function runPreflightChecks(
   configPath: string | undefined,
   logger: ActivityLogger,
   skipGitCheck?: boolean,
-  apiKey?: string,
-  providerConfig?: import('../types/config.js').ProviderConfig,
 ): Promise<Result<void, PentestError>> {
   // 1. Repository check (free — filesystem only)
   const repoResult = await validateRepo(repoPath, logger, skipGitCheck);
@@ -601,8 +580,8 @@ export async function runPreflightChecks(
     }
   }
 
-  // 4. Credential check (cheap — 1 pi round-trip, skipped when providerConfig present)
-  const credResult = await validateCredentials(logger, apiKey, providerConfig);
+  // 4. Credential check (cheap — 1 pi round-trip)
+  const credResult = await validateCredentials(logger);
   if (!credResult.ok) {
     return credResult;
   }

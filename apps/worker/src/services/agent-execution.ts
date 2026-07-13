@@ -53,9 +53,7 @@ export interface AgentExecutionInput {
   configYAML?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
-  apiKey?: string | undefined;
   promptDir?: string | undefined;
-  providerConfig?: import('../types/config.js').ProviderConfig | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
   // Renders the deliverable to disk; invoked after validation, before the success commit.
   writeDeliverable?: (deliverablesPath: string) => Promise<void>;
@@ -128,9 +126,7 @@ export class AgentExecutionService {
       configYAML,
       pipelineTestingMode = false,
       attemptNumber,
-      apiKey,
       promptDir,
-      providerConfig,
       customTools,
       writeDeliverable,
     } = input;
@@ -208,9 +204,7 @@ export class AgentExecutionService {
       logger,
       AGENTS[agentName].modelTier,
       callerTools,
-      apiKey,
       path.relative(repoPath, deliverablesPath),
-      providerConfig,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -289,7 +283,9 @@ export class AgentExecutionService {
 
     if (finalizationError) {
       const rollbackReason =
-        finalizationError.code === ErrorCode.OUTPUT_VALIDATION_FAILED ? 'validation failure' : 'post-processing failure';
+        finalizationError.code === ErrorCode.OUTPUT_VALIDATION_FAILED
+          ? 'validation failure'
+          : 'post-processing failure';
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,

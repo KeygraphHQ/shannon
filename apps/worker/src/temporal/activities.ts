@@ -18,16 +18,16 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
-import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { writeCodePathPermissionConfig } from '../ai/pi/permission-system.js';
+import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
-import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
+import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
@@ -39,7 +39,7 @@ import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
-import type { ContainerConfig, ProviderConfig, VulnClass } from '../types/config.js';
+import type { ContainerConfig, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
@@ -59,7 +59,7 @@ const HEARTBEAT_INTERVAL_MS = 2000;
  * Input for all agent activities.
  *
  * Config fields are optional with sensible defaults. When provided, they
- * flow through to getOrCreateContainer() for path and credential configuration.
+ * flow through to getOrCreateContainer() for path configuration.
  */
 export interface ActivityInput {
   webUrl: string;
@@ -72,13 +72,11 @@ export interface ActivityInput {
 
   // Config fields — serializable, read by getOrCreateContainer()
   configYAML?: string;
-  apiKey?: string;
   deliverablesSubdir?: string;
   auditDir?: string;
   promptDir?: string;
   sastSarifPath?: string;
   skipGitCheck?: boolean;
-  providerConfig?: ProviderConfig;
 }
 
 /**
@@ -120,9 +118,7 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
   return {
     deliverablesSubdir: input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
     auditDir: input.auditDir ?? './workspaces',
-    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
-    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 }
 
@@ -190,8 +186,6 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
-        ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
-        ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
         ...(customTools && { customTools }),
@@ -454,15 +448,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
     const logger = createActivityLogger();
     logger.info('Running preflight validation...', { attempt: attemptNumber });
 
-    const result = await runPreflightChecks(
-      input.webUrl,
-      input.repoPath,
-      input.configPath,
-      logger,
-      input.skipGitCheck,
-      input.apiKey,
-      input.providerConfig,
-    );
+    const result = await runPreflightChecks(input.webUrl, input.repoPath, input.configPath, logger, input.skipGitCheck);
 
     if (isErr(result)) {
       const classified = classifyErrorForTemporal(result.error);
@@ -547,8 +533,6 @@ export async function runAuthenticationValidation(input: ActivityInput): Promise
       logger,
       auditSession,
       attemptNumber,
-      ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
-      ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
       ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
       ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
       ...(input.pipelineTestingMode !== undefined && { pipelineTestingMode: input.pipelineTestingMode }),

@@ -249,13 +249,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }),
     // Config fields — flow through to getOrCreateContainer()
     ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
-    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
     ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
     ...(input.auditDir !== undefined && { auditDir: input.auditDir }),
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
     ...(input.sastSarifPath !== undefined && { sastSarifPath: input.sastSarifPath }),
     ...(input.skipGitCheck !== undefined && { skipGitCheck: input.skipGitCheck }),
-    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 
   const selectedVulnClasses: readonly VulnClass[] =

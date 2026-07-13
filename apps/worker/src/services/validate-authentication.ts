@@ -20,7 +20,7 @@ import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
-import type { DistributedConfig, ProviderConfig } from '../types/config.js';
+import type { DistributedConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
@@ -75,8 +75,6 @@ export interface ValidateAuthInput {
   readonly logger: ActivityLogger;
   readonly auditSession: AuditSession;
   readonly attemptNumber: number;
-  readonly apiKey?: string;
-  readonly providerConfig?: ProviderConfig;
   readonly deliverablesSubdir?: string;
   readonly promptDir?: string;
   readonly pipelineTestingMode?: boolean;
@@ -90,8 +88,6 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     logger,
     auditSession,
     attemptNumber,
-    apiKey,
-    providerConfig,
     deliverablesSubdir,
     promptDir,
     pipelineTestingMode,
@@ -133,9 +129,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     logger,
     'medium',
     [submit.tool],
-    apiKey,
     deliverablesSubdir,
-    providerConfig,
   );
   const verdict = submit.getCaptured();
   if (verdict !== undefined) result.structuredOutput = verdict;

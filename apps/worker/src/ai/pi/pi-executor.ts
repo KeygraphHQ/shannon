@@ -40,8 +40,8 @@ import {
 } from '../output-formatters.js';
 import { createProgressManager } from '../progress-manager.js';
 import { permissionConfigPath } from './permission-system.js';
-import { createTaskTool } from './task-tool.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
+import { createTaskTool } from './task-tool.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -208,9 +208,7 @@ export async function runPiPrompt(
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
   callerTools?: ToolDefinition[],
-  apiKey?: string,
   deliverablesSubdir?: string,
-  providerConfig?: import('../../types/config.js').ProviderConfig,
   cancellationSignal?: AbortSignal,
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt
@@ -234,11 +232,10 @@ export async function runPiPrompt(
     ? path.join(sourceDir, path.dirname(deliverablesSubdir), '.playwright-cli')
     : path.join(sourceDir, '.shannon', '.playwright-cli');
   if (deliverablesSubdir) process.env.SHANNON_DELIVERABLES_SUBDIR = deliverablesSubdir;
-  if (apiKey) process.env.ANTHROPIC_API_KEY = apiKey;
 
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
-  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier, apiKey, providerConfig);
+  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
   const resourceLoader = await buildResourceLoader(sourceDir, logger);
   // Accumulates cost from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).

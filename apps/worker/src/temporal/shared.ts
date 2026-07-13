@@ -2,7 +2,7 @@ import { defineQuery } from '@temporalio/workflow';
 
 export type { AgentMetrics } from '../types/metrics.js';
 
-import type { DistributedConfig, PipelineConfig, ProviderConfig, VulnClass } from '../types/config.js';
+import type { DistributedConfig, PipelineConfig, VulnClass } from '../types/config.js';
 import type { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 
@@ -21,14 +21,12 @@ export interface PipelineInput {
   // Config fields — serializable, flow through to ActivityInput → getOrCreateContainer()
   configYAML?: string; // Raw YAML string (parsed in activity, not workflow — workflow sandbox can't use Node.js)
   configData?: DistributedConfig; // Pre-parsed config (bypasses file loading)
-  apiKey?: string; // API key override (avoids process.env mutation)
   deliverablesSubdir?: string; // Override deliverables path (default: '.shannon/deliverables')
   auditDir?: string; // Override audit log directory (default: './workspaces')
   promptDir?: string; // Override prompt template directory
   sastSarifPath?: string; // Optional path for consumer-supplied findings input
   checkpointsEnabled?: boolean; // Enable checkpoint activities (default: false)
   skipGitCheck?: boolean; // Skip .git directory validation in preflight (e.g. when .git is removed after clone)
-  providerConfig?: ProviderConfig; // LLM provider configuration (Bedrock, custom base URL, etc.)
   vulnClasses?: VulnClass[]; // omitted = all five
   exploit?: boolean; // false skips the exploitation phase
 }
