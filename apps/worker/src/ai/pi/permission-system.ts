@@ -5,11 +5,18 @@
 // as published by the Free Software Foundation.
 
 /**
- * Writes the @gotgenes/pi-permission-system global config from `code_path` avoid
- * patterns. The executor loads the extension (see pi-executor) and pi enforces
- * these path denies at the tool layer for every agent. Written to the global config
- * dir under `agentDir` — the project-scoped path is gated behind project trust,
- * which our headless runs do not grant; the global path is not.
+ * code_path "avoid" enforcement for the pi harness, delegated to the
+ * @gotgenes/pi-permission-system extension.
+ *
+ * Each `code_path` avoid is translated into the extension's cross-cutting `path`
+ * deny surface — the strongest gate, blocking file access (read/edit/write/grep/
+ * find/ls) AND recognized bash file commands (cat/grep/sed/…) on any matching path,
+ * across every tool and child `task` session, not overridable by a per-tool allow.
+ *
+ * `external_directory: allow` keeps the extension from gating the agent's legitimate
+ * access outside the working directory once it is loaded (the pentest agent shells
+ * out to tools/paths outside the mounted repo). When there are no avoids the config
+ * is removed so the executor skips loading the extension entirely.
  */
 
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
@@ -22,15 +29,72 @@ export function permissionConfigPath(): string {
 }
 
 /**
- * Write (or remove) the pi-permission-system config derived from `code_path`
- * avoid patterns.
+ * Translate one avoid value into the extension's flat-wildcard `path` patterns.
  *
- * Each avoid maps to a cross-cutting `path` deny — the strongest surface, blocking
- * the path across every tool and bash command, and not overridable by a per-tool
- * allow. `"*": "allow"` keeps everything else permitted so the extension does not
- * fall back to its default `ask` (which would block all access headlessly). When
- * there are no avoids the config is removed, so the executor skips loading the
- * extension entirely.
+ * The extension's `*` already spans path separators (no `**` globstar), and tool
+ * paths are compared as absolute. A plain directory value is expanded to cover the
+ * directory itself and everything under it, in both cwd-relative and prefixed
+ * (absolute) positions. Glob values fold `**`→`*`; a `dir/*` contents glob also
+ * denies the directory entry itself.
+ */
+export function toPathPatterns(value: string): string[] {
+  const base = value.replace(/^[./]+/, '').replace(/\/+$/, '');
+  if (!base) return [];
+
+  if (base.includes('*') || base.includes('?')) {
+    // The extension's `*` already spans path separators, so fold `**` to `*`.
+    const flat = base.replace(/\*\*\//g, '*/').replace(/\*\*/g, '*');
+    const tail = flat.replace(/^(?:\*\/)+/, '');
+    const patterns = [flat, `*/${tail}`];
+    // Depth-agnostic catch-all only for a bare-name tail (so `**/*.env` hits a
+    // root-level `.env`); a structured tail would over-match sibling names.
+    if (!tail.includes('/')) {
+      patterns.push(tail.startsWith('*') ? tail : `*${tail}`);
+    }
+    // A `dir/*` contents glob should also deny the directory entry itself — the
+    // contents patterns require a trailing segment and wouldn't match the folder.
+    if (flat.endsWith('/*')) {
+      const folder = flat.slice(0, -2);
+      if (folder && !folder.includes('*')) {
+        patterns.push(folder, `*/${folder}`);
+      }
+    }
+    return [...new Set(patterns)];
+  }
+
+  return [base, `${base}/*`, `*/${base}`, `*/${base}/*`];
+}
+
+interface PermissionSystemConfig {
+  permission: {
+    '*': 'allow';
+    path: Record<string, 'allow' | 'deny'>;
+    external_directory: 'allow';
+  };
+}
+
+/** Build the extension config that denies every avoid pattern across all tools. */
+export function buildPermissionConfig(patterns: readonly string[]): PermissionSystemConfig {
+  // Default allow first; deny entries are appended so they win (last match wins).
+  const pathRules: Record<string, 'allow' | 'deny'> = { '*': 'allow' };
+  for (const pattern of patterns) {
+    for (const expanded of toPathPatterns(pattern)) {
+      pathRules[expanded] = 'deny';
+    }
+  }
+  return {
+    permission: {
+      '*': 'allow',
+      path: pathRules,
+      external_directory: 'allow',
+    },
+  };
+}
+
+/**
+ * Write (or remove) the pi-permission-system config derived from `code_path`
+ * avoid patterns. When there are no avoids the config is removed, so the executor
+ * skips loading the extension entirely.
  */
 export async function writeCodePathPermissionConfig(config: DistributedConfig | null): Promise<void> {
   const avoidPatterns = (config?.avoid ?? []).filter((r) => r.type === 'code_path').map((r) => r.value);
@@ -41,35 +105,6 @@ export async function writeCodePathPermissionConfig(config: DistributedConfig | 
     return;
   }
 
-  // pi's matcher (wildcard-matcher.ts) has NO `**` globstar — it splits on each `*`
-  // and joins with `.*`, and a single `*` already matches any chars incl. `/`. Tool
-  // paths are compared as absolute (path-utils resolves them against cwd), so we
-  // collapse `**`→`*` and add a `*/`-prefixed variant that matches the path under
-  // any repo prefix. (A bare pattern never matches an absolute path.)
-  const pathDeny: Record<string, 'allow' | 'deny'> = { '*': 'allow' };
-  for (const pattern of avoidPatterns) {
-    const clean = pattern.replace(/^[./]+/, '').replace(/\*\*/g, '*');
-    // Deny the contents (under any repo prefix and as written)...
-    pathDeny[`*/${clean}`] = 'deny';
-    pathDeny[clean] = 'deny';
-    // ...and the folder path itself, so the directory entry is denied too — the
-    // contents patterns (…/*) require a trailing segment and wouldn't match it.
-    if (clean.endsWith('/*')) {
-      const folder = clean.slice(0, -2);
-      if (folder) {
-        pathDeny[`*/${folder}`] = 'deny';
-        pathDeny[folder] = 'deny';
-      }
-    }
-  }
-
-  const permissionConfig = {
-    permission: {
-      '*': 'allow',
-      path: pathDeny,
-    },
-  };
-
   await fs.ensureDir(path.dirname(configPath));
-  await fs.writeJson(configPath, permissionConfig, { spaces: 2 });
+  await fs.writeJson(configPath, buildPermissionConfig(avoidPatterns), { spaces: 2 });
 }
