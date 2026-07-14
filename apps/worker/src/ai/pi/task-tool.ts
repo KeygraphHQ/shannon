@@ -5,81 +5,83 @@
 // as published by the Free Software Foundation.
 
 /**
- * The `task` custom tool: delegates a focused sub-task to an in-process child
- * session (the Task sub-agent replacement pi does not ship as a built-in).
+ * Generic `task` tool — pi.dev ships no built-in Task tool, so this supplies the
+ * Task-delegation surface Shannon's prompts require.
+ *
+ * Shannon's prompts mandate Task delegation (recon source tracer; the vuln
+ * agents delegate *every* code review; the exploit agents delegate automation),
+ * so this tool is required for parity, not optional. It spawns a nested pi
+ * session with the parent's resolved model object (never a tier string — that
+ * would route sub-agents through hardcoded IDs and leak billing), the parent's
+ * resource loader, and a fixed child tool surface.
  */
 
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import {
-  type AuthStorage,
   createAgentSession,
   defineTool,
-  type ResourceLoader,
+  getAgentDir,
   SessionManager,
   SettingsManager,
+  type AuthStorage,
+  type ModelRegistry,
+  type ResourceLoader,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import { Type } from 'typebox';
-
-/** Tool surface for child sessions: read/search plus `write`+`bash` to author and run scripts. */
-const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
-
-/** Cap on `task` delegations per parent session — guards against unbounded fan-out. */
-const MAX_TASKS_PER_SESSION = 10;
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { Type, type Model, type AssistantMessage } from '@earendil-works/pi-ai';
 
 export interface TaskToolContext {
-  model: Model<Api>;
-  thinkingLevel: ThinkingLevel;
-  authStorage: AuthStorage;
   cwd: string;
-  /** When set, child sessions inherit the code_path deny policy. */
-  resourceLoader?: ResourceLoader;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  model: Model<any>;
+  thinkingLevel?: ThinkingLevel;
+  authStorage: AuthStorage;
+  /** Explicit model registry for sub-session resolution. Omit to inherit the parent's default. */
+  modelRegistry?: ModelRegistry;
+  resourceLoader: ResourceLoader;
+  maxTasksPerSession?: number;
+  cancellationSignal?: AbortSignal | undefined;
   /**
-   * Reports each spawned child (sub-agent) session's usage back to the caller.
-   * Sub-agents run in their own pi sessions the parent has no reference to, so
-   * without this their spend — the bulk of a run, since the heavy work is
-   * delegated — is invisible to the parent's cost accounting. Fired once per
-   * child, in the `finally`, so a failed child's partial spend still counts.
+   * Reports the cost/tokens of each spawned sub-session back to the caller.
+   * Sub-agents run in their own pi sessions that the parent has no reference to,
+   * so without this their spend (the bulk of a whitebox run, since Shannon
+   * prompts delegate the heavy work) is invisible to billing.
    */
   onUsage?: (usage: { cost: number; inputTokens: number; outputTokens: number }) => void;
-  /** Maximum `task` delegations allowed per parent session. Defaults to 10. */
-  maxTasksPerSession?: number;
-  /** When aborted, in-flight child sessions are torn down. */
-  cancellationSignal?: AbortSignal;
 }
 
-function textResult(text: string): { content: { type: 'text'; text: string }[]; details: Record<string, never> } {
-  return { content: [{ type: 'text' as const, text }], details: {} };
+const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
+const MAX_TASKS_PER_SESSION = 10;
+
+function textResult(text: string) {
+  return { content: [{ type: 'text' as const, text }], details: undefined };
 }
 
-/**
- * The `task` tool — launch a new agent to handle a multi-step task autonomously.
- *
- * Spawns an in-process child session, drives it to completion, and returns its
- * final text. Marked `parallel` for one-turn fan-out. Children get no `task` of
- * their own — delegation is one level.
- */
-export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
-  const maxTasks = ctx.maxTasksPerSession ?? MAX_TASKS_PER_SESSION;
+export function createTaskTool(config: TaskToolContext): ToolDefinition {
+  const maxTasks = config.maxTasksPerSession ?? MAX_TASKS_PER_SESSION;
   let taskCount = 0;
 
-  return defineTool({
+  const taskTool: ToolDefinition = defineTool({
     name: 'task',
     label: 'Task',
     description:
-      'Launch a new agent to handle complex, multi-step tasks autonomously. The agent runs on its own and ' +
-      'its final report is returned to you as the tool result (it is not shown to the user). Each invocation ' +
-      'is stateless — you cannot send follow-up messages, so give a complete, detailed instruction in a single ' +
-      'prompt and specify exactly what information the agent should return. Launch multiple agents concurrently ' +
-      'by issuing multiple task calls in a single message.',
-    promptSnippet: 'task: launch a new agent to handle a multi-step task',
+      'Delegate a focused task to a sub-agent that runs independently with its own tools and returns ' +
+      'the result. Use this to break complex work into smaller, parallelizable sub-tasks.',
     executionMode: 'parallel',
+    promptSnippet: 'task - Delegate a focused task to a sub-agent with read, grep, find, ls, write, and bash.',
+    promptGuidelines: [
+      'Use the task tool to delegate focused work: code review, reconnaissance, automation scripting, validation.',
+      'Pass all necessary context in the "prompt" parameter — the sub-agent cannot see your conversation history.',
+      'The sub-agent can use read, grep, find, ls, write, and bash, but cannot call task or custom collector tools.',
+      'You can launch multiple task tool calls in a single message to run sub-tasks in parallel.',
+    ],
     parameters: Type.Object({
-      description: Type.Optional(Type.String({ description: 'Short (3-5 word) label for the delegated sub-task.' })),
-      prompt: Type.String({ description: 'The full instruction for the sub-agent.' }),
+      prompt: Type.String({
+        description: 'The task for the sub-agent to perform. Include all necessary context.',
+      }),
+      description: Type.Optional(Type.String({ description: 'A short (3-5 word) description of the task.' })),
     }),
-    execute: async (_toolCallId, params) => {
+    async execute(_toolCallId, params) {
       taskCount++;
       if (taskCount > maxTasks) {
         return textResult(
@@ -87,73 +89,80 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         );
       }
 
-      const { session: child } = await createAgentSession({
-        cwd: ctx.cwd,
-        model: ctx.model,
-        thinkingLevel: ctx.thinkingLevel,
+      const agentDir = getAgentDir();
+      const { session: subSession } = await createAgentSession({
+        cwd: config.cwd,
+        agentDir,
+        resourceLoader: config.resourceLoader,
+        model: config.model,
+        ...(config.thinkingLevel && { thinkingLevel: config.thinkingLevel }),
         tools: CHILD_TOOLS,
-        authStorage: ctx.authStorage,
-        sessionManager: SessionManager.inMemory(),
+        authStorage: config.authStorage,
+        ...(config.modelRegistry && { modelRegistry: config.modelRegistry }),
+        sessionManager: SessionManager.inMemory(config.cwd),
         settingsManager: SettingsManager.inMemory({
           retry: { enabled: false },
           compaction: { enabled: true },
         }),
-        ...(ctx.resourceLoader && { resourceLoader: ctx.resourceLoader }),
       });
 
-      // Tear down the child session if the caller cancels mid-run; `dispose` in the
-      // `finally` still cleans up if `abort` itself rejects.
       const abortChildSession = (): void => {
-        void child.abort().catch(() => {});
+        void subSession.abort().catch(() => {
+          // Parent logger is not available inside the tool; dispose still tears
+          // down the session if abort itself rejects.
+        });
       };
-      if (ctx.cancellationSignal?.aborted) {
+      const onCancellation = (): void => abortChildSession();
+      if (config.cancellationSignal?.aborted) {
         abortChildSession();
       } else {
-        ctx.cancellationSignal?.addEventListener('abort', abortChildSession, { once: true });
+        config.cancellationSignal?.addEventListener('abort', onCancellation, { once: true });
       }
 
-      // Collect the child's output and per-turn usage from its own event stream —
-      // the parent has no other handle on a sub-session's cost or tokens.
       let resultText = '';
-      let childCost = 0;
-      let childInputTokens = 0;
-      let childOutputTokens = 0;
-      child.subscribe((event) => {
-        if (event.type !== 'turn_end') return;
-        const msg = event.message as AssistantMessage | undefined;
-        for (const block of msg?.content ?? []) {
-          if (block.type === 'text' && block.text) {
-            resultText += (resultText ? '\n' : '') + block.text;
+      let subCost = 0;
+      let subInputTokens = 0;
+      let subOutputTokens = 0;
+      subSession.subscribe((event) => {
+        if (event.type === 'turn_end') {
+          const msg = event.message as AssistantMessage | undefined;
+          for (const block of msg?.content ?? []) {
+            if (block.type === 'text' && block.text) {
+              resultText += (resultText ? '\n' : '') + block.text;
+            }
           }
+          if (msg?.usage?.cost?.total != null) subCost += msg.usage.cost.total;
+          subInputTokens += msg?.usage?.input ?? 0;
+          subOutputTokens += msg?.usage?.output ?? 0;
         }
-        if (msg?.usage?.cost?.total != null) childCost += msg.usage.cost.total;
-        childInputTokens += msg?.usage?.input ?? 0;
-        childOutputTokens += msg?.usage?.output ?? 0;
       });
 
+      let swallowedError: string | undefined;
       try {
         try {
-          await child.prompt(params.prompt);
+          await subSession.prompt(params.prompt);
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
-          resultText += `${resultText ? '\n' : ''}[Sub-agent error: ${errorMsg}]`;
+          resultText += `\n[Sub-agent error: ${errorMsg}]`;
         }
 
-        // Reconcile against the session's own tally, which may exceed the summed
-        // turn events (e.g. compaction spend), before reporting upward.
-        const stats = child.getSessionStats();
-        if (stats.cost > childCost) childCost = stats.cost;
-        ctx.onUsage?.({ cost: childCost, inputTokens: childInputTokens, outputTokens: childOutputTokens });
-
-        const swallowedError = child.state.errorMessage;
-        if (swallowedError && !resultText.includes(swallowedError)) {
-          resultText += `${resultText ? '\n' : ''}[Sub-agent error: ${swallowedError}]`;
-        }
-        return textResult(resultText || '(sub-agent produced no output)');
+        swallowedError = subSession.state.errorMessage;
+        // Read stats before dispose; reconcile cost the same way the parent does.
+        const subStats = subSession.getSessionStats();
+        if (subStats.cost > subCost) subCost = subStats.cost;
+        config.onUsage?.({ cost: subCost, inputTokens: subInputTokens, outputTokens: subOutputTokens });
       } finally {
-        ctx.cancellationSignal?.removeEventListener('abort', abortChildSession);
-        child.dispose();
+        config.cancellationSignal?.removeEventListener('abort', onCancellation);
+        subSession.dispose();
       }
+
+      if (swallowedError && !resultText.includes(swallowedError)) {
+        resultText += `\n[Sub-agent error: ${swallowedError}]`;
+      }
+
+      return textResult(resultText || '[Sub-agent produced no output]');
     },
   });
+
+  return taskTool;
 }
