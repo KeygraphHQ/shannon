@@ -1,7 +1,6 @@
 /** Centralized path constants for the worker package */
 
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 /** Worker package root (apps/worker/) resolved from compiled dist/ files */
@@ -9,8 +8,6 @@ const WORKER_ROOT = path.resolve(import.meta.dirname, '..');
 
 export const PROMPTS_DIR = path.join(WORKER_ROOT, 'prompts');
 export const CONFIGS_DIR = path.join(WORKER_ROOT, 'configs');
-
-export const PLAYWRIGHT_SKILL_DIR = path.join(os.homedir(), '.claude', 'skills', 'playwright-cli');
 
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');

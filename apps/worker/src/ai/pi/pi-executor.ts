@@ -16,11 +16,14 @@ import {
   type ResourceLoader,
   SessionManager,
   SettingsManager,
+  type Skill,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import os from 'node:os';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../../audit/index.js';
-import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../../paths.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
+import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { isRetryableError, PentestError } from '../../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../../session-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
@@ -50,7 +53,28 @@ declare global {
 /** Built-in pi tools enabled for every agent (custom tool names are appended). */
 const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 
-async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader> {
+/** Build the playwright-cli Skill object injected for browser-using agents. */
+function buildPlaywrightSkill(): Skill {
+  const filePath =
+    process.env.PLAYWRIGHT_CLI_SKILL_PATH ?? path.join(os.homedir(), '.claude/skills/playwright-cli/SKILL.md');
+  const baseDir = path.dirname(filePath);
+  return {
+    name: 'playwright-cli',
+    description:
+      'Drive a real browser via the playwright-cli binary. Use for any task that navigates, clicks, ' +
+      'fills forms, takes screenshots, or reads live pages.',
+    filePath,
+    baseDir,
+    sourceInfo: { path: filePath, source: 'custom', scope: 'user', origin: 'top-level', baseDir },
+    disableModelInvocation: false,
+  };
+}
+
+async function buildResourceLoader(
+  cwd: string,
+  logger: ActivityLogger,
+  agentName: string | null,
+): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
   const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
   if (permissionSystemConfigExists(getAgentDir())) {
@@ -63,11 +87,19 @@ async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise
     }
   }
 
+  // Only browser-driving agents get the playwright-cli skill; the rest run with no skills.
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
-    additionalSkillPaths: [PLAYWRIGHT_SKILL_DIR],
     ...(additionalExtensionPaths.length > 0 && { additionalExtensionPaths }),
+    ...(isBrowserAgent(agentName)
+      ? {
+          skillsOverride: (base) => ({
+            skills: [buildPlaywrightSkill()],
+            diagnostics: base.diagnostics,
+          }),
+        }
+      : { noSkills: true }),
   });
   await loader.reload();
   return loader;
@@ -187,7 +219,7 @@ export async function runPiPrompt(
   sourceDir: string,
   context: string = '',
   description: string = 'Agent analysis',
-  _agentName: string | null = null,
+  agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
@@ -223,7 +255,7 @@ export async function runPiPrompt(
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
   const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
-  const resourceLoader = await buildResourceLoader(sourceDir, logger);
+  const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
   const childUsage = { cost: 0, inputTokens: 0, outputTokens: 0 };
