@@ -918,11 +918,12 @@ export async function restoreGitCheckpoint(
   const logger = createActivityLogger();
   logger.info(`Restoring deliverables to ${checkpointHash}...`);
 
-  // Validate hash exists in this clone before attempting reset
+  // Validate the hash exists in the deliverables clone (the repo actually being
+  // reset below) before attempting reset.
   try {
     await executeGitCommandWithRetry(
-      ['git', 'rev-parse', '--verify', checkpointHash],
-      repoPath,
+      ['git', 'cat-file', '-e', `${checkpointHash}^{commit}`],
+      deliverablesPath,
       'verify checkpoint hash exists',
     );
   } catch {
