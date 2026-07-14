@@ -15,6 +15,7 @@
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fs, glob, path } from 'zx';
+
 import type { AuditLogger } from '../audit-logger.js';
 
 export interface TodoItem {
@@ -23,31 +24,25 @@ export interface TodoItem {
   activeForm: string;
 }
 
-/** Render a todo list as a compact checklist for the workflow log. */
 function renderTodos(todos: readonly TodoItem[]): string {
-  const mark = (s: TodoItem['status']): string => (s === 'completed' ? 'x' : s === 'in_progress' ? '~' : ' ');
-  return todos.map((t) => `[${mark(t.status)}] ${t.content}`).join('  ');
+  const mark = (status: TodoItem['status']): string => {
+    if (status === 'completed') return 'x';
+    if (status === 'in_progress') return '~';
+    return ' ';
+  };
+  return todos.map((todo) => `[${mark(todo.status)}] ${todo.content}`).join('  ');
 }
 
-/**
- * The `todo_write` tool — a full-state-replace planning scratchpad.
- *
- * Mirrors the TodoWrite tool: each call carries the entire list and replaces
- * stored state (no append/merge). No deliverable impact; every call is echoed to
- * the workflow log so `shannon logs` shows the agent's live plan. State is per
- * tool instance (one per agent execution).
- */
 export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
   let current: TodoItem[] = [];
+
   return defineTool({
     name: 'todo_write',
     label: 'Todo Write',
     description:
-      'Use this tool to create and manage a structured task list for your current session. This helps you ' +
-      'track progress and organize complex, multi-step work, and gives visibility into what you are doing. ' +
-      'Pass the COMPLETE todo list on every call — it replaces the stored list entirely (no append or merge). ' +
-      'Each todo has a status of pending, in_progress, or completed; keep exactly one task in_progress at a ' +
-      'time and mark a task completed as soon as it is finished.',
+      'Use this tool to create and manage a structured task list for your current session. ' +
+      'Pass the complete todo list on every call; it replaces the stored list entirely. Each ' +
+      'todo has a status of pending, in_progress, or completed.',
     promptSnippet: 'todo_write: create and manage a structured task list',
     parameters: Type.Object({
       todos: Type.Array(
@@ -58,39 +53,36 @@ export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
         }),
       ),
     }),
-    execute: async (_toolCallId, params) => {
+    async execute(_toolCallId, params) {
       current = params.todos as TodoItem[];
-      const completed = current.filter((t) => t.status === 'completed').length;
+      const completed = current.filter((todo) => todo.status === 'completed').length;
       await auditLogger.logNote('todo', renderTodos(current));
       return {
-        content: [{ type: 'text' as const, text: `Todos updated (${current.length} items, ${completed} completed).` }],
-        details: {},
+        content: [
+          {
+            type: 'text' as const,
+            text: `Todos updated (${current.length} items, ${completed} completed).`,
+          },
+        ],
+        details: undefined,
       };
     },
   });
 }
 
-/**
- * The `glob` tool — fast file pattern matching (pi ships no `Glob` built-in).
- *
- * Backed by the same fast-glob engine that classifies code_path rules as `[GLOB]`
- * (see utils/glob.ts `isGlobPattern`), so it enumerates exactly the patterns the
- * routing tags as globs — including `**` and `{a,b}`, which pi's `find` would not
- * match the same way. Returns absolute paths, most-recently-modified first.
- */
 export function createGlobTool(cwd: string): ToolDefinition {
   return defineTool({
     name: 'glob',
     label: 'Glob',
     description:
-      'Fast file pattern matching. Supports glob patterns like "**/*.ts" or "src/**/*.{js,ts}". Returns ' +
-      'matching file paths sorted by modification time (most recent first), one per line, or "No files found".',
+      'Fast file pattern matching. Supports glob patterns like "**/*.ts" or "src/**/*.{js,ts}". ' +
+      'Returns matching file paths sorted by modification time, most recent first.',
     promptSnippet: 'glob: find files by name pattern',
     parameters: Type.Object({
       pattern: Type.String({ description: 'The glob pattern to match files against.' }),
-      path: Type.Optional(Type.String({ description: 'Directory to search in. Omit to search the repository root.' })),
+      path: Type.Optional(Type.String({ description: 'Directory to search in. Omit for the repository root.' })),
     }),
-    execute: async (_toolCallId, params) => {
+    async execute(_toolCallId, params) {
       const searchRoot = params.path ? path.resolve(cwd, params.path) : cwd;
       const matches = await glob.globby(params.pattern, {
         cwd: searchRoot,
@@ -99,10 +91,11 @@ export function createGlobTool(cwd: string): ToolDefinition {
         onlyFiles: true,
         followSymbolicLinks: false,
       });
+
       if (matches.length === 0) {
-        return { content: [{ type: 'text' as const, text: 'No files found' }], details: {} };
+        return { content: [{ type: 'text' as const, text: 'No files found' }], details: undefined };
       }
-      // Sort by mtime (most recent first) to match the canonical Glob contract.
+
       const withMtime = await Promise.all(
         matches.map(async (file) => {
           try {
@@ -113,7 +106,11 @@ export function createGlobTool(cwd: string): ToolDefinition {
         }),
       );
       withMtime.sort((a, b) => b.mtime - a.mtime);
-      return { content: [{ type: 'text' as const, text: withMtime.map((m) => m.file).join('\n') }], details: {} };
+
+      return {
+        content: [{ type: 'text' as const, text: withMtime.map((match) => match.file).join('\n') }],
+        details: undefined,
+      };
     },
   });
 }

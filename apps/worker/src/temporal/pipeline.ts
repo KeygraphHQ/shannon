@@ -5,7 +5,8 @@
  * within their own workflow context.
  */
 
-export type { ActivityInput } from './activities.js';
+export { pentestPipeline } from './workflows.js';
+export { PipelineExecutionError } from './shared.js';
 export type {
   AgentMetrics,
   PipelineInput,
@@ -14,5 +15,4 @@ export type {
   ResumeState,
   VulnExploitPipelineResult,
 } from './shared.js';
-export { pentestPipeline } from './workflows.js';
-export { PipelineExecutionError } from './shared.js';
+export type { ActivityInput } from './activities.js';
