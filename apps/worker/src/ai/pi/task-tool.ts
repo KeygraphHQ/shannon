@@ -10,7 +10,7 @@
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import {
   type AuthStorage,
   createAgentSession,
@@ -36,15 +36,21 @@ export interface TaskToolContext {
   /** When set, child sessions inherit the code_path deny policy. */
   resourceLoader?: ResourceLoader;
   /**
-   * Mutable accumulator: each child (sub-agent) session's cost is added here so the
-   * parent executor can include sub-agent spend in its reported cost. Child sessions
-   * keep their own `getSessionStats`, separate from the parent's.
+   * Reports each spawned child (sub-agent) session's usage back to the caller.
+   * Sub-agents run in their own pi sessions the parent has no reference to, so
+   * without this their spend — the bulk of a run, since the heavy work is
+   * delegated — is invisible to the parent's cost accounting. Fired once per
+   * child, in the `finally`, so a failed child's partial spend still counts.
    */
-  childUsage?: { cost: number };
+  onUsage?: (usage: { cost: number; inputTokens: number; outputTokens: number }) => void;
   /** Maximum `task` delegations allowed per parent session. Defaults to 10. */
   maxTasksPerSession?: number;
   /** When aborted, in-flight child sessions are torn down. */
   cancellationSignal?: AbortSignal;
+}
+
+function textResult(text: string): { content: { type: 'text'; text: string }[]; details: Record<string, never> } {
+  return { content: [{ type: 'text' as const, text }], details: {} };
 }
 
 /**
@@ -76,15 +82,9 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
     execute: async (_toolCallId, params) => {
       taskCount++;
       if (taskCount > maxTasks) {
-        return {
-          content: [
-            {
-              type: 'text' as const,
-              text: `[Task budget exhausted: ${maxTasks} tasks already spawned. Work with the results you have.]`,
-            },
-          ],
-          details: {},
-        };
+        return textResult(
+          `[Task budget exhausted: ${maxTasks} tasks already spawned. Work with the results you have.]`,
+        );
       }
 
       const { session: child } = await createAgentSession({
@@ -112,21 +112,46 @@ export function createTaskTool(ctx: TaskToolContext): ToolDefinition {
         ctx.cancellationSignal?.addEventListener('abort', abortChildSession, { once: true });
       }
 
-      try {
-        await child.prompt(params.prompt);
-        const text = child.getLastAssistantText() ?? '(sub-agent produced no output)';
-        return { content: [{ type: 'text' as const, text }], details: {} };
-      } finally {
-        ctx.cancellationSignal?.removeEventListener('abort', abortChildSession);
-        // Roll the child's cost up to the parent before disposing (best-effort, and
-        // captured in `finally` so a failed child's partial spend still counts).
-        if (ctx.childUsage) {
-          try {
-            ctx.childUsage.cost += child.getSessionStats().cost;
-          } catch {
-            // ignore — cost capture is best-effort
+      // Collect the child's output and per-turn usage from its own event stream —
+      // the parent has no other handle on a sub-session's cost or tokens.
+      let resultText = '';
+      let childCost = 0;
+      let childInputTokens = 0;
+      let childOutputTokens = 0;
+      child.subscribe((event) => {
+        if (event.type !== 'turn_end') return;
+        const msg = event.message as AssistantMessage | undefined;
+        for (const block of msg?.content ?? []) {
+          if (block.type === 'text' && block.text) {
+            resultText += (resultText ? '\n' : '') + block.text;
           }
         }
+        if (msg?.usage?.cost?.total != null) childCost += msg.usage.cost.total;
+        childInputTokens += msg?.usage?.input ?? 0;
+        childOutputTokens += msg?.usage?.output ?? 0;
+      });
+
+      try {
+        try {
+          await child.prompt(params.prompt);
+        } catch (err) {
+          const errorMsg = err instanceof Error ? err.message : String(err);
+          resultText += `${resultText ? '\n' : ''}[Sub-agent error: ${errorMsg}]`;
+        }
+
+        // Reconcile against the session's own tally, which may exceed the summed
+        // turn events (e.g. compaction spend), before reporting upward.
+        const stats = child.getSessionStats();
+        if (stats.cost > childCost) childCost = stats.cost;
+        ctx.onUsage?.({ cost: childCost, inputTokens: childInputTokens, outputTokens: childOutputTokens });
+
+        const swallowedError = child.state.errorMessage;
+        if (swallowedError && !resultText.includes(swallowedError)) {
+          resultText += `${resultText ? '\n' : ''}[Sub-agent error: ${swallowedError}]`;
+        }
+        return textResult(resultText || '(sub-agent produced no output)');
+      } finally {
+        ctx.cancellationSignal?.removeEventListener('abort', abortChildSession);
         child.dispose();
       }
     },

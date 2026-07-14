@@ -220,16 +220,20 @@ export async function runPiPrompt(
   //    plus any caller-supplied collector/submit tools).
   const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
   const resourceLoader = await buildResourceLoader(sourceDir, logger);
-  // Accumulates cost from in-process `task` child sessions so the parent's reported
+  // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
-  const childUsage = { cost: 0 };
+  const childUsage = { cost: 0, inputTokens: 0, outputTokens: 0 };
   const customTools: ToolDefinition[] = [
     createTaskTool({
       model: selection.model,
       thinkingLevel: selection.thinkingLevel,
       authStorage: selection.authStorage,
       cwd: sourceDir,
-      childUsage,
+      onUsage: (usage) => {
+        childUsage.cost += usage.cost;
+        childUsage.inputTokens += usage.inputTokens;
+        childUsage.outputTokens += usage.outputTokens;
+      },
       resourceLoader,
       ...(cancellationSignal && { cancellationSignal }),
     }),
