@@ -21,7 +21,8 @@
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { type Static, Type } from 'typebox';
-import { type SinkRef, SinkRefSchema } from './pre-recon-collector.js';
+import { SinkRefSchema, type SinkRef } from './pre-recon-collector.js';
+import { cleanInput, stringEnum } from './schema.js';
 
 // ============================================================================
 // PER-TOOL INPUT SCHEMAS
@@ -52,122 +53,127 @@ export const TechnologyStackInputSchema = Type.Object({
   }),
 });
 
-const SessionFlowSchema = Type.Object({
-  entry_points: Type.String({
-    minLength: 1,
-    description: 'Authentication entry points (e.g., /login, /register, /auth/sso).',
-  }),
-  mechanism: Type.String({
-    minLength: 1,
-    description:
-      'Describe the step-by-step authentication process: credential submission, token generation, ' +
-      'cookie setting, redirects, etc.',
-  }),
-  code_pointers: Type.String({
-    minLength: 1,
-    description:
-      'Pointers to the primary files and functions in the codebase that manage authentication and ' + 'session logic.',
-  }),
-});
-
-const RoleAssignmentSchema = Type.Object({
-  role_determination: Type.String({
-    minLength: 1,
-    description: 'How roles are assigned post-authentication — database lookup, JWT claims, external service, etc.',
-  }),
-  default_role: Type.String({ minLength: 1, description: 'What role new users get by default.' }),
-  role_upgrade_path: Type.String({
-    minLength: 1,
-    description:
-      'How users can gain higher privileges — admin approval, self-service, automatic, etc. ' +
-      'If no upgrade path exists, state that.',
-  }),
-  code_implementation: Type.String({
-    minLength: 1,
-    description: 'Where role assignment logic is implemented (file paths and functions).',
-  }),
-});
-
-const PrivilegeStorageSchema = Type.Object({
-  storage_location: Type.String({
-    minLength: 1,
-    description: 'Where user privileges are stored — JWT claims, session data, database, external service.',
-  }),
-  validation_points: Type.String({
-    minLength: 1,
-    description: 'Where role checks happen — middleware, decorators, inline checks.',
-  }),
-  cache_session_persistence: Type.String({
-    minLength: 1,
-    description: 'How long privileges are cached, and when they are refreshed.',
-  }),
-  code_pointers: Type.String({ minLength: 1, description: 'Files that handle privilege validation.' }),
-});
-
-const RoleSwitchingImpersonationSchema = Type.Object({
-  applicable: Type.Boolean({
-    description:
-      'False only if the application has no impersonation, sudo-mode, or role-switching features ' +
-      'at all. When false, the other fields in this object may be null.',
-  }),
-  impersonation_features: Type.Union([Type.String(), Type.Null()], {
-    description:
-      'Any ability for admins or higher-privilege users to impersonate other users. Pass null when ' +
-      'applicable is false.',
-  }),
-  role_switching: Type.Union([Type.String(), Type.Null()], {
-    description: 'Temporary privilege elevation mechanisms like "sudo mode". Pass null when applicable is false.',
-  }),
-  audit_trail: Type.Union([Type.String(), Type.Null()], {
-    description:
-      'Whether role switches or impersonation events are logged, and where. Pass null when applicable is false.',
-  }),
-  code_implementation: Type.Union([Type.String(), Type.Null()], {
-    description: 'Where these features are implemented (file paths and functions). Pass null when applicable is false.',
-  }),
-});
-
 export const AuthenticationInputSchema = Type.Object({
-  session_flow: Type.Object(SessionFlowSchema.properties, {
-    description:
-      'Authentication & Session Management Flow — overall entry points, mechanism, and code pointers. ' +
-      'Becomes Section 3 of the rendered deliverable.',
-  }),
-  role_assignment: Type.Object(RoleAssignmentSchema.properties, {
-    description: 'Role Assignment Process — how roles are determined post-authentication. ' + 'Becomes Section 3.1.',
-  }),
-  privilege_storage: Type.Object(PrivilegeStorageSchema.properties, {
-    description:
-      'Privilege Storage & Validation — where privileges live and where they are checked. ' + 'Becomes Section 3.2.',
-  }),
-  role_switching_impersonation: Type.Object(RoleSwitchingImpersonationSchema.properties, {
-    description:
-      'Role Switching & Impersonation — impersonation, sudo mode, audit trails. Becomes Section 3.3. ' +
-      'Set applicable=false if no such features exist; the other fields may be null in that case.',
-  }),
+  session_flow: Type.Object(
+    {
+      entry_points: Type.String({
+        minLength: 1,
+        description: 'Authentication entry points (e.g., /login, /register, /auth/sso).',
+      }),
+      mechanism: Type.String({
+        minLength: 1,
+        description:
+          'Describe the step-by-step authentication process: credential submission, token generation, ' +
+          'cookie setting, redirects, etc.',
+      }),
+      code_pointers: Type.String({
+        minLength: 1,
+        description:
+          'Pointers to the primary files and functions in the codebase that manage authentication and ' +
+          'session logic.',
+      }),
+    },
+    {
+      description:
+        'Authentication & Session Management Flow — overall entry points, mechanism, and code pointers. ' +
+        'Becomes Section 3 of the rendered deliverable.',
+    },
+  ),
+  role_assignment: Type.Object(
+    {
+      role_determination: Type.String({
+        minLength: 1,
+        description: 'How roles are assigned post-authentication — database lookup, JWT claims, external service, etc.',
+      }),
+      default_role: Type.String({
+        minLength: 1,
+        description: 'What role new users get by default.',
+      }),
+      role_upgrade_path: Type.String({
+        minLength: 1,
+        description:
+          'How users can gain higher privileges — admin approval, self-service, automatic, etc. ' +
+          'If no upgrade path exists, state that.',
+      }),
+      code_implementation: Type.String({
+        minLength: 1,
+        description: 'Where role assignment logic is implemented (file paths and functions).',
+      }),
+    },
+    {
+      description: 'Role Assignment Process — how roles are determined post-authentication. Becomes Section 3.1.',
+    },
+  ),
+  privilege_storage: Type.Object(
+    {
+      storage_location: Type.String({
+        minLength: 1,
+        description: 'Where user privileges are stored — JWT claims, session data, database, external service.',
+      }),
+      validation_points: Type.String({
+        minLength: 1,
+        description: 'Where role checks happen — middleware, decorators, inline checks.',
+      }),
+      cache_session_persistence: Type.String({
+        minLength: 1,
+        description: 'How long privileges are cached, and when they are refreshed.',
+      }),
+      code_pointers: Type.String({
+        minLength: 1,
+        description: 'Files that handle privilege validation.',
+      }),
+    },
+    {
+      description:
+        'Privilege Storage & Validation — where privileges live and where they are checked. ' + 'Becomes Section 3.2.',
+    },
+  ),
+  role_switching_impersonation: Type.Object(
+    {
+      applicable: Type.Boolean({
+        description:
+          'False only if the application has no impersonation, sudo-mode, or role-switching features ' +
+          'at all. When false, the other fields in this object may be null.',
+      }),
+      impersonation_features: Type.Union([Type.String(), Type.Null()], {
+        description:
+          'Any ability for admins or higher-privilege users to impersonate other users. Pass null when ' +
+          'applicable is false.',
+      }),
+      role_switching: Type.Union([Type.String(), Type.Null()], {
+        description: 'Temporary privilege elevation mechanisms like "sudo mode". Pass null when applicable is false.',
+      }),
+      audit_trail: Type.Union([Type.String(), Type.Null()], {
+        description:
+          'Whether role switches or impersonation events are logged, and where. Pass null when applicable is false.',
+      }),
+      code_implementation: Type.Union([Type.String(), Type.Null()], {
+        description:
+          'Where these features are implemented (file paths and functions). Pass null when applicable is false.',
+      }),
+    },
+    {
+      description:
+        'Role Switching & Impersonation — impersonation, sudo mode, audit trails. Becomes Section 3.3. ' +
+        'Set applicable=false if no such features exist; the other fields may be null in that case.',
+    },
+  ),
 });
 
-const HttpMethodSchema = Type.Union(
-  [
-    Type.Literal('GET'),
-    Type.Literal('POST'),
-    Type.Literal('PUT'),
-    Type.Literal('PATCH'),
-    Type.Literal('DELETE'),
-    Type.Literal('OPTIONS'),
-    Type.Literal('HEAD'),
-    Type.Literal('WS'),
-  ],
-  { description: 'HTTP method. Use WS for WebSocket upgrade endpoints.' },
-);
+const HTTP_METHOD_VALUES = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'WS'] as const;
 
 const EndpointSchema = Type.Object({
-  method: HttpMethodSchema,
+  method: stringEnum(HTTP_METHOD_VALUES, {
+    description: 'HTTP method. Use WS for WebSocket upgrade endpoints.',
+  }),
   path: Type.String({
     minLength: 1,
     description: 'Endpoint path with parameter placeholders, e.g. "/api/users/{user_id}".',
   }),
-  required_role: Type.String({ minLength: 1, description: 'Minimum role needed (anon, user, admin, etc.).' }),
+  required_role: Type.String({
+    minLength: 1,
+    description: 'Minimum role needed (anon, user, admin, etc.).',
+  }),
   object_id_parameters: Type.Array(Type.String(), {
     description: 'Parameters that identify specific objects (user_id, order_id, etc.). Empty array if none.',
   }),
@@ -177,7 +183,10 @@ const EndpointSchema = Type.Object({
       'How access is controlled — middleware, decorator, inline check. ' +
       'E.g. "Bearer Token + ownership check", "requireAuth() + requireAdmin()", "None".',
   }),
-  description: Type.String({ minLength: 1, description: "Brief description of the endpoint's purpose." }),
+  description: Type.String({
+    minLength: 1,
+    description: "Brief description of the endpoint's purpose.",
+  }),
   code_pointer: Type.String({
     minLength: 1,
     description: 'File path and (where possible) line number of the handler. E.g. "auth.controller.ts:45".',
@@ -215,55 +224,33 @@ export const InputVectorsInputSchema = Type.Object({
   }),
 });
 
-const EntityTypeSchema = Type.Union([
-  Type.Literal('ExternAsset'),
-  Type.Literal('Service'),
-  Type.Literal('Identity'),
-  Type.Literal('DataStore'),
-  Type.Literal('AdminPlane'),
-  Type.Literal('ThirdParty'),
-]);
+const ENTITY_TYPE_VALUES = ['ExternAsset', 'Service', 'Identity', 'DataStore', 'AdminPlane', 'ThirdParty'] as const;
 
-const EntityZoneSchema = Type.Union([
-  Type.Literal('Internet'),
-  Type.Literal('Edge'),
-  Type.Literal('App'),
-  Type.Literal('Data'),
-  Type.Literal('Admin'),
-  Type.Literal('BuildCI'),
-  Type.Literal('ThirdParty'),
-]);
+const ENTITY_ZONE_VALUES = ['Internet', 'Edge', 'App', 'Data', 'Admin', 'BuildCI', 'ThirdParty'] as const;
 
-const DataLabelSchema = Type.Union([
-  Type.Literal('PII'),
-  Type.Literal('Tokens'),
-  Type.Literal('Payments'),
-  Type.Literal('Secrets'),
-  Type.Literal('Public'),
-]);
+const DATA_LABEL_VALUES = ['PII', 'Tokens', 'Payments', 'Secrets', 'Public'] as const;
 
-const FlowChannelSchema = Type.Union([
-  Type.Literal('HTTP'),
-  Type.Literal('HTTPS'),
-  Type.Literal('TCP'),
-  Type.Literal('Message'),
-  Type.Literal('File'),
-  Type.Literal('Token'),
-]);
+const FLOW_CHANNEL_VALUES = ['HTTP', 'HTTPS', 'TCP', 'Message', 'File', 'Token'] as const;
 
-const GuardCategorySchema = Type.Union([
-  Type.Literal('Auth'),
-  Type.Literal('Network'),
-  Type.Literal('Protocol'),
-  Type.Literal('Env'),
-  Type.Literal('RateLimit'),
-  Type.Literal('Authorization'),
-  Type.Literal('ObjectOwnership'),
-]);
+const GUARD_CATEGORY_VALUES = [
+  'Auth',
+  'Network',
+  'Protocol',
+  'Env',
+  'RateLimit',
+  'Authorization',
+  'ObjectOwnership',
+] as const;
 
 const EntityMetadataPairSchema = Type.Object({
-  key: Type.String({ minLength: 1, description: 'Metadata key (e.g., "Hosts", "Endpoints", "Engine", "Issuer").' }),
-  value: Type.String({ minLength: 1, description: 'Metadata value for this key.' }),
+  key: Type.String({
+    minLength: 1,
+    description: 'Metadata key (e.g., "Hosts", "Endpoints", "Engine", "Issuer").',
+  }),
+  value: Type.String({
+    minLength: 1,
+    description: 'Metadata value for this key.',
+  }),
 });
 
 const EntitySchema = Type.Object({
@@ -271,13 +258,13 @@ const EntitySchema = Type.Object({
     minLength: 1,
     description: 'Unique short name for the entity (e.g., "ExampleWebApp", "PostgreSQL-DB", "IdentityProvider").',
   }),
-  type: Type.Union(EntityTypeSchema.anyOf, {
+  type: stringEnum(ENTITY_TYPE_VALUES, {
     description:
       'Entity type. ExternAsset = client-side asset; Service = backend service; Identity = identity ' +
       'provider; DataStore = database / cache / object store; AdminPlane = admin/control surface; ' +
       'ThirdParty = external integration.',
   }),
-  zone: Type.Union(EntityZoneSchema.anyOf, {
+  zone: stringEnum(ENTITY_ZONE_VALUES, {
     description:
       'Trust zone. Internet = public; Edge = CDN/WAF/reverse-proxy tier; App = application/business logic; ' +
       'Data = persistent storage; Admin = administrative surface; BuildCI = build/CI/CD infrastructure; ' +
@@ -287,7 +274,7 @@ const EntitySchema = Type.Object({
     minLength: 1,
     description: 'Short technology/framework description (e.g., "Node/Express", "Postgres 14", "AWS S3").',
   }),
-  data: Type.Array(DataLabelSchema, {
+  data: Type.Array(stringEnum(DATA_LABEL_VALUES), {
     description: 'Data labels handled by this entity. Empty array if the entity handles only Public data.',
   }),
   notes: Type.String({
@@ -302,12 +289,15 @@ const EntitySchema = Type.Object({
 });
 
 const FlowSchema = Type.Object({
-  from: Type.String({ minLength: 1, description: 'Source entity title — must match a title from the entities array.' }),
+  from: Type.String({
+    minLength: 1,
+    description: 'Source entity title — must match a title from the entities array.',
+  }),
   to: Type.String({
     minLength: 1,
     description: 'Destination entity title — must match a title from the entities array.',
   }),
-  channel: Type.Union(FlowChannelSchema.anyOf, { description: 'Transport channel for this flow.' }),
+  channel: stringEnum(FLOW_CHANNEL_VALUES, { description: 'Transport channel for this flow.' }),
   path_port: Type.String({
     minLength: 1,
     description: 'Path and/or port for this flow. E.g. ":443 /api/users/me", ":5432", "queue: orders".',
@@ -317,7 +307,7 @@ const FlowSchema = Type.Object({
       'Guard names that gate this flow. Each should match a name from the guards array. Empty array ' +
       'means no guards apply (publicly accessible).',
   }),
-  touches: Type.Array(DataLabelSchema, {
+  touches: Type.Array(stringEnum(DATA_LABEL_VALUES), {
     description: 'Data labels this flow carries. Empty array if only Public data flows.',
   }),
 });
@@ -327,14 +317,17 @@ const GuardSchema = Type.Object({
     minLength: 1,
     description: 'Short guard identifier (e.g., "auth:user", "ownership:user", "vpc-only", "mtls").',
   }),
-  category: Type.Union(GuardCategorySchema.anyOf, {
+  category: stringEnum(GUARD_CATEGORY_VALUES, {
     description:
       'Guard category. Auth = authentication identity; Authorization = role/scope check; ' +
       'ObjectOwnership = ownership-based check; Network = network-level restriction; ' +
       'Protocol = protocol-level requirement; Env = environment-bound restriction; ' +
       'RateLimit = throttling.',
   }),
-  statement: Type.String({ minLength: 1, description: 'One-sentence description of what this guard enforces.' }),
+  statement: Type.String({
+    minLength: 1,
+    description: 'One-sentence description of what this guard enforces.',
+  }),
 });
 
 export const NetworkMapInputSchema = Type.Object({
@@ -348,17 +341,25 @@ export const NetworkMapInputSchema = Type.Object({
       'How entities communicate. Becomes Section 6.3. The from/to fields cross-reference entities ' +
       'by title; the guards field cross-references guards by name.',
   }),
-  guards: Type.Array(GuardSchema, { description: 'Catalog of guards referenced by flows. Becomes Section 6.4.' }),
+  guards: Type.Array(GuardSchema, {
+    description: 'Catalog of guards referenced by flows. Becomes Section 6.4.',
+  }),
 });
 
 const RoleSchema = Type.Object({
-  name: Type.String({ minLength: 1, description: 'Role name (e.g., "anon", "user", "admin", "team_admin").' }),
+  name: Type.String({
+    minLength: 1,
+    description: 'Role name (e.g., "anon", "user", "admin", "team_admin").',
+  }),
   privilege_level: Type.Integer({
     minimum: 0,
     maximum: 10,
     description: 'Privilege rank from 0 (lowest, anonymous) to 10 (highest, full admin).',
   }),
-  scope_domain: Type.String({ minLength: 1, description: 'Scope of this role: Global, Org, Team, Project, etc.' }),
+  scope_domain: Type.String({
+    minLength: 1,
+    description: 'Scope of this role: Global, Org, Team, Project, etc.',
+  }),
   code_implementation: Type.String({
     minLength: 1,
     description: 'Where this role is defined or checked (middleware, decorator, file:line, etc.).',
@@ -421,10 +422,8 @@ export const RoleArchitectureInputSchema = Type.Object({
 
 const PRIORITY_VALUES = ['High', 'Medium', 'Low'] as const;
 
-const PrioritySchema = Type.Union([Type.Literal('High'), Type.Literal('Medium'), Type.Literal('Low')]);
-
 const HorizontalCandidateSchema = Type.Object({
-  priority: Type.Union(PrioritySchema.anyOf, {
+  priority: stringEnum(PRIORITY_VALUES, {
     description: 'Priority: High, Medium, or Low, based on data sensitivity (title-case literals).',
   }),
   endpoint_pattern: Type.String({
@@ -458,7 +457,7 @@ const VerticalCandidateSchema = Type.Object({
     minLength: 1,
     description: 'What the endpoint does (e.g., "Administrative functions", "User management").',
   }),
-  risk_level: Type.Union(PrioritySchema.anyOf, {
+  risk_level: stringEnum(PRIORITY_VALUES, {
     description: 'Risk level: High, Medium, or Low (title-case literals).',
   }),
 });
@@ -625,8 +624,19 @@ function endpointKey(method: string, path: string): string {
 }
 
 // ============================================================================
-// SERVER FACTORY
+// COLLECTOR FACTORY
 // ============================================================================
+
+interface ReconState {
+  executive_summary?: ExecutiveSummaryInput;
+  technology_stack?: TechnologyStackInput;
+  authentication?: AuthenticationInput;
+  input_vectors?: InputVectorsInput;
+  network_map?: NetworkMapInput;
+  role_architecture?: RoleArchitectureInput;
+  authz_candidates?: AuthzCandidatesInput;
+  injection_sources?: InjectionSourcesInput;
+}
 
 export interface ReconCollector {
   tools: ToolDefinition[];
@@ -635,16 +645,7 @@ export interface ReconCollector {
 }
 
 export function createReconCollector(): ReconCollector {
-  const state: {
-    executive_summary?: ExecutiveSummaryInput;
-    technology_stack?: TechnologyStackInput;
-    authentication?: AuthenticationInput;
-    input_vectors?: InputVectorsInput;
-    network_map?: NetworkMapInput;
-    role_architecture?: RoleArchitectureInput;
-    authz_candidates?: AuthzCandidatesInput;
-    injection_sources?: InjectionSourcesInput;
-  } = {};
+  const state: ReconState = {};
 
   const endpoints: Endpoint[] = [];
   const seenEndpointKeys = new Set<string>();
@@ -666,9 +667,9 @@ export function createReconCollector(): ReconCollector {
       'user-facing components. Call exactly once before terminating. Becomes Section 1 of the rendered ' +
       'deliverable. Duplicate calls are rejected.',
     parameters: ExecutiveSummaryInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.executive_summary) return alreadyCalled('set_executive_summary');
-      state.executive_summary = input;
+      state.executive_summary = cleanInput(ExecutiveSummaryInputSchema, input);
       return successResult({ set: 'set_executive_summary' });
     },
   });
@@ -680,9 +681,9 @@ export function createReconCollector(): ReconCollector {
       'Record the technology and service map: frontend, backend, and infrastructure. Call exactly once ' +
       'before terminating. Becomes Section 2 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: TechnologyStackInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.technology_stack) return alreadyCalled('set_technology_stack');
-      state.technology_stack = input;
+      state.technology_stack = cleanInput(TechnologyStackInputSchema, input);
       return successResult({ set: 'set_technology_stack' });
     },
   });
@@ -697,9 +698,9 @@ export function createReconCollector(): ReconCollector {
       'role_switching_impersonation.applicable=false (with the other fields null) if no such features ' +
       'exist. Duplicate calls are rejected.',
     parameters: AuthenticationInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.authentication) return alreadyCalled('set_authentication');
-      state.authentication = input;
+      state.authentication = cleanInput(AuthenticationInputSchema, input);
       return successResult({ set: 'set_authentication' });
     },
   });
@@ -715,7 +716,7 @@ export function createReconCollector(): ReconCollector {
       'Section 4 of the rendered deliverable and drives vuln-authz / vuln-injection todos downstream. ' +
       'The renderer sorts by (path, method) before rendering, so emission order does not affect output.',
     parameters: AddEndpointsInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       addEndpointsCalls += 1;
       const added: string[] = [];
       const skipped: string[] = [];
@@ -726,7 +727,7 @@ export function createReconCollector(): ReconCollector {
           continue;
         }
         seenEndpointKeys.add(key);
-        endpoints.push(ep);
+        endpoints.push(cleanInput(EndpointSchema, ep));
         added.push(key);
       }
       return successResult({
@@ -746,9 +747,9 @@ export function createReconCollector(): ReconCollector {
       'and cookie values. Call exactly once before terminating. Becomes Section 5 of the rendered ' +
       'deliverable. Drives downstream vulnerability analysis. Duplicate calls are rejected.',
     parameters: InputVectorsInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.input_vectors) return alreadyCalled('set_input_vectors');
-      state.input_vectors = input;
+      state.input_vectors = cleanInput(InputVectorsInputSchema, input);
       return successResult({ set: 'set_input_vectors' });
     },
   });
@@ -762,9 +763,9 @@ export function createReconCollector(): ReconCollector {
       '(Guards Directory) of the rendered deliverable. The renderer splits the entities array into ' +
       'the 6.1 and 6.2 tables and sorts each array deterministically. Duplicate calls are rejected.',
     parameters: NetworkMapInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.network_map) return alreadyCalled('set_network_map');
-      state.network_map = input;
+      state.network_map = cleanInput(NetworkMapInputSchema, input);
       return successResult({ set: 'set_network_map' });
     },
   });
@@ -778,9 +779,9 @@ export function createReconCollector(): ReconCollector {
       '7.3 (Role Entry Points), and 7.4 (Role-to-Code Mapping) of the rendered deliverable. The renderer ' +
       'splits the roles array into the per-section tables. Duplicate calls are rejected.',
     parameters: RoleArchitectureInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.role_architecture) return alreadyCalled('set_role_architecture');
-      state.role_architecture = input;
+      state.role_architecture = cleanInput(RoleArchitectureInputSchema, input);
       return successResult({ set: 'set_role_architecture' });
     },
   });
@@ -795,9 +796,9 @@ export function createReconCollector(): ReconCollector {
       'sub-arrays in horizontal → vertical → context order, which vuln-authz reads as its todo list. ' +
       'Duplicate calls are rejected.',
     parameters: AuthzCandidatesInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.authz_candidates) return alreadyCalled('set_authz_candidates');
-      state.authz_candidates = input;
+      state.authz_candidates = cleanInput(AuthzCandidatesInputSchema, input);
       return successResult({ set: 'set_authz_candidates' });
     },
   });
@@ -812,24 +813,12 @@ export function createReconCollector(): ReconCollector {
       'of this kind"). Becomes Section 9 of the rendered deliverable. Drives the vuln-injection agent\'s ' +
       'todos downstream. Duplicate calls are rejected.',
     parameters: InjectionSourcesInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.injection_sources) return alreadyCalled('set_injection_sources');
-      state.injection_sources = input;
+      state.injection_sources = cleanInput(InjectionSourcesInputSchema, input);
       return successResult({ set: 'set_injection_sources' });
     },
   });
-
-  const tools: ToolDefinition[] = [
-    setExecutiveSummary,
-    setTechnologyStack,
-    setAuthentication,
-    addEndpoints,
-    setInputVectors,
-    setNetworkMap,
-    setRoleArchitecture,
-    setAuthzCandidates,
-    setInjectionSources,
-  ];
 
   function statusOf<K extends ReconOneShotToolName>(key: K): ReconToolStatus {
     const flagMap: Record<ReconOneShotToolName, unknown> = {
@@ -846,7 +835,17 @@ export function createReconCollector(): ReconCollector {
   }
 
   return {
-    tools,
+    tools: [
+      setExecutiveSummary,
+      setTechnologyStack,
+      setAuthentication,
+      addEndpoints,
+      setInputVectors,
+      setNetworkMap,
+      setRoleArchitecture,
+      setAuthzCandidates,
+      setInjectionSources,
+    ],
     getAll: (): ReconData => ({
       ...(state.executive_summary && { executive_summary: state.executive_summary }),
       ...(state.technology_stack && { technology_stack: state.technology_stack }),

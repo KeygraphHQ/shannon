@@ -26,7 +26,8 @@
  */
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
-import { type Static, Type } from 'typebox';
+import { type Static, type TObject, Type } from 'typebox';
+import { cleanInput } from './schema.js';
 
 // ============================================================================
 // CLASS DISCRIMINATOR
@@ -271,13 +272,13 @@ const AuthzStrategicIntelSchema = Type.Object({
   }),
 });
 
-const STRATEGIC_INTEL_SCHEMAS = {
+export const STRATEGIC_INTEL_SCHEMAS: Record<VulnClass, TObject> = {
   injection: InjectionStrategicIntelSchema,
   xss: XssStrategicIntelSchema,
   auth: AuthStrategicIntelSchema,
   ssrf: SsrfStrategicIntelSchema,
   authz: AuthzStrategicIntelSchema,
-} as const;
+};
 
 // ============================================================================
 // EXPORTED TYPES
@@ -348,6 +349,13 @@ function errorResult(message: string, errorType = 'ValidationError', retryable =
 // COLLECTOR FACTORY
 // ============================================================================
 
+interface VulnState {
+  findings_summary?: FindingsSummaryInput;
+  strategic_intelligence?: StrategicIntelligenceInput;
+  safe_vectors?: SafeVectorsInput;
+  blind_spots?: BlindSpotsInput;
+}
+
 export interface VulnCollector {
   tools: ToolDefinition[];
   getAll(): VulnCollectorData;
@@ -355,12 +363,7 @@ export interface VulnCollector {
 }
 
 export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
-  const state: {
-    findings_summary?: FindingsSummaryInput;
-    strategic_intelligence?: StrategicIntelligenceInput;
-    safe_vectors?: SafeVectorsInput;
-    blind_spots?: BlindSpotsInput;
-  } = {};
+  const state: VulnState = {};
 
   function alreadyCalled(toolName: VulnToolName) {
     return errorResult(
@@ -381,9 +384,9 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'patterns array is acceptable (renders as "No dominant patterns identified") but key_outcome ' +
       'is always required.',
     parameters: FindingsSummaryInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.findings_summary) return alreadyCalled('set_findings_summary');
-      state.findings_summary = input;
+      state.findings_summary = cleanInput(FindingsSummaryInputSchema, input);
       return successResult({ set: 'set_findings_summary' });
     },
   });
@@ -399,9 +402,9 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'Required. Duplicate calls return "already called" and are no-ops. Write "Not applicable" as ' +
       'the field value when a sub-field does not apply to this run (rather than omitting).',
     parameters: intelSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.strategic_intelligence) return alreadyCalled('set_strategic_intelligence');
-      state.strategic_intelligence = input as unknown as StrategicIntelligenceInput;
+      state.strategic_intelligence = cleanInput(intelSchema, input) as unknown as StrategicIntelligenceInput;
       return successResult({ set: 'set_strategic_intelligence' });
     },
   });
@@ -417,9 +420,9 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       '(subject, location) before rendering, so emission order does not affect output. Duplicate ' +
       'calls return "already called" and are no-ops.',
     parameters: SafeVectorsInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.safe_vectors) return alreadyCalled('set_safe_vectors');
-      state.safe_vectors = input;
+      state.safe_vectors = cleanInput(SafeVectorsInputSchema, input);
       return successResult({ set: 'set_safe_vectors', count: input.vectors.length });
     },
   });
@@ -434,14 +437,12 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'either documented gaps or an explicit "no gaps" signal). Duplicate calls return "already ' +
       'called" and are no-ops.',
     parameters: BlindSpotsInputSchema,
-    execute: async (_toolCallId, input) => {
+    async execute(_toolCallId, input) {
       if (state.blind_spots) return alreadyCalled('set_blind_spots');
-      state.blind_spots = input;
+      state.blind_spots = cleanInput(BlindSpotsInputSchema, input);
       return successResult({ set: 'set_blind_spots', count: input.items.length });
     },
   });
-
-  const tools = [setFindingsSummary, setStrategicIntelligence, setSafeVectors, setBlindSpots];
 
   function statusOf<K extends VulnToolName>(key: K): VulnToolStatus {
     const flagMap: Record<VulnToolName, unknown> = {
@@ -454,7 +455,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
   }
 
   return {
-    tools: tools as ToolDefinition[],
+    tools: [setFindingsSummary, setStrategicIntelligence, setSafeVectors, setBlindSpots],
     getAll: (): VulnCollectorData => ({
       ...(state.findings_summary && { findings_summary: state.findings_summary }),
       ...(state.strategic_intelligence && { strategic_intelligence: state.strategic_intelligence }),
