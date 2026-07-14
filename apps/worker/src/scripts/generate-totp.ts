@@ -9,8 +9,7 @@
 /**
  * generate-totp CLI
  *
- * Generates 6-digit TOTP codes for authentication.
- * Replaces the MCP generate_totp tool.
+ * Generates a TOTP code for the target's MFA.
  * Based on RFC 6238 (TOTP) and RFC 4226 (HOTP).
  *
  * Usage:

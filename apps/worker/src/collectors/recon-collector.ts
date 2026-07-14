@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Recon Collector MCP Server
+ * Recon Collector tools
  *
  * Exposes nine TypeBox-validated tools that feed the recon_deliverable.md
  * renderer — eight one-shot `set_*` tools, one per deliverable section, plus a
