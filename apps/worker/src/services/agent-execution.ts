@@ -71,6 +71,30 @@ interface FailAgentOpts {
   context: Record<string, unknown>;
 }
 
+function errorCodeFromResult(result: PiPromptResult): ErrorCode {
+  if (result.errorType && Object.values(ErrorCode).includes(result.errorType as ErrorCode)) {
+    return result.errorType as ErrorCode;
+  }
+  return ErrorCode.AGENT_EXECUTION_FAILED;
+}
+
+function categoryForErrorCode(code: ErrorCode): PentestErrorType {
+  switch (code) {
+    case ErrorCode.SPENDING_CAP_REACHED:
+    case ErrorCode.INSUFFICIENT_CREDITS:
+    case ErrorCode.BILLING_ERROR:
+    case ErrorCode.API_RATE_LIMITED:
+      return 'billing';
+    case ErrorCode.GIT_CHECKPOINT_FAILED:
+    case ErrorCode.GIT_ROLLBACK_FAILED:
+      return 'filesystem';
+    case ErrorCode.PROMPT_LOAD_FAILED:
+      return 'prompt';
+    default:
+      return 'validation';
+  }
+}
+
 /** Wrap a failed git operation result into a PentestError attributed to the agent. */
 function gitFailureForAgent(
   agentName: AgentName,
@@ -229,13 +253,14 @@ export class AgentExecutionService {
 
     // 7. Handle execution failure
     if (!result.success) {
+      const errorCode = errorCodeFromResult(result);
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,
         rollbackReason: 'execution failure',
         errorMessage: result.error || 'Agent execution failed',
-        errorCode: ErrorCode.AGENT_EXECUTION_FAILED,
-        category: 'validation',
+        errorCode,
+        category: categoryForErrorCode(errorCode),
         retryable: result.retryable ?? true,
         context: { agentName, originalError: result.error },
       });
@@ -317,7 +342,12 @@ export class AgentExecutionService {
     logger: ActivityLogger,
     opts: FailAgentOpts,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    await rollbackGitWorkspace(deliverablesPath, opts.rollbackReason, logger, getAgentGitPaths(agentName));
+    const rollbackResult = await rollbackGitWorkspace(
+      deliverablesPath,
+      opts.rollbackReason,
+      logger,
+      getAgentGitPaths(agentName),
+    );
 
     const endResult: AgentEndResult = {
       attemptNumber: opts.attemptNumber,
@@ -329,7 +359,19 @@ export class AgentExecutionService {
     };
     await auditSession.endAgent(agentName, endResult);
 
-    return err(new PentestError(opts.errorMessage, opts.category, opts.retryable, opts.context, opts.errorCode));
+    const context = rollbackResult.success
+      ? opts.context
+      : {
+          ...opts.context,
+          rollbackFailed: true,
+          rollbackError: rollbackResult.error?.message ?? 'unknown rollback failure',
+          rollbackErrorCode:
+            rollbackResult.error instanceof PentestError
+              ? (rollbackResult.error.code ?? ErrorCode.GIT_ROLLBACK_FAILED)
+              : ErrorCode.GIT_ROLLBACK_FAILED,
+        };
+
+    return err(new PentestError(opts.errorMessage, opts.category, opts.retryable, context, opts.errorCode));
   }
 
   /**
