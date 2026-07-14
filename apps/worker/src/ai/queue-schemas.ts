@@ -13,9 +13,10 @@
  * `<class>_exploitation_queue.json` by the caller (agent-execution).
  */
 
-import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
+import { defineTool } from '@earendil-works/pi-coding-agent';
 import { type Static, type TObject, Type } from 'typebox';
 import type { AgentName } from '../types/agents.js';
+import type { CapturedSubmitTool } from './submit-tool.js';
 
 const ANALYSIS_NOTES_DESCRIPTION = 'Plain context for defenders (caveats, scope, what is at risk). Not attack steps.';
 
@@ -127,33 +128,42 @@ export function getQueueFilename(agentName: AgentName): string | undefined {
   return VULN_AGENT_QUEUE_FILENAMES[agentName];
 }
 
-export interface QueueSubmitTool {
-  tool: ToolDefinition;
-  getCaptured: () => unknown;
-}
-
 /**
- * Build the `submit_exploitation_queue` tool for a vuln agent, or null for
+ * Build the `submit_exploitation_queue` tool for a vuln agent, or undefined for
  * non-vuln agents. The agent calls it once with the full findings list; the
- * captured payload is the structured queue.
+ * executor injects the directive, enforces the single terminating call, and
+ * reads the captured payload back as the run's structured output.
  */
-export function createQueueSubmitTool(agentName: AgentName, exploit: boolean): QueueSubmitTool | undefined {
+export function createQueueSubmitTool(agentName: AgentName, exploit: boolean): CapturedSubmitTool | undefined {
   const schema = queueSchema(agentName, exploit);
   if (!schema) return undefined;
   let captured: unknown;
-  const tool = defineTool({
-    name: 'submit_exploitation_queue',
-    label: 'Submit Exploitation Queue',
-    description:
-      'Submit the final structured list of analyzed vulnerabilities for this class. Call exactly once when ' +
-      'analysis is complete, with every finding included.',
-    promptSnippet: 'submit_exploitation_queue: record the final structured findings list (call once)',
-    parameters: schema,
-    execute: async (_toolCallId, params) => {
-      captured = params;
-      const count = (params as { vulnerabilities?: unknown[] }).vulnerabilities?.length ?? 0;
-      return { content: [{ type: 'text' as const, text: `Recorded ${count} findings.` }], details: {} };
-    },
-  });
-  return { tool, getCaptured: () => captured };
+  return {
+    tool: defineTool({
+      name: 'submit_exploitation_queue',
+      label: 'Submit Exploitation Queue',
+      description:
+        'Submit the final structured list of analyzed vulnerabilities for this class. Call exactly once when ' +
+        'analysis is complete, with every finding included.',
+      promptSnippet: 'submit_exploitation_queue: record the final structured findings list (call once)',
+      promptGuidelines: [
+        'You MUST call submit_exploitation_queue exactly once as your final action.',
+        'Include every analyzed finding in the vulnerabilities array.',
+      ],
+      parameters: schema,
+      execute: async (_toolCallId, params) => {
+        captured = params;
+        const count = (params as { vulnerabilities?: unknown[] }).vulnerabilities?.length ?? 0;
+        return {
+          content: [{ type: 'text' as const, text: `Recorded ${count} findings.` }],
+          details: params,
+          terminate: true,
+        };
+      },
+    }),
+    getCaptured: () => captured,
+    directive:
+      '\n\nYou MUST call the submit_exploitation_queue tool exactly once as your final action ' +
+      'to deliver your structured exploitation queue. Do not output JSON as text. Fill every required parameter.',
+  };
 }

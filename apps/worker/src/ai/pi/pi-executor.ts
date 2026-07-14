@@ -38,6 +38,7 @@ import {
   formatToolCall,
 } from '../output-formatters.js';
 import { createProgressManager } from '../progress-manager.js';
+import type { CapturedSubmitTool } from '../submit-tool.js';
 import { permissionSystemConfigExists, permissionSystemPackageDir } from './permission-system.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 import { createTaskTool } from './task-tool.js';
@@ -193,10 +194,13 @@ export async function runPiPrompt(
   callerTools?: ToolDefinition[],
   deliverablesSubdir?: string,
   cancellationSignal?: AbortSignal,
+  submitTool?: CapturedSubmitTool,
 ): Promise<PiPromptResult> {
-  // 1. Initialize timing and prompt
+  // 1. Initialize timing and prompt. A submit tool appends its directive so the
+  //    instruction to call it lives with the tool, not in every prompt file.
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
-  const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const basePrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const fullPrompt = submitTool?.directive ? basePrompt + submitTool.directive : basePrompt;
 
   // 2. Set up progress and audit infrastructure
   const execContext = detectExecutionContext(description);
@@ -240,6 +244,7 @@ export async function runPiPrompt(
     createTodoWriteTool(auditLogger),
     createGlobTool(sourceDir),
     ...(callerTools ?? []),
+    ...(submitTool ? [submitTool.tool] : []),
   ];
   // pi's `tools` allowlist gates custom tools too — list every custom name.
   const tools = [...BUILTIN_TOOLS, ...customTools.map((t) => t.name)];
@@ -344,6 +349,10 @@ export async function runPiPrompt(
     const duration = timer.stop();
     progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
 
+    // Capture the submit tool's structured payload so callers read it off the
+    // result instead of holding a reference to the tool.
+    const structuredOutput = submitTool?.getCaptured();
+
     return {
       result,
       success: true,
@@ -353,6 +362,7 @@ export async function runPiPrompt(
       model: selection.model.id,
       partialCost: totalCost,
       apiErrorDetected,
+      ...(structuredOutput !== undefined && { structuredOutput }),
     };
   } catch (error) {
     // 10. Handle errors — log, write error file, return failure

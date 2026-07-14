@@ -193,7 +193,6 @@ export class AgentExecutionService {
     // 5. Execute agent. Vuln agents get a submit tool that captures the structured
     //    exploitation queue (pi has no JSON-schema output format).
     const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
-    const callerTools = [...(customTools ?? []), ...(submitTool ? [submitTool.tool] : [])];
     const result: PiPromptResult = await runPiPrompt(
       prompt,
       repoPath,
@@ -203,8 +202,10 @@ export class AgentExecutionService {
       auditSession,
       logger,
       AGENTS[agentName].modelTier,
-      callerTools,
+      customTools,
       path.relative(repoPath, deliverablesPath),
+      undefined, // cancellationSignal
+      submitTool,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -242,17 +243,13 @@ export class AgentExecutionService {
     //       the write→validate→commit sequence is atomic against concurrent sibling agents.
     let commitHash: string | undefined;
     const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
-      // 8. Write structured output to disk (vuln agents only) from the submit-tool capture
+      // 8. Write structured output to disk (vuln agents only) from the executor's capture
       const queueFilename = getQueueFilename(agentName);
-      if (submitTool && queueFilename) {
-        const captured = submitTool.getCaptured();
-        if (captured !== undefined) {
-          result.structuredOutput = captured; // carry for the validation gate below
-          await fs.ensureDir(deliverablesPath);
-          const queuePath = path.join(deliverablesPath, queueFilename);
-          await fs.writeFile(queuePath, JSON.stringify(captured, null, 2), 'utf8');
-          logger.info(`Wrote structured output queue to ${queueFilename}`);
-        }
+      if (submitTool && queueFilename && result.structuredOutput !== undefined) {
+        await fs.ensureDir(deliverablesPath);
+        const queuePath = path.join(deliverablesPath, queueFilename);
+        await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
+        logger.info(`Wrote structured output queue to ${queueFilename}`);
       }
 
       // 9. Validate output
