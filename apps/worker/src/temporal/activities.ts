@@ -18,7 +18,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
-import { writeCodePathPermissionConfig } from '../ai/pi/permission-system.js';
+import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
@@ -642,7 +642,7 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
 
   const config = configResult.value;
   const denyCount = (config?.avoid ?? []).filter((r) => r.type === 'code_path').length;
-  await writeCodePathPermissionConfig(config);
+  syncPermissionSystemConfig(config);
   logger.info(
     denyCount > 0
       ? `Synced ${denyCount} code_path deny rule(s) to the pi-permission-system config`

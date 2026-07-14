@@ -6,7 +6,6 @@
 
 // Production agent execution on the pi harness, with git checkpoints and audit logging.
 
-import { createRequire } from 'node:module';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   type AgentSessionEvent,
@@ -39,7 +38,7 @@ import {
   formatToolCall,
 } from '../output-formatters.js';
 import { createProgressManager } from '../progress-manager.js';
-import { permissionConfigPath } from './permission-system.js';
+import { permissionSystemConfigExists, permissionSystemPackageDir } from './permission-system.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 import { createTaskTool } from './task-tool.js';
 
@@ -50,29 +49,13 @@ declare global {
 /** Built-in pi tools enabled for every agent (custom tool names are appended). */
 const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 
-const requireFromHere = createRequire(import.meta.url);
-let cachedExtensionDir: string | null | undefined;
-
-/** Resolve the installed @gotgenes/pi-permission-system package dir, or null. */
-function permissionExtensionDir(): string | null {
-  if (cachedExtensionDir !== undefined) return cachedExtensionDir;
-  try {
-    const entry = requireFromHere.resolve('@gotgenes/pi-permission-system');
-    cachedExtensionDir = path.dirname(path.dirname(entry));
-  } catch {
-    cachedExtensionDir = null;
-  }
-  return cachedExtensionDir;
-}
-
 async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
   const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
-  if (fs.existsSync(permissionConfigPath())) {
-    const extDir = permissionExtensionDir();
-    if (extDir) {
-      additionalExtensionPaths.push(extDir);
-    } else {
+  if (permissionSystemConfigExists(getAgentDir())) {
+    try {
+      additionalExtensionPaths.push(permissionSystemPackageDir());
+    } catch {
       logger.warn(
         'code_path deny config present but @gotgenes/pi-permission-system not resolvable — skipping enforcement',
       );

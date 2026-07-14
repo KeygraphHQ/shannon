@@ -19,14 +19,13 @@
  * is removed so the executor skips loading the extension entirely.
  */
 
+import fs from 'node:fs';
+import { createRequire } from 'node:module';
+import path from 'node:path';
 import { getAgentDir } from '@earendil-works/pi-coding-agent';
-import { fs, path } from 'zx';
 import type { DistributedConfig } from '../../types/config.js';
 
-/** Absolute path to the pi-permission-system global config.json. */
-export function permissionConfigPath(): string {
-  return path.join(getAgentDir(), 'extensions', 'pi-permission-system', 'config.json');
-}
+const PERMISSION_EXTENSION_ID = 'pi-permission-system';
 
 /**
  * Translate one avoid value into the extension's flat-wildcard `path` patterns.
@@ -93,20 +92,50 @@ export function buildPermissionConfig(patterns: readonly string[]): PermissionSy
   };
 }
 
-/**
- * Write (or remove) the pi-permission-system config derived from `code_path`
- * avoid patterns. When there are no avoids the config is removed, so the executor
- * skips loading the extension entirely.
- */
-export async function writeCodePathPermissionConfig(config: DistributedConfig | null): Promise<void> {
-  const avoidPatterns = (config?.avoid ?? []).filter((r) => r.type === 'code_path').map((r) => r.value);
-  const configPath = permissionConfigPath();
+/** Path to the extension's global config under the agent directory. */
+export function permissionSystemConfigPath(agentDir: string): string {
+  return path.join(agentDir, 'extensions', PERMISSION_EXTENSION_ID, 'config.json');
+}
 
-  if (avoidPatterns.length === 0) {
-    await fs.remove(configPath);
+/** True when a pi-permission-system config has been written (avoid rules exist). */
+export function permissionSystemConfigExists(agentDir: string): boolean {
+  return fs.existsSync(permissionSystemConfigPath(agentDir));
+}
+
+/**
+ * Sync the distributed config's `code_path` avoids into the extension's global
+ * config (`<agentDir>/extensions/pi-permission-system/config.json`). When there
+ * are no avoids the config is removed so the executor skips loading the extension.
+ *
+ * Global (not project) config is used deliberately: it loads synchronously at
+ * extension init without depending on a session_start/ctx, it keeps the config
+ * out of the scanned repo, and it is idempotent across the agents of one run.
+ */
+export function syncPermissionSystemConfig(config: DistributedConfig | null): void {
+  const configPath = permissionSystemConfigPath(getAgentDir());
+  const avoidRules = (config?.avoid ?? []).filter((r) => r.type === 'code_path');
+
+  if (avoidRules.length === 0) {
+    fs.rmSync(configPath, { force: true });
     return;
   }
 
-  await fs.ensureDir(path.dirname(configPath));
-  await fs.writeJson(configPath, buildPermissionConfig(avoidPatterns), { spaces: 2 });
+  // Single-repo (fixed mount): patterns are the raw avoid values.
+  const patterns = avoidRules.map((r) => r.value);
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(buildPermissionConfig(patterns), null, 2));
+}
+
+/**
+ * Absolute path to the installed @gotgenes/pi-permission-system package directory,
+ * suitable for `DefaultResourceLoader`'s `additionalExtensionPaths`. The loader
+ * reads the package's `pi.extensions` manifest and loads the extension itself.
+ *
+ * The package's `.` export points at its service module, so we resolve that and
+ * walk up to the package root. Throws if the package is not resolvable.
+ */
+export function permissionSystemPackageDir(): string {
+  const require = createRequire(import.meta.url);
+  const servicePath = require.resolve('@gotgenes/pi-permission-system');
+  return path.resolve(path.dirname(servicePath), '..');
 }
