@@ -572,6 +572,16 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           if (input.checkpointsEnabled) {
             await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
           }
+        } else {
+          // Exploitation did not run (exploit mode off, or no actionable findings) — still
+          // mark the agent complete so a resume does not treat it as unfinished work.
+          log.info(
+            `Marking ${exploitAgentName} complete (${decision.shouldExploit ? 'exploit mode disabled' : 'no actionable findings'})`,
+          );
+          state.completedAgents.push(exploitAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
         }
 
         return {
