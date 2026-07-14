@@ -353,7 +353,19 @@ async function readExploitQueue(queuePath: string): Promise<{ validIds: Set<stri
   if (!(await fileExists(queuePath))) {
     return { validIds, idToType };
   }
-  const doc = await readJson<ExploitQueueDocument>(queuePath);
+  let doc: ExploitQueueDocument;
+  try {
+    doc = await readJson<ExploitQueueDocument>(queuePath);
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    const failure = ApplicationFailure.nonRetryable(
+      truncateErrorMessage(`Invalid exploitation queue ${queuePath}: ${rawMessage}`),
+      'InvalidExploitationQueueError',
+      [{ queuePath }],
+    );
+    truncateStackTrace(failure);
+    throw failure;
+  }
   for (const entry of doc.vulnerabilities ?? []) {
     if (!entry.ID) continue;
     validIds.add(entry.ID);
