@@ -889,7 +889,16 @@ export async function persistOrValidateRunScope(
   await auditSession.initialize(input.workflowId);
 
   const sessionPath = generateSessionJsonPath(sessionMetadata);
-  const session = await readJson<SessionJson>(sessionPath);
+  let session: SessionJson;
+  try {
+    session = await readJson<SessionJson>(sessionPath);
+  } catch (error) {
+    const rawMessage = error instanceof Error ? error.message : String(error);
+    throw ApplicationFailure.nonRetryable(
+      `Corrupted session.json in workspace ${input.sessionId}: ${rawMessage}`,
+      'CorruptedSessionError',
+    );
+  }
 
   if (session.session.scope) {
     const recorded = session.session.scope;
