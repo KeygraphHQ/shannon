@@ -9,7 +9,7 @@
  *
  * Anthropic's spending cap behavior is inconsistent:
  * - Sometimes a proper provider error (billing_error)
- * - Sometimes the agent responds with text about the cap
+ * - Sometimes the model responds with text about the cap
  * - Sometimes partial billing before cutoff
  *
  * This module provides defense-in-depth detection with shared pattern lists
@@ -17,8 +17,8 @@
  */
 
 /**
- * Text patterns for provider/harness output sniffing (what the agent says).
- * Used by the pi event stream and the behavioral heuristic.
+ * Text patterns for model-output sniffing (what the model says).
+ * Used by the pi executor and the behavioral heuristic.
  */
 export const BILLING_TEXT_PATTERNS = [
   'spending cap',
@@ -48,7 +48,7 @@ export const BILLING_API_PATTERNS = [
 
 /**
  * Checks if text matches any billing text pattern.
- * Used for sniffing agent output content for spending cap messages.
+ * Used for sniffing model output content for spending cap messages.
  */
 export function matchesBillingTextPattern(text: string): boolean {
   const lowerText = text.toLowerCase();
@@ -67,7 +67,7 @@ export function matchesBillingApiPattern(message: string): boolean {
 /**
  * Behavioral heuristic for detecting spending cap.
  *
- * When the agent hits a spending cap, it often returns a short message
+ * When the model hits a spending cap, it often returns a short message
  * with $0 cost. Legitimate agent work NEVER costs $0 with only 1-2 turns.
  *
  * This combines three signals:
