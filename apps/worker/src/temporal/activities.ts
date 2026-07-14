@@ -723,7 +723,29 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
 
   // Pass deliverablesPath (not repoPath) — validators expect the deliverables directory
   const delivPath = deliverablesDir(repoPath, input.deliverablesSubdir);
-  return checker.checkQueue(vulnType, delivPath, logger);
+  try {
+    return await checker.checkQueue(vulnType, delivPath, logger);
+  } catch (error) {
+    const classified = classifyErrorForTemporal(error);
+    const message = truncateErrorMessage(error instanceof Error ? error.message : String(error));
+    const details = [{ phase: 'check-exploitation-queue', vulnType }];
+    const queueValidationFailure = error instanceof PentestError && error.type === 'validation';
+    // A code-less PentestError (e.g. a filesystem read failure) is classified by
+    // string-matching, which can miss its retryable flag. Trust the flag directly so
+    // a non-retryable error never gets a Temporal retry.
+    const pentestNonRetryable = error instanceof PentestError && !error.retryable;
+
+    const failure =
+      queueValidationFailure || pentestNonRetryable || !classified.retryable
+        ? ApplicationFailure.nonRetryable(
+            message,
+            queueValidationFailure ? 'InvalidExploitationQueueError' : classified.type,
+            details,
+          )
+        : ApplicationFailure.create({ message, type: classified.type, details });
+    truncateStackTrace(failure);
+    throw failure;
+  }
 }
 
 interface RunScope {
