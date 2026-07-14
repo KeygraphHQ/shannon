@@ -93,9 +93,9 @@ const PER_TYPE_FIELDS: Partial<Record<AgentName, Record<string, ReturnType<typeo
 };
 
 /** Build the `{ vulnerabilities: [...] }` queue schema for an agent + mode. */
-function queueSchema(agentName: AgentName, exploit: boolean): TObject | null {
+function queueSchema(agentName: AgentName, exploit: boolean): TObject | undefined {
   const extra = PER_TYPE_FIELDS[agentName];
-  if (!extra) return null;
+  if (!extra) return undefined;
   return Type.Object({
     vulnerabilities: Type.Array(Type.Object({ ...baseFields(exploit), ...extra })),
   });
@@ -137,9 +137,9 @@ export interface QueueSubmitTool {
  * non-vuln agents. The agent calls it once with the full findings list; the
  * captured payload is the structured queue.
  */
-export function createQueueSubmitTool(agentName: AgentName, exploit: boolean): QueueSubmitTool | null {
+export function createQueueSubmitTool(agentName: AgentName, exploit: boolean): QueueSubmitTool | undefined {
   const schema = queueSchema(agentName, exploit);
-  if (!schema) return null;
+  if (!schema) return undefined;
   let captured: unknown;
   const tool = defineTool({
     name: 'submit_exploitation_queue',
