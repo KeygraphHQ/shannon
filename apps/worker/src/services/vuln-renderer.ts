@@ -220,7 +220,8 @@ export function renderVulnDeliverable(vulnClass: VulnClass, data: VulnCollectorD
     '',
     renderSafeVectors(vulnClass, data.safe_vectors),
     '',
+    renderBlindSpots(data.blind_spots),
+    '',
   ];
-  sections.push(renderBlindSpots(data.blind_spots), '');
   return `${sections.join('\n').trimEnd()}\n`;
 }
