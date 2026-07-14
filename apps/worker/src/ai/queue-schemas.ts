@@ -7,10 +7,9 @@
 /**
  * TypeBox schemas + submit-tool factory for vulnerability exploitation queues.
  *
- * pi has no JSON-schema output format, so each vuln agent's structured queue is
- * captured via a `submit_exploitation_queue` custom tool whose parameters mirror
- * the per-class schema below. The captured payload is written to
- * `<class>_exploitation_queue.json` by the caller (agent-execution).
+ * pi captures each vuln agent's structured queue via a `submit_exploitation_queue`
+ * custom tool whose parameters mirror the per-class schema below. Entry types are
+ * derived from the same schemas and consumed by the findings renderer.
  */
 
 import { defineTool } from '@earendil-works/pi-coding-agent';
@@ -20,7 +19,9 @@ import type { CapturedSubmitTool } from './submit-tool.js';
 
 const ANALYSIS_NOTES_DESCRIPTION = 'Plain context for defenders (caveats, scope, what is at risk). Not attack steps.';
 
-const optStr = (description?: string) => Type.Optional(Type.String(description ? { description } : {}));
+function optStr(description?: string) {
+  return Type.Optional(Type.String(description === undefined ? {} : { description }));
+}
 
 /** Base fields shared by every queue entry. `notes` gains guidance in analysis mode. */
 function baseFields(exploit: boolean) {
@@ -85,6 +86,20 @@ const authzFields = {
   minimal_witness: optStr(),
 };
 
+// === Per-entry schemas (single vulnerability). Entry types derive from these. ===
+
+const injectionEntry = () => Type.Object({ ...baseFields(true), ...injectionFields });
+const xssEntry = () => Type.Object({ ...baseFields(true), ...xssFields });
+const authEntry = () => Type.Object({ ...baseFields(true), ...authFields });
+const ssrfEntry = () => Type.Object({ ...baseFields(true), ...ssrfFields });
+const authzEntry = () => Type.Object({ ...baseFields(true), ...authzFields });
+
+export type InjectionFinding = Static<ReturnType<typeof injectionEntry>>;
+export type XssFinding = Static<ReturnType<typeof xssEntry>>;
+export type AuthFinding = Static<ReturnType<typeof authEntry>>;
+export type SsrfFinding = Static<ReturnType<typeof ssrfEntry>>;
+export type AuthzFinding = Static<ReturnType<typeof authzEntry>>;
+
 const PER_TYPE_FIELDS: Partial<Record<AgentName, Record<string, ReturnType<typeof optStr>>>> = {
   'injection-vuln': injectionFields,
   'xss-vuln': xssFields,
@@ -92,28 +107,6 @@ const PER_TYPE_FIELDS: Partial<Record<AgentName, Record<string, ReturnType<typeo
   'ssrf-vuln': ssrfFields,
   'authz-vuln': authzFields,
 };
-
-/** Build the `{ vulnerabilities: [...] }` queue schema for an agent + mode. */
-function queueSchema(agentName: AgentName, exploit: boolean): TObject | undefined {
-  const extra = PER_TYPE_FIELDS[agentName];
-  if (!extra) return undefined;
-  return Type.Object({
-    vulnerabilities: Type.Array(Type.Object({ ...baseFields(exploit), ...extra })),
-  });
-}
-
-// === Inferred entry types (consumed by renderers) ===
-export type InjectionFinding = Static<ReturnType<typeof injectionEntry>>;
-export type XssFinding = Static<ReturnType<typeof xssEntry>>;
-export type AuthFinding = Static<ReturnType<typeof authEntry>>;
-export type SsrfFinding = Static<ReturnType<typeof ssrfEntry>>;
-export type AuthzFinding = Static<ReturnType<typeof authzEntry>>;
-
-const injectionEntry = () => Type.Object({ ...baseFields(true), ...injectionFields });
-const xssEntry = () => Type.Object({ ...baseFields(true), ...xssFields });
-const authEntry = () => Type.Object({ ...baseFields(true), ...authFields });
-const ssrfEntry = () => Type.Object({ ...baseFields(true), ...ssrfFields });
-const authzEntry = () => Type.Object({ ...baseFields(true), ...authzFields });
 
 const VULN_AGENT_QUEUE_FILENAMES: Partial<Record<AgentName, string>> = {
   'injection-vuln': 'injection_exploitation_queue.json',
@@ -123,37 +116,43 @@ const VULN_AGENT_QUEUE_FILENAMES: Partial<Record<AgentName, string>> = {
   'authz-vuln': 'authz_exploitation_queue.json',
 };
 
+/** Build the TypeBox submit-tool parameters for a vuln agent, or undefined for non-vuln agents. */
+function queueSchema(agentName: AgentName, exploit: boolean): TObject | undefined {
+  const extra = PER_TYPE_FIELDS[agentName];
+  if (!extra) return undefined;
+  return Type.Object({
+    vulnerabilities: Type.Array(Type.Object({ ...baseFields(exploit), ...extra })),
+  });
+}
+
 /** Returns the queue filename for a vuln agent, or undefined for non-vuln agents. */
 export function getQueueFilename(agentName: AgentName): string | undefined {
   return VULN_AGENT_QUEUE_FILENAMES[agentName];
 }
 
-/**
- * Build the `submit_exploitation_queue` tool for a vuln agent, or undefined for
- * non-vuln agents. The agent calls it once with the full findings list; the
- * executor injects the directive, enforces the single terminating call, and
- * reads the captured payload back as the run's structured output.
- */
-export function createQueueSubmitTool(agentName: AgentName, exploit: boolean): CapturedSubmitTool | undefined {
+/** Build the pi submit tool that captures the exploitation queue for vuln agents. */
+export function createQueueSubmitTool(agentName: AgentName, exploit = true): CapturedSubmitTool | undefined {
   const schema = queueSchema(agentName, exploit);
   if (!schema) return undefined;
-  let captured: unknown;
+
+  let captured: unknown | undefined;
   return {
     tool: defineTool({
       name: 'submit_exploitation_queue',
       label: 'Submit Exploitation Queue',
       description:
-        'Submit the final structured list of analyzed vulnerabilities for this class. Call exactly once when ' +
-        'analysis is complete, with every finding included.',
+        'Submit the final structured list of analyzed vulnerabilities for this class. Call exactly once when analysis is complete.',
       promptSnippet: 'submit_exploitation_queue: record the final structured findings list (call once)',
       promptGuidelines: [
         'You MUST call submit_exploitation_queue exactly once as your final action.',
         'Include every analyzed finding in the vulnerabilities array.',
       ],
       parameters: schema,
-      execute: async (_toolCallId, params) => {
+      async execute(_toolCallId, params) {
         captured = params;
-        const count = (params as { vulnerabilities?: unknown[] }).vulnerabilities?.length ?? 0;
+        const count = Array.isArray((params as { vulnerabilities?: unknown }).vulnerabilities)
+          ? (params as { vulnerabilities: unknown[] }).vulnerabilities.length
+          : 0;
         return {
           content: [{ type: 'text' as const, text: `Recorded ${count} findings.` }],
           details: params,
