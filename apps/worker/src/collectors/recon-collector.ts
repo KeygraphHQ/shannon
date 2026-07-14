@@ -605,24 +605,19 @@ export interface ReconCallStatus {
 // RESPONSE HELPERS
 // ============================================================================
 
-interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  details: Record<string, unknown>;
-}
-
-function createToolResult(response: { status: string; [key: string]: unknown }): ToolResult {
+function toolResult(payload: Record<string, unknown>) {
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
-    details: {},
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    details: undefined,
   };
 }
 
-function successResult(data: Record<string, unknown>): ToolResult {
-  return createToolResult({ status: 'success', ...data });
+function successResult(data: Record<string, unknown>) {
+  return toolResult({ status: 'success', ...data });
 }
 
-function errorResult(message: string, errorType = 'ValidationError', retryable = true): ToolResult {
-  return createToolResult({ status: 'error', message, errorType, retryable });
+function errorResult(message: string, errorType = 'ValidationError', retryable = true) {
+  return toolResult({ status: 'error', message, errorType, retryable });
 }
 
 function endpointKey(method: string, path: string): string {
@@ -655,7 +650,7 @@ export function createReconCollector(): ReconCollector {
   const seenEndpointKeys = new Set<string>();
   let addEndpointsCalls = 0;
 
-  function alreadyCalled(toolName: ReconOneShotToolName): ToolResult {
+  function alreadyCalled(toolName: ReconOneShotToolName) {
     return errorResult(
       `${toolName} has already been called. Each set_* tool may only be called once per run.`,
       'DuplicateError',
@@ -671,7 +666,7 @@ export function createReconCollector(): ReconCollector {
       'user-facing components. Call exactly once before terminating. Becomes Section 1 of the rendered ' +
       'deliverable. Duplicate calls are rejected.',
     parameters: ExecutiveSummaryInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.executive_summary) return alreadyCalled('set_executive_summary');
       state.executive_summary = input;
       return successResult({ set: 'set_executive_summary' });
@@ -685,7 +680,7 @@ export function createReconCollector(): ReconCollector {
       'Record the technology and service map: frontend, backend, and infrastructure. Call exactly once ' +
       'before terminating. Becomes Section 2 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: TechnologyStackInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.technology_stack) return alreadyCalled('set_technology_stack');
       state.technology_stack = input;
       return successResult({ set: 'set_technology_stack' });
@@ -702,7 +697,7 @@ export function createReconCollector(): ReconCollector {
       'role_switching_impersonation.applicable=false (with the other fields null) if no such features ' +
       'exist. Duplicate calls are rejected.',
     parameters: AuthenticationInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.authentication) return alreadyCalled('set_authentication');
       state.authentication = input;
       return successResult({ set: 'set_authentication' });
@@ -720,7 +715,7 @@ export function createReconCollector(): ReconCollector {
       'Section 4 of the rendered deliverable and drives vuln-authz / vuln-injection todos downstream. ' +
       'The renderer sorts by (path, method) before rendering, so emission order does not affect output.',
     parameters: AddEndpointsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       addEndpointsCalls += 1;
       const added: string[] = [];
       const skipped: string[] = [];
@@ -751,7 +746,7 @@ export function createReconCollector(): ReconCollector {
       'and cookie values. Call exactly once before terminating. Becomes Section 5 of the rendered ' +
       'deliverable. Drives downstream vulnerability analysis. Duplicate calls are rejected.',
     parameters: InputVectorsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.input_vectors) return alreadyCalled('set_input_vectors');
       state.input_vectors = input;
       return successResult({ set: 'set_input_vectors' });
@@ -767,7 +762,7 @@ export function createReconCollector(): ReconCollector {
       '(Guards Directory) of the rendered deliverable. The renderer splits the entities array into ' +
       'the 6.1 and 6.2 tables and sorts each array deterministically. Duplicate calls are rejected.',
     parameters: NetworkMapInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.network_map) return alreadyCalled('set_network_map');
       state.network_map = input;
       return successResult({ set: 'set_network_map' });
@@ -783,7 +778,7 @@ export function createReconCollector(): ReconCollector {
       '7.3 (Role Entry Points), and 7.4 (Role-to-Code Mapping) of the rendered deliverable. The renderer ' +
       'splits the roles array into the per-section tables. Duplicate calls are rejected.',
     parameters: RoleArchitectureInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.role_architecture) return alreadyCalled('set_role_architecture');
       state.role_architecture = input;
       return successResult({ set: 'set_role_architecture' });
@@ -800,7 +795,7 @@ export function createReconCollector(): ReconCollector {
       'sub-arrays in horizontal → vertical → context order, which vuln-authz reads as its todo list. ' +
       'Duplicate calls are rejected.',
     parameters: AuthzCandidatesInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.authz_candidates) return alreadyCalled('set_authz_candidates');
       state.authz_candidates = input;
       return successResult({ set: 'set_authz_candidates' });
@@ -817,7 +812,7 @@ export function createReconCollector(): ReconCollector {
       'of this kind"). Becomes Section 9 of the rendered deliverable. Drives the vuln-injection agent\'s ' +
       'todos downstream. Duplicate calls are rejected.',
     parameters: InjectionSourcesInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.injection_sources) return alreadyCalled('set_injection_sources');
       state.injection_sources = input;
       return successResult({ set: 'set_injection_sources' });

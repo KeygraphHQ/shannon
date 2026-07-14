@@ -329,27 +329,19 @@ export type VulnCallStatus = Readonly<Record<VulnToolName, VulnToolStatus>>;
 // RESPONSE HELPERS
 // ============================================================================
 
-interface ToolResult {
-  [x: string]: unknown;
-  content: Array<{ type: 'text'; text: string }>;
-  details: Record<string, unknown>;
-  isError: boolean;
-}
-
-function createToolResult(response: { status: string; [key: string]: unknown }): ToolResult {
+function toolResult(payload: Record<string, unknown>) {
   return {
-    content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }],
-    details: {},
-    isError: response.status === 'error',
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    details: undefined,
   };
 }
 
-function successResult(data: Record<string, unknown>): ToolResult {
-  return createToolResult({ status: 'success', ...data });
+function successResult(data: Record<string, unknown>) {
+  return toolResult({ status: 'success', ...data });
 }
 
-function errorResult(message: string, errorType = 'ValidationError', retryable = true): ToolResult {
-  return createToolResult({ status: 'error', message, errorType, retryable });
+function errorResult(message: string, errorType = 'ValidationError', retryable = true) {
+  return toolResult({ status: 'error', message, errorType, retryable });
 }
 
 // ============================================================================
@@ -370,7 +362,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     blind_spots?: BlindSpotsInput;
   } = {};
 
-  function alreadyCalled(toolName: VulnToolName): ToolResult {
+  function alreadyCalled(toolName: VulnToolName) {
     return errorResult(
       `${toolName} has already been called. Each tool may only be called once per run.`,
       'DuplicateError',
@@ -389,7 +381,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'patterns array is acceptable (renders as "No dominant patterns identified") but key_outcome ' +
       'is always required.',
     parameters: FindingsSummaryInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.findings_summary) return alreadyCalled('set_findings_summary');
       state.findings_summary = input;
       return successResult({ set: 'set_findings_summary' });
@@ -407,7 +399,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'Required. Duplicate calls return "already called" and are no-ops. Write "Not applicable" as ' +
       'the field value when a sub-field does not apply to this run (rather than omitting).',
     parameters: intelSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.strategic_intelligence) return alreadyCalled('set_strategic_intelligence');
       state.strategic_intelligence = input as unknown as StrategicIntelligenceInput;
       return successResult({ set: 'set_strategic_intelligence' });
@@ -425,7 +417,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       '(subject, location) before rendering, so emission order does not affect output. Duplicate ' +
       'calls return "already called" and are no-ops.',
     parameters: SafeVectorsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.safe_vectors) return alreadyCalled('set_safe_vectors');
       state.safe_vectors = input;
       return successResult({ set: 'set_safe_vectors', count: input.vectors.length });
@@ -442,7 +434,7 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       'either documented gaps or an explicit "no gaps" signal). Duplicate calls return "already ' +
       'called" and are no-ops.',
     parameters: BlindSpotsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.blind_spots) return alreadyCalled('set_blind_spots');
       state.blind_spots = input;
       return successResult({ set: 'set_blind_spots', count: input.items.length });

@@ -393,20 +393,19 @@ export type PreReconCallStatus = Readonly<Record<PreReconToolName, PreReconToolS
 // RESPONSE HELPERS
 // ============================================================================
 
-interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  details: Record<string, unknown>;
-  isError?: boolean;
+function toolResult(payload: Record<string, unknown>) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    details: undefined,
+  };
 }
 
-function successResult(data: Record<string, unknown>): ToolResult {
-  const response = { status: 'success', ...data };
-  return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }], details: {} };
+function successResult(data: Record<string, unknown>) {
+  return toolResult({ status: 'success', ...data });
 }
 
-function errorResult(message: string, errorType = 'ValidationError', retryable = true): ToolResult {
-  const response = { status: 'error', message, errorType, retryable };
-  return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }], details: {}, isError: true };
+function errorResult(message: string, errorType = 'ValidationError', retryable = true) {
+  return toolResult({ status: 'error', message, errorType, retryable });
 }
 
 // ============================================================================
@@ -430,7 +429,7 @@ export function createPreReconCollector(): PreReconCollector {
     ssrf_sinks?: SsrfSinksInput;
   } = {};
 
-  function alreadyCalled(toolName: PreReconToolName): ToolResult {
+  function alreadyCalled(toolName: PreReconToolName) {
     return errorResult(
       `${toolName} has already been called. Each set_* tool may only be called once per run.`,
       'DuplicateError',
@@ -446,7 +445,7 @@ export function createPreReconCollector(): PreReconCollector {
       'Call exactly once before terminating. Becomes Section 1 of the rendered deliverable. ' +
       'Duplicate calls are rejected.',
     parameters: ExecutiveSummaryInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.executive_summary) return alreadyCalled('set_executive_summary');
       state.executive_summary = input;
       return successResult({ set: 'set_executive_summary' });
@@ -461,7 +460,7 @@ export function createPreReconCollector(): PreReconCollector {
       'and infrastructure — in a single call. Call exactly once before terminating. ' +
       'Becomes Sections 2, 4, 5, and 6 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: ApplicationIntelligenceInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.application_intelligence) return alreadyCalled('set_application_intelligence');
       state.application_intelligence = input;
       return successResult({ set: 'set_application_intelligence' });
@@ -475,7 +474,7 @@ export function createPreReconCollector(): PreReconCollector {
       'Record the authentication & authorization deep dive. Call exactly once before terminating. ' +
       'Becomes Section 3 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: AuthDeepDiveInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.auth_deep_dive) return alreadyCalled('set_auth_deep_dive');
       state.auth_deep_dive = input;
       return successResult({ set: 'set_auth_deep_dive' });
@@ -489,7 +488,7 @@ export function createPreReconCollector(): PreReconCollector {
       'Record the overall codebase indexing narrative. Call exactly once before terminating. ' +
       'Becomes Section 7 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: CodebaseIndexingInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.codebase_indexing) return alreadyCalled('set_codebase_indexing');
       state.codebase_indexing = input;
       return successResult({ set: 'set_codebase_indexing' });
@@ -504,7 +503,7 @@ export function createPreReconCollector(): PreReconCollector {
       'before terminating. Becomes Section 8 of the rendered deliverable. The next agent uses this ' +
       'as a starting point for manual review. Duplicate calls are rejected.',
     parameters: CriticalFilePathsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.critical_file_paths) return alreadyCalled('set_critical_file_paths');
       state.critical_file_paths = input;
       return successResult({ set: 'set_critical_file_paths' });
@@ -521,7 +520,7 @@ export function createPreReconCollector(): PreReconCollector {
       "the vuln-xss agent's testing todos downstream. Becomes Section 9 of the rendered deliverable. " +
       'Duplicate calls are rejected.',
     parameters: XssSinksInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.xss_sinks) return alreadyCalled('set_xss_sinks');
       state.xss_sinks = input;
       return successResult({ set: 'set_xss_sinks' });
@@ -538,7 +537,7 @@ export function createPreReconCollector(): PreReconCollector {
       "the vuln-ssrf agent's testing todos downstream. Becomes Section 10 of the rendered deliverable. " +
       'Duplicate calls are rejected.',
     parameters: SsrfSinksInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    execute: async (_toolCallId, input) => {
       if (state.ssrf_sinks) return alreadyCalled('set_ssrf_sinks');
       state.ssrf_sinks = input;
       return successResult({ set: 'set_ssrf_sinks' });
