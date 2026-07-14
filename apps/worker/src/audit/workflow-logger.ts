@@ -134,7 +134,7 @@ export class WorkflowLogger {
   }
 
   /**
-   * Format timestamp for log line (local time, human readable)
+   * Format timestamp for log line (UTC, human readable)
    */
   private formatLogTime(): string {
     const now = new Date();
