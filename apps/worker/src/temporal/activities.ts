@@ -190,6 +190,7 @@ async function runAgentActivity(
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
         ...(customTools && { customTools }),
         ...(writeDeliverable && { writeDeliverable }),
+        cancellationSignal: Context.current().cancellationSignal,
       },
       auditSession,
       logger,
@@ -548,6 +549,7 @@ export async function runAuthenticationValidation(input: ActivityInput): Promise
       ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
       ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
       ...(input.pipelineTestingMode !== undefined && { pipelineTestingMode: input.pipelineTestingMode }),
+      cancellationSignal: Context.current().cancellationSignal,
     });
 
     if (isErr(result)) {

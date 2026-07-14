@@ -93,6 +93,7 @@ export interface ValidateAuthInput {
   readonly deliverablesSubdir?: string;
   readonly promptDir?: string;
   readonly pipelineTestingMode?: boolean;
+  readonly cancellationSignal?: AbortSignal;
 }
 
 export async function validateAuthentication(input: ValidateAuthInput): Promise<Result<void, PentestError>> {
@@ -106,6 +107,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     deliverablesSubdir,
     promptDir,
     pipelineTestingMode,
+    cancellationSignal,
   } = input;
 
   const authentication = distributedConfig.authentication;
@@ -145,7 +147,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     'medium',
     undefined, // callerTools
     deliverablesSubdir,
-    undefined, // cancellationSignal
+    cancellationSignal,
     submitTool,
   );
 

@@ -57,6 +57,7 @@ export interface AgentExecutionInput {
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
   // Renders the deliverable to disk; invoked after validation, before the success commit.
   writeDeliverable?: (deliverablesPath: string) => Promise<void>;
+  cancellationSignal?: AbortSignal | undefined;
 }
 
 interface FailAgentOpts {
@@ -129,6 +130,7 @@ export class AgentExecutionService {
       promptDir,
       customTools,
       writeDeliverable,
+      cancellationSignal,
     } = input;
     const gitPaths = getAgentGitPaths(agentName);
 
@@ -204,7 +206,7 @@ export class AgentExecutionService {
       AGENTS[agentName].modelTier,
       customTools,
       path.relative(repoPath, deliverablesPath),
-      undefined, // cancellationSignal
+      cancellationSignal,
       submitTool,
     );
 
