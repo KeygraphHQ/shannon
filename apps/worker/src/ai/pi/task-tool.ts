@@ -39,7 +39,6 @@ export interface TaskToolContext {
   /** Explicit model registry for sub-session resolution. Omit to inherit the parent's default. */
   modelRegistry?: ModelRegistry;
   resourceLoader: ResourceLoader;
-  maxTasksPerSession?: number;
   cancellationSignal?: AbortSignal | undefined;
   /**
    * Reports the cost/tokens of each spawned sub-session back to the caller.
@@ -51,16 +50,12 @@ export interface TaskToolContext {
 }
 
 const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
-const MAX_TASKS_PER_SESSION = 10;
 
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }], details: undefined };
 }
 
 export function createTaskTool(config: TaskToolContext): ToolDefinition {
-  const maxTasks = config.maxTasksPerSession ?? MAX_TASKS_PER_SESSION;
-  let taskCount = 0;
-
   const taskTool: ToolDefinition = defineTool({
     name: 'task',
     label: 'Task',
@@ -82,13 +77,6 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       description: Type.Optional(Type.String({ description: 'A short (3-5 word) description of the task.' })),
     }),
     async execute(_toolCallId, params) {
-      taskCount++;
-      if (taskCount > maxTasks) {
-        return textResult(
-          `[Task budget exhausted: ${maxTasks} tasks already spawned. Work with the results you have.]`,
-        );
-      }
-
       const agentDir = getAgentDir();
       const { session: subSession } = await createAgentSession({
         cwd: config.cwd,
