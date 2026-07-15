@@ -232,9 +232,7 @@ export class MetricsTracker {
   /**
    * Update session status
    */
-  async updateSessionStatus(
-    status: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial',
-  ): Promise<void> {
+  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial'): Promise<void> {
     if (!this.data) return;
 
     this.data.session.status = status;

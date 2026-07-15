@@ -6,6 +6,7 @@
 
 // Production agent execution on the pi harness, with git checkpoints and audit logging.
 
+import os from 'node:os';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   type AgentSessionEvent,
@@ -19,16 +20,15 @@ import {
   type Skill,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import os from 'node:os';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../../audit/index.js';
 import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
-import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { isRetryableError, PentestError } from '../../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../../session-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
 import { ErrorCode } from '../../types/errors.js';
 import { isSpendingCapBehavior, matchesBillingTextPattern } from '../../utils/billing-detection.js';
+import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { formatTimestamp } from '../../utils/formatting.js';
 import { Timer } from '../../utils/metrics.js';
 import { createAuditLogger } from '../audit-logger.js';

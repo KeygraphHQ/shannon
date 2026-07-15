@@ -16,19 +16,19 @@
  * resource loader, and a fixed child tool surface.
  */
 
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
 import {
+  type AuthStorage,
   createAgentSession,
   defineTool,
   getAgentDir,
-  SessionManager,
-  SettingsManager,
-  type AuthStorage,
   type ModelRegistry,
   type ResourceLoader,
+  SessionManager,
+  SettingsManager,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import { Type, type Model, type AssistantMessage } from '@earendil-works/pi-ai';
 
 export interface TaskToolContext {
   cwd: string;

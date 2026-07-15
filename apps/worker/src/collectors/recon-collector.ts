@@ -21,7 +21,7 @@
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { type Static, Type } from 'typebox';
-import { SinkRefSchema, type SinkRef } from './pre-recon-collector.js';
+import { type SinkRef, SinkRefSchema } from './pre-recon-collector.js';
 import { cleanInput, stringEnum } from './schema.js';
 
 // ============================================================================
