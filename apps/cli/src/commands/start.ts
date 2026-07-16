@@ -66,10 +66,10 @@ export async function start(args: StartArgs): Promise<void> {
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
 
-  // 4. Ensure workspaces dir is writable by container user (UID 1001)
+  // 4. Ensure workspaces dir is accessible by container user (UID remapped via entrypoint)
   const workspacesDir = getWorkspacesDir();
   fs.mkdirSync(workspacesDir, { recursive: true });
-  fs.chmodSync(workspacesDir, 0o777);
+  fs.chmodSync(workspacesDir, 0o755);
 
   // 5. Ensure image (auto-build in dev, pull in npx) and start infra
   ensureImage(args.version);
@@ -85,19 +85,19 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
 
   // 8. Create writable overlay directories (mounted over :ro repo paths inside container)
-  // The run dir and its INTERNAL_DIR must be 0o777 so the container user can create audit
-  // subdirs and the overlay backing dirs.
+  // The run dir and its INTERNAL_DIR need owner-writable permissions for the container
+  // user (remapped via entrypoint). Others should have read-only access.
   const workspacePath = path.join(workspacesDir, workspace);
   const internalPath = path.join(workspacePath, INTERNAL_DIR);
   fs.mkdirSync(workspacePath, { recursive: true });
-  fs.chmodSync(workspacePath, 0o777);
+  fs.chmodSync(workspacePath, 0o755);
   migrateLegacyWorkspaceLayout(workspacePath);
   fs.mkdirSync(internalPath, { recursive: true });
-  fs.chmodSync(internalPath, 0o777);
+  fs.chmodSync(internalPath, 0o755);
   for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright']) {
     const dirPath = path.join(internalPath, dir);
     fs.mkdirSync(dirPath, { recursive: true });
-    fs.chmodSync(dirPath, 0o777);
+    fs.chmodSync(dirPath, 0o755);
   }
 
   // 9. Pre-create overlay mount points (:ro mounts can't auto-create them)
