@@ -1,6 +1,6 @@
 # Workspaces and Resuming
 
-Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverables. Workspaces allow interrupted or failed runs to resume without re-running completed agents.
+Shannon uses workspaces to store scan state, logs, prompts, and deliverables. Workspaces allow interrupted or failed runs to resume without re-running completed agents.
 
 ## How Workspaces Work
 
@@ -14,7 +14,7 @@ Shannon Lite uses workspaces to store scan state, logs, prompts, and deliverable
 - The final report is surfaced at the workspace root as `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]
-> The URL must match the original workspace URL when resuming. Shannon Lite rejects mismatched URLs to prevent cross-target contamination.
+> The URL must match the original workspace URL when resuming. Shannon rejects mismatched URLs to prevent cross-target contamination.
 
 ## Examples
 

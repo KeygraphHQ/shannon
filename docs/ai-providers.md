@@ -1,6 +1,6 @@
 # AI Providers
 
-Shannon Lite works best with Claude models. Anthropic API keys are recommended for most users, and Shannon Lite also supports AWS Bedrock and custom Anthropic-compatible endpoints.
+Shannon works best with Claude models. Anthropic API keys are recommended for most users, and Shannon also supports AWS Bedrock and custom Anthropic-compatible endpoints.
 
 ## Anthropic
 
@@ -50,7 +50,7 @@ ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
 ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
 ```
 
-Shannon Lite uses three model tiers:
+Shannon uses three model tiers:
 
 - **small** for summarization
 - **medium** for security analysis
@@ -60,10 +60,10 @@ Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODE
 
 ## Custom Base URL
 
-Shannon Lite supports pointing the SDK at an Anthropic-compatible endpoint with `ANTHROPIC_BASE_URL`. For proxy-based routing, use an LLM proxy such as LiteLLM configured to expose an Anthropic-compatible endpoint.
+Shannon supports pointing the SDK at an Anthropic-compatible endpoint with `ANTHROPIC_BASE_URL`. For proxy-based routing, use an LLM proxy such as LiteLLM configured to expose an Anthropic-compatible endpoint.
 
 > [!IMPORTANT]
-> Only Claude models are officially supported. Shannon Lite's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon Lite's instructions or tool-use constraints. Use them at your own risk.
+> Only Claude models are officially supported. Shannon's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon's instructions or tool-use constraints. Use them at your own risk.
 
 The experimental `claude-code-router` integration has been removed. If you previously relied on it, migrate to an Anthropic-compatible proxy such as LiteLLM.
 

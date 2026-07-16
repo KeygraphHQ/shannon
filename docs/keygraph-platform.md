@@ -1,12 +1,12 @@
-# Shannon Pro
+# Keygraph Platform
 
-Shannon Pro is Keygraph's commercial continuous pentesting and AppSec platform for teams running security across many repositories, services, and environments. While Shannon Lite is a local white-box pentesting CLI, Shannon Pro is a full platform: it combines parsed-code SAST, source-to-sink analysis, black-box and white-box agentic pentesting, verified remediation, CI/CD gating, SLA tracking, and reporting for security and compliance teams.
+The Keygraph platform is Keygraph's commercial continuous pentesting and AppSec platform for teams running security across many repositories, services, and environments. While Shannon is a local white-box pentesting CLI, the Keygraph platform is a complete AppSec system: it combines parsed-code SAST, source-to-sink analysis, black-box and white-box agentic pentesting, verified remediation, CI/CD gating, SLA tracking, and reporting for security and compliance teams.
 
-This repository contains Shannon Lite, the AGPL-3.0 open-source CLI for strictly white-box pentesting. Shannon Pro supports both white-box and black-box agentic pentesting and adds static analysis, finding management, remediation workflows, reporting, and enterprise deployment options.
+This repository contains Shannon, the AGPL-3.0 open-source CLI for strictly white-box pentesting. The Keygraph platform supports both white-box and black-box agentic pentesting and adds static analysis, finding management, remediation workflows, reporting, and enterprise deployment options.
 
-## Who Should Consider Shannon Pro
+## Who Should Consider the Keygraph Platform
 
-Shannon Pro is intended for organizations that need:
+The Keygraph platform is intended for organizations that need:
 
 - Continuous AppSec coverage across many repositories and services
 - White-box pentesting when source code is available
@@ -21,7 +21,7 @@ Shannon Pro is intended for organizations that need:
 
 ## Full Vulnerability Lifecycle
 
-Shannon Pro is designed to cover the full vulnerability lifecycle, not only discovery:
+The Keygraph platform is designed to cover the full vulnerability lifecycle, not only discovery:
 
 1. **Find** exploitable issues with white-box pentesting, black-box pentesting, SAST, SCA, secrets, IaC, container, and business logic testing.
 2. **Normalize** results into canonical findings so duplicate scanner outputs become one tracked vulnerability per repository.
@@ -34,9 +34,9 @@ Shannon Pro is designed to cover the full vulnerability lifecycle, not only disc
 
 ## Pentesting Modes
 
-Shannon Lite is strictly white-box: it requires access to the target application's source code and repository layout.
+Shannon is strictly white-box: it requires access to the target application's source code and repository layout.
 
-Shannon Pro supports two pentesting modes:
+The Keygraph platform supports two pentesting modes:
 
 - **White-box agentic pentesting**: Agents use source-code context to understand architecture, identify realistic attack paths, and validate exploitability against the running application.
 - **Black-box agentic pentesting**: Agents test deployed applications and APIs without source-code access, useful for third-party surfaces, production-like external validation, or environments where source access is unavailable.
@@ -45,7 +45,7 @@ Both modes follow the same core principle: do not report what might be vulnerabl
 
 ## AppSec Coverage
 
-Shannon Pro combines agentic pentesting with broader AppSec coverage:
+The Keygraph platform combines agentic pentesting with broader AppSec coverage:
 
 - **Agentic SAST**: Code Property Graph analysis with LLM reasoning for data flow, context, and sanitization decisions.
 - **SCA with reachability**: Dependency vulnerability analysis that prioritizes issues reachable from application entry points.
@@ -62,7 +62,7 @@ The result is a finding with proof of exploitability, source context when availa
 
 ## Enterprise Deployment
 
-Shannon Pro supports enterprise deployment patterns for teams with strict data, model, and network requirements:
+The Keygraph platform supports enterprise deployment patterns for teams with strict data, model, and network requirements:
 
 - **Self-hosted deployments** inside the customer's cloud or infrastructure
 - **Air-gapped deployments** for isolated environments
@@ -75,7 +75,7 @@ Deployments can be designed so source code, scan results, prompts, completions, 
 
 ## Capability Comparison
 
-| Need | Shannon Lite | Shannon Pro |
+| Need | Shannon | Keygraph platform |
 | --- | --- | --- |
 | Licensing | AGPL-3.0 | Commercial |
 | White-box pentesting | Yes; source code required | Yes; source-aware testing with platform workflows |
@@ -91,4 +91,4 @@ Deployments can be designed so source code, scan results, prompts, completions, 
 
 ## Contact
 
-Learn more on the [Keygraph website](https://keygraph.io), start a free trial, book a [Shannon Pro demo](https://cal.com/team/keygraph/shannon-pro), or contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
+Learn more on the [Keygraph website](https://keygraph.io), start a free trial, book a [Keygraph demo](https://cal.com/team/keygraph/shannon-pro), or contact [shannon@keygraph.io](mailto:shannon@keygraph.io).

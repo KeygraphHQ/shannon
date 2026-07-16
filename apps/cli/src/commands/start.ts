@@ -246,7 +246,7 @@ function printInfo(
   repoPath: string,
   workspacesDir: string,
 ): void {
-  const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon@beta logs ${workspace}`;
+  const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_FILENAME);
 
   console.log('  Scan started — it runs in the background, so you can close this terminal.');

@@ -94,7 +94,7 @@ function loadTOML(): TOMLConfig | null {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`\nFailed to parse ${configPath}: ${message}`);
-    console.error(`\nRun 'npx @keygraph/shannon@beta setup' to reconfigure.\n`);
+    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
     process.exit(1);
   }
 }
@@ -255,7 +255,7 @@ export function resolveConfig(): void {
     for (const err of errors) {
       console.error(`  - ${err}`);
     }
-    console.error(`\nRun 'shn setup' to reconfigure.\n`);
+    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
     process.exit(1);
   }
 

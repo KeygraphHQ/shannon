@@ -253,7 +253,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ...(input.auditDir !== undefined && { auditDir: input.auditDir }),
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
     ...(input.sastSarifPath !== undefined && { sastSarifPath: input.sastSarifPath }),
-    ...(input.skipGitCheck !== undefined && { skipGitCheck: input.skipGitCheck }),
   };
 
   const selectedVulnClasses: readonly VulnClass[] =

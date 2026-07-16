@@ -26,7 +26,6 @@ export interface PipelineInput {
   promptDir?: string; // Override prompt template directory
   sastSarifPath?: string; // Optional path for consumer-supplied findings input
   checkpointsEnabled?: boolean; // Enable checkpoint activities (default: false)
-  skipGitCheck?: boolean; // Skip .git directory validation in preflight (e.g. when .git is removed after clone)
   vulnClasses?: VulnClass[]; // omitted = all five
   exploit?: boolean; // false skips the exploitation phase
 }

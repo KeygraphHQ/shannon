@@ -1,5 +1,5 @@
 /**
- * `shn uninstall` command — remove ~/.shannon/ after confirmation (npx only).
+ * `npx @keygraph/shannon uninstall` command — remove ~/.shannon/ after confirmation (npx only).
  */
 
 import fs from 'node:fs';
@@ -44,7 +44,7 @@ export async function uninstall(yes: boolean): Promise<void> {
   fs.rmSync(SHANNON_HOME, { recursive: true, force: true });
 
   const done = 'All Shannon data has been removed.';
-  const hint = 'Shannon has been uninstalled. Run `npx @keygraph/shannon@beta setup` to start fresh.';
+  const hint = 'Shannon has been uninstalled. Run `npx @keygraph/shannon setup` to start fresh.';
   if (interactive) {
     p.log.success(done);
     p.outro(hint);
