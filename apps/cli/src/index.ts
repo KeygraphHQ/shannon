@@ -165,9 +165,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 
   if (!url || !repo) {
     console.error('ERROR: --url and --repo are required');
-    console.error(
-      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`,
-    );
+    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`);
     process.exit(1);
   }
 
