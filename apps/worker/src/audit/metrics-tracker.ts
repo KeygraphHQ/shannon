@@ -57,7 +57,7 @@ interface SessionData {
     id: string;
     webUrl: string;
     repoPath?: string;
-    status: 'in-progress' | 'completed' | 'failed' | 'cancelled';
+    status: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial';
     createdAt: string;
     completedAt?: string;
     originalWorkflowId?: string; // First workflow that created this workspace
@@ -214,9 +214,9 @@ export class MetricsTracker {
         agent.checkpoint = result.checkpoint;
       }
     } else {
-      if (result.isFinalAttempt) {
-        agent.status = 'failed';
-      }
+      // A non-final failed attempt stays in-progress (Temporal will retry); only the
+      // terminal attempt (or an unqualified failure) marks the agent failed.
+      agent.status = result.isFinalAttempt === false ? 'in-progress' : 'failed';
     }
 
     // 7. Clear active timer
@@ -232,12 +232,12 @@ export class MetricsTracker {
   /**
    * Update session status
    */
-  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled'): Promise<void> {
+  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial'): Promise<void> {
     if (!this.data) return;
 
     this.data.session.status = status;
 
-    if (status === 'completed' || status === 'failed' || status === 'cancelled') {
+    if (status === 'completed' || status === 'failed' || status === 'cancelled' || status === 'partial') {
       this.data.session.completedAt = formatTimestamp();
     }
 

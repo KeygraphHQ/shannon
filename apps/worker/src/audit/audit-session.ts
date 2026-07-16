@@ -210,7 +210,7 @@ export class AuditSession {
   /**
    * Update session status
    */
-  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled'): Promise<void> {
+  async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial'): Promise<void> {
     await this.ensureInitialized();
 
     const unlock = await sessionMutex.lock(this.sessionId);

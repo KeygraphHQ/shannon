@@ -9,8 +9,7 @@
 /**
  * generate-totp CLI
  *
- * Generates 6-digit TOTP codes for authentication.
- * Replaces the MCP generate_totp tool.
+ * Generates a TOTP code for the target's MFA.
  * Based on RFC 6238 (TOTP) and RFC 4226 (HOTP).
  *
  * Usage:
@@ -129,8 +128,12 @@ function main(): void {
     process.exit(1);
   }
 
+  // Strip base32 padding ('=') and whitespace so grouped/padded secrets
+  // (e.g. "JBSW Y3DP" or "...PXP=") pass validation instead of being rejected.
+  const normalizedSecret = secret.replace(/[=\s]/g, '');
+
   const base32Regex = /^[A-Z2-7]+$/i;
-  if (!base32Regex.test(secret)) {
+  if (!base32Regex.test(normalizedSecret)) {
     console.log(
       JSON.stringify({
         status: 'error',
@@ -142,7 +145,7 @@ function main(): void {
   }
 
   try {
-    const totpCode = generateTOTP(secret);
+    const totpCode = generateTOTP(normalizedSecret);
     const expiresIn = 30 - (Math.floor(Date.now() / 1000) % 30);
 
     console.log(

@@ -25,6 +25,7 @@
 
 import {
   ApplicationFailure,
+  CancellationScope,
   isCancellation,
   log,
   proxyActivities,
@@ -39,6 +40,7 @@ import type { ActivityInput } from './activities.js';
 import {
   type AgentMetrics,
   getProgress,
+  PipelineExecutionError,
   type PipelineInput,
   type PipelineProgress,
   type PipelineState,
@@ -165,6 +167,15 @@ function computeSummary(state: PipelineState): PipelineSummary {
   };
 }
 
+const MAX_PIPELINE_ERROR_MESSAGE_LENGTH = 2000;
+
+function truncatePipelineErrorMessage(message: string): string {
+  if (message.length <= MAX_PIPELINE_ERROR_MESSAGE_LENGTH) {
+    return message;
+  }
+  return `${message.slice(0, MAX_PIPELINE_ERROR_MESSAGE_LENGTH - 20)}\n[truncated]`;
+}
+
 /**
  * Core pipeline orchestration. Coordinates the pentest pipeline stages.
  *
@@ -203,6 +214,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     currentPhase: null,
     currentAgent: null,
     completedAgents: [],
+    failedPipelines: [],
     failedAgent: null,
     error: null,
     startTime: Date.now(),
@@ -237,13 +249,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }),
     // Config fields — flow through to getOrCreateContainer()
     ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
-    ...(input.apiKey !== undefined && { apiKey: input.apiKey }),
     ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
     ...(input.auditDir !== undefined && { auditDir: input.auditDir }),
     ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
     ...(input.sastSarifPath !== undefined && { sastSarifPath: input.sastSarifPath }),
     ...(input.skipGitCheck !== undefined && { skipGitCheck: input.skipGitCheck }),
-    ...(input.providerConfig !== undefined && { providerConfig: input.providerConfig }),
   };
 
   const selectedVulnClasses: readonly VulnClass[] =
@@ -373,24 +383,70 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     ];
   }
 
-  // Aggregate errors from settled pipeline promises.
+  // A rejected settle can be a genuine Temporal cancellation (runVulnExploitPipeline rethrows in
+  // its isCancellation branch). Cancellation must win over failed/partial classification — there is
+  // no report worth shipping once the user has cancelled, and rethrowing lets the workflow's outer
+  // isCancellation handler produce a real cancelled state instead of a hard failure.
+  function throwIfPipelineCancelled(results: PromiseSettledResult<VulnExploitPipelineResult>[]): void {
+    const cancelled = results.find(
+      (r): r is PromiseRejectedResult => r.status === 'rejected' && isCancellation(r.reason),
+    );
+    if (cancelled) {
+      throw cancelled.reason;
+    }
+  }
+
+  // Classify the settled pipeline results into clean / partial / fail-hard.
   // Metrics and completedAgents are updated incrementally inside runVulnExploitPipeline
   // so that getProgress queries reflect real-time status during execution.
-  function aggregatePipelineResults(results: PromiseSettledResult<VulnExploitPipelineResult>[]): void {
-    const failedPipelines: string[] = [];
+  function aggregatePipelineResults(
+    results: PromiseSettledResult<VulnExploitPipelineResult>[],
+    alreadyCompletedPipelineCount: number,
+  ): void {
+    throwIfPipelineCancelled(results);
+
+    const failed: { vulnType: VulnClass; error: string }[] = [];
+    // A rejected settle is now unexpected (runVulnExploitPipeline catches and returns its error in
+    // the value). Without a value we cannot attribute the failure to a class, so we treat it as a
+    // hard failure rather than risk an under-qualified report.
+    const unattributable: string[] = [];
 
     for (const result of results) {
-      if (result.status === 'rejected') {
-        const errorMsg = result.reason instanceof Error ? result.reason.message : String(result.reason);
-        failedPipelines.push(errorMsg);
+      if (result.status === 'fulfilled') {
+        if (result.value.error !== null) {
+          failed.push({ vulnType: result.value.vulnType, error: result.value.error });
+        }
+      } else {
+        const rawMessage = result.reason instanceof Error ? result.reason.message : String(result.reason);
+        unattributable.push(truncatePipelineErrorMessage(rawMessage));
       }
     }
 
-    if (failedPipelines.length > 0) {
-      log.warn(`${failedPipelines.length} pipeline(s) failed`, {
-        failures: failedPipelines,
-      });
+    const failedCount = failed.length + unattributable.length;
+    const totalPipelineCount = results.length + alreadyCompletedPipelineCount;
+    if (failedCount === 0) {
+      return;
     }
+
+    // All run pipelines failed, or a failure we cannot attribute to a class → fail-hard. There is
+    // no report worth shipping, and we must never render an un-assessed class as if it passed.
+    if (failedCount === totalPipelineCount || unattributable.length > 0) {
+      const allErrors = [...failed.map((f) => `${f.vulnType}: ${f.error}`), ...unattributable];
+      const message = `${failedCount} vulnerability/exploitation pipeline(s) failed`;
+      state.status = 'failed';
+      state.failedAgent = 'pipelines';
+      state.error = `${message}: ${allErrors.join('; ')}`;
+      log.warn(message, { failures: allErrors });
+      throw ApplicationFailure.nonRetryable(state.error, 'PipelineFailedError', [{ failures: allErrors }]);
+    }
+
+    // Partial: at least one class succeeded and at least one failed. Record the failed classes and
+    // set the partial terminal status; do NOT throw — the successful pipelines still ship.
+    state.failedPipelines = failed;
+    state.status = 'partial';
+    log.warn(`${failed.length} of ${totalPipelineCount} pipeline(s) failed — continuing with partial results`, {
+      failures: failed.map((f) => `${f.vulnType}: ${f.error}`),
+    });
   }
 
   // Run thunks with a concurrency limit, returning PromiseSettledResult for each.
@@ -480,56 +536,87 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       const vulnAgentName = `${vulnType}-vuln`;
       const exploitAgentName = `${vulnType}-exploit`;
 
-      // 1. Run vulnerability analysis (or skip if resumed)
-      let vulnMetrics: AgentMetrics | null = null;
-      if (!shouldSkip(vulnAgentName)) {
-        vulnMetrics = await runVulnAgent();
-        state.agentMetrics[vulnAgentName] = vulnMetrics;
-        state.completedAgents.push(vulnAgentName);
-        if (input.checkpointsEnabled) {
-          await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
+      // A class failure must not reject the pipeline set — that would lose the class identity
+      // (results are completion-ordered) and force fail-hard. Catch here and return the error in
+      // the result's `error` field so aggregatePipelineResults can attribute it to `vulnType`.
+      try {
+        // 1. Run vulnerability analysis (or skip if resumed)
+        let vulnMetrics: AgentMetrics | null = null;
+        if (!shouldSkip(vulnAgentName)) {
+          vulnMetrics = await runVulnAgent();
+          state.agentMetrics[vulnAgentName] = vulnMetrics;
+          state.completedAgents.push(vulnAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
+          }
+        } else {
+          log.info(`Skipping ${vulnAgentName} (already complete)`);
+          state.completedAgents.push(vulnAgentName);
         }
-      } else {
-        log.info(`Skipping ${vulnAgentName} (already complete)`);
-        state.completedAgents.push(vulnAgentName);
-      }
 
-      // 1.5. Merge external findings from consumer provider into exploitation queue
-      await a.mergeFindingsIntoQueue(activityInput, vulnType);
+        // 1.5. Merge external findings from consumer provider into exploitation queue
+        await a.mergeFindingsIntoQueue(activityInput, vulnType);
 
-      // 2. Check exploitation queue for actionable findings
-      const decision = await a.checkExploitationQueue(activityInput, vulnType);
+        // 2. Check exploitation queue for actionable findings
+        const decision = await a.checkExploitationQueue(activityInput, vulnType);
 
-      // 3. Previously-completed exploits are preserved regardless of mode; new exploits gated by mode.
-      let exploitMetrics: AgentMetrics | null = null;
-      if (shouldSkip(exploitAgentName)) {
-        log.info(`Skipping ${exploitAgentName} (already complete)`);
-        state.completedAgents.push(exploitAgentName);
-      } else if (decision.shouldExploit && exploit) {
-        exploitMetrics = await runExploitAgent();
-        state.agentMetrics[exploitAgentName] = exploitMetrics;
-        state.completedAgents.push(exploitAgentName);
-        if (input.checkpointsEnabled) {
-          await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+        // 3. Previously-completed exploits are preserved regardless of mode; new exploits gated by mode.
+        let exploitMetrics: AgentMetrics | null = null;
+        if (shouldSkip(exploitAgentName)) {
+          log.info(`Skipping ${exploitAgentName} (already complete)`);
+          state.completedAgents.push(exploitAgentName);
+        } else if (decision.shouldExploit && exploit) {
+          exploitMetrics = await runExploitAgent();
+          state.agentMetrics[exploitAgentName] = exploitMetrics;
+          state.completedAgents.push(exploitAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
+        } else {
+          // Exploitation did not run (exploit mode off, or no actionable findings) — still
+          // mark the agent complete so a resume does not treat it as unfinished work.
+          log.info(
+            `Marking ${exploitAgentName} complete (${decision.shouldExploit ? 'exploit mode disabled' : 'no actionable findings'})`,
+          );
+          state.completedAgents.push(exploitAgentName);
+          if (input.checkpointsEnabled) {
+            await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+          }
         }
-      }
 
-      return {
-        vulnType,
-        vulnMetrics,
-        exploitMetrics,
-        exploitDecision: {
-          shouldExploit: decision.shouldExploit,
-          vulnerabilityCount: decision.vulnerabilityCount,
-        },
-        error: null,
-      };
+        return {
+          vulnType,
+          vulnMetrics,
+          exploitMetrics,
+          exploitDecision: {
+            shouldExploit: decision.shouldExploit,
+            vulnerabilityCount: decision.vulnerabilityCount,
+          },
+          error: null,
+        };
+      } catch (error) {
+        // Let cancellation propagate to the workflow-level handler.
+        if (isCancellation(error)) {
+          throw error;
+        }
+        const rawMessage = error instanceof Error ? error.message : String(error);
+        const message = truncatePipelineErrorMessage(rawMessage);
+        log.warn(`Pipeline ${vulnType} failed`, { error: message });
+        return {
+          vulnType,
+          vulnMetrics: state.agentMetrics[vulnAgentName] ?? null,
+          exploitMetrics: state.agentMetrics[exploitAgentName] ?? null,
+          exploitDecision: null,
+          error: message,
+        };
+      }
     }
 
     const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
 
     const pipelineConfigs = buildPipelineConfigs();
     const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
+    let alreadyCompletedPipelineCount = 0;
 
     for (const config of pipelineConfigs) {
       // Excluded classes drop entirely; any prior deliverables stay on disk but don't count this run.
@@ -542,11 +629,12 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       } else {
         log.info(`Skipping entire ${config.vulnType} pipeline (both agents complete)`);
         state.completedAgents.push(config.vulnAgent, config.exploitAgent);
+        alreadyCompletedPipelineCount++;
       }
     }
 
     const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, maxConcurrent);
-    aggregatePipelineResults(pipelineResults);
+    aggregatePipelineResults(pipelineResults, alreadyCompletedPipelineCount);
 
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
@@ -584,13 +672,16 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       await a.saveCheckpoint(activityInput, 'report-output', 'reporting', state);
     }
 
-    state.status = 'completed';
+    // Preserve a partial verdict (set by aggregatePipelineResults) — a clean run is 'completed',
+    // a run where some classes were not assessed is 'partial'.
+    const terminalStatus: 'completed' | 'partial' = state.failedPipelines.length > 0 ? 'partial' : 'completed';
+    state.status = terminalStatus;
     state.currentPhase = null;
     state.currentAgent = null;
     state.summary = computeSummary(state);
 
     // Log workflow completion summary
-    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, terminalStatus));
 
     return state;
   } catch (error) {
@@ -599,7 +690,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.status = 'cancelled';
       state.error = `Cancelled during phase: ${state.currentPhase ?? 'unknown'}`;
       state.summary = computeSummary(state);
-      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
+      // Finalization runs I/O activities; shield them from the cancellation so the
+      // cancelled state is still logged rather than aborted mid-write.
+      await CancellationScope.nonCancellable(async () => {
+        try {
+          await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
+        } catch (completionError) {
+          log.warn('Failed to finalize cancelled workflow', {
+            error: completionError instanceof Error ? completionError.message : String(completionError),
+          });
+        }
+      });
       return state;
     }
 
@@ -613,9 +714,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.summary = computeSummary(state);
 
     // Log workflow failure summary
-    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
+    try {
+      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
+    } catch (completionError) {
+      log.warn('Failed to finalize failed workflow', {
+        error: completionError instanceof Error ? completionError.message : String(completionError),
+      });
+    }
 
-    throw error;
+    // Carry the populated state so a consumer can report real spend instead of a zeroed
+    // failed state. The original error rides as `cause` for classification/reporting.
+    throw new PipelineExecutionError(state.error ?? 'Pipeline failed', state, { cause: error });
   }
 }
 

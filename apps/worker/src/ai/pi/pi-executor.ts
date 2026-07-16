@@ -6,7 +6,7 @@
 
 // Production agent execution on the pi harness, with git checkpoints and audit logging.
 
-import { createRequire } from 'node:module';
+import os from 'node:os';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
   type AgentSessionEvent,
@@ -17,30 +17,34 @@ import {
   type ResourceLoader,
   SessionManager,
   SettingsManager,
+  type Skill,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
-import type { AuditSession } from '../audit/index.js';
-import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, PLAYWRIGHT_SKILL_DIR } from '../paths.js';
-import { isRetryableError, PentestError } from '../services/error-handling.js';
-import { AGENT_VALIDATORS } from '../session-manager.js';
-import type { ActivityLogger } from '../types/activity-logger.js';
-import { ErrorCode } from '../types/errors.js';
-import { isSpendingCapBehavior, matchesBillingTextPattern } from '../utils/billing-detection.js';
-import { formatTimestamp } from '../utils/formatting.js';
-import { Timer } from '../utils/metrics.js';
-import { createAuditLogger } from './audit-logger.js';
-import { type ModelTier, resolveModelSelection } from './models.js';
+import type { AuditSession } from '../../audit/index.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
+import { isRetryableError, PentestError } from '../../services/error-handling.js';
+import { AGENT_VALIDATORS } from '../../session-manager.js';
+import type { ActivityLogger } from '../../types/activity-logger.js';
+import { ErrorCode } from '../../types/errors.js';
+import { isSpendingCapBehavior, matchesBillingTextPattern } from '../../utils/billing-detection.js';
+import { isBrowserAgent } from '../../utils/browser-agents.js';
+import { formatTimestamp } from '../../utils/formatting.js';
+import { Timer } from '../../utils/metrics.js';
+import { createAuditLogger } from '../audit-logger.js';
+import { type ModelTier, resolveModelSelection } from '../models.js';
 import {
   detectExecutionContext,
   formatAssistantOutput,
   formatCompletionMessage,
   formatErrorOutput,
   formatToolCall,
-} from './output-formatters.js';
-import { createProgressManager } from './progress-manager.js';
-import { permissionConfigPath } from './settings-writer.js';
-import { createGlobTool, createTaskTool, createTodoWriteTool } from './tools.js';
+} from '../output-formatters.js';
+import { createProgressManager } from '../progress-manager.js';
+import type { CapturedSubmitTool } from '../submit-tool.js';
+import { permissionSystemConfigExists, permissionSystemPackageDir } from './permission-system.js';
+import { createGlobTool, createTodoWriteTool } from './session-tools.js';
+import { createTaskTool } from './task-tool.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -49,40 +53,53 @@ declare global {
 /** Built-in pi tools enabled for every agent (custom tool names are appended). */
 const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
 
-const requireFromHere = createRequire(import.meta.url);
-let cachedExtensionDir: string | null | undefined;
-
-/** Resolve the installed @gotgenes/pi-permission-system package dir, or null. */
-function permissionExtensionDir(): string | null {
-  if (cachedExtensionDir !== undefined) return cachedExtensionDir;
-  try {
-    const entry = requireFromHere.resolve('@gotgenes/pi-permission-system');
-    cachedExtensionDir = path.dirname(path.dirname(entry));
-  } catch {
-    cachedExtensionDir = null;
-  }
-  return cachedExtensionDir;
+/** Build the playwright-cli Skill object injected for browser-using agents. */
+function buildPlaywrightSkill(): Skill {
+  const filePath =
+    process.env.PLAYWRIGHT_CLI_SKILL_PATH ?? path.join(os.homedir(), '.claude/skills/playwright-cli/SKILL.md');
+  const baseDir = path.dirname(filePath);
+  return {
+    name: 'playwright-cli',
+    description:
+      'Drive a real browser via the playwright-cli binary. Use for any task that navigates, clicks, ' +
+      'fills forms, takes screenshots, or reads live pages.',
+    filePath,
+    baseDir,
+    sourceInfo: { path: filePath, source: 'custom', scope: 'user', origin: 'top-level', baseDir },
+    disableModelInvocation: false,
+  };
 }
 
-async function buildResourceLoader(cwd: string, logger: ActivityLogger): Promise<ResourceLoader> {
+async function buildResourceLoader(
+  cwd: string,
+  logger: ActivityLogger,
+  agentName: string | null,
+): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
   const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
-  if (fs.existsSync(permissionConfigPath())) {
-    const extDir = permissionExtensionDir();
-    if (extDir) {
-      additionalExtensionPaths.push(extDir);
-    } else {
+  if (permissionSystemConfigExists(getAgentDir())) {
+    try {
+      additionalExtensionPaths.push(permissionSystemPackageDir());
+    } catch {
       logger.warn(
         'code_path deny config present but @gotgenes/pi-permission-system not resolvable — skipping enforcement',
       );
     }
   }
 
+  // Only browser-driving agents get the playwright-cli skill; the rest run with no skills.
   const loader = new DefaultResourceLoader({
     cwd,
     agentDir: getAgentDir(),
-    additionalSkillPaths: [PLAYWRIGHT_SKILL_DIR],
     ...(additionalExtensionPaths.length > 0 && { additionalExtensionPaths }),
+    ...(isBrowserAgent(agentName)
+      ? {
+          skillsOverride: (base) => ({
+            skills: [buildPlaywrightSkill()],
+            diagnostics: base.diagnostics,
+          }),
+        }
+      : { noSkills: true }),
   });
   await loader.reload();
   return loader;
@@ -202,18 +219,20 @@ export async function runPiPrompt(
   sourceDir: string,
   context: string = '',
   description: string = 'Agent analysis',
-  _agentName: string | null = null,
+  agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
   modelTier: ModelTier = 'medium',
   callerTools?: ToolDefinition[],
-  apiKey?: string,
   deliverablesSubdir?: string,
-  providerConfig?: import('../types/config.js').ProviderConfig,
+  cancellationSignal?: AbortSignal,
+  submitTool?: CapturedSubmitTool,
 ): Promise<PiPromptResult> {
-  // 1. Initialize timing and prompt
+  // 1. Initialize timing and prompt. A submit tool appends its directive so the
+  //    instruction to call it lives with the tool, not in every prompt file.
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
-  const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const basePrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const fullPrompt = submitTool?.directive ? basePrompt + submitTool.directive : basePrompt;
 
   // 2. Set up progress and audit infrastructure
   const execContext = detectExecutionContext(description);
@@ -232,27 +251,32 @@ export async function runPiPrompt(
     ? path.join(sourceDir, path.dirname(deliverablesSubdir), '.playwright-cli')
     : path.join(sourceDir, '.shannon', '.playwright-cli');
   if (deliverablesSubdir) process.env.SHANNON_DELIVERABLES_SUBDIR = deliverablesSubdir;
-  if (apiKey) process.env.ANTHROPIC_API_KEY = apiKey;
 
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
-  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier, apiKey, providerConfig);
-  const resourceLoader = await buildResourceLoader(sourceDir, logger);
-  // Accumulates cost from in-process `task` child sessions so the parent's reported
+  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
+  const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
+  // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
-  const childUsage = { cost: 0 };
+  const childUsage = { cost: 0, inputTokens: 0, outputTokens: 0 };
   const customTools: ToolDefinition[] = [
     createTaskTool({
       model: selection.model,
       thinkingLevel: selection.thinkingLevel,
       authStorage: selection.authStorage,
       cwd: sourceDir,
-      childUsage,
+      onUsage: (usage) => {
+        childUsage.cost += usage.cost;
+        childUsage.inputTokens += usage.inputTokens;
+        childUsage.outputTokens += usage.outputTokens;
+      },
       resourceLoader,
+      ...(cancellationSignal && { cancellationSignal }),
     }),
     createTodoWriteTool(auditLogger),
     createGlobTool(sourceDir),
     ...(callerTools ?? []),
+    ...(submitTool ? [submitTool.tool] : []),
   ];
   // pi's `tools` allowlist gates custom tools too — list every custom name.
   const tools = [...BUILTIN_TOOLS, ...customTools.map((t) => t.name)];
@@ -357,6 +381,10 @@ export async function runPiPrompt(
     const duration = timer.stop();
     progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
 
+    // Capture the submit tool's structured payload so callers read it off the
+    // result instead of holding a reference to the tool.
+    const structuredOutput = submitTool?.getCaptured();
+
     return {
       result,
       success: true,
@@ -366,6 +394,7 @@ export async function runPiPrompt(
       model: selection.model.id,
       partialCost: totalCost,
       apiErrorDetected,
+      ...(structuredOutput !== undefined && { structuredOutput }),
     };
   } catch (error) {
     // 10. Handle errors — log, write error file, return failure

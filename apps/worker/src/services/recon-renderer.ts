@@ -7,13 +7,15 @@
 /**
  * Deterministic recon collector → markdown renderer.
  *
- * Converts the typed payload bag harvested from the recon-collector MCP server
- * into the recon_deliverable.md Markdown layout. No LLM in the loop; section
- * ordering, headings, sort, and the Section 0 boilerplate are owned here.
+ * Converts the typed payload bag harvested from the recon-collector tool
+ * into the Markdown layout that recon_deliverable.md previously had when the
+ * agent emitted it directly via chunked Write/Edit. No LLM in the loop;
+ * section ordering, headings, sort, and the Section 0 boilerplate are owned
+ * here.
  *
- * Any tool the agent skips becomes a `[Section X: not provided]` placeholder
- * rather than an activity failure. Every section renderer accepts its input as
- * optional.
+ * Required-call enforcement is deferred. Any tool the agent skips becomes a
+ * `[Section X: not provided]` placeholder rather than an activity failure.
+ * Every section renderer accepts its input as optional.
  */
 
 import type {
@@ -36,7 +38,7 @@ import type {
   SinkRef,
   TechnologyStackInput,
   VerticalCandidate,
-} from '../mcp-server/recon-collector.js';
+} from '../collectors/recon-collector.js';
 
 type RoleSwitchingImpersonation = AuthenticationInput['role_switching_impersonation'];
 type EntityZone = Entity['zone'];

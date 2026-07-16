@@ -117,8 +117,10 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
     case ErrorCode.PROMPT_LOAD_FAILED:
       return { type: 'ConfigurationError', retryable: false };
 
-    // Git errors - non-retryable (indicates workspace corruption)
     case ErrorCode.GIT_CHECKPOINT_FAILED:
+      return { type: 'GitError', retryable: retryableFromError };
+
+    // Rollback errors leave the workspace state untrusted.
     case ErrorCode.GIT_ROLLBACK_FAILED:
       return { type: 'GitError', retryable: false };
 
@@ -194,6 +196,27 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
   // Permission (403) - access won't be granted
   if (message.includes('permission') || message.includes('forbidden') || message.includes('403')) {
     return { type: 'PermissionError', retryable: false };
+  }
+
+  // Out of memory - deterministic resource exhaustion, retrying won't help
+  if (message.includes('out of memory')) {
+    return { type: 'OutOfMemoryError', retryable: false };
+  }
+
+  // Invalid prompt - malformed/rejected prompt content won't fix itself on retry
+  if (message.includes('invalid prompt')) {
+    return { type: 'InvalidPromptError', retryable: false };
+  }
+
+  // Session limit reached - distinct from billing/rate-limit; needs manual intervention
+  if (message.includes('session limit reached')) {
+    return { type: 'SessionLimitError', retryable: false };
+  }
+
+  // Overloaded - provider's own error-type token is authoritative regardless of the
+  // HTTP status it arrives under (seen in production under 400, not just 529)
+  if (message.includes('overloaded_error') || message.includes('overloaded')) {
+    return { type: 'OverloadedError', retryable: true };
   }
 
   // === OUTPUT VALIDATION ERRORS (Retryable) ===

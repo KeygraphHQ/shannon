@@ -170,39 +170,46 @@ async function buildLoginInstructions(
 
     if (authentication.credentials) {
       if (authentication.credentials.username) {
-        userInstructions = userInstructions.replace(/\$username/g, authentication.credentials.username);
+        userInstructions = replaceLiteral(userInstructions, /\$username/g, authentication.credentials.username);
       }
       if (authentication.credentials.password) {
-        userInstructions = userInstructions.replace(/\$password/g, authentication.credentials.password);
+        userInstructions = replaceLiteral(userInstructions, /\$password/g, authentication.credentials.password);
       }
       if (authentication.credentials.totp_secret) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$totp/g,
           `generated TOTP code using secret "${authentication.credentials.totp_secret}"`,
         );
       }
       if (authentication.credentials.email_login?.address) {
-        userInstructions = userInstructions.replace(/\$email_address/g, authentication.credentials.email_login.address);
+        userInstructions = replaceLiteral(
+          userInstructions,
+          /\$email_address/g,
+          authentication.credentials.email_login.address,
+        );
       }
       if (authentication.credentials.email_login?.password) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$email_password/g,
           authentication.credentials.email_login.password,
         );
       }
       if (authentication.credentials.email_login?.totp_secret) {
-        userInstructions = userInstructions.replace(
+        userInstructions = replaceLiteral(
+          userInstructions,
           /\$email_totp/g,
           `generated TOTP code using secret "${authentication.credentials.email_login.totp_secret}"`,
         );
       }
     }
 
-    loginInstructions = loginInstructions.replace(/{{user_instructions}}/g, userInstructions);
+    loginInstructions = replaceLiteral(loginInstructions, /{{user_instructions}}/g, userInstructions);
 
     // 5. Replace TOTP secret placeholder if present in template
     if (authentication.credentials?.totp_secret) {
-      loginInstructions = loginInstructions.replace(/{{totp_secret}}/g, authentication.credentials.totp_secret);
+      loginInstructions = replaceLiteral(loginInstructions, /{{totp_secret}}/g, authentication.credentials.totp_secret);
     }
 
     return loginInstructions;
@@ -242,9 +249,19 @@ async function processIncludes(content: string, baseDir: string): Promise<string
   );
 
   for (const replacement of replacements) {
-    content = content.replace(replacement.placeholder, replacement.content);
+    content = replaceLiteral(content, replacement.placeholder, replacement.content);
   }
   return content;
+}
+
+/**
+ * Replaces `pattern` with `replacement` treating the replacement as a literal
+ * string. Native `String.replace` interprets `$&`, `$1`, `$$` in the replacement
+ * as special patterns, which mangles credential and config values that legitimately
+ * contain `$`. The function form of `replace` bypasses that interpretation.
+ */
+function replaceLiteral(input: string, pattern: RegExp | string, replacement: string): string {
+  return input.replace(pattern, () => replacement);
 }
 
 function buildAuthContext(config: DistributedConfig | null): string {
@@ -288,12 +305,18 @@ async function interpolateVariables(
       });
     }
 
-    let result = template
-      .replace(/{{WEB_URL}}/g, variables.webUrl)
-      .replace(/{{REPO_PATH}}/g, variables.repoPath)
-      .replace(/{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1')
-      .replace(/{{AUTH_CONTEXT}}/g, buildAuthContext(config))
-      .replace(/{{DESCRIPTION}}/g, config?.description ? `Description: ${config.description}` : '');
+    // replaceLiteral is used for all value insertions so config values that
+    // contain `$&`/`$$`/`$1`/etc. aren't mangled as replacement patterns.
+    let result = template;
+    result = replaceLiteral(result, /{{WEB_URL}}/g, variables.webUrl);
+    result = replaceLiteral(result, /{{REPO_PATH}}/g, variables.repoPath);
+    result = replaceLiteral(result, /{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1');
+    result = replaceLiteral(result, /{{AUTH_CONTEXT}}/g, buildAuthContext(config));
+    result = replaceLiteral(
+      result,
+      /{{DESCRIPTION}}/g,
+      config?.description ? `Description: ${config.description}` : '',
+    );
 
     const avoidUrlRules = config?.avoid?.filter((r) => r.type !== 'code_path') ?? [];
     const focusUrlRules = config?.focus?.filter((r) => r.type !== 'code_path') ?? [];
@@ -302,7 +325,8 @@ async function interpolateVariables(
     } else {
       const avoidStr = avoidUrlRules.length > 0 ? avoidUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
       const focusStr = focusUrlRules.length > 0 ? focusUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
-      result = result.replace(/{{RULES_AVOID}}/g, avoidStr).replace(/{{RULES_FOCUS}}/g, focusStr);
+      result = replaceLiteral(result, /{{RULES_AVOID}}/g, avoidStr);
+      result = replaceLiteral(result, /{{RULES_FOCUS}}/g, focusStr);
     }
 
     const avoidCodeRules = (config?.avoid ?? []).filter((r) => r.type === 'code_path');
@@ -310,14 +334,13 @@ async function interpolateVariables(
     if (avoidCodeRules.length === 0 && focusCodeRules.length === 0) {
       result = result.replace(/<code_path_rules>[\s\S]*?<\/code_path_rules>\s*/g, '');
     } else {
-      result = result
-        .replace(/{{CODE_RULES_AVOID}}/g, renderCodePathRules(config?.avoid ?? []))
-        .replace(/{{CODE_RULES_FOCUS}}/g, renderCodePathRules(config?.focus ?? []));
+      result = replaceLiteral(result, /{{CODE_RULES_AVOID}}/g, renderCodePathRules(config?.avoid ?? []));
+      result = replaceLiteral(result, /{{CODE_RULES_FOCUS}}/g, renderCodePathRules(config?.focus ?? []));
     }
 
     const roe = config?.rules_of_engagement?.trim() ?? '';
     if (roe) {
-      result = result.replace(/{{RULES_OF_ENGAGEMENT}}/g, roe);
+      result = replaceLiteral(result, /{{RULES_OF_ENGAGEMENT}}/g, roe);
     } else {
       result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
     }
@@ -325,35 +348,35 @@ async function interpolateVariables(
     if (!config?.authentication) {
       result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
     } else {
-      result = result.replace(/{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
+      result = replaceLiteral(result, /{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
     }
 
     if (config?.authentication?.login_flow) {
       const loginInstructions = await buildLoginInstructions(config.authentication, logger, promptsBaseDir);
-      result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
+      result = replaceLiteral(result, /{{LOGIN_INSTRUCTIONS}}/g, loginInstructions);
     } else {
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
     }
 
     const vulnClasses = config?.vuln_classes ?? [];
-    result = result.replace(
+    result = replaceLiteral(
+      result,
       /{{VULN_CLASSES_TESTED}}/g,
       vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
     );
-    result = result.replace(/{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
+    result = replaceLiteral(result, /{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
 
     const exploitEnabled = config?.exploit ?? true;
-    result = result
-      .replace(/{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled')
-      .replace(/{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings')
-      .replace(
-        /{{REPORT_VULN_SUBHEADING}}/g,
-        exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
-      );
+    result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');
+    result = replaceLiteral(result, /{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings');
+    result = replaceLiteral(
+      result,
+      /{{REPORT_VULN_SUBHEADING}}/g,
+      exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
+    );
 
-    result = result
-      .replace(/{{REPORT_FILTERS_BLOCK}}/g, renderReportFiltersBlock(config?.report))
-      .replace(/{{REPORT_FILTER_RULES}}/g, renderReportFilterRules(config?.report));
+    result = replaceLiteral(result, /{{REPORT_FILTERS_BLOCK}}/g, renderReportFiltersBlock(config?.report));
+    result = replaceLiteral(result, /{{REPORT_FILTER_RULES}}/g, renderReportFilterRules(config?.report));
 
     // Collapse runs of 3+ newlines (left behind by tag-strip and empty-fragment substitutions).
     result = result.replace(/\n{3,}/g, '\n\n');

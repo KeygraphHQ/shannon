@@ -21,6 +21,7 @@
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { type Static, Type } from 'typebox';
+import { cleanInput } from './schema.js';
 
 // ============================================================================
 // SHARED SCHEMA
@@ -64,100 +65,107 @@ export const ExecutiveSummaryInputSchema = Type.Object({
   }),
 });
 
-const ArchitectureSchema = Type.Object({
-  framework_and_language: Type.String({
-    minLength: 1,
-    description: 'Framework and language details with their security implications.',
-  }),
-  architectural_pattern: Type.String({
-    minLength: 1,
-    description: 'Architectural pattern (monolith, microservices, hybrid) with trust boundary analysis.',
-  }),
-  critical_security_components: Type.String({
-    minLength: 1,
-    description: 'Critical security components with focus on auth, authz, and data protection.',
-  }),
-});
-
-const DataSecuritySchema = Type.Object({
-  database_security: Type.String({
-    minLength: 1,
-    description: 'Analyze encryption, access controls, and query safety in database interactions.',
-  }),
-  data_flow_security: Type.String({
-    minLength: 1,
-    description: 'Identify sensitive data paths and the protection mechanisms applied along them.',
-  }),
-  multi_tenant_isolation: Type.String({
-    minLength: 1,
-    description:
-      'Assess tenant separation effectiveness. If the application is single-tenant, state that ' +
-      'explicitly rather than leaving the field thin.',
-  }),
-});
-
-const AttackSurfaceSchema = Type.Object({
-  external_entry_points: Type.String({
-    minLength: 1,
-    description: 'Detailed analysis of each public interface that is network-accessible.',
-  }),
-  internal_service_communication: Type.String({
-    minLength: 1,
-    description:
-      'Trust relationships and security assumptions between network-reachable services. ' +
-      'If the application is a single service with no internal RPC fabric, state that.',
-  }),
-  input_validation_patterns: Type.String({
-    minLength: 1,
-    description: 'How user input is handled and validated in network-accessible endpoints.',
-  }),
-  background_processing: Type.String({
-    minLength: 1,
-    description:
-      'Async job security and privilege models for jobs triggered by network requests. ' +
-      'If no async/background processing exists, state that.',
-  }),
-});
-
-const InfrastructureSchema = Type.Object({
-  secrets_management: Type.String({ minLength: 1, description: 'How secrets are stored, rotated, and accessed.' }),
-  configuration_security: Type.String({
-    minLength: 1,
-    description:
-      'Environment separation and secret handling. Specifically search for infrastructure ' +
-      'configuration (e.g., Nginx, Kubernetes Ingress, CDN settings) that defines security ' +
-      'headers like Strict-Transport-Security (HSTS) and Cache-Control, and report what was found.',
-  }),
-  external_dependencies: Type.String({
-    minLength: 1,
-    description: 'Third-party services and their security implications.',
-  }),
-  monitoring_and_logging: Type.String({
-    minLength: 1,
-    description: 'Security event visibility — what is logged, where it goes, and who can see it.',
-  }),
-});
-
 export const ApplicationIntelligenceInputSchema = Type.Object({
-  architecture: Type.Object(ArchitectureSchema.properties, {
-    description:
-      'Architecture & Technology Stack — driven by the Architecture Scanner sub-agent. ' +
-      'Becomes Section 2 of the rendered deliverable.',
-  }),
-  data_security: Type.Object(DataSecuritySchema.properties, {
-    description:
-      'Data Security & Storage — driven by the Data Security Auditor sub-agent. ' +
-      'Becomes Section 4 of the rendered deliverable.',
-  }),
-  attack_surface: Type.Object(AttackSurfaceSchema.properties, {
-    description:
-      'Attack Surface Analysis — driven by Entry Point Mapper + Architecture Scanner sub-agents. ' +
-      'Only include entry points confirmed to be in-scope (network-reachable). ' +
-      'Becomes Section 5 of the rendered deliverable.',
-  }),
-  infrastructure: Type.Object(InfrastructureSchema.properties, {
-    description: 'Infrastructure & Operational Security. Becomes Section 6 of the rendered deliverable.',
-  }),
+  architecture: Type.Object(
+    {
+      framework_and_language: Type.String({
+        minLength: 1,
+        description: 'Framework and language details with their security implications.',
+      }),
+      architectural_pattern: Type.String({
+        minLength: 1,
+        description: 'Architectural pattern (monolith, microservices, hybrid) with trust boundary analysis.',
+      }),
+      critical_security_components: Type.String({
+        minLength: 1,
+        description: 'Critical security components with focus on auth, authz, and data protection.',
+      }),
+    },
+    {
+      description:
+        'Architecture & Technology Stack — driven by the Architecture Scanner sub-agent. ' +
+        'Becomes Section 2 of the rendered deliverable.',
+    },
+  ),
+  data_security: Type.Object(
+    {
+      database_security: Type.String({
+        minLength: 1,
+        description: 'Analyze encryption, access controls, and query safety in database interactions.',
+      }),
+      data_flow_security: Type.String({
+        minLength: 1,
+        description: 'Identify sensitive data paths and the protection mechanisms applied along them.',
+      }),
+      multi_tenant_isolation: Type.String({
+        minLength: 1,
+        description:
+          'Assess tenant separation effectiveness. If the application is single-tenant, state that ' +
+          'explicitly rather than leaving the field thin.',
+      }),
+    },
+    {
+      description:
+        'Data Security & Storage — driven by the Data Security Auditor sub-agent. ' +
+        'Becomes Section 4 of the rendered deliverable.',
+    },
+  ),
+  attack_surface: Type.Object(
+    {
+      external_entry_points: Type.String({
+        minLength: 1,
+        description: 'Detailed analysis of each public interface that is network-accessible.',
+      }),
+      internal_service_communication: Type.String({
+        minLength: 1,
+        description:
+          'Trust relationships and security assumptions between network-reachable services. ' +
+          'If the application is a single service with no internal RPC fabric, state that.',
+      }),
+      input_validation_patterns: Type.String({
+        minLength: 1,
+        description: 'How user input is handled and validated in network-accessible endpoints.',
+      }),
+      background_processing: Type.String({
+        minLength: 1,
+        description:
+          'Async job security and privilege models for jobs triggered by network requests. ' +
+          'If no async/background processing exists, state that.',
+      }),
+    },
+    {
+      description:
+        'Attack Surface Analysis — driven by Entry Point Mapper + Architecture Scanner sub-agents. ' +
+        'Only include entry points confirmed to be in-scope (network-reachable). ' +
+        'Becomes Section 5 of the rendered deliverable.',
+    },
+  ),
+  infrastructure: Type.Object(
+    {
+      secrets_management: Type.String({
+        minLength: 1,
+        description: 'How secrets are stored, rotated, and accessed.',
+      }),
+      configuration_security: Type.String({
+        minLength: 1,
+        description:
+          'Environment separation and secret handling. Specifically search for infrastructure ' +
+          'configuration (e.g., Nginx, Kubernetes Ingress, CDN settings) that defines security ' +
+          'headers like Strict-Transport-Security (HSTS) and Cache-Control, and report what was found.',
+      }),
+      external_dependencies: Type.String({
+        minLength: 1,
+        description: 'Third-party services and their security implications.',
+      }),
+      monitoring_and_logging: Type.String({
+        minLength: 1,
+        description: 'Security event visibility — what is logged, where it goes, and who can see it.',
+      }),
+    },
+    {
+      description: 'Infrastructure & Operational Security. Becomes Section 6 of the rendered deliverable.',
+    },
+  ),
 });
 
 export const AuthDeepDiveInputSchema = Type.Object({
@@ -173,7 +181,10 @@ export const AuthDeepDiveInputSchema = Type.Object({
       'Session management and token security. Pinpoint the exact file and line(s) of code where ' +
       'session cookie flags (HttpOnly, Secure, SameSite) are configured.',
   }),
-  authz_model: Type.String({ minLength: 1, description: 'Authorization model and potential bypass scenarios.' }),
+  authz_model: Type.String({
+    minLength: 1,
+    description: 'Authorization model and potential bypass scenarios.',
+  }),
   multi_tenancy: Type.String({
     minLength: 1,
     description: 'Multi-tenancy security implementation. If the application is single-tenant, state that explicitly.',
@@ -393,44 +404,45 @@ export type PreReconCallStatus = Readonly<Record<PreReconToolName, PreReconToolS
 // RESPONSE HELPERS
 // ============================================================================
 
-interface ToolResult {
-  content: Array<{ type: 'text'; text: string }>;
-  details: Record<string, unknown>;
-  isError?: boolean;
+function toolResult(payload: Record<string, unknown>) {
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(payload, null, 2) }],
+    details: undefined,
+  };
 }
 
-function successResult(data: Record<string, unknown>): ToolResult {
-  const response = { status: 'success', ...data };
-  return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }], details: {} };
+function successResult(data: Record<string, unknown>) {
+  return toolResult({ status: 'success', ...data });
 }
 
-function errorResult(message: string, errorType = 'ValidationError', retryable = true): ToolResult {
-  const response = { status: 'error', message, errorType, retryable };
-  return { content: [{ type: 'text' as const, text: JSON.stringify(response, null, 2) }], details: {}, isError: true };
+function errorResult(message: string, errorType = 'ValidationError', retryable = true) {
+  return toolResult({ status: 'error', message, errorType, retryable });
 }
 
 // ============================================================================
-// TOOLS FACTORY
+// COLLECTOR FACTORY
 // ============================================================================
 
-export interface PreReconCollectorServer {
+interface PreReconState {
+  executive_summary?: ExecutiveSummaryInput;
+  application_intelligence?: ApplicationIntelligenceInput;
+  auth_deep_dive?: AuthDeepDiveInput;
+  codebase_indexing?: CodebaseIndexingInput;
+  critical_file_paths?: CriticalFilePathsInput;
+  xss_sinks?: XssSinksInput;
+  ssrf_sinks?: SsrfSinksInput;
+}
+
+export interface PreReconCollector {
   tools: ToolDefinition[];
   getAll(): PreReconData;
   getCallStatus(): PreReconCallStatus;
 }
 
-export function createPreReconCollectorServer(): PreReconCollectorServer {
-  const state: {
-    executive_summary?: ExecutiveSummaryInput;
-    application_intelligence?: ApplicationIntelligenceInput;
-    auth_deep_dive?: AuthDeepDiveInput;
-    codebase_indexing?: CodebaseIndexingInput;
-    critical_file_paths?: CriticalFilePathsInput;
-    xss_sinks?: XssSinksInput;
-    ssrf_sinks?: SsrfSinksInput;
-  } = {};
+export function createPreReconCollector(): PreReconCollector {
+  const state: PreReconState = {};
 
-  function alreadyCalled(toolName: PreReconToolName): ToolResult {
+  function alreadyCalled(toolName: PreReconToolName) {
     return errorResult(
       `${toolName} has already been called. Each set_* tool may only be called once per run.`,
       'DuplicateError',
@@ -446,9 +458,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       'Call exactly once before terminating. Becomes Section 1 of the rendered deliverable. ' +
       'Duplicate calls are rejected.',
     parameters: ExecutiveSummaryInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.executive_summary) return alreadyCalled('set_executive_summary');
-      state.executive_summary = input;
+      state.executive_summary = cleanInput(ExecutiveSummaryInputSchema, input);
       return successResult({ set: 'set_executive_summary' });
     },
   });
@@ -461,9 +473,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       'and infrastructure — in a single call. Call exactly once before terminating. ' +
       'Becomes Sections 2, 4, 5, and 6 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: ApplicationIntelligenceInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.application_intelligence) return alreadyCalled('set_application_intelligence');
-      state.application_intelligence = input;
+      state.application_intelligence = cleanInput(ApplicationIntelligenceInputSchema, input);
       return successResult({ set: 'set_application_intelligence' });
     },
   });
@@ -475,9 +487,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       'Record the authentication & authorization deep dive. Call exactly once before terminating. ' +
       'Becomes Section 3 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: AuthDeepDiveInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.auth_deep_dive) return alreadyCalled('set_auth_deep_dive');
-      state.auth_deep_dive = input;
+      state.auth_deep_dive = cleanInput(AuthDeepDiveInputSchema, input);
       return successResult({ set: 'set_auth_deep_dive' });
     },
   });
@@ -489,9 +501,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       'Record the overall codebase indexing narrative. Call exactly once before terminating. ' +
       'Becomes Section 7 of the rendered deliverable. Duplicate calls are rejected.',
     parameters: CodebaseIndexingInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.codebase_indexing) return alreadyCalled('set_codebase_indexing');
-      state.codebase_indexing = input;
+      state.codebase_indexing = cleanInput(CodebaseIndexingInputSchema, input);
       return successResult({ set: 'set_codebase_indexing' });
     },
   });
@@ -504,9 +516,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       'before terminating. Becomes Section 8 of the rendered deliverable. The next agent uses this ' +
       'as a starting point for manual review. Duplicate calls are rejected.',
     parameters: CriticalFilePathsInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.critical_file_paths) return alreadyCalled('set_critical_file_paths');
-      state.critical_file_paths = input;
+      state.critical_file_paths = cleanInput(CriticalFilePathsInputSchema, input);
       return successResult({ set: 'set_critical_file_paths' });
     },
   });
@@ -521,9 +533,9 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       "the vuln-xss agent's testing todos downstream. Becomes Section 9 of the rendered deliverable. " +
       'Duplicate calls are rejected.',
     parameters: XssSinksInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.xss_sinks) return alreadyCalled('set_xss_sinks');
-      state.xss_sinks = input;
+      state.xss_sinks = cleanInput(XssSinksInputSchema, input);
       return successResult({ set: 'set_xss_sinks' });
     },
   });
@@ -538,22 +550,12 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
       "the vuln-ssrf agent's testing todos downstream. Becomes Section 10 of the rendered deliverable. " +
       'Duplicate calls are rejected.',
     parameters: SsrfSinksInputSchema,
-    execute: async (_toolCallId, input): Promise<ToolResult> => {
+    async execute(_toolCallId, input) {
       if (state.ssrf_sinks) return alreadyCalled('set_ssrf_sinks');
-      state.ssrf_sinks = input;
+      state.ssrf_sinks = cleanInput(SsrfSinksInputSchema, input);
       return successResult({ set: 'set_ssrf_sinks' });
     },
   });
-
-  const tools: ToolDefinition[] = [
-    setExecutiveSummary,
-    setApplicationIntelligence,
-    setAuthDeepDive,
-    setCodebaseIndexing,
-    setCriticalFilePaths,
-    setXssSinks,
-    setSsrfSinks,
-  ];
 
   function statusOf<K extends PreReconToolName>(key: K): PreReconToolStatus {
     const flagMap: Record<PreReconToolName, unknown> = {
@@ -569,7 +571,15 @@ export function createPreReconCollectorServer(): PreReconCollectorServer {
   }
 
   return {
-    tools,
+    tools: [
+      setExecutiveSummary,
+      setApplicationIntelligence,
+      setAuthDeepDive,
+      setCodebaseIndexing,
+      setCriticalFilePaths,
+      setXssSinks,
+      setSsrfSinks,
+    ],
     getAll: (): PreReconData => ({
       ...(state.executive_summary && { executive_summary: state.executive_summary }),
       ...(state.application_intelligence && { application_intelligence: state.application_intelligence }),

@@ -32,7 +32,6 @@
     "dotenv": "^16.4.5",
     "js-yaml": "^4.1.0",
     "typebox": "1.1.38",
-    "zod": "^4.3.6",
     "zx": "^8.0.0"
   },
   "devDependencies": {

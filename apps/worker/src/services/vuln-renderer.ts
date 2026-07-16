@@ -10,12 +10,18 @@
  * Single entry point renderVulnDeliverable(vulnClass, data) covers all 5
  * vulnerability classes (injection, xss, auth, ssrf, authz). Per-class title,
  * §3 sub-header set, §4 column shape, and §4 section heading are selected by
- * branching on vulnClass.
+ * branching on vulnClass. The .md byte-stability concern is structural only —
+ * sub-headers, column ordering, sort order — narrative prose varies per run.
  *
- * Missing tools surface as placeholder sections, not activity failures.
- * Required tools (set_findings_summary, set_strategic_intelligence) produce
- * loud `[Section X: not provided]` placeholders; recommended tools
- * (set_safe_vectors, set_blind_spots) produce quiet "None identified" prose.
+ * Required-call enforcement is deferred for v1. Missing tools surface as
+ * placeholder sections, not activity failures. Required tools (set_findings_summary,
+ * set_strategic_intelligence) produce loud `[Section X: not provided]`
+ * placeholders; recommended tools (set_safe_vectors, set_blind_spots) produce
+ * quiet "None identified" prose.
+ *
+ * The exploitation queue (`{class}_exploitation_queue.json`) is unrelated —
+ * it is written by the structured-output submit path in agent-execution.ts and
+ * is not touched here.
  */
 
 import type {
@@ -25,8 +31,7 @@ import type {
   StrategicIntelligenceInput,
   VulnClass,
   VulnCollectorData,
-} from '../mcp-server/vuln-collector.js';
-import { BLIND_SPOTS_CLASSES } from '../mcp-server/vuln-collector.js';
+} from '../collectors/vuln-collector.js';
 
 // ============================================================================
 // PER-CLASS CONSTANTS
@@ -221,9 +226,8 @@ export function renderVulnDeliverable(vulnClass: VulnClass, data: VulnCollectorD
     '',
     renderSafeVectors(vulnClass, data.safe_vectors),
     '',
+    renderBlindSpots(data.blind_spots),
+    '',
   ];
-  if (BLIND_SPOTS_CLASSES.has(vulnClass)) {
-    sections.push(renderBlindSpots(data.blind_spots), '');
-  }
   return `${sections.join('\n').trimEnd()}\n`;
 }

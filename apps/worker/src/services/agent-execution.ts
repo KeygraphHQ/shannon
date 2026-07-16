@@ -23,7 +23,7 @@
  */
 
 import { fs, path } from 'zx';
-import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi-executor.js';
+import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/pi-executor.js';
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
@@ -35,9 +35,10 @@ import { ErrorCode, type PentestErrorType } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 import { err, isErr, ok, type Result } from '../types/result.js';
 import { isSpendingCapBehavior } from '../utils/billing-detection.js';
+import { getAgentGitPaths } from './agent-git-paths.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import { PentestError } from './error-handling.js';
-import { commitGitSuccess, createGitCheckpoint, getGitCommitHash, rollbackGitWorkspace } from './git-manager.js';
+import { commitGitSuccess, createGitCheckpoint, rollbackGitWorkspace, withGitRepoLock } from './git-manager.js';
 import { loadPrompt } from './prompt-manager.js';
 
 /**
@@ -52,12 +53,11 @@ export interface AgentExecutionInput {
   configYAML?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
-  apiKey?: string | undefined;
   promptDir?: string | undefined;
-  providerConfig?: import('../types/config.js').ProviderConfig | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
   // Renders the deliverable to disk; invoked after validation, before the success commit.
   writeDeliverable?: (deliverablesPath: string) => Promise<void>;
+  cancellationSignal?: AbortSignal | undefined;
 }
 
 interface FailAgentOpts {
@@ -69,6 +69,48 @@ interface FailAgentOpts {
   category: PentestErrorType;
   retryable: boolean;
   context: Record<string, unknown>;
+}
+
+function errorCodeFromResult(result: PiPromptResult): ErrorCode {
+  if (result.errorType && Object.values(ErrorCode).includes(result.errorType as ErrorCode)) {
+    return result.errorType as ErrorCode;
+  }
+  return ErrorCode.AGENT_EXECUTION_FAILED;
+}
+
+function categoryForErrorCode(code: ErrorCode): PentestErrorType {
+  switch (code) {
+    case ErrorCode.SPENDING_CAP_REACHED:
+    case ErrorCode.INSUFFICIENT_CREDITS:
+    case ErrorCode.BILLING_ERROR:
+    case ErrorCode.API_RATE_LIMITED:
+      return 'billing';
+    case ErrorCode.GIT_CHECKPOINT_FAILED:
+    case ErrorCode.GIT_ROLLBACK_FAILED:
+      return 'filesystem';
+    case ErrorCode.PROMPT_LOAD_FAILED:
+      return 'prompt';
+    default:
+      return 'validation';
+  }
+}
+
+/** Wrap a failed git operation result into a PentestError attributed to the agent. */
+function gitFailureForAgent(
+  agentName: AgentName,
+  operation: string,
+  error: Error | undefined,
+  code: ErrorCode = ErrorCode.GIT_CHECKPOINT_FAILED,
+): PentestError {
+  const retryable = error instanceof PentestError ? error.retryable : true;
+  const message = error?.message ?? 'unknown git failure';
+  return new PentestError(
+    `Failed to ${operation} for ${agentName}: ${message}`,
+    'filesystem',
+    retryable,
+    { agentName, originalError: message },
+    code,
+  );
 }
 
 /**
@@ -109,12 +151,12 @@ export class AgentExecutionService {
       configYAML,
       pipelineTestingMode = false,
       attemptNumber,
-      apiKey,
       promptDir,
-      providerConfig,
       customTools,
       writeDeliverable,
+      cancellationSignal,
     } = input;
+    const gitPaths = getAgentGitPaths(agentName);
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
@@ -148,9 +190,16 @@ export class AgentExecutionService {
       );
     }
 
-    // 3. Create git checkpoint before execution
+    // 3. Create git checkpoint before execution (scoped to this agent's paths)
     try {
-      await createGitCheckpoint(deliverablesPath, agentName, attemptNumber, logger);
+      const checkpointResult = await createGitCheckpoint(deliverablesPath, agentName, attemptNumber, logger, gitPaths);
+      if (!checkpointResult.success) {
+        const code =
+          checkpointResult.error instanceof PentestError && checkpointResult.error.code
+            ? checkpointResult.error.code
+            : ErrorCode.GIT_CHECKPOINT_FAILED;
+        return err(gitFailureForAgent(agentName, 'create git checkpoint', checkpointResult.error, code));
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       return err(
@@ -170,7 +219,6 @@ export class AgentExecutionService {
     // 5. Execute agent. Vuln agents get a submit tool that captures the structured
     //    exploitation queue (pi has no JSON-schema output format).
     const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
-    const callerTools = [...(customTools ?? []), ...(submitTool ? [submitTool.tool] : [])];
     const result: PiPromptResult = await runPiPrompt(
       prompt,
       repoPath,
@@ -180,10 +228,10 @@ export class AgentExecutionService {
       auditSession,
       logger,
       AGENTS[agentName].modelTier,
-      callerTools,
-      apiKey,
+      customTools,
       path.relative(repoPath, deliverablesPath),
-      providerConfig,
+      cancellationSignal,
+      submitTool,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -205,54 +253,74 @@ export class AgentExecutionService {
 
     // 7. Handle execution failure
     if (!result.success) {
+      const errorCode = errorCodeFromResult(result);
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,
         rollbackReason: 'execution failure',
         errorMessage: result.error || 'Agent execution failed',
-        errorCode: ErrorCode.AGENT_EXECUTION_FAILED,
-        category: 'validation',
+        errorCode,
+        category: categoryForErrorCode(errorCode),
         retryable: result.retryable ?? true,
         context: { agentName, originalError: result.error },
       });
     }
 
-    // 8. Write structured output to disk (vuln agents only) from the submit-tool capture
-    const queueFilename = getQueueFilename(agentName);
-    if (submitTool && queueFilename) {
-      const captured = submitTool.getCaptured();
-      if (captured !== undefined) {
-        result.structuredOutput = captured; // carry for the validation gate below
+    // 8-11. Write structured output, validate, render, and commit under one repo lock so
+    //       the write→validate→commit sequence is atomic against concurrent sibling agents.
+    let commitHash: string | undefined;
+    const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
+      // 8. Write structured output to disk (vuln agents only) from the executor's capture
+      const queueFilename = getQueueFilename(agentName);
+      if (submitTool && queueFilename && result.structuredOutput !== undefined) {
         await fs.ensureDir(deliverablesPath);
         const queuePath = path.join(deliverablesPath, queueFilename);
-        await fs.writeFile(queuePath, JSON.stringify(captured, null, 2), 'utf8');
+        await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
         logger.info(`Wrote structured output queue to ${queueFilename}`);
       }
-    }
 
-    // 9. Validate output
-    const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
-    if (!validationPassed) {
+      // 9. Validate output
+      const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
+      if (!validationPassed) {
+        return new PentestError(
+          `Agent ${agentName} failed output validation`,
+          'validation',
+          true,
+          { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+          ErrorCode.OUTPUT_VALIDATION_FAILED,
+        );
+      }
+
+      // 10. Render the deliverable to disk so the success commit below stages it
+      if (writeDeliverable) {
+        await writeDeliverable(deliverablesPath);
+      }
+
+      // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
+      const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
+      if (!commitResult.success) {
+        return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
+      }
+      commitHash = commitResult.commitHash;
+      return null;
+    });
+
+    if (finalizationError) {
+      const rollbackReason =
+        finalizationError.code === ErrorCode.OUTPUT_VALIDATION_FAILED
+          ? 'validation failure'
+          : 'post-processing failure';
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
         attemptNumber,
         result,
-        rollbackReason: 'validation failure',
-        errorMessage: `Agent ${agentName} failed output validation`,
-        errorCode: ErrorCode.OUTPUT_VALIDATION_FAILED,
-        category: 'validation',
-        retryable: true,
-        context: { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+        rollbackReason,
+        errorMessage: finalizationError.message,
+        errorCode: finalizationError.code ?? ErrorCode.AGENT_EXECUTION_FAILED,
+        category: finalizationError.type,
+        retryable: finalizationError.retryable,
+        context: { agentName, ...finalizationError.context },
       });
     }
-
-    // 10. Render the deliverable to disk so the success commit below stages it
-    if (writeDeliverable) {
-      await writeDeliverable(deliverablesPath);
-    }
-
-    // 11. Success - commit deliverables, then capture checkpoint hash
-    await commitGitSuccess(deliverablesPath, agentName, logger);
-    const commitHash = await getGitCommitHash(deliverablesPath);
 
     const endResult: AgentEndResult = {
       attemptNumber,
@@ -274,7 +342,12 @@ export class AgentExecutionService {
     logger: ActivityLogger,
     opts: FailAgentOpts,
   ): Promise<Result<AgentEndResult, PentestError>> {
-    await rollbackGitWorkspace(deliverablesPath, opts.rollbackReason, logger);
+    const rollbackResult = await rollbackGitWorkspace(
+      deliverablesPath,
+      opts.rollbackReason,
+      logger,
+      getAgentGitPaths(agentName),
+    );
 
     const endResult: AgentEndResult = {
       attemptNumber: opts.attemptNumber,
@@ -286,7 +359,19 @@ export class AgentExecutionService {
     };
     await auditSession.endAgent(agentName, endResult);
 
-    return err(new PentestError(opts.errorMessage, opts.category, opts.retryable, opts.context, opts.errorCode));
+    const context = rollbackResult.success
+      ? opts.context
+      : {
+          ...opts.context,
+          rollbackFailed: true,
+          rollbackError: rollbackResult.error?.message ?? 'unknown rollback failure',
+          rollbackErrorCode:
+            rollbackResult.error instanceof PentestError
+              ? (rollbackResult.error.code ?? ErrorCode.GIT_ROLLBACK_FAILED)
+              : ErrorCode.GIT_ROLLBACK_FAILED,
+        };
+
+    return err(new PentestError(opts.errorMessage, opts.category, opts.retryable, context, opts.errorCode));
   }
 
   /**

@@ -7,14 +7,15 @@
 /**
  * Deterministic pre-recon collector → markdown renderer.
  *
- * Converts the typed payload bag harvested from the pre-recon-collector MCP
- * server into the pre_recon_deliverable.md Markdown layout. No LLM in the
+ * Converts the typed payload bag harvested from the pre-recon-collector pi
+ * tool set into the Markdown layout that pre_recon_deliverable.md previously had
+ * when the agent emitted it directly via chunked Write/Edit. No LLM in the
  * loop; section ordering, headings, and template are owned here.
  *
- * Any tool the agent skips becomes a `[Section X: not provided]` placeholder
- * rather than an activity failure. Every section renderer accepts the
- * corresponding collected field as possibly undefined and falls back to the
- * placeholder helper when absent.
+ * Required-call enforcement is deferred for v1. Any tool the agent skips becomes
+ * a `[Section X: not provided]` placeholder rather than an activity failure.
+ * Every section renderer accepts the corresponding collected field as possibly
+ * undefined and falls back to the placeholder helper when absent.
  */
 
 import type {
@@ -27,7 +28,7 @@ import type {
   SinkRef,
   SsrfSinksInput,
   XssSinksInput,
-} from '../mcp-server/pre-recon-collector.js';
+} from '../collectors/pre-recon-collector.js';
 
 // ============================================================================
 // STATIC PROSE
