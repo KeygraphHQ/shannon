@@ -9,6 +9,7 @@ import { getConfigFile } from '../home.js';
 
 export interface ShannonConfig {
   core?: { adaptive_thinking?: boolean };
+  openai?: { api_key?: string };
   anthropic?: { api_key?: string; oauth_token?: string };
   custom_base_url?: { base_url?: string; auth_token?: string };
   bedrock?: { use?: boolean; region?: string; token?: string };

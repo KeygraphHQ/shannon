@@ -11,6 +11,7 @@ import { getMode } from './mode.js';
 
 /** Environment variables forwarded to worker containers. */
 const FORWARD_VARS = [
+  'OPENAI_API_KEY',
   'ANTHROPIC_API_KEY',
   'ANTHROPIC_BASE_URL',
   'ANTHROPIC_AUTH_TOKEN',
@@ -18,9 +19,15 @@ const FORWARD_VARS = [
   'CLAUDE_CODE_USE_BEDROCK',
   'AWS_REGION',
   'AWS_BEARER_TOKEN_BEDROCK',
+  'OPENAI_SMALL_MODEL',
+  'OPENAI_MEDIUM_MODEL',
+  'OPENAI_LARGE_MODEL',
   'ANTHROPIC_SMALL_MODEL',
   'ANTHROPIC_MEDIUM_MODEL',
   'ANTHROPIC_LARGE_MODEL',
+  'SHANNON_SMALL_MODEL',
+  'SHANNON_MEDIUM_MODEL',
+  'SHANNON_LARGE_MODEL',
   'CLAUDE_ADAPTIVE_THINKING',
 ] as const;
 
@@ -57,20 +64,21 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock';
+  mode: 'openai' | 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock';
 }
 
-/** Check if a custom Anthropic-compatible base URL is configured. */
-function isCustomBaseUrlConfigured(): boolean {
-  return !!(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN);
+/** Check whether any custom Anthropic-compatible endpoint setting is present. */
+function hasCustomBaseUrlConfiguration(): boolean {
+  return !!(process.env.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_AUTH_TOKEN);
 }
 
 /** Detect which providers are configured via environment variables. */
-function detectProviders(): string[] {
+export function detectProviders(): string[] {
   const providers: string[] = [];
+  if (process.env.OPENAI_API_KEY) providers.push('OpenAI API key');
   if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
-  if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
+  if (hasCustomBaseUrlConfiguration()) providers.push('Custom Base URL');
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
   return providers;
 }
@@ -89,22 +97,37 @@ export function validateCredentials(): CredentialValidation {
     };
   }
 
+  if (process.env.OPENAI_API_KEY) {
+    return { valid: true, mode: 'openai' };
+  }
   if (process.env.ANTHROPIC_API_KEY) {
     return { valid: true, mode: 'api-key' };
   }
   if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
     return { valid: true, mode: 'oauth' };
   }
-  if (isCustomBaseUrlConfigured()) {
+  if (hasCustomBaseUrlConfiguration()) {
+    const missing: string[] = [];
+    if (!process.env.ANTHROPIC_BASE_URL) missing.push('ANTHROPIC_BASE_URL');
+    if (!process.env.ANTHROPIC_AUTH_TOKEN) missing.push('ANTHROPIC_AUTH_TOKEN');
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        mode: 'custom-base-url',
+        error: `Custom Base URL mode requires: ${missing.join(', ')}`,
+      };
+    }
     return { valid: true, mode: 'custom-base-url' };
   }
   if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
     const missing: string[] = [];
     if (!process.env.AWS_REGION) missing.push('AWS_REGION');
     if (!process.env.AWS_BEARER_TOKEN_BEDROCK) missing.push('AWS_BEARER_TOKEN_BEDROCK');
-    if (!process.env.ANTHROPIC_SMALL_MODEL) missing.push('ANTHROPIC_SMALL_MODEL');
-    if (!process.env.ANTHROPIC_MEDIUM_MODEL) missing.push('ANTHROPIC_MEDIUM_MODEL');
-    if (!process.env.ANTHROPIC_LARGE_MODEL) missing.push('ANTHROPIC_LARGE_MODEL');
+    for (const tier of ['SMALL', 'MEDIUM', 'LARGE'] as const) {
+      if (!process.env[`ANTHROPIC_${tier}_MODEL`] && !process.env[`SHANNON_${tier}_MODEL`]) {
+        missing.push(`ANTHROPIC_${tier}_MODEL or SHANNON_${tier}_MODEL`);
+      }
+    }
     if (missing.length > 0) {
       return {
         valid: false,
@@ -117,7 +140,7 @@ export function validateCredentials(): CredentialValidation {
 
   const hint =
     getMode() === 'local'
-      ? `No credentials found. Set ANTHROPIC_API_KEY in .env or export it.`
+      ? `No credentials found. Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env (or export one).`
       : `Authentication not configured. Export variables or run 'npx @keygraph/shannon setup'.`;
   return {
     valid: false,

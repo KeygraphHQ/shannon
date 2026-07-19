@@ -44,9 +44,10 @@ export function classifyErrorCode(error: unknown): ErrorCode | undefined {
 
 /** Maps Temporal error type strings to actionable remediation hints. */
 const REMEDIATION_HINTS: Record<string, string> = {
-  AuthenticationError: 'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',
+  AuthenticationError:
+    'Verify the active provider credential (OPENAI_API_KEY, ANTHROPIC_API_KEY, or CLAUDE_CODE_OAUTH_TOKEN) is valid and not expired.',
   ConfigurationError: 'Check your CONFIG file path and contents.',
-  BillingError: 'Check your Anthropic billing dashboard. Add credits or wait for spending cap reset.',
+  BillingError: 'Check the active provider billing dashboard. Add credits or wait for the account limit to reset.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
   PermissionError: 'Check file and network permissions.',

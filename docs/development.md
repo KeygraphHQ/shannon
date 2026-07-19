@@ -5,7 +5,7 @@ This guide covers the source-build workflow, common CLI commands, repository pat
 ## Prerequisites
 
 - Docker
-- Node.js 18+
+- Node.js 22.19+
 - pnpm
 - AI provider credentials
 
@@ -25,21 +25,27 @@ cp .env.example .env
 pnpm install
 pnpm build
 
-# 4. Run a pentest.
+# 4. Build the worker image from this checkout. --no-cache avoids reusing a
+#    generic shannon-worker image left by a different checkout or release.
+./shannon build --no-cache
+
+# 5. Run a pentest.
 ./shannon start -u https://your-app.com -r /path/to/your-repo
 ```
 
 At minimum, your `.env` file should include one supported AI provider credential, such as:
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key
+OPENAI_API_KEY=your-api-key
 ```
 
 Environment variables can also be exported directly:
 
 ```bash
-export ANTHROPIC_API_KEY="your-api-key"
+export OPENAI_API_KEY="your-api-key"
 ```
+
+Use `ANTHROPIC_API_KEY` instead if you select Anthropic. Configure only one provider credential at a time. OpenAI source builds default to Luna for the small tier, Terra for medium, and Sol for large.
 
 ## Prepare Your Repository
 

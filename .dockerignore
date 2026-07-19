@@ -4,6 +4,14 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Test build output
+**/.test-dist/
+
 # Runtime directories
 sessions/
 deliverables/

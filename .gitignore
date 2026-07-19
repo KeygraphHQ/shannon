@@ -5,3 +5,4 @@ credentials/
 dist/
 repos/
 .turbo/
+.test-dist/

@@ -82,7 +82,7 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic is recommended. AWS Bedrock and compatible proxy setups are documented separately.
+- **AI provider credentials**: OpenAI and Anthropic are supported directly. AWS Bedrock and compatible proxy setups are documented separately.
 
 ### Run Shannon
 
@@ -98,6 +98,8 @@ npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
 ```
 
 Shannon pulls the worker image from Docker Hub, starts the required local infrastructure, mounts the target repository read-only inside an ephemeral worker container, and writes results to a local workspace.
+
+To exercise unreleased provider changes from a fork, use the source-build workflow in [Source build and CLI commands](docs/development.md) and explicitly run `./shannon build --no-cache` before the first scan. The published `npx` package pulls Keygraph's published worker image, and a local checkout can otherwise reuse an older generic `shannon-worker` image.
 
 For source builds, authenticated scans, provider-specific setup, and platform notes, see [Documentation](#documentation).
 
@@ -195,7 +197,7 @@ Use these guides for operational detail:
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
 | [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, report filters, and rate-limit settings. |
-| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
+| [AI providers](docs/ai-providers.md) | OpenAI GPT-5.6, Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
 | [Workspaces and resuming](docs/workspaces.md) | Naming workspaces, resuming interrupted scans, and workspace storage. |
 | [Safety and limitations](docs/safety.md) | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats. |
@@ -212,7 +214,7 @@ Important limitations:
 
 - Shannon Open Source focuses on actively exploitable issues such as Injection, XSS, SSRF, Broken Authentication, and Broken Authorization. Broader static-analysis coverage, including vulnerable dependencies and insecure configurations, is delivered through the Keygraph platform.
 - Findings still require human review. LLM-generated reports can contain weakly supported or incorrect details.
-- Shannon is officially supported with Claude models. Smaller, alternative, or proxied non-Claude models may be incomplete or unstable.
+- Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Model behavior can still vary, so review findings and validate provider/model overrides before a full scan.
 - A full run can take roughly 1 to 1.5 hours and may incur LLM API costs depending on model pricing and application complexity.
 - Do not scan untrusted or adversarial codebases. AI-powered tools that read source code can be exposed to prompt injection.
 
@@ -266,7 +268,7 @@ This guide covers the source-build workflow, common CLI commands, repository pat
 ## Prerequisites
 
 - Docker
-- Node.js 18+
+- Node.js 22.19+
 - pnpm
 - AI provider credentials
 
@@ -286,21 +288,27 @@ cp .env.example .env
 pnpm install
 pnpm build
 
-# 4. Run a pentest.
+# 4. Build the worker image from this checkout. --no-cache avoids reusing a
+#    generic shannon-worker image left by a different checkout or release.
+./shannon build --no-cache
+
+# 5. Run a pentest.
 ./shannon start -u https://your-app.com -r /path/to/your-repo
 ```
 
 At minimum, your `.env` file should include one supported AI provider credential, such as:
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key
+OPENAI_API_KEY=your-api-key
 ```
 
 Environment variables can also be exported directly:
 
 ```bash
-export ANTHROPIC_API_KEY="your-api-key"
+export OPENAI_API_KEY="your-api-key"
 ```
+
+Use `ANTHROPIC_API_KEY` instead if you select Anthropic. Configure only one provider credential at a time. OpenAI source builds default to Luna for the small tier, Terra for medium, and Sol for large.
 
 ## Prepare Your Repository
 
@@ -419,7 +427,7 @@ Shannon can run without a configuration file, but configuration enables authenti
 
 Source-build mode resolves credentials from:
 
-1. Environment variables, such as `export ANTHROPIC_API_KEY=...`
+1. Environment variables, such as `export OPENAI_API_KEY=...` or `export ANTHROPIC_API_KEY=...`
 2. `./.env`
 
 `npx` mode resolves credentials from:
@@ -428,6 +436,25 @@ Source-build mode resolves credentials from:
 2. `~/.shannon/config.toml`, created by `npx @keygraph/shannon setup`
 
 Environment variables always win, so you can override saved config for a single session without editing files.
+
+Configure exactly one provider. A shell-selected provider credential prevents credentials for a different saved TOML provider from being injected. Shared core settings still load, while saved `[models]` values load only when the saved and shell-selected providers match (or the TOML has no provider section).
+
+The setup wizard supports these provider sections:
+
+```toml
+[openai]
+api_key = "your-openai-api-key"
+
+# Or use exactly one of the other provider sections instead:
+# [anthropic], [custom_base_url], or [bedrock]
+
+[models]
+small = "gpt-5.6-luna"
+medium = "gpt-5.6-terra"
+large = "gpt-5.6-sol"
+```
+
+`[models]` uses provider-neutral keys, but each value must be a model ID for the provider configured in the same TOML file. Provider-specific environment overrides (`OPENAI_*_MODEL` or `ANTHROPIC_*_MODEL`) win over `[models]`, which is exposed to the worker as `SHANNON_*_MODEL`. Explicit shell `SHANNON_*_MODEL` values are always preserved.
 
 ## Create a Configuration File
 
@@ -544,7 +571,9 @@ login_flow:
   - "Click <exact button text>"
 ```
 
-## Adaptive Thinking
+## Reasoning and Adaptive Thinking
+
+For OpenAI defaults, Luna and Terra use reasoning effort `none`, while Sol uses `medium` for deep-analysis work.
 
 Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
 
@@ -569,92 +598,95 @@ pipeline:
 
 # AI Providers
 
-Shannon works best with Claude models. Anthropic API keys are recommended for most users, and Shannon also supports AWS Bedrock and custom Anthropic-compatible endpoints.
+Shannon supports OpenAI, Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. Configure exactly one authentication method at a time. Pi remains Shannon's internal agent and tool harness; OpenAI requests use Pi's native `openai-responses` adapter with `store: false`.
+
+## OpenAI
+
+Run `npx @keygraph/shannon setup` and select **OpenAI**, or export an API key:
+
+```bash
+export OPENAI_API_KEY=your-api-key
+```
+
+Source-build mode can use the repository `.env` file:
+
+```bash
+OPENAI_API_KEY=your-api-key
+```
+
+An OpenAI API key is required. A ChatGPT or Codex subscription by itself does not provide API credentials or API billing.
+
+The OpenAI defaults balance capability and cost:
+
+| Shannon tier | Default model | Typical use |
+| --- | --- | --- |
+| small | `gpt-5.6-luna` | Provider preflight |
+| medium | `gpt-5.6-terra` | Reconnaissance, security analysis, exploitation, reporting |
+| large | `gpt-5.6-sol` | Pre-reconnaissance and deep analysis |
+
+Override a tier with `OPENAI_SMALL_MODEL`, `OPENAI_MEDIUM_MODEL`, or `OPENAI_LARGE_MODEL`. OpenAI provider-specific overrides take precedence over provider-neutral `SHANNON_*_MODEL` values.
+
+Shannon explicitly uses no reasoning effort for Luna and Terra and medium effort for Sol. This preserves the previous effective tier behavior while keeping the deep-analysis tier reasoning-enabled.
 
 ## Anthropic
 
-Run the setup wizard:
-
-```bash
-npx @keygraph/shannon setup
-```
-
-Or export an API key directly:
+Run the setup wizard and select **Claude Direct**, or export a credential:
 
 ```bash
 export ANTHROPIC_API_KEY=your-api-key
+# Or: export CLAUDE_CODE_OAUTH_TOKEN=your-oauth-token
 ```
 
-Source-build mode can use a `.env` file:
+Source-build `.env` equivalent:
 
 ```bash
 ANTHROPIC_API_KEY=your-api-key
 ```
 
-Each tier can be pointed at any Claude model via `ANTHROPIC_SMALL_MODEL` / `ANTHROPIC_MEDIUM_MODEL` / `ANTHROPIC_LARGE_MODEL` (or the setup wizard). If you set a tier to `claude-fable-5`, note that Fable's safety classifiers route cybersecurity tasks to Opus 4.8, so those phases run on Opus 4.8 regardless.
+Override tiers with `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL`. If a tier uses `claude-fable-5`, Fable's safety classifiers may route cybersecurity tasks to Opus 4.8.
 
 ## AWS Bedrock
 
-Run `npx @keygraph/shannon setup` and select **AWS Bedrock**. The wizard prompts for region, bearer token, and model IDs.
-
-Or export environment variables directly:
+Run the setup wizard and select **AWS Bedrock**, or configure the required values directly:
 
 ```bash
 export CLAUDE_CODE_USE_BEDROCK=1
 export AWS_REGION=us-east-1
 export AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
-export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
-export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
+export SHANNON_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
+export SHANNON_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
+export SHANNON_LARGE_MODEL=us.anthropic.claude-opus-4-8
 ```
 
-Source-build `.env` equivalent:
-
-```bash
-CLAUDE_CODE_USE_BEDROCK=1
-AWS_REGION=us-east-1
-AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
-ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
-ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
-```
-
-Shannon uses three model tiers:
-
-- **small** for summarization
-- **medium** for security analysis
-- **large** for deep reasoning
-
-Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to Bedrock model IDs available in your region.
+All three tiers are required and must be model IDs available in the configured region. The legacy `ANTHROPIC_*_MODEL` names remain supported for Bedrock.
 
 ## Custom Base URL
 
-Shannon supports pointing the SDK at an Anthropic-compatible endpoint with `ANTHROPIC_BASE_URL`. For proxy-based routing, use an LLM proxy such as LiteLLM configured to expose an Anthropic-compatible endpoint.
-
-> [!IMPORTANT]
-> Only Claude models are officially supported. Shannon's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon's instructions or tool-use constraints. Use them at your own risk.
-
-The experimental `claude-code-router` integration has been removed. If you previously relied on it, migrate to an Anthropic-compatible proxy such as LiteLLM.
-
-Run `npx @keygraph/shannon setup` and select **Custom Base URL**, or export variables directly:
+Shannon supports Anthropic-compatible proxies and gateways through `ANTHROPIC_BASE_URL`. This mode does not turn an OpenAI-compatible endpoint into an Anthropic-compatible endpoint; configure the proxy accordingly.
 
 ```bash
 export ANTHROPIC_BASE_URL=https://your-proxy.example.com
 export ANTHROPIC_AUTH_TOKEN=your-auth-token
-export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
-export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-8
+export SHANNON_SMALL_MODEL=claude-haiku-4-5-20251001
+export SHANNON_MEDIUM_MODEL=claude-sonnet-4-6
+export SHANNON_LARGE_MODEL=claude-opus-4-8
 ```
 
-Source-build `.env` equivalent:
+## Model Override Precedence
 
-```bash
-ANTHROPIC_BASE_URL=https://your-proxy.example.com
-ANTHROPIC_AUTH_TOKEN=your-auth-token
-ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
-ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-8
-```
+For the active provider, Shannon resolves each tier in this order:
+
+1. `OPENAI_*_MODEL` for OpenAI, or legacy `ANTHROPIC_*_MODEL` for Anthropic-compatible providers
+2. Provider-neutral `SHANNON_*_MODEL`
+3. The active provider's built-in default
+
+The setup wizard stores shared overrides in `[models]`; at runtime those become `SHANNON_SMALL_MODEL`, `SHANNON_MEDIUM_MODEL`, and `SHANNON_LARGE_MODEL`.
+
+## Safety and Billing
+
+Provider safeguards can pause or refuse cybersecurity requests even during authorized defensive testing. Keep scope and authorization explicit, review outputs, and do not weaken Shannon's target-safety controls to bypass a provider response.
+
+OpenAI quota exhaustion is treated as a billing condition; ordinary rate limiting is treated as transient throttling. Full scans can make many model calls, so use an isolated target and monitor the active provider's API usage and spend.
 
 ---
 
@@ -835,7 +867,7 @@ For maximum isolation, run Shannon inside a disposable virtual machine.
 ## LLM and Automation Caveats
 
 - **Verification is required**: Shannon uses a proof-by-exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
-- **Model support**: Shannon is officially supported only with Claude models. Alternative models may be incomplete, inaccurate, or unstable.
+- **Model support**: Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Provider safeguards and model behavior can vary; validate outputs and custom model overrides before relying on a report.
 - **Prompt injection risk**: Do not point Shannon at untrusted or adversarial codebases. AI-powered tools that read source code can be influenced by malicious repository content.
 
 ## Scope of Analysis

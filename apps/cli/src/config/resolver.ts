@@ -13,12 +13,14 @@ import { getMode } from '../mode.js';
 // === TOML ↔ Env Mapping ===
 
 type TOMLType = 'string' | 'number' | 'boolean';
+type ProviderSection = 'openai' | 'anthropic' | 'custom_base_url' | 'bedrock';
 
 interface ConfigMapping {
   readonly env: string;
   readonly toml: string;
   readonly type: TOMLType;
   readonly boolFormat?: 'numeric' | 'literal';
+  readonly provider?: ProviderSection;
 }
 
 /** Maps every supported env var to its TOML path (section.key) and expected type. */
@@ -26,30 +28,52 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   // Core
   { env: 'CLAUDE_ADAPTIVE_THINKING', toml: 'core.adaptive_thinking', type: 'boolean', boolFormat: 'literal' },
 
+  // OpenAI
+  { env: 'OPENAI_API_KEY', toml: 'openai.api_key', type: 'string', provider: 'openai' },
+
   // Anthropic
-  { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
-  { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
+  { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string', provider: 'anthropic' },
+  { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string', provider: 'anthropic' },
 
   // Bedrock
-  { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean' },
-  { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
-  { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
+  { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean', provider: 'bedrock' },
+  { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string', provider: 'bedrock' },
+  { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string', provider: 'bedrock' },
 
   // Custom Base URL
-  { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
-  { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
+  { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string', provider: 'custom_base_url' },
+  { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string', provider: 'custom_base_url' },
 
-  // Model tiers
-  { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
-  { env: 'ANTHROPIC_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
-  { env: 'ANTHROPIC_LARGE_MODEL', toml: 'models.large', type: 'string' },
+  // Provider-neutral model tiers. Provider-specific environment variables still
+  // take precedence in the worker.
+  { env: 'SHANNON_SMALL_MODEL', toml: 'models.small', type: 'string' },
+  { env: 'SHANNON_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
+  { env: 'SHANNON_LARGE_MODEL', toml: 'models.large', type: 'string' },
 ] as const;
+
+/** Provider sections selected by authentication values already present in the shell. */
+function explicitProviderSections(): Set<ProviderSection> {
+  const providers = new Set<ProviderSection>();
+  if (process.env.OPENAI_API_KEY) providers.add('openai');
+  if (process.env.ANTHROPIC_API_KEY || process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.add('anthropic');
+  if (process.env.ANTHROPIC_BASE_URL || process.env.ANTHROPIC_AUTH_TOKEN) providers.add('custom_base_url');
+  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.add('bedrock');
+  return providers;
+}
 
 // === TOML Parsing ===
 
 type TOMLValue = string | number | boolean;
 type TOMLSection = Record<string, TOMLValue>;
 type TOMLConfig = Record<string, TOMLSection>;
+
+function configuredProviderSection(config: TOMLConfig): ProviderSection | undefined {
+  const providers = (['openai', 'anthropic', 'custom_base_url', 'bedrock'] as const).filter((section) => {
+    const value = config[section];
+    return value && typeof value === 'object';
+  });
+  return providers.length === 1 ? providers[0] : undefined;
+}
 
 /** Read a nested TOML value for a given mapping. */
 function getTomlValue(config: TOMLConfig, mapping: ConfigMapping): string | undefined {
@@ -125,9 +149,17 @@ function validateProviderFields(config: TOMLConfig, provider: string, errors: st
   const keys = Object.keys(section);
 
   switch (provider) {
+    case 'openai':
+      if (!keys.includes('api_key')) {
+        errors.push('[openai] requires api_key');
+      }
+      break;
+
     case 'anthropic':
       if (!keys.includes('api_key') && !keys.includes('oauth_token')) {
         errors.push('[anthropic] requires either api_key or oauth_token');
+      } else if (keys.includes('api_key') && keys.includes('oauth_token')) {
+        errors.push('[anthropic] must configure only one of api_key or oauth_token');
       }
       break;
 
@@ -171,7 +203,7 @@ function validateModelTiers(config: TOMLConfig, provider: string, errors: string
  * Validate a parsed TOML config against the known schema.
  * Returns an array of human-readable error messages (empty = valid).
  */
-function validateConfig(config: TOMLConfig): string[] {
+export function validateConfig(config: TOMLConfig): string[] {
   const schema = buildSchema();
   const errors: string[] = [];
 
@@ -211,11 +243,12 @@ function validateConfig(config: TOMLConfig): string[] {
     }
   }
 
-  // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock'] as const;
+  // 4. Only one provider section allowed. Empty provider sections are still
+  // present so the required-field checks can fail closed.
+  const PROVIDER_SECTIONS = ['openai', 'anthropic', 'custom_base_url', 'bedrock'] as const;
   const present = PROVIDER_SECTIONS.filter((s) => {
     const section = config[s];
-    return section && typeof section === 'object' && Object.keys(section).length > 0;
+    return section && typeof section === 'object';
   });
   if (present.length > 1) {
     errors.push(
@@ -230,6 +263,43 @@ function validateConfig(config: TOMLConfig): string[] {
   }
 
   return errors;
+}
+
+/** Inject validated TOML values without overriding an explicit shell provider. */
+export function applyConfigToEnvironment(toml: TOMLConfig): void {
+  const explicitProviders = explicitProviderSections();
+  const selectedProvider = explicitProviders.size === 1 ? [...explicitProviders][0] : undefined;
+  const savedProvider = configuredProviderSection(toml);
+  const skipSavedModels =
+    explicitProviders.size > 0 &&
+    (!selectedProvider || (savedProvider !== undefined && savedProvider !== selectedProvider));
+
+  for (const mapping of CONFIG_MAP) {
+    if (process.env[mapping.env]) continue;
+
+    if (mapping.provider && explicitProviders.size > 0) {
+      // Never combine a shell-selected provider with credentials saved for a
+      // different provider. If the shell itself conflicts, inject no saved
+      // provider values and let credential validation report that conflict.
+      if (!selectedProvider || mapping.provider !== selectedProvider) continue;
+
+      // Anthropic's two fields are alternative authentication methods, not
+      // complementary fields. A shell-selected method must not gain the other
+      // method from TOML. Bedrock and custom endpoints, by contrast, may safely
+      // fill their remaining same-provider fields from TOML.
+      if (selectedProvider === 'anthropic') continue;
+    }
+
+    // Model keys are syntactically provider-neutral, but their values are model
+    // IDs chosen for the provider saved in this TOML file. Do not leak them into
+    // a different provider selected by the shell.
+    if (mapping.toml.startsWith('models.') && skipSavedModels) continue;
+
+    const value = getTomlValue(toml, mapping);
+    if (value) {
+      process.env[mapping.env] = value;
+    }
+  }
 }
 
 // === Public API ===
@@ -259,12 +329,5 @@ export function resolveConfig(): void {
     process.exit(1);
   }
 
-  for (const mapping of CONFIG_MAP) {
-    if (process.env[mapping.env]) continue;
-
-    const value = getTomlValue(toml, mapping);
-    if (value) {
-      process.env[mapping.env] = value;
-    }
-  }
+  applyConfigToEnvironment(toml);
 }

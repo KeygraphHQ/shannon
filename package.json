@@ -7,6 +7,7 @@
   "scripts": {
     "build": "turbo run build",
     "check": "turbo run check",
+    "test": "turbo run test",
     "biome": "biome check .",
     "biome:fix": "biome check --write .",
     "clean": "turbo run clean",
@@ -20,6 +21,9 @@
     "typescript": "^5.9.3"
   },
   "pnpm": {
+    "overrides": {
+      "@earendil-works/pi-tui": "0.80.7"
+    },
     "onlyBuiltDependencies": [
       "@swc/core",
       "protobufjs"

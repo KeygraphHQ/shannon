@@ -115,6 +115,7 @@ body:
     attributes:
       label: Provider
       options:
+        - "OpenAI (API key)"
         - "Anthropic (API key)"
         - "Anthropic (OAuth token)"
         - "Custom base URL (proxy/gateway)"

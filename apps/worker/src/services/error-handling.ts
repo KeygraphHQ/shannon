@@ -84,6 +84,10 @@ const NON_RETRYABLE_PATTERNS = [
 
 // Conservative retry classification - unknown errors don't retry (fail-safe default)
 export function isRetryableError(error: Error): boolean {
+  if (error instanceof PentestError) {
+    return error.retryable;
+  }
+
   const message = error.message.toLowerCase();
 
   if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
@@ -174,11 +178,22 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
   // === BILLING ERRORS (Retryable with long backoff) ===
-  // Anthropic returns billing as 400 invalid_request_error
-  // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
+  // Providers can return billing failures under 400 or 429 statuses. Human action
+  // may add credits, or an account window may reset after a longer backoff.
   // Check both API patterns and text patterns for comprehensive detection
   if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {
     return { type: 'BillingError', retryable: true };
+  }
+
+  // Ordinary provider throttling is transient. Keep this after quota detection so
+  // OpenAI insufficient_quota 429 responses receive billing remediation instead.
+  if (
+    message.includes('429') ||
+    message.includes('rate_limit_exceeded') ||
+    message.includes('rate limit') ||
+    message.includes('too many requests')
+  ) {
+    return { type: 'RateLimitError', retryable: true };
   }
 
   // === PERMANENT ERRORS (Non-retryable) ===

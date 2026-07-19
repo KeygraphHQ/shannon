@@ -7,7 +7,7 @@
 /**
  * Consolidated billing/spending cap detection utilities.
  *
- * Anthropic's spending cap behavior is inconsistent:
+ * Provider spending-cap and quota behavior is inconsistent:
  * - Sometimes a proper provider error (billing_error)
  * - Sometimes the model responds with text about the cap
  * - Sometimes partial billing before cutoff
@@ -26,6 +26,8 @@ export const BILLING_TEXT_PATTERNS = [
   'cap reached',
   'budget exceeded',
   'usage limit',
+  'exceeded your current quota',
+  'billing hard limit',
 ] as const;
 
 /**
@@ -44,6 +46,10 @@ export const BILLING_API_PATTERNS = [
   'daily rate limit',
   'limit will reset',
   'billing limit reached',
+  'insufficient_quota',
+  'exceeded your current quota',
+  'billing_hard_limit_reached',
+  'billing hard limit',
 ] as const;
 
 /**

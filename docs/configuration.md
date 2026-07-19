@@ -6,7 +6,7 @@ Shannon can run without a configuration file, but configuration enables authenti
 
 Source-build mode resolves credentials from:
 
-1. Environment variables, such as `export ANTHROPIC_API_KEY=...`
+1. Environment variables, such as `export OPENAI_API_KEY=...` or `export ANTHROPIC_API_KEY=...`
 2. `./.env`
 
 `npx` mode resolves credentials from:
@@ -15,6 +15,25 @@ Source-build mode resolves credentials from:
 2. `~/.shannon/config.toml`, created by `npx @keygraph/shannon setup`
 
 Environment variables always win, so you can override saved config for a single session without editing files.
+
+Configure exactly one provider. A shell-selected provider credential prevents credentials for a different saved TOML provider from being injected. Shared core settings still load, while saved `[models]` values load only when the saved and shell-selected providers match (or the TOML has no provider section).
+
+The setup wizard supports these provider sections:
+
+```toml
+[openai]
+api_key = "your-openai-api-key"
+
+# Or use exactly one of the other provider sections instead:
+# [anthropic], [custom_base_url], or [bedrock]
+
+[models]
+small = "gpt-5.6-luna"
+medium = "gpt-5.6-terra"
+large = "gpt-5.6-sol"
+```
+
+`[models]` uses provider-neutral keys, but each value must be a model ID for the provider configured in the same TOML file. Provider-specific environment overrides (`OPENAI_*_MODEL` or `ANTHROPIC_*_MODEL`) win over `[models]`, which is exposed to the worker as `SHANNON_*_MODEL`. Explicit shell `SHANNON_*_MODEL` values are always preserved.
 
 ## Create a Configuration File
 
@@ -131,7 +150,9 @@ login_flow:
   - "Click <exact button text>"
 ```
 
-## Adaptive Thinking
+## Reasoning and Adaptive Thinking
+
+For OpenAI defaults, Luna and Terra use reasoning effort `none`, while Sol uses `medium` for deep-analysis work.
 
 Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
 

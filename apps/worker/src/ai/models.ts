@@ -7,20 +7,19 @@
 /**
  * Model tier definitions and resolution for the pi harness.
  *
- * Three tiers mapped to capability levels:
- * - "small"  (Haiku — summarization, structured extraction)
- * - "medium" (Sonnet — tool use, general analysis)
- * - "large"  (Opus — deep reasoning, complex analysis)
+ * Three tiers mapped to capability levels. Defaults are provider-aware:
+ * - OpenAI: Luna / Terra / Sol
+ * - Anthropic-compatible: Haiku / Sonnet / Opus
  *
- * Users override per tier via ANTHROPIC_SMALL_MODEL / ANTHROPIC_MEDIUM_MODEL /
- * ANTHROPIC_LARGE_MODEL, which works across all providers (Anthropic, Bedrock,
- * custom base URL).
+ * Users can override a tier for the active provider via OPENAI_*_MODEL or the
+ * legacy ANTHROPIC_*_MODEL variables. SHANNON_*_MODEL is a provider-neutral
+ * fallback used by the TOML configuration.
  *
  * The active provider is chosen from the env-var contract the CLI forwards
- * (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else
- * direct Anthropic). Resolution returns a pi `Model` via `ModelRegistry.find`, the
- * `thinkingLevel`, and an `AuthStorage` primed with the right credential. Bedrock
- * authenticates from the AWS_ env vars via pi-ai.
+ * (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`,
+ * `OPENAI_API_KEY`, or direct Anthropic). Resolution returns a pi `Model` via
+ * `ModelRegistry.find`, the `thinkingLevel`, and an `AuthStorage` primed with the
+ * right credential. Bedrock authenticates from the AWS_ env vars via pi-ai.
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
@@ -29,27 +28,37 @@ import { AuthStorage, type ModelRegistry } from '@earendil-works/pi-coding-agent
 
 export type ModelTier = 'small' | 'medium' | 'large';
 
-const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
-  small: 'claude-haiku-4-5-20251001',
-  medium: 'claude-sonnet-4-6',
-  large: 'claude-opus-4-8',
+export type ProviderId = 'openai' | 'anthropic' | 'amazon-bedrock';
+
+const DEFAULT_MODELS: Readonly<Record<'openai' | 'anthropic', Readonly<Record<ModelTier, string>>>> = {
+  openai: {
+    small: 'gpt-5.6-luna',
+    medium: 'gpt-5.6-terra',
+    large: 'gpt-5.6-sol',
+  },
+  anthropic: {
+    small: 'claude-haiku-4-5-20251001',
+    medium: 'claude-sonnet-4-6',
+    large: 'claude-opus-4-8',
+  },
 };
 
 export interface EffectiveProvider {
-  /** pi-ai provider id: 'anthropic' or 'amazon-bedrock'. */
-  providerId: string;
+  /** pi-ai provider id. */
+  providerId: ProviderId;
   /** Custom-base-URL override applied to the resolved anthropic model. */
   baseUrl?: string;
-  /** Runtime credential to prime on AuthStorage for the 'anthropic' provider. */
-  anthropicToken?: string;
+  /** Runtime credential to prime on AuthStorage for the selected provider. */
+  apiKey?: string;
 }
 
 /**
  * Determine the active provider + auth from the env-var contract the CLI forwards:
  * `CLAUDE_CODE_USE_BEDROCK` → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`
- * → custom base URL; else direct Anthropic (`ANTHROPIC_API_KEY`, or
- * `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock authenticates from the AWS_ env vars via
- * pi-ai, so it needs no anthropic token.
+ * → custom base URL; `OPENAI_API_KEY` → OpenAI; else direct Anthropic
+ * (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`). The CLI rejects multiple
+ * configured providers before starting the worker. Bedrock authenticates from the
+ * AWS_ env vars via pi-ai, so it needs no runtime key here.
  */
 export function resolveEffectiveProvider(): EffectiveProvider {
   // Bedrock — env flag.
@@ -62,27 +71,34 @@ export function resolveEffectiveProvider(): EffectiveProvider {
     return {
       providerId: 'anthropic',
       baseUrl: process.env.ANTHROPIC_BASE_URL,
-      anthropicToken: process.env.ANTHROPIC_AUTH_TOKEN,
+      apiKey: process.env.ANTHROPIC_AUTH_TOKEN,
     };
+  }
+
+  // Direct OpenAI via the Responses API registered by pi.
+  if (process.env.OPENAI_API_KEY) {
+    return { providerId: 'openai', apiKey: process.env.OPENAI_API_KEY };
   }
 
   // Direct Anthropic (API key, or OAuth token).
   const eff: EffectiveProvider = { providerId: 'anthropic' };
   const token = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (token) eff.anthropicToken = token;
+  if (token) eff.apiKey = token;
   return eff;
 }
 
-/** Resolve a model tier to a concrete model ID (env override → default). */
-export function resolveModelId(tier: ModelTier = 'medium'): string {
-  switch (tier) {
-    case 'small':
-      return process.env.ANTHROPIC_SMALL_MODEL || DEFAULT_MODELS.small;
-    case 'large':
-      return process.env.ANTHROPIC_LARGE_MODEL || DEFAULT_MODELS.large;
-    default:
-      return process.env.ANTHROPIC_MEDIUM_MODEL || DEFAULT_MODELS.medium;
-  }
+function tierEnv(prefix: 'OPENAI' | 'ANTHROPIC' | 'SHANNON', tier: ModelTier): string | undefined {
+  return process.env[`${prefix}_${tier.toUpperCase()}_MODEL`];
+}
+
+/** Resolve a model tier to a concrete model ID (provider override → shared override → provider default). */
+export function resolveModelId(
+  tier: ModelTier = 'medium',
+  providerId: ProviderId = resolveEffectiveProvider().providerId,
+): string {
+  const family = providerId === 'openai' ? 'openai' : 'anthropic';
+  const providerOverride = tierEnv(family === 'openai' ? 'OPENAI' : 'ANTHROPIC', tier);
+  return providerOverride ?? tierEnv('SHANNON', tier) ?? DEFAULT_MODELS[family][tier];
 }
 
 /** Whether a model supports adaptive thinking. Opus 4.6, 4.7, and 4.8 only. */
@@ -97,7 +113,15 @@ export function supportsAdaptiveThinking(model: string): boolean {
  * pi's 'medium' level; every other model runs with thinking 'off'. The
  * CLAUDE_ADAPTIVE_THINKING=false kill switch forces 'off' regardless of model.
  */
-export function resolveThinkingLevel(modelId: string): ThinkingLevel {
+export function resolveThinkingLevel(
+  modelId: string,
+  providerId: ProviderId = resolveEffectiveProvider().providerId,
+): ThinkingLevel {
+  if (providerId === 'openai') {
+    // Preserve Shannon's effective tier behavior intentionally: inexpensive
+    // small/medium work uses no reasoning, while Sol deep-analysis work uses medium.
+    return /^gpt-5\.6(?:-sol)?(?:$|-20)/.test(modelId) ? 'medium' : 'off';
+  }
   if (process.env.CLAUDE_ADAPTIVE_THINKING === 'false') return 'off';
   return supportsAdaptiveThinking(modelId) ? 'medium' : 'off';
 }
@@ -107,7 +131,7 @@ export interface ModelSelection {
   thinkingLevel: ThinkingLevel;
   authStorage: AuthStorage;
   modelId: string;
-  providerId: string;
+  providerId: ProviderId;
 }
 
 /**
@@ -121,11 +145,11 @@ export function resolveModelSelection(
   modelTier: ModelTier,
 ): ModelSelection {
   const eff = resolveEffectiveProvider();
-  const modelId = resolveModelId(modelTier);
+  const modelId = resolveModelId(modelTier, eff.providerId);
 
   const authStorage = AuthStorage.inMemory();
-  if (eff.providerId === 'anthropic' && eff.anthropicToken) {
-    authStorage.setRuntimeApiKey('anthropic', eff.anthropicToken);
+  if (eff.apiKey) {
+    authStorage.setRuntimeApiKey(eff.providerId, eff.apiKey);
   }
   // Bedrock auth flows from the AWS_ env vars; prime the bearer token explicitly so
   // it resolves via AuthStorage in addition to pi-ai's own env fallback.
@@ -144,7 +168,7 @@ export function resolveModelSelection(
 
   return {
     model,
-    thinkingLevel: resolveThinkingLevel(modelId),
+    thinkingLevel: resolveThinkingLevel(modelId, eff.providerId),
     authStorage,
     modelId,
     providerId: eff.providerId,

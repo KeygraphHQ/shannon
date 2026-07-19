@@ -314,14 +314,12 @@ export async function runPiPrompt(
             progress.stop();
             outputLines(formatAssistantOutput(text, execContext, turnCount, description));
             progress.start();
-            const billing = classifyErrorText(text);
-            if (billing) pendingError = billing;
           }
           if (msg.role === 'assistant' && msg.stopReason === 'error') {
             apiErrorDetected = true;
             pendingError =
               pendingError ??
-              classifyErrorText(msg.errorMessage ?? '') ??
+              classifyErrorText(msg.errorMessage ?? text) ??
               new PentestError(`Agent error: ${(msg.errorMessage ?? 'unknown').slice(0, 200)}`, 'unknown', true);
           }
           break;
@@ -407,7 +405,7 @@ export async function runPiPrompt(
 
     return {
       error: err.message,
-      errorType: err.constructor.name,
+      errorType: err instanceof PentestError && err.code ? err.code : err.constructor.name,
       prompt: `${fullPrompt.slice(0, 100)}...`,
       success: false,
       duration,

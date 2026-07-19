@@ -263,13 +263,16 @@ function printInfo(
 
   // Surface Fable usage: its safety classifiers route cybersecurity tasks to
   // Opus 4.8, so those phases run on Opus 4.8 regardless of the tier setting.
-  const fableTiers = (
-    [
-      ['small', process.env.ANTHROPIC_SMALL_MODEL],
-      ['medium', process.env.ANTHROPIC_MEDIUM_MODEL],
-      ['large', process.env.ANTHROPIC_LARGE_MODEL],
-    ] as const
-  ).filter(([, model]) => model && /fable/i.test(model));
+  const usesAnthropicModels = !process.env.OPENAI_API_KEY;
+  const fableTiers = usesAnthropicModels
+    ? (
+        [
+          ['small', process.env.ANTHROPIC_SMALL_MODEL ?? process.env.SHANNON_SMALL_MODEL],
+          ['medium', process.env.ANTHROPIC_MEDIUM_MODEL ?? process.env.SHANNON_MEDIUM_MODEL],
+          ['large', process.env.ANTHROPIC_LARGE_MODEL ?? process.env.SHANNON_LARGE_MODEL],
+        ] as const
+      ).filter(([, model]) => model && /fable/i.test(model))
+    : [];
   if (fableTiers.length > 0) {
     const tierList = fableTiers.map(([tier, model]) => `${tier} (${model})`).join(', ');
     console.log(`  Note:       ${tierList} set to a Fable model. Fable's safety classifiers`);

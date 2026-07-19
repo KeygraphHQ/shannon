@@ -73,7 +73,7 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic is recommended. AWS Bedrock and compatible proxy setups are documented separately.
+- **AI provider credentials**: OpenAI and Anthropic are supported directly. AWS Bedrock and compatible proxy setups are documented separately.
 
 ### Run Shannon
 
@@ -89,6 +89,8 @@ npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
 ```
 
 Shannon pulls the worker image from Docker Hub, starts the required local infrastructure, mounts the target repository read-only inside an ephemeral worker container, and writes results to a local workspace.
+
+To exercise unreleased provider changes from a fork, use the source-build workflow in [Source build and CLI commands](docs/development.md) and explicitly run `./shannon build --no-cache` before the first scan. The published `npx` package pulls Keygraph's published worker image, and a local checkout can otherwise reuse an older generic `shannon-worker` image.
 
 For source builds, authenticated scans, provider-specific setup, and platform notes, see [Documentation](#documentation).
 
@@ -186,7 +188,7 @@ Use these guides for operational detail:
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
 | [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, report filters, and rate-limit settings. |
-| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
+| [AI providers](docs/ai-providers.md) | OpenAI GPT-5.6, Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
 | [Workspaces and resuming](docs/workspaces.md) | Naming workspaces, resuming interrupted scans, and workspace storage. |
 | [Safety and limitations](docs/safety.md) | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats. |
@@ -203,7 +205,7 @@ Important limitations:
 
 - Shannon Open Source focuses on actively exploitable issues such as Injection, XSS, SSRF, Broken Authentication, and Broken Authorization. Broader static-analysis coverage, including vulnerable dependencies and insecure configurations, is delivered through the Keygraph platform.
 - Findings still require human review. LLM-generated reports can contain weakly supported or incorrect details.
-- Shannon is officially supported with Claude models. Smaller, alternative, or proxied non-Claude models may be incomplete or unstable.
+- Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Model behavior can still vary, so review findings and validate provider/model overrides before a full scan.
 - A full run can take roughly 1 to 1.5 hours and may incur LLM API costs depending on model pricing and application complexity.
 - Do not scan untrusted or adversarial codebases. AI-powered tools that read source code can be exposed to prompt injection.
 

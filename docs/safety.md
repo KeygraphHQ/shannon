@@ -28,7 +28,7 @@ For maximum isolation, run Shannon inside a disposable virtual machine.
 ## LLM and Automation Caveats
 
 - **Verification is required**: Shannon uses a proof-by-exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
-- **Model support**: Shannon is officially supported only with Claude models. Alternative models may be incomplete, inaccurate, or unstable.
+- **Model support**: Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Provider safeguards and model behavior can vary; validate outputs and custom model overrides before relying on a report.
 - **Prompt injection risk**: Do not point Shannon at untrusted or adversarial codebases. AI-powered tools that read source code can be influenced by malicious repository content.
 
 ## Scope of Analysis

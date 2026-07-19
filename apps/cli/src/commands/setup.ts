@@ -13,17 +13,21 @@ import { requireInteractive } from '../tty.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
-type Provider = 'anthropic' | 'custom_base_url' | 'bedrock';
+type Provider = 'openai' | 'anthropic' | 'custom_base_url' | 'bedrock';
 
 export async function setup(): Promise<void> {
-  requireInteractive('setup', 'For non-interactive use, export credentials as env vars (e.g. ANTHROPIC_API_KEY).');
+  requireInteractive(
+    'setup',
+    'For non-interactive use, export credentials as env vars (e.g. OPENAI_API_KEY or ANTHROPIC_API_KEY).',
+  );
   p.intro('Shannon Setup');
 
   // 1. Select provider
   const provider = await p.select({
     message: 'Select your AI provider',
     options: [
-      { value: 'anthropic' as const, label: 'Claude Direct', hint: 'recommended' },
+      { value: 'openai' as const, label: 'OpenAI', hint: 'GPT-5.6 via Responses API' },
+      { value: 'anthropic' as const, label: 'Claude Direct' },
       { value: 'custom_base_url' as const, label: 'Custom Base URL', hint: 'proxies, gateways' },
       { value: 'bedrock' as const, label: 'Claude via AWS Bedrock' },
     ],
@@ -33,7 +37,9 @@ export async function setup(): Promise<void> {
   const config = await setupProvider(provider as Provider);
 
   // 2. Adaptive thinking
-  await maybePromptAdaptiveThinking(config);
+  if (provider !== 'openai') {
+    await maybePromptAdaptiveThinking(config);
+  }
 
   // 3. Save config
   saveConfig(config);
@@ -45,6 +51,8 @@ export async function setup(): Promise<void> {
 
 async function setupProvider(provider: Provider): Promise<ShannonConfig> {
   switch (provider) {
+    case 'openai':
+      return setupOpenAI();
     case 'anthropic':
       return setupAnthropic();
     case 'custom_base_url':
@@ -55,6 +63,48 @@ async function setupProvider(provider: Provider): Promise<ShannonConfig> {
 }
 
 // === Provider Setup Flows ===
+
+async function setupOpenAI(): Promise<ShannonConfig> {
+  const apiKey = await promptSecret('Enter your OpenAI API key');
+  const config: ShannonConfig = { openai: { api_key: apiKey } };
+
+  const customizeModels = await p.confirm({
+    message:
+      'Do you want to change the default models?\n' +
+      '    Small  - gpt-5.6-luna\n' +
+      '    Medium - gpt-5.6-terra\n' +
+      '    Large  - gpt-5.6-sol',
+    initialValue: false,
+  });
+  if (p.isCancel(customizeModels)) return cancelAndExit();
+
+  if (customizeModels) {
+    const small = await p.text({
+      message: 'Small model ID',
+      initialValue: 'gpt-5.6-luna',
+      validate: required('Small model ID is required'),
+    });
+    if (p.isCancel(small)) return cancelAndExit();
+
+    const medium = await p.text({
+      message: 'Medium model ID',
+      initialValue: 'gpt-5.6-terra',
+      validate: required('Medium model ID is required'),
+    });
+    if (p.isCancel(medium)) return cancelAndExit();
+
+    const large = await p.text({
+      message: 'Large model ID',
+      initialValue: 'gpt-5.6-sol',
+      validate: required('Large model ID is required'),
+    });
+    if (p.isCancel(large)) return cancelAndExit();
+
+    config.models = { small, medium, large };
+  }
+
+  return config;
+}
 
 async function setupAnthropic(): Promise<ShannonConfig> {
   const authMethod = await p.select({
