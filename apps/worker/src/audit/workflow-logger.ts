@@ -12,7 +12,9 @@
  */
 
 import fs from 'node:fs/promises';
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { isFableModel, resolveModelId } from '../ai/models.js';
+import type { AgentUsageMetrics } from '../types/metrics.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
 import { LogStream } from './log-stream.js';
 import { generateWorkflowLogPath, type SessionMetadata } from './utils.js';
@@ -22,6 +24,11 @@ export interface AgentLogDetails {
   duration_ms?: number;
   cost_usd?: number;
   success?: boolean;
+  model?: string;
+  reasoningEffort?: ThinkingLevel;
+  childModel?: string;
+  childReasoningEffort?: ThinkingLevel;
+  usage?: AgentUsageMetrics;
   error?: string;
 }
 
@@ -188,6 +195,19 @@ export class WorkflowLogger {
         } else {
           parts.push(')');
         }
+      }
+
+      if (details?.model) {
+        const reasoning = details.reasoningEffort ? `/${details.reasoningEffort}` : '';
+        parts.push(`[${details.model}${reasoning}]`);
+      }
+
+      if (details?.usage) {
+        parts.push(
+          `[tokens in=${details.usage.inputTokens} cache-read=${details.usage.cacheReadTokens} ` +
+            `out=${details.usage.outputTokens} reasoning=${details.usage.reasoningTokens ?? 'N/A'} ` +
+            `turns=${details.usage.numTurns}]`,
+        );
       }
 
       message = parts.join(' ');

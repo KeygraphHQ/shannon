@@ -8,6 +8,8 @@
  * Agent type definitions
  */
 
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
+
 /**
  * List of all agents in execution order.
  * Used for iteration during resume state checking.
@@ -49,6 +51,12 @@ export interface AgentDefinition {
   promptTemplate: string;
   deliverableFilename: string;
   modelTier?: 'small' | 'medium' | 'large';
+  /** OpenAI reasoning effort. Ignored by Anthropic-compatible and Bedrock providers. */
+  reasoningEffort?: ThinkingLevel;
+  /** Optional cheaper/different route for in-process `task` sub-agents. */
+  childModelTier?: 'small' | 'medium' | 'large';
+  /** OpenAI reasoning effort for `task` sub-agents; inherits the parent when omitted. */
+  childReasoningEffort?: ThinkingLevel;
 }
 
 /**

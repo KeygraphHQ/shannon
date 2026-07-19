@@ -22,14 +22,20 @@ import { deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { VulnClass } from '../types/config.js';
 
-const DISCLAIMER = [
+const ANALYSIS_ONLY_DISCLAIMER = [
   '> Exploitation phase was not run for this assessment. Each entry documents a',
   '> vulnerability identified through static analysis; live exploitation steps and',
   '> proof of impact are not included.',
 ].join('\n');
 
+const EMPTY_EXPLOIT_QUEUE_DISCLAIMER = [
+  '> Exploitation was enabled for this assessment, but vulnerability analysis produced',
+  '> no candidates in this class for the exploitation phase.',
+].join('\n');
+
 interface ClassConfig<T> {
   readonly heading: string;
+  readonly evidenceHeading: string;
   readonly noneFoundLabel: string;
   readonly queueFile: string;
   readonly findingsFile: string;
@@ -46,6 +52,10 @@ function summaryRow(label: string, value: string | undefined | null | boolean): 
   if (value === undefined || value === null) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
   return `- **${label}:** ${value}`;
+}
+
+function rating(value: string): string {
+  return value.length > 0 ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
 function formatLocation(endpoint: string | undefined, codeLocation: string | undefined): string {
@@ -83,6 +93,8 @@ function renderAuthEntry(e: AuthFinding): string {
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
       summaryRow('Impact', e.exploitation_hypothesis),
+      summaryRow('Severity', rating(e.severity)),
+      summaryRow('Confidence', rating(e.confidence)),
     ],
     e.notes,
   );
@@ -96,6 +108,8 @@ function renderSsrfEntry(e: SsrfFinding): string {
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
       summaryRow('Impact', e.exploitation_hypothesis),
+      summaryRow('Severity', rating(e.severity)),
+      summaryRow('Confidence', rating(e.confidence)),
     ],
     e.notes,
   );
@@ -109,6 +123,8 @@ function renderAuthzEntry(e: AuthzFinding): string {
       summaryRow('Vulnerable location', formatLocation(e.endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.guard_evidence),
       summaryRow('Impact', e.side_effect),
+      summaryRow('Severity', rating(e.severity)),
+      summaryRow('Confidence', rating(e.confidence)),
     ],
     e.notes,
   );
@@ -119,7 +135,12 @@ function renderInjectionEntry(e: InjectionFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
+    [
+      summaryRow('Vulnerable location', location),
+      summaryRow('Overview', e.mismatch_reason),
+      summaryRow('Severity', rating(e.severity)),
+      summaryRow('Confidence', rating(e.confidence)),
+    ],
     e.notes,
   );
 }
@@ -129,7 +150,12 @@ function renderXssEntry(e: XssFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
+    [
+      summaryRow('Vulnerable location', location),
+      summaryRow('Overview', e.mismatch_reason),
+      summaryRow('Severity', rating(e.severity)),
+      summaryRow('Confidence', rating(e.confidence)),
+    ],
     e.notes,
   );
 }
@@ -139,6 +165,7 @@ function renderXssEntry(e: XssFinding): string {
 const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
   auth: {
     heading: 'Authentication',
+    evidenceHeading: 'Authentication Exploitation Evidence',
     noneFoundLabel: 'authentication',
     queueFile: 'auth_exploitation_queue.json',
     findingsFile: 'auth_findings.md',
@@ -146,6 +173,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
   },
   authz: {
     heading: 'Authorization',
+    evidenceHeading: 'Authorization Exploitation Evidence',
     noneFoundLabel: 'authorization',
     queueFile: 'authz_exploitation_queue.json',
     findingsFile: 'authz_findings.md',
@@ -153,6 +181,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
   },
   injection: {
     heading: 'Injection',
+    evidenceHeading: 'Injection Exploitation Evidence',
     noneFoundLabel: 'injection',
     queueFile: 'injection_exploitation_queue.json',
     findingsFile: 'injection_findings.md',
@@ -160,6 +189,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
   },
   xss: {
     heading: 'XSS',
+    evidenceHeading: 'Cross-Site Scripting (XSS) Exploitation Evidence',
     noneFoundLabel: 'XSS',
     queueFile: 'xss_exploitation_queue.json',
     findingsFile: 'xss_findings.md',
@@ -167,6 +197,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
   },
   ssrf: {
     heading: 'SSRF',
+    evidenceHeading: 'SSRF Exploitation Evidence',
     noneFoundLabel: 'SSRF',
     queueFile: 'ssrf_exploitation_queue.json',
     findingsFile: 'ssrf_findings.md',
@@ -176,13 +207,18 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
 
 // === Class File Assembly ===
 
-function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown[]): string {
+function renderClassFile(
+  config: ClassConfig<unknown>,
+  entries: readonly unknown[],
+  disclaimer: string,
+  exploitEnabled: boolean,
+): string {
   const sections: string[] = [];
-  sections.push(`# ${config.heading} Findings`);
+  sections.push(`# ${exploitEnabled ? config.evidenceHeading : `${config.heading} Findings`}`);
   sections.push('');
-  sections.push(DISCLAIMER);
+  sections.push(disclaimer);
   sections.push('');
-  sections.push('## Identified Vulnerabilities');
+  sections.push(exploitEnabled ? '## Successfully Exploited Vulnerabilities' : '## Identified Vulnerabilities');
   sections.push('');
   if (entries.length === 0) {
     sections.push(`No ${config.noneFoundLabel} vulnerabilities were identified.`);
@@ -201,39 +237,43 @@ function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown
 /**
  * Render `*_findings.md` per class from each `*_exploitation_queue.json`.
  *
- * Idempotent: skips classes whose findings file already exists, or whose queue
- * is missing (class out of scope this run). Per-class failures are logged and
- * other classes still proceed.
+ * Idempotent: deterministically rewrites findings for each selected class whose
+ * queue exists. Missing queues are treated as out of scope; malformed queues
+ * fail closed so a stale findings file can never survive a retry.
  */
 export async function renderFindingsFromQueues(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
+  selectedVulnClasses?: readonly VulnClass[],
+  emptyQueuesOnly = false,
 ): Promise<void> {
   const dir = deliverablesDir(sourceDir, deliverablesSubdir);
+  const selectedSet = selectedVulnClasses ? new Set(selectedVulnClasses) : null;
 
-  for (const config of Object.values(CLASSES)) {
+  for (const [vulnClass, config] of Object.entries(CLASSES) as Array<[VulnClass, ClassConfig<unknown>]>) {
+    if (selectedSet && !selectedSet.has(vulnClass)) continue;
     const queuePath = path.join(dir, config.queueFile);
     const findingsPath = path.join(dir, config.findingsFile);
 
-    if (await fs.pathExists(findingsPath)) {
-      logger.info(`${config.heading}: ${config.findingsFile} already exists, skipping`);
-      continue;
-    }
     if (!(await fs.pathExists(queuePath))) {
       logger.info(`${config.heading}: no queue file (class out of scope), skipping`);
       continue;
     }
 
-    try {
-      const doc = (await fs.readJson(queuePath)) as QueueDocument<unknown>;
-      const entries = doc.vulnerabilities ?? [];
-      const markdown = renderClassFile(config, entries);
-      await fs.writeFile(findingsPath, markdown);
-      logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
-    } catch (error) {
-      const err = error as Error;
-      logger.warn(`${config.heading}: failed to render findings from ${config.queueFile}: ${err.message}`);
+    const doc = (await fs.readJson(queuePath)) as QueueDocument<unknown>;
+    if (!Array.isArray(doc.vulnerabilities)) {
+      throw new Error(`${config.queueFile} does not contain a vulnerabilities array`);
     }
+    const entries = doc.vulnerabilities;
+    if (emptyQueuesOnly && entries.length > 0) continue;
+    const markdown = renderClassFile(
+      config,
+      entries,
+      emptyQueuesOnly ? EMPTY_EXPLOIT_QUEUE_DISCLAIMER : ANALYSIS_ONLY_DISCLAIMER,
+      emptyQueuesOnly,
+    );
+    await fs.writeFile(findingsPath, markdown);
+    logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
   }
 }

@@ -52,7 +52,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 
 Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source-code analysis with live exploitation.
 
-Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
+Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. The final report includes successful proof-of-concept exploits and real vulnerabilities backed by code or live evidence whose full impact remained blocked after exhaustive documented attempts; disproven and out-of-scope hypotheses remain audit-only.
 
 Shannon is the agent. This repository is Shannon Open Source, the standalone pentester you run yourself. The same Shannon also powers the [Keygraph platform](https://keygraph.io), Keygraph's commercial pentesting product. See [Editions](#editions) for how the two compare.
 
@@ -105,7 +105,7 @@ For source builds, authenticated scans, provider-specific setup, and platform no
 
 ## Key Capabilities
 
-- **Proof-by-exploitation reports**: Shannon reports validated findings with reproducible proof-of-concept steps instead of speculative warnings.
+- **Evidence-backed exploitation reports**: Shannon reports successful exploits with reproducible proof-of-concept steps and real vulnerabilities blocked by security controls after exhaustive attempts, while excluding disproven hypotheses.
 - **White-box attack planning**: Shannon uses source-code analysis to guide dynamic testing and focus on realistic attack paths.
 - **Autonomous execution**: Shannon launches reconnaissance, vulnerability analysis, exploitation, and report generation from a single command.
 - **Authenticated testing**: configuration files can describe login flows, test credentials, TOTP, email-based login flows, focus areas, and rules of engagement.
@@ -116,7 +116,7 @@ For source builds, authenticated scans, provider-specific setup, and platform no
 
 Shannon ships in two ways: **Shannon Open Source**, the pentester you run yourself, and the **Keygraph platform**, the commercial pentesting product that runs Shannon continuously and closes the full AppSec lifecycle around it.
 
-**Shannon Open Source** (this repository) is the standalone pentester: a CLI agent for white-box, proof-by-exploitation testing of web applications and APIs you own or are authorized to test. It reads your source, plans attacks, executes real exploits, and reports only what it can prove. It runs on demand and is complete in that lane. You point it at a target, it pentests, it reports.
+**Shannon Open Source** (this repository) is the standalone pentester: a CLI agent for white-box, evidence-backed exploitation testing of web applications and APIs you own or are authorized to test. It reads your source, plans attacks, executes real exploits, and reports successful exploits plus real, evidenced vulnerabilities whose validation was blocked after exhaustive attempts. It runs on demand and is complete in that lane. You point it at a target, it pentests, it reports.
 
 The **Keygraph platform** is the enterprise-ready, continuous pentesting product powered by Shannon. In the Keygraph platform, an enhanced build of Shannon runs continuously in a hardened, orchestrated environment fed by Keygraph's full code-analysis stack. Around that engine, the platform closes the entire vulnerability lifecycle, from analysis to a verified fix:
 
@@ -131,7 +131,7 @@ Shannon is the proof engine at the center of the Keygraph platform. Shannon Open
 | AppSec lifecycle stage | Shannon Open Source | Keygraph platform |
 | --- | --- | --- |
 | Analyze | Basic LLM pass-through of source to plan attacks | Actual code-base parsing, plus Code Property Graph, SAST, SCA with reachability, secrets, IaC, and containers |
-| Pentest and prove | White-box only, proof by exploitation | Enhanced white-box, plus black-box and grey-box modes, run continuously |
+| Pentest and prove | White-box only, evidence-backed exploitation | Enhanced white-box, plus black-box and grey-box modes, run continuously |
 | Manage findings | Local Markdown report | Canonical findings system: deduplication across sources, ownership, SLA, dashboards, Jira sync, and professional pentest-grade PDF reports |
 | Remediate and verify | Fix manually from the report, then re-run the full scan to verify | Automated remediation: opens a PR with the fix, verified by point re-test without re-running the full scan |
 | Deploy and operate | Local CLI and Docker worker | Self-hosted, air-gapped, BYOK, continuous, enterprise integrations |
@@ -184,7 +184,7 @@ At a high level:
 - **Pre-reconnaissance** identifies frameworks, entry points, data flows, and likely attack surfaces from the repository.
 - **Reconnaissance** explores the live application and correlates runtime behavior with code-level context.
 - **Vulnerability analysis** runs specialized agents for Injection, XSS, SSRF, Authentication, and Authorization.
-- **Exploitation** attempts real proof-of-concept attacks and discards hypotheses that cannot be proven.
+- **Exploitation** assigns every queued hypothesis a definitive verdict: exploited, blocked with evidence after exhaustive attempts, disproven false positive, or out of scope. Reports include exploited and real blocked findings.
 - **Reporting** compiles validated findings, evidence, and remediation guidance into a final Markdown report.
 
 Each scan runs in an ephemeral Docker container with an isolated workspace and per-invocation orchestration.
@@ -573,7 +573,9 @@ login_flow:
 
 ## Reasoning and Adaptive Thinking
 
-For OpenAI defaults, Luna and Terra use reasoning effort `none`, while Sol uses `medium` for deep-analysis work.
+For OpenAI, Shannon selects reasoning effort by workflow phase rather than deriving it from the model tier. Credential preflight and pipeline-test stubs use Luna with reasoning off; authentication validation uses Terra with low effort; substantive recon, analysis, exploitation, and reporting parents use medium effort. Sol is reserved for pre-reconnaissance and authorization/business-logic work, while bounded exploit child tasks use Luna with low effort. See [AI Providers](ai-providers.md#default-phase-routing) for the complete parent/child matrix.
+
+OpenAI phase-specific effort does not change Anthropic, custom Anthropic-compatible, or Bedrock thinking behavior.
 
 Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
 
@@ -620,13 +622,32 @@ The OpenAI defaults balance capability and cost:
 
 | Shannon tier | Default model | Typical use |
 | --- | --- | --- |
-| small | `gpt-5.6-luna` | Provider preflight |
-| medium | `gpt-5.6-terra` | Reconnaissance, security analysis, exploitation, reporting |
-| large | `gpt-5.6-sol` | Pre-reconnaissance and deep analysis |
+| small | `gpt-5.6-luna` | Provider preflight, pipeline-test stubs, bounded exploit child tasks |
+| medium | `gpt-5.6-terra` | Authentication validation, live recon, most analysis and exploitation, reporting |
+| large | `gpt-5.6-sol` | Pre-reconnaissance and authorization/business-logic analysis and exploitation |
 
 Override a tier with `OPENAI_SMALL_MODEL`, `OPENAI_MEDIUM_MODEL`, or `OPENAI_LARGE_MODEL`. OpenAI provider-specific overrides take precedence over provider-neutral `SHANNON_*_MODEL` values.
 
-Shannon explicitly uses no reasoning effort for Luna and Terra and medium effort for Sol. This preserves the previous effective tier behavior while keeping the deep-analysis tier reasoning-enabled.
+### Default Phase Routing
+
+OpenAI reasoning effort is selected for the workload independently of the price tier. Parent agents retain the judgment needed to direct a phase; bounded child tasks use the least expensive tier that can perform them reliably.
+
+| Phase | Parent model / effort | `task` child model / effort |
+| --- | --- | --- |
+| Credential preflight | Luna / off | None |
+| Authentication validation | Terra / low | None |
+| Pre-reconnaissance | Sol / medium | Terra / medium |
+| Live reconnaissance | Terra / medium | Terra / medium |
+| Injection, XSS, authentication, and SSRF analysis | Terra / medium | Terra / medium |
+| Authorization and business-logic analysis | Sol / medium | Terra / medium |
+| Injection, XSS, authentication, and SSRF exploitation | Terra / medium | Luna / low |
+| Authorization and business-logic exploitation | Sol / medium | Luna / low |
+| Final report | Terra / medium | Terra / medium |
+| Pipeline-testing mode | Luna / off | Luna / off |
+
+These effort overrides apply only when OpenAI is the active provider. Anthropic, custom Anthropic-compatible endpoints, and Bedrock retain their existing thinking behavior. Model IDs remain configurable by tier, so an override changes every phase assigned to that tier.
+
+Shannon records the effective parent and child models, reasoning efforts, turns, cost, and input, output, reasoning, cache-read, and cache-write tokens in its run metrics. Reasoning and cache token counts are informational subsets and are not added to input/output totals or billed cost a second time.
 
 ## Anthropic
 
@@ -866,7 +887,7 @@ For maximum isolation, run Shannon inside a disposable virtual machine.
 
 ## LLM and Automation Caveats
 
-- **Verification is required**: Shannon uses a proof-by-exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
+- **Verification is required**: Shannon uses an evidence-backed exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
 - **Model support**: Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Provider safeguards and model behavior can vary; validate outputs and custom model overrides before relying on a report.
 - **Prompt injection risk**: Do not point Shannon at untrusted or adversarial codebases. AI-powered tools that read source code can be influenced by malicious repository content.
 
@@ -880,7 +901,15 @@ Shannon currently targets exploitable vulnerabilities in these classes:
 - Cross-Site Scripting
 - Server-Side Request Forgery
 
-Shannon's proof-by-exploitation model means it does not report issues it cannot actively exploit, such as many vulnerable dependency, insecure configuration, or broad policy findings.
+Shannon's evidence-backed exploitation model does not report dependency, configuration, or broad policy issues that lack a supported network-reachable attack path. It can report a real vulnerability when code or live evidence supports it but a security control or external condition blocks full exploitation after exhaustive documented attempts.
+
+## Completion and Audit Guarantees
+
+- Pre-reconnaissance, reconnaissance, and vulnerability-analysis phases must fill every required structured collector section before their deliverables can be committed.
+- Every exploitation-queue ID must receive exactly one verdict: `exploited`, `blocked`, `false_positive`, or `out_of_scope`.
+- Human-facing reports include only `exploited` and evidence-backed `blocked` findings. False positives and out-of-scope candidates remain in per-class `*_exploitation_audit.json` files for traceability.
+- An incomplete exploit verdict set fails closed and is not automatically rerun, because replaying a live exploitation phase could repeat state-changing requests.
+- Severity and confidence thresholds are applied deterministically. A finding omitted by free-form report guidance must be recorded with its ID and reason in `report_exclusions.json`; every other eligible ID must appear exactly once in the final report.
 
 For broader coverage, the Keygraph platform adds black-box and white-box agentic pentesting, graph-based static analysis, SCA reachability, secrets detection, business logic testing, remediation workflows, SLA tracking, and reporting dashboards.
 
@@ -908,7 +937,7 @@ Shannon focuses on exploitable findings that can be validated against a running 
 
 ## Reporting Philosophy
 
-Shannon follows a proof-by-exploitation model. Findings that cannot be demonstrated with a working proof of concept are not included in the final report.
+Shannon follows an evidence-backed exploitation model. The final report includes successful proof-of-concept exploits and real vulnerabilities supported by code or live evidence when a security control or external condition still blocks full impact after exhaustive documented attempts. Disproven hypotheses and candidates outside the authorized network-accessible surface remain audit-only.
 
 This reduces speculative noise, but it also means Shannon does not aim to report every possible security issue in a repository. In particular, many dependency, policy, configuration, and broad static-analysis findings are outside the core Shannon workflow.
 

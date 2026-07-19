@@ -14,8 +14,17 @@
  */
 
 import { getQueueFilename } from '../ai/queue-schemas.js';
+import { exploitAuditFilename, type VulnClass } from '../collectors/exploit-collector.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
+
+const EXPLOIT_AGENT_CLASSES: Partial<Record<AgentName, VulnClass>> = {
+  'injection-exploit': 'injection',
+  'xss-exploit': 'xss',
+  'auth-exploit': 'auth',
+  'ssrf-exploit': 'ssrf',
+  'authz-exploit': 'authz',
+};
 
 /**
  * Deliverable files an agent writes into the deliverables directory. Used to
@@ -26,6 +35,13 @@ export function getAgentGitPaths(agentName: AgentName): string[] {
   const queueFilename = getQueueFilename(agentName);
   if (queueFilename) {
     paths.push(queueFilename);
+  }
+  const exploitClass = EXPLOIT_AGENT_CLASSES[agentName];
+  if (exploitClass) {
+    paths.push(exploitAuditFilename(exploitClass));
+  }
+  if (agentName === 'report') {
+    paths.push('report_exclusions.json');
   }
   return [...new Set(paths)];
 }

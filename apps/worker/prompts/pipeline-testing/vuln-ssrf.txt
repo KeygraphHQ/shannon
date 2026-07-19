@@ -1,13 +1,7 @@
 @include(shared/_filesystem.txt)
 
-Please complete these tasks using your CLI tools:
-
-1. Navigate to https://httpbin.org and take a screenshot:
-   - Invoke the `playwright-cli` skill to learn the available commands
-   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://httpbin.org
-   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
-
-2. Save an analysis deliverable:
-   - Run: `save-deliverable --type SSRF_ANALYSIS --content '# SSRF Analysis Report\n\nAnalysis complete. No SSRF vulnerabilities identified.'`
-
-As a final step, return an empty array for vulnerabilities.
+Navigate to `https://httpbin.org` with playwright session `{{PLAYWRIGHT_SESSION}}` and take a screenshot.
+Then call `set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, and `set_blind_spots`
+exactly once each with concise schema-valid pipeline-fixture data. Empty pattern/vector/item arrays are valid;
+populate every required SSRF strategic-intelligence string with `Pipeline fixture`.
+As your final action call `submit_exploitation_queue` with `{ "vulnerabilities": [] }` and stop.

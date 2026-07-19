@@ -152,7 +152,9 @@ login_flow:
 
 ## Reasoning and Adaptive Thinking
 
-For OpenAI defaults, Luna and Terra use reasoning effort `none`, while Sol uses `medium` for deep-analysis work.
+For OpenAI, Shannon selects reasoning effort by workflow phase rather than deriving it from the model tier. Credential preflight and pipeline-test stubs use Luna with reasoning off; authentication validation uses Terra with low effort; substantive recon, analysis, exploitation, and reporting parents use medium effort. Sol is reserved for pre-reconnaissance and authorization/business-logic work, while bounded exploit child tasks use Luna with low effort. See [AI Providers](ai-providers.md#default-phase-routing) for the complete parent/child matrix.
+
+OpenAI phase-specific effort does not change Anthropic, custom Anthropic-compatible, or Bedrock thinking behavior.
 
 Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
 

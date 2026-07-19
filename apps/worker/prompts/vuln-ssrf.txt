@@ -102,7 +102,8 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 	  "missing_defense": "Concise description of the core problem (e.g., 'No URL allowlist validation', 'Missing protocol restriction').",
 	  "exploitation_hypothesis": "A clear statement describing the expected outcome of a successful exploit (e.g., 'An attacker can access internal services by providing internal URLs', 'An attacker can retrieve cloud metadata through URL manipulation').",
 	  "suggested_exploit_technique": "The specific attack pattern to attempt, derived from the methodology (e.g., 'internal_service_access', 'cloud_metadata_retrieval', 'port_scanning', 'webhook_abuse').",
-	  "confidence": "High | Medium | Low",
+	  "confidence": "low | medium | high",
+	  "severity": "low | medium | high | critical",
 	  "notes": "Relevant details about request format, authentication requirements, observed timeouts, or links to related findings."
 	}
 </exploitation_queue_format>
@@ -256,9 +257,8 @@ The harness injects each tool's complete description and per-field guidance into
 
 **Call semantics:** All 4 tools are one-shot — each may be called exactly once with the section's complete content. Duplicate calls return `"already called"` and are no-ops. There is no incremental/append mode; synthesize each section's full content in working memory before emitting.
 
-**Required vs recommended:**
-- `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-ssrf` agent reads.
-- `set_safe_vectors` and `set_blind_spots` are recommended. Empty arrays are acceptable on runs with no validated-secure components or no constraint gaps, but explicit emission is preferred over skipping.
+**Required emissions:**
+- All 4 tools are required and must be called exactly once before terminating. Empty arrays for `set_safe_vectors` or `set_blind_spots` are the explicit no-results signal; skipping any tool fails completion.
 
 **Relationship to the exploitation queue:** The exploitation queue (`ssrf_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
 </deliverable_tools>
@@ -268,7 +268,7 @@ The harness injects each tool's complete description and per-field guidance into
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1.  **Systematic Analysis:** ALL relevant API endpoints and request-making features identified in the reconnaissance deliverable must be analyzed for SSRF vulnerabilities.
-2.  **Deliverable Emission:** Call the 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays are acceptable but explicit emission is preferred).
+2.  **Deliverable Emission:** Call all 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each. Empty arrays are valid explicit results; skipping any tool fails completion.
 
 **Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the tool calls.
 

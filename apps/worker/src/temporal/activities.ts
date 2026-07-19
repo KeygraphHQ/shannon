@@ -27,19 +27,30 @@ import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
-import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
+import {
+  assertExploitComplete,
+  assertPreReconComplete,
+  assertReconComplete,
+  assertVulnAnalysisComplete,
+} from '../services/completion-gates.js';
+import { type Container, getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
+import {
+  assertReportComplete,
+  buildReportExpectations,
+  createReportExclusionCollector,
+  fingerprintReportConfig,
+} from '../services/report-validation.js';
 import { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
-import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
-import type { ContainerConfig, VulnClass } from '../types/config.js';
+import type { Confidence, ContainerConfig, Severity, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { isErr } from '../types/result.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
@@ -76,6 +87,11 @@ export interface ActivityInput {
   auditDir?: string;
   promptDir?: string;
   sastSarifPath?: string;
+  vulnClasses?: VulnClass[];
+  reportVulnClasses?: VulnClass[];
+  unassessedVulnClasses?: VulnClass[];
+  exploit?: boolean;
+  forceReport?: boolean;
 }
 
 /**
@@ -135,6 +151,14 @@ async function runAgentActivity(
   input: ActivityInput,
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
   writeDeliverable?: (deliverablesPath: string) => Promise<void>,
+  prepare?: (
+    container: Container,
+    deliverablesPath: string,
+    logger: ReturnType<typeof createActivityLogger>,
+  ) => Promise<{
+    customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
+    writeDeliverable?: (deliverablesPath: string) => Promise<void>;
+  }>,
 ): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
 
@@ -143,13 +167,15 @@ async function runAgentActivity(
   const skipContainer =
     getContainer(workflowId) ??
     getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
-  const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
-    agentName,
-    repoPath,
-    input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
-  );
-  if (decision.skip && decision.metrics) {
-    return { ...decision.metrics, skipped: true };
+  if (!(agentName === 'report' && input.forceReport)) {
+    const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
+      agentName,
+      repoPath,
+      input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+    );
+    if (decision.skip && decision.metrics) {
+      return { ...decision.metrics, skipped: true };
+    }
   }
 
   const startTime = Date.now();
@@ -176,6 +202,9 @@ async function runAgentActivity(
 
     // 3. Execute agent via service (throws PentestError on failure)
     const deliverablesPath = deliverablesDir(repoPath, container.config.deliverablesSubdir);
+    const prepared = prepare ? await prepare(container, deliverablesPath, logger) : undefined;
+    const effectiveCustomTools = prepared?.customTools ?? customTools;
+    const effectiveWriteDeliverable = prepared?.writeDeliverable ?? writeDeliverable;
     const endResult = await container.agentExecution.executeOrThrow(
       agentName,
       {
@@ -185,10 +214,15 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        ...((input.reportVulnClasses ?? input.vulnClasses) && {
+          promptVulnClasses: input.reportVulnClasses ?? input.vulnClasses,
+        }),
+        ...(input.unassessedVulnClasses && { promptUnassessedVulnClasses: input.unassessedVulnClasses }),
+        ...(input.exploit !== undefined && { promptExploit: input.exploit }),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
-        ...(customTools && { customTools }),
-        ...(writeDeliverable && { writeDeliverable }),
+        ...(effectiveCustomTools && { customTools: effectiveCustomTools }),
+        ...(effectiveWriteDeliverable && { writeDeliverable: effectiveWriteDeliverable }),
         cancellationSignal: Context.current().cancellationSignal,
       },
       auditSession,
@@ -196,13 +230,22 @@ async function runAgentActivity(
     );
 
     // 4. Return metrics
+    const usage = endResult.usage;
     return {
       durationMs: Date.now() - startTime,
-      inputTokens: null,
-      outputTokens: null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+      reasoningTokens: usage?.reasoningTokens ?? null,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheWriteTokens: usage?.cacheWriteTokens ?? null,
       costUsd: endResult.cost_usd,
-      numTurns: null,
+      numTurns: usage?.numTurns ?? null,
       model: endResult.model,
+      reasoningEffort: endResult.reasoningEffort,
+      childModel: endResult.childModel,
+      childReasoningEffort: endResult.childReasoningEffort,
+      parentUsage: endResult.parentUsage,
+      childUsage: endResult.childUsage,
     };
   } catch (error) {
     // If error is already an ApplicationFailure, re-throw directly
@@ -256,9 +299,9 @@ export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetri
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
-    // Skipped tools surface as renderer placeholders, not as activity failures.
     const callStatus = collector.getCallStatus();
     logger.info('Pre-recon tool call status', { callStatus });
+    assertPreReconComplete(callStatus);
 
     const collected = collector.getAll();
     const markdown = renderPreRecon(collected);
@@ -278,9 +321,9 @@ export async function runReconAgent(input: ActivityInput): Promise<AgentMetrics>
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
-    // Skipped tools surface as renderer placeholders, not as activity failures.
     const callStatus = collector.getCallStatus();
     logger.info('Recon tool call status', { callStatus });
+    assertReconComplete(callStatus);
 
     const collected = collector.getAll();
     const markdown = renderRecon(collected);
@@ -304,9 +347,9 @@ async function runVulnAgentWithCollector(
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
-    // Skipped tools surface as renderer placeholders, not as activity failures.
     const callStatus = collector.getCallStatus();
     logger.info(`${vulnClass} vuln tool call status`, { callStatus });
+    assertVulnAnalysisComplete(vulnClass, callStatus);
 
     const collected = collector.getAll();
     const markdown = renderVulnDeliverable(vulnClass, collected);
@@ -341,17 +384,38 @@ export async function runAuthzVulnAgent(input: ActivityInput): Promise<AgentMetr
 interface ExploitQueueEntry {
   ID?: string;
   vulnerability_type?: string;
+  severity?: string;
+  confidence?: string;
 }
 
 interface ExploitQueueDocument {
   vulnerabilities?: ExploitQueueEntry[];
 }
 
-async function readExploitQueue(queuePath: string): Promise<{ validIds: Set<string>; idToType: Map<string, string> }> {
+interface ExploitQueueRatings {
+  severity: Severity;
+  confidence: Confidence;
+}
+
+const VALID_QUEUE_SEVERITIES = new Set<string>(['low', 'medium', 'high', 'critical']);
+const VALID_QUEUE_CONFIDENCES = new Set<string>(['low', 'medium', 'high']);
+
+async function readExploitQueue(queuePath: string): Promise<{
+  validIds: Set<string>;
+  idToType: Map<string, string>;
+  queueRatings: Map<string, ExploitQueueRatings>;
+}> {
   const validIds = new Set<string>();
   const idToType = new Map<string, string>();
+  const queueRatings = new Map<string, ExploitQueueRatings>();
   if (!(await fileExists(queuePath))) {
-    return { validIds, idToType };
+    const failure = ApplicationFailure.nonRetryable(
+      `Exploitation queue not found: ${queuePath}`,
+      'InvalidExploitationQueueError',
+      [{ queuePath }],
+    );
+    truncateStackTrace(failure);
+    throw failure;
   }
   let doc: ExploitQueueDocument;
   try {
@@ -366,12 +430,56 @@ async function readExploitQueue(queuePath: string): Promise<{ validIds: Set<stri
     truncateStackTrace(failure);
     throw failure;
   }
-  for (const entry of doc.vulnerabilities ?? []) {
-    if (!entry.ID) continue;
-    validIds.add(entry.ID);
-    idToType.set(entry.ID, entry.vulnerability_type ?? 'unknown');
+  if (!Array.isArray(doc.vulnerabilities)) {
+    const failure = ApplicationFailure.nonRetryable(
+      `Invalid exploitation queue ${queuePath}: vulnerabilities must be an array`,
+      'InvalidExploitationQueueError',
+      [{ queuePath }],
+    );
+    truncateStackTrace(failure);
+    throw failure;
   }
-  return { validIds, idToType };
+  for (const entry of doc.vulnerabilities) {
+    if (typeof entry.ID !== 'string' || entry.ID.trim() === '') {
+      const failure = ApplicationFailure.nonRetryable(
+        `Invalid exploitation queue ${queuePath}: every entry requires a nonempty ID`,
+        'InvalidExploitationQueueError',
+        [{ queuePath }],
+      );
+      truncateStackTrace(failure);
+      throw failure;
+    }
+    if (validIds.has(entry.ID)) {
+      const failure = ApplicationFailure.nonRetryable(
+        `Invalid exploitation queue ${queuePath}: duplicate ID ${entry.ID}`,
+        'InvalidExploitationQueueError',
+        [{ queuePath, duplicateId: entry.ID }],
+      );
+      truncateStackTrace(failure);
+      throw failure;
+    }
+    if (!VALID_QUEUE_SEVERITIES.has(entry.severity ?? '') || !VALID_QUEUE_CONFIDENCES.has(entry.confidence ?? '')) {
+      const failure = ApplicationFailure.nonRetryable(
+        `Invalid exploitation queue ${queuePath}: ${entry.ID} requires lowercase severity and confidence ratings`,
+        'InvalidExploitationQueueError',
+        [{ queuePath, vulnerabilityId: entry.ID, severity: entry.severity, confidence: entry.confidence }],
+      );
+      truncateStackTrace(failure);
+      throw failure;
+    }
+    validIds.add(entry.ID);
+    idToType.set(
+      entry.ID,
+      typeof entry.vulnerability_type === 'string' && entry.vulnerability_type.trim() !== ''
+        ? entry.vulnerability_type
+        : 'unknown',
+    );
+    queueRatings.set(entry.ID, {
+      severity: entry.severity as Severity,
+      confidence: entry.confidence as Confidence,
+    });
+  }
+  return { validIds, idToType, queueRatings };
 }
 
 async function runExploitAgentWithCollector(
@@ -379,31 +487,51 @@ async function runExploitAgentWithCollector(
   vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
   input: ActivityInput,
 ): Promise<AgentMetrics> {
-  const { createExploitCollector } = await import('../collectors/exploit-collector.js');
+  const { createExploitCollector, exploitAuditFilename } = await import('../collectors/exploit-collector.js');
   const { renderExploitDeliverable } = await import('../services/exploit-renderer.js');
 
   const dir = deliverablesDir(input.repoPath, input.deliverablesSubdir);
   const queuePath = path.join(dir, `${vulnClass}_exploitation_queue.json`);
-  const { validIds, idToType } = await readExploitQueue(queuePath);
+  const { validIds, idToType, queueRatings } = await readExploitQueue(queuePath);
 
   const collector = createExploitCollector({ vulnClass, validIds });
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
     const collected = collector.getAll();
+    assertExploitComplete(vulnClass, validIds, collected);
     const emittedIds = new Set(collected.map((e) => e.vulnerability_id));
     const missingIds = [...validIds].filter((id) => !emittedIds.has(id));
     const exploitedCount = collected.filter((e) => e.status === 'exploited').length;
     const blockedCount = collected.filter((e) => e.status === 'blocked').length;
+    const falsePositiveCount = collected.filter((e) => e.status === 'false_positive').length;
+    const outOfScopeCount = collected.filter((e) => e.status === 'out_of_scope').length;
 
     logger.info(`${vulnClass} exploit tool call metrics`, {
       queueSize: validIds.size,
       exploited: exploitedCount,
       blocked: blockedCount,
+      falsePositive: falsePositiveCount,
+      outOfScope: outOfScopeCount,
       missing: missingIds.length,
     });
 
-    const markdown = renderExploitDeliverable(vulnClass, collected, idToType);
+    const auditPath = path.join(deliverablesPath, exploitAuditFilename(vulnClass));
+    await atomicWrite(
+      auditPath,
+      `${JSON.stringify(
+        {
+          schema_version: 1,
+          vulnerability_class: vulnClass,
+          queue_ids: [...validIds],
+          verdicts: collected,
+        },
+        null,
+        2,
+      )}\n`,
+    );
+
+    const markdown = renderExploitDeliverable(vulnClass, collected, idToType, queueRatings);
     const mdPath = path.join(deliverablesPath, `${vulnClass}_exploitation_evidence.md`);
     await atomicWrite(mdPath, markdown);
     logger.info(`Wrote ${vulnClass}_exploitation_evidence.md from structured data (${markdown.length} bytes)`);
@@ -433,7 +561,49 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 }
 
 export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('report', input);
+  return runAgentActivity('report', input, undefined, undefined, async (container, deliverablesPath) => {
+    const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+    if (isErr(configResult)) throw configResult.error;
+
+    const config = configResult.value;
+    const vulnClasses = input.reportVulnClasses ??
+      input.vulnClasses ??
+      config?.vuln_classes ?? ['injection', 'xss', 'auth', 'authz', 'ssrf'];
+    const exploit = input.exploit ?? config?.exploit ?? true;
+    const expectations = await buildReportExpectations(
+      deliverablesPath,
+      vulnClasses,
+      exploit,
+      config?.report,
+      input.unassessedVulnClasses,
+    );
+    const validExclusionIds = new Set(expectations.candidates.map((finding) => finding.id));
+    const exclusionCollector = createReportExclusionCollector(validExclusionIds);
+
+    const writeDeliverable = async (resolvedDeliverablesPath: string): Promise<void> => {
+      const reportPath = path.join(resolvedDeliverablesPath, 'comprehensive_security_assessment_report.md');
+      const reportContent = await fs.readFile(reportPath, 'utf8');
+      const exclusions = exclusionCollector.getAll();
+      assertReportComplete(reportContent, expectations, exclusions);
+      await atomicWrite(
+        path.join(resolvedDeliverablesPath, 'report_exclusions.json'),
+        `${JSON.stringify(
+          {
+            schema_version: 1,
+            guidance: expectations.guidance ?? '',
+            exclusions,
+          },
+          null,
+          2,
+        )}\n`,
+      );
+    };
+
+    return {
+      ...(expectations.guidance && { customTools: exclusionCollector.tools }),
+      writeDeliverable,
+    };
+  });
 }
 
 /**
@@ -674,23 +844,16 @@ export async function assembleReportActivity(input: ActivityInput, exploit: bool
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
 
-  if (!exploit) {
-    logger.info('Rendering per-class findings from analysis queues...');
-    try {
-      await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
-    } catch (error) {
-      const err = error as Error;
-      logger.warn(`Error rendering findings from queues: ${err.message}`);
-    }
-  }
+  const reportVulnClasses = input.reportVulnClasses ?? input.vulnClasses;
+  logger.info(
+    exploit
+      ? 'Rendering explicit no-findings sections for empty exploitation queues...'
+      : 'Rendering per-class findings from analysis queues...',
+  );
+  await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger, reportVulnClasses, exploit);
 
   logger.info('Assembling deliverables from specialist agents...');
-  try {
-    await assembleFinalReport(repoPath, deliverablesSubdir, logger);
-  } catch (error) {
-    const err = error as Error;
-    logger.warn(`Error assembling final report: ${err.message}`);
-  }
+  await assembleFinalReport(repoPath, deliverablesSubdir, logger, reportVulnClasses);
 }
 
 /**
@@ -752,6 +915,7 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
 interface RunScope {
   vulnClasses: VulnClass[];
   exploit: boolean;
+  reportConfigFingerprint?: string;
 }
 
 interface SessionJson {
@@ -769,6 +933,7 @@ interface SessionJson {
       {
         status: 'in-progress' | 'success' | 'failed';
         checkpoint?: string;
+        skipped?: boolean;
       }
     >;
   };
@@ -823,17 +988,53 @@ export async function loadResumeState(
       continue;
     }
 
-    const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = path.join(deliverablesDir(expectedRepoPath, deliverablesSubdir), deliverableFilename);
-    const deliverableExists = await fileExists(deliverablePath);
+    const requiredPaths = agentData.skipped ? [] : getAgentGitPaths(agentName);
+    const missingPaths: string[] = [];
+    for (const requiredPath of requiredPaths) {
+      const artifactPath = path.join(deliverablesDir(expectedRepoPath, deliverablesSubdir), requiredPath);
+      if (!(await fileExists(artifactPath))) missingPaths.push(requiredPath);
+    }
 
-    if (!deliverableExists) {
+    if (missingPaths.length > 0) {
       const logger = createActivityLogger();
-      logger.warn(`Agent ${agentName} shows success but deliverable missing, will re-run`);
+      logger.warn(`Agent ${agentName} shows success but required artifacts are missing, will re-run`, {
+        missingPaths,
+      });
       continue;
     }
 
     completedAgents.push(agentName);
+  }
+
+  // Older workspaces did not persist intentional exploit skips. Reconstruct
+  // them from the immutable run scope and a validated empty queue so completed
+  // exploit=false / no-candidate runs can take the finalizer-only resume path.
+  const completedSet = new Set(completedAgents);
+  const scope = session.session.scope;
+  if (scope) {
+    const deliverablesPath = deliverablesDir(expectedRepoPath, deliverablesSubdir);
+    for (const vulnClass of scope.vulnClasses) {
+      const vulnAgent = `${vulnClass}-vuln`;
+      const exploitAgent = `${vulnClass}-exploit`;
+      if (!completedSet.has(vulnAgent) || completedSet.has(exploitAgent)) continue;
+
+      let intentionallySkipped = !scope.exploit;
+      if (!intentionallySkipped) {
+        try {
+          const queue = await readJson<ExploitQueueDocument>(
+            path.join(deliverablesPath, `${vulnClass}_exploitation_queue.json`),
+          );
+          intentionallySkipped = Array.isArray(queue.vulnerabilities) && queue.vulnerabilities.length === 0;
+        } catch {
+          intentionallySkipped = false;
+        }
+      }
+
+      if (intentionallySkipped) {
+        completedAgents.push(exploitAgent);
+        completedSet.add(exploitAgent);
+      }
+    }
   }
 
   // 4. Collect git checkpoints and validate at least one exists
@@ -889,6 +1090,13 @@ export async function persistOrValidateRunScope(
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize(input.workflowId);
 
+  const container = getOrCreateContainer(input.workflowId, sessionMetadata, buildContainerConfig(input));
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult)) {
+    throw ApplicationFailure.nonRetryable(configResult.error.message, 'ConfigurationError');
+  }
+  const reportConfigFingerprint = fingerprintReportConfig(configResult.value?.report);
+
   const sessionPath = generateSessionJsonPath(sessionMetadata);
   let session: SessionJson;
   try {
@@ -908,19 +1116,20 @@ export async function persistOrValidateRunScope(
       recorded.vulnClasses.every((c) => vulnClasses.includes(c)) &&
       vulnClasses.every((c) => recorded.vulnClasses.includes(c));
 
-    if (!sameClasses || recorded.exploit !== exploit) {
+    if (!sameClasses || recorded.exploit !== exploit || recorded.reportConfigFingerprint !== reportConfigFingerprint) {
       throw ApplicationFailure.nonRetryable(
         `Resume scope mismatch for workspace ${input.sessionId}.\n` +
           `  Original: vuln_classes=[${recorded.vulnClasses.join(', ')}], exploit=${recorded.exploit}\n` +
           `  Provided: vuln_classes=[${vulnClasses.join(', ')}], exploit=${exploit}\n` +
-          `Resume requires the same scope as the original run. Start a new workspace if you want different scope.`,
+          `${recorded.reportConfigFingerprint === undefined ? '  Original workspace predates report-filter scope tracking.\n' : ''}` +
+          `Resume requires the same vulnerability, exploitation, and report-filter scope as the original run. Start a new workspace if you want different scope.`,
         'ScopeMismatchError',
       );
     }
     return;
   }
 
-  session.session.scope = { vulnClasses: [...vulnClasses], exploit };
+  session.session.scope = { vulnClasses: [...vulnClasses], exploit, reportConfigFingerprint };
   await atomicWrite(sessionPath, session);
 }
 
@@ -990,16 +1199,17 @@ export async function restoreGitCheckpoint(
 
   // Explicitly delete partial deliverables for incomplete agents
   for (const agentName of incompleteAgents) {
-    const deliverableFilename = AGENTS[agentName].deliverableFilename;
-    const deliverablePath = path.join(deliverablesPath, deliverableFilename);
-    try {
-      const exists = await fileExists(deliverablePath);
-      if (exists) {
-        logger.warn(`Cleaning partial deliverable: ${agentName}`);
-        await fs.unlink(deliverablePath);
+    for (const agentPath of getAgentGitPaths(agentName)) {
+      const artifactPath = path.join(deliverablesPath, agentPath);
+      try {
+        const exists = await fileExists(artifactPath);
+        if (exists) {
+          logger.warn(`Cleaning partial artifact for ${agentName}: ${agentPath}`);
+          await fs.unlink(artifactPath);
+        }
+      } catch (error) {
+        logger.info(`Note: Failed to delete ${artifactPath}: ${error}`);
       }
-    } catch (error) {
-      logger.info(`Note: Failed to delete ${deliverablePath}: ${error}`);
     }
   }
 
@@ -1049,6 +1259,17 @@ export async function logPhaseTransition(
   } else {
     await auditSession.logPhaseComplete(phase);
   }
+}
+
+/** Persist an intentional no-op agent completion so resume does not schedule it again. */
+export async function recordSkippedAgentCompletion(
+  input: ActivityInput,
+  agentName: AgentName,
+  reason: string,
+): Promise<void> {
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  await auditSession.markAgentSkipped(agentName, reason);
 }
 
 /**
@@ -1176,8 +1397,8 @@ export async function saveCheckpoint(
  * to emit derived outputs from the final report.
  */
 export async function generateReportOutputActivity(input: ActivityInput): Promise<void> {
-  const container = getContainer(input.workflowId);
-  if (!container?.reportOutputProvider) return;
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  if (!container.reportOutputProvider) return;
 
   const logger = createActivityLogger();
 

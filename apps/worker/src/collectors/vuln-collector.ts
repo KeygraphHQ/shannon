@@ -19,8 +19,10 @@
  * vulnClass to assemble the right schema. The other 3 tools are identical
  * across classes.
  *
- * Skipped tools surface as renderer placeholders, not activity failures.
- * getCallStatus() exposes the per-run call pattern for logging. Each schema's
+ * All four tools are mandatory. The activity completion gate rejects a run
+ * that skips any tool; callers use empty arrays to explicitly record that no
+ * safe vectors or blind spots were found. getCallStatus() exposes the per-run
+ * call pattern for logging. Each schema's
  * field-level descriptions carry the section guidance, so the agent's tool
  * catalog surfaces it.
  */
@@ -415,8 +417,8 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     description:
       'Record the input vectors, components, or endpoints that were analyzed and confirmed to have ' +
       'robust, context-appropriate defenses. Call exactly once before terminating. Becomes Section 4 ' +
-      'of the rendered deliverable. Recommended (empty array is acceptable on runs where no vectors ' +
-      'were validated as safe, but explicit emission is preferred). The renderer sorts by ' +
+      'of the rendered deliverable. Required; an empty array is the explicit signal that no vectors ' +
+      'were validated as safe. The renderer sorts by ' +
       '(subject, location) before rendering, so emission order does not affect output. Duplicate ' +
       'calls return "already called" and are no-ops.',
     parameters: SafeVectorsInputSchema,
@@ -432,9 +434,8 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     label: 'Set Blind Spots',
     description:
       'Record analysis constraints, untraced code paths, or other coverage gaps. Call exactly once ' +
-      'before terminating. Becomes Section 5 of the rendered deliverable. Recommended (empty array ' +
-      'is acceptable on high-coverage runs, but explicit emission is preferred — readers expect ' +
-      'either documented gaps or an explicit "no gaps" signal). Duplicate calls return "already ' +
+      'before terminating. Becomes Section 5 of the rendered deliverable. Required; an empty array ' +
+      'is the explicit "no gaps" signal on high-coverage runs. Duplicate calls return "already ' +
       'called" and are no-ops.',
     parameters: BlindSpotsInputSchema,
     async execute(_toolCallId, input) {

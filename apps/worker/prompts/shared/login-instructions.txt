@@ -58,9 +58,10 @@ After completing the login flow, verify successful authentication:
    - You now have an authenticated browser session to work with
 
 4. **Verification Failure:**
-   - Retry the entire login flow ONCE with 5-second wait between attempts
-   - If second attempt fails, report authentication failure and stop task execution
-   - Do NOT proceed with authenticated actions if login verification fails
+   - Do NOT retry or resubmit any credential-bearing field (username, password, email password, CAPTCHA, TOTP, recovery code, or equivalent). A second submission can trigger account lockout or consume a one-time challenge.
+   - You MAY wait for navigation to settle, inspect the current page, and re-check the configured success condition without re-entering or resubmitting credentials.
+   - Report the exact failed step, current URL, observed error text or selector state, and expected success condition, then stop task execution.
+   - Do NOT proceed with authenticated actions if login verification fails.
 
 </success_verification>
 
@@ -68,14 +69,14 @@ After completing the login flow, verify successful authentication:
 If login execution fails:
 1. Log the specific step that failed and any error messages
 2. Check for unexpected dialogs, pop-ups, or consent screens that may need handling
-3. Retry the complete login flow once after a 5-second delay
-4. If retry fails, report login failure and halt task execution
+3. Do NOT retry the login flow or resubmit credentials, CAPTCHA, TOTP, recovery codes, or other one-time challenges
+4. Report the exact failed step, current URL, visible error text or selector state, and expected success condition, then halt task execution
 5. Do NOT attempt to proceed with the primary task if authentication is unsuccessful
 
 Common issues to watch for:
 - OAuth consent screens requiring explicit "Allow" or "Accept" clicks
 - "Continue as [user]" or account selection prompts
-- TOTP/2FA code timing issues requiring regeneration
+- TOTP/2FA timing issues (report the observed timing failure; do not generate and submit a replacement code in the same run)
 - Page loading delays requiring explicit waits
 - Redirect handling for multi-step authentication flows
 </error_handling>

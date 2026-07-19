@@ -51,14 +51,12 @@ import {
 import { toWorkflowSummary } from './summary-mapper.js';
 import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
 
-/** Agents this run is expected to produce — drives the resume short-circuit. */
+/** Agents whose completed state makes a resume eligible for finalizer-only execution. */
 function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boolean): string[] {
   const expected: string[] = ['pre-recon', 'recon'];
-  for (const cls of vulnClasses) {
-    expected.push(`${cls}-vuln`);
-    if (exploit) {
-      expected.push(`${cls}-exploit`);
-    }
+  for (const vulnClass of vulnClasses) {
+    expected.push(`${vulnClass}-vuln`);
+    if (exploit) expected.push(`${vulnClass}-exploit`);
   }
   expected.push('report');
   return expected;
@@ -259,8 +257,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     input.vulnClasses && input.vulnClasses.length > 0 ? input.vulnClasses : ALL_VULN_CLASSES;
   const selectedClassSet = new Set<VulnClass>(selectedVulnClasses);
   const exploit: boolean = input.exploit ?? true;
+  activityInput.vulnClasses = [...selectedVulnClasses];
+  activityInput.exploit = exploit;
   const expectedAgents = computeExpectedAgents(selectedVulnClasses, exploit);
-
   await a.persistOrValidateRunScope(activityInput, [...selectedVulnClasses], exploit);
 
   let resumeState: ResumeState | null = null;
@@ -274,7 +273,30 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       input.deliverablesSubdir,
     );
 
-    // 2. Restore git workspace and clean up incomplete deliverables
+    // 2. Record this resume attempt before either the fast path or workspace restore.
+    await a.recordResumeAttempt(
+      activityInput,
+      input.terminatedWorkflows || [],
+      resumeState.checkpointHash,
+      resumeState.originalWorkflowId,
+      resumeState.completedAgents,
+    );
+
+    // A fully complete resume needs only idempotent report finalization. Avoid
+    // restoring git or repeating preflight/authentication/model work.
+    const allExpectedDone = expectedAgents.every((agentName) => resumeState?.completedAgents.includes(agentName));
+    if (allExpectedDone) {
+      state.completedAgents = [...new Set(resumeState.completedAgents)];
+      state.status = 'completed';
+      state.summary = computeSummary(state);
+      await a.injectReportMetadataActivity(activityInput);
+      await a.generateReportOutputActivity(activityInput);
+      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+      log.info(`Finalized completed resume without rerunning ${expectedAgents.length} expected agents.`);
+      return state;
+    }
+
+    // 3. Restore git workspace and clean up incomplete deliverables
     const incompleteAgents = ALL_AGENTS.filter(
       (agentName) => !resumeState?.completedAgents.includes(agentName),
     ) as AgentName[];
@@ -284,26 +306,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       resumeState.checkpointHash,
       incompleteAgents,
       input.deliverablesSubdir,
-    );
-
-    // 3. Short-circuit when every agent expected by this run is done.
-    // Uses dynamic expectedAgents (not ALL_AGENTS) so a class-scoped run completes sooner.
-    const allExpectedDone = expectedAgents.every((a) => resumeState?.completedAgents.includes(a));
-    if (allExpectedDone) {
-      log.info(`All ${expectedAgents.length} expected agents already completed. Nothing to resume.`);
-      state.status = 'completed';
-      state.completedAgents = [...resumeState.completedAgents];
-      state.summary = computeSummary(state);
-      return state;
-    }
-
-    // 4. Record this resume attempt in session.json and workflow.log
-    await a.recordResumeAttempt(
-      activityInput,
-      input.terminatedWorkflows || [],
-      resumeState.checkpointHash,
-      resumeState.originalWorkflowId,
-      resumeState.completedAgents,
     );
 
     log.info('Resume state loaded and workspace restored');
@@ -525,6 +527,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.currentPhase = 'vulnerability-exploitation';
     state.currentAgent = 'pipelines';
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
+    let reportSourcesChanged = false;
 
     // Closure over shouldSkip and activityInput by design (Temporal replay safety)
     async function runVulnExploitPipeline(
@@ -543,6 +546,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         let vulnMetrics: AgentMetrics | null = null;
         if (!shouldSkip(vulnAgentName)) {
           vulnMetrics = await runVulnAgent();
+          if (!vulnMetrics.skipped) reportSourcesChanged = true;
           state.agentMetrics[vulnAgentName] = vulnMetrics;
           state.completedAgents.push(vulnAgentName);
           if (input.checkpointsEnabled) {
@@ -554,7 +558,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         }
 
         // 1.5. Merge external findings from consumer provider into exploitation queue
-        await a.mergeFindingsIntoQueue(activityInput, vulnType);
+        const mergeResult = await a.mergeFindingsIntoQueue(activityInput, vulnType);
+        if (mergeResult.mergedCount > 0) reportSourcesChanged = true;
 
         // 2. Check exploitation queue for actionable findings
         const decision = await a.checkExploitationQueue(activityInput, vulnType);
@@ -566,6 +571,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           state.completedAgents.push(exploitAgentName);
         } else if (decision.shouldExploit && exploit) {
           exploitMetrics = await runExploitAgent();
+          if (!exploitMetrics.skipped) reportSourcesChanged = true;
           state.agentMetrics[exploitAgentName] = exploitMetrics;
           state.completedAgents.push(exploitAgentName);
           if (input.checkpointsEnabled) {
@@ -576,6 +582,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           // mark the agent complete so a resume does not treat it as unfinished work.
           log.info(
             `Marking ${exploitAgentName} complete (${decision.shouldExploit ? 'exploit mode disabled' : 'no actionable findings'})`,
+          );
+          await a.recordSkippedAgentCompletion(
+            activityInput,
+            exploitAgentName as AgentName,
+            decision.shouldExploit ? 'exploit mode disabled' : 'no actionable findings',
           );
           state.completedAgents.push(exploitAgentName);
           if (input.checkpointsEnabled) {
@@ -634,13 +645,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
     const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, maxConcurrent);
     aggregatePipelineResults(pipelineResults, alreadyCompletedPipelineCount);
+    const failedClassSet = new Set(state.failedPipelines.map((failure) => failure.vulnType));
+    activityInput.reportVulnClasses = selectedVulnClasses.filter((vulnClass) => !failedClassSet.has(vulnClass));
+    activityInput.unassessedVulnClasses = state.failedPipelines.map((failure) => failure.vulnType);
+    activityInput.forceReport = reportSourcesChanged || state.failedPipelines.length > 0;
 
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
 
     // === Phase 5: Reporting ===
-    if (!shouldSkip('report')) {
+    if (activityInput.forceReport || !shouldSkip('report')) {
       state.currentPhase = 'reporting';
       state.currentAgent = 'report';
       await a.logPhaseTransition(activityInput, 'reporting', 'start');
@@ -655,14 +670,15 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         await a.saveCheckpoint(activityInput, 'report', 'reporting', state);
       }
 
-      // Inject model metadata into the final report
-      await a.injectReportMetadataActivity(activityInput);
-
       await a.logPhaseTransition(activityInput, 'reporting', 'complete');
     } else {
       log.info('Skipping report (already complete)');
       state.completedAgents.push('report');
     }
+
+    // Metadata injection is intentionally outside the skip branch. It is idempotent,
+    // and a resume restore resets to the report commit that predates this decoration.
+    await a.injectReportMetadataActivity(activityInput);
 
     // Runs after the skip gate so consumer providers still execute on resume.
     await a.generateReportOutputActivity(activityInput);

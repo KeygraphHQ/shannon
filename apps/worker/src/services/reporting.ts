@@ -7,10 +7,12 @@
 import { fs, path } from 'zx';
 import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
 
 interface DeliverableFile {
+  vulnClass: VulnClass;
   name: string;
   /** Candidate filenames in priority order. First one that exists wins. */
   paths: readonly string[];
@@ -24,19 +26,37 @@ export async function assembleFinalReport(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
+  selectedVulnClasses?: readonly VulnClass[],
 ): Promise<string> {
   const deliverableFiles: readonly DeliverableFile[] = [
-    { name: 'Injection', paths: ['injection_exploitation_evidence.md', 'injection_findings.md'], required: false },
-    { name: 'XSS', paths: ['xss_exploitation_evidence.md', 'xss_findings.md'], required: false },
-    { name: 'Authentication', paths: ['auth_exploitation_evidence.md', 'auth_findings.md'], required: false },
-    { name: 'SSRF', paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'], required: false },
-    { name: 'Authorization', paths: ['authz_exploitation_evidence.md', 'authz_findings.md'], required: false },
+    {
+      vulnClass: 'injection',
+      name: 'Injection',
+      paths: ['injection_exploitation_evidence.md', 'injection_findings.md'],
+      required: false,
+    },
+    { vulnClass: 'xss', name: 'XSS', paths: ['xss_exploitation_evidence.md', 'xss_findings.md'], required: false },
+    {
+      vulnClass: 'auth',
+      name: 'Authentication',
+      paths: ['auth_exploitation_evidence.md', 'auth_findings.md'],
+      required: false,
+    },
+    { vulnClass: 'ssrf', name: 'SSRF', paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'], required: false },
+    {
+      vulnClass: 'authz',
+      name: 'Authorization',
+      paths: ['authz_exploitation_evidence.md', 'authz_findings.md'],
+      required: false,
+    },
   ];
 
   const dir = deliverablesDir(sourceDir, deliverablesSubdir);
   const sections: string[] = [];
 
+  const selectedSet = selectedVulnClasses ? new Set(selectedVulnClasses) : null;
   for (const file of deliverableFiles) {
+    if (selectedSet && !selectedSet.has(file.vulnClass)) continue;
     let added = false;
     for (const candidate of file.paths) {
       const filePath = path.join(dir, candidate);
@@ -54,9 +74,9 @@ export async function assembleFinalReport(
       }
     }
     if (!added) {
-      if (file.required) {
+      if (file.required || selectedSet?.has(file.vulnClass)) {
         throw new PentestError(
-          `Required deliverable file not found: ${file.paths.join(' or ')}`,
+          `Required deliverable file not found for selected class ${file.vulnClass}: ${file.paths.join(' or ')}`,
           'filesystem',
           false,
           { deliverableFile: file.paths, sourceDir },
@@ -139,6 +159,14 @@ export async function injectModelIntoReport(
   let reportContent = await fs.readFile(reportPath, 'utf8');
 
   // 4. Find and inject model line after "Assessment Date" in Executive Summary
+  const existingModelPattern = /^- Model:.*$/m;
+  if (existingModelPattern.test(reportContent)) {
+    reportContent = reportContent.replace(existingModelPattern, `- Model: ${modelStr}`);
+    await fs.writeFile(reportPath, reportContent);
+    logger.info('Existing model info refreshed in Executive Summary');
+    return;
+  }
+
   // Pattern: "- Assessment Date: <date>" followed by a newline
   const assessmentDatePattern = /^(- Assessment Date: .+)$/m;
   const match = reportContent.match(assessmentDatePattern);

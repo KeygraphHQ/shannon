@@ -116,8 +116,16 @@ export function supportsAdaptiveThinking(model: string): boolean {
 export function resolveThinkingLevel(
   modelId: string,
   providerId: ProviderId = resolveEffectiveProvider().providerId,
+  openaiReasoningEffort?: ThinkingLevel,
 ): ThinkingLevel {
   if (providerId === 'openai') {
+    // OpenAI reasoning is a property of the workload, not the price tier. Agent
+    // routing may therefore opt a Luna/Terra/Sol run into a different effort
+    // without changing the selected model. Pi maps `off` to the Responses API's
+    // `none` effort. The provider-specific argument is deliberately ignored for
+    // Anthropic-compatible and Bedrock runs so their existing thinking behavior
+    // remains unchanged.
+    if (openaiReasoningEffort !== undefined) return openaiReasoningEffort;
     // Preserve Shannon's effective tier behavior intentionally: inexpensive
     // small/medium work uses no reasoning, while Sol deep-analysis work uses medium.
     return /^gpt-5\.6(?:-sol)?(?:$|-20)/.test(modelId) ? 'medium' : 'off';
@@ -143,6 +151,7 @@ export interface ModelSelection {
 export function resolveModelSelection(
   registryFactory: (authStorage: AuthStorage) => ModelRegistry,
   modelTier: ModelTier,
+  openaiReasoningEffort?: ThinkingLevel,
 ): ModelSelection {
   const eff = resolveEffectiveProvider();
   const modelId = resolveModelId(modelTier, eff.providerId);
@@ -168,7 +177,7 @@ export function resolveModelSelection(
 
   return {
     model,
-    thinkingLevel: resolveThinkingLevel(modelId, eff.providerId),
+    thinkingLevel: resolveThinkingLevel(modelId, eff.providerId, openaiReasoningEffort),
     authStorage,
     modelId,
     providerId: eff.providerId,

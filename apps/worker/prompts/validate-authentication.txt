@@ -29,5 +29,6 @@ Run this only when login_success is true. Skip it on failure.
 
 <critical>
 - Submit each field (username, password, captcha, TOTP) exactly once.
-- Any rejection = auth error: return `login_success: false` and stop. Do not retry.
+- Do not retry the login flow or resubmit any credential-bearing field or one-time challenge. You may wait for navigation to settle and re-check the configured success condition without resubmission.
+- On any rejection or failed success condition, return `login_success: false` with the exact failed step, current URL, observed error text or selector state, and expected success condition, then stop.
 </critical>

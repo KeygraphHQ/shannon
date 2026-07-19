@@ -13,9 +13,9 @@
  * inventory across calls (the only catalog whose realistic payload threatens
  * the per-turn output cap).
  *
- * A skipped tool renders a "not provided" placeholder in that section rather
- * than failing the activity. getCallStatus() exposes the per-run call pattern
- * for logging. Each schema's field-level descriptions carry the section
+ * All eight one-shot tools and at least one non-empty `add_endpoints` call are
+ * mandatory; the activity completion gate rejects incomplete runs.
+ * getCallStatus() exposes the per-run call pattern for logging. Each schema's field-level descriptions carry the section
  * guidance, so pi injects it into the agent's tool catalog.
  */
 

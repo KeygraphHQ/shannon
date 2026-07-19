@@ -7,7 +7,7 @@
 // Production agent execution on the pi harness, with git checkpoints and audit logging.
 
 import os from 'node:os';
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { AgentMessage, ThinkingLevel } from '@earendil-works/pi-agent-core';
 import {
   type AgentSessionEvent,
   createAgentSession,
@@ -27,6 +27,7 @@ import { isRetryableError, PentestError } from '../../services/error-handling.js
 import { AGENT_VALIDATORS } from '../../session-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
 import { ErrorCode } from '../../types/errors.js';
+import type { AgentUsageMetrics } from '../../types/metrics.js';
 import { isSpendingCapBehavior, matchesBillingTextPattern } from '../../utils/billing-detection.js';
 import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { formatTimestamp } from '../../utils/formatting.js';
@@ -112,6 +113,15 @@ export interface PiPromptResult {
   turns?: number | undefined;
   cost: number;
   model?: string | undefined;
+  reasoningEffort?: ThinkingLevel | undefined;
+  childModel?: string | undefined;
+  childReasoningEffort?: ThinkingLevel | undefined;
+  /** Total usage. Every numeric field equals parentUsage + childUsage. */
+  usage?: AgentUsageMetrics | undefined;
+  /** Usage billed by the coordinator session only. */
+  parentUsage?: AgentUsageMetrics | undefined;
+  /** Aggregate usage billed by every in-process `task` child session. */
+  childUsage?: AgentUsageMetrics | undefined;
   partialCost?: number | undefined;
   apiErrorDetected?: boolean | undefined;
   error?: string | undefined;
@@ -119,6 +129,60 @@ export interface PiPromptResult {
   prompt?: string | undefined;
   retryable?: boolean | undefined;
   structuredOutput?: unknown;
+}
+
+/** Per-run model controls. OpenAI reasoning overrides are ignored by other providers. */
+export interface PiModelRouting {
+  reasoningEffort?: ThinkingLevel | undefined;
+  childModelTier?: ModelTier | undefined;
+  childReasoningEffort?: ThinkingLevel | undefined;
+}
+
+function emptyUsage(): AgentUsageMetrics {
+  return {
+    inputTokens: 0,
+    outputTokens: 0,
+    reasoningTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    numTurns: 0,
+    costUsd: 0,
+  };
+}
+
+/** Add disjoint execution scopes. Reasoning is already included in output. */
+function addUsage(left: AgentUsageMetrics, right: AgentUsageMetrics): AgentUsageMetrics {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    reasoningTokens:
+      left.reasoningTokens === null || right.reasoningTokens === null
+        ? null
+        : left.reasoningTokens + right.reasoningTokens,
+    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+    cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
+    numTurns: left.numTurns + right.numTurns,
+    costUsd: left.costUsd + right.costUsd,
+  };
+}
+
+function usageFromSessionStats(
+  stats: {
+    tokens: { input: number; output: number; cacheRead: number; cacheWrite: number };
+    cost: number;
+  },
+  turns: number,
+  reasoningTokens: number | null,
+): AgentUsageMetrics {
+  return {
+    inputTokens: stats.tokens.input,
+    outputTokens: stats.tokens.output,
+    reasoningTokens,
+    cacheReadTokens: stats.tokens.cacheRead,
+    cacheWriteTokens: stats.tokens.cacheWrite,
+    numTurns: turns,
+    costUsd: stats.cost,
+  };
 }
 
 function outputLines(lines: string[]): void {
@@ -227,6 +291,7 @@ export async function runPiPrompt(
   deliverablesSubdir?: string,
   cancellationSignal?: AbortSignal,
   submitTool?: CapturedSubmitTool,
+  routing: PiModelRouting = {},
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt. A submit tool appends its directive so the
   //    instruction to call it lives with the tool, not in every prompt file.
@@ -254,21 +319,25 @@ export async function runPiPrompt(
 
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
-  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
+  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier, routing.reasoningEffort);
+  const childModelTier = routing.childModelTier ?? modelTier;
+  const childReasoningEffort = routing.childReasoningEffort ?? routing.reasoningEffort;
+  const childSelection =
+    childModelTier === modelTier && childReasoningEffort === routing.reasoningEffort
+      ? selection
+      : resolveModelSelection((auth) => ModelRegistry.create(auth), childModelTier, childReasoningEffort);
   const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
-  const childUsage = { cost: 0, inputTokens: 0, outputTokens: 0 };
+  let childUsage = emptyUsage();
   const customTools: ToolDefinition[] = [
     createTaskTool({
-      model: selection.model,
-      thinkingLevel: selection.thinkingLevel,
-      authStorage: selection.authStorage,
+      model: childSelection.model,
+      thinkingLevel: childSelection.thinkingLevel,
+      authStorage: childSelection.authStorage,
       cwd: sourceDir,
       onUsage: (usage) => {
-        childUsage.cost += usage.cost;
-        childUsage.inputTokens += usage.inputTokens;
-        childUsage.outputTokens += usage.outputTokens;
+        childUsage = addUsage(childUsage, usage);
       },
       resourceLoader,
       ...(cancellationSignal && { cancellationSignal }),
@@ -282,13 +351,16 @@ export async function runPiPrompt(
   const tools = [...BUILTIN_TOOLS, ...customTools.map((t) => t.name)];
 
   let turnCount = 0;
+  let parentReasoningTokens = 0;
+  let parentReasoningReported = false;
   let pendingError: PentestError | null = null;
   let apiErrorDetected = false;
+  let session: Awaited<ReturnType<typeof createAgentSession>>['session'] | undefined;
 
   progress.start();
 
   try {
-    const { session } = await createAgentSession({
+    ({ session } = await createAgentSession({
       cwd: sourceDir,
       model: selection.model,
       thinkingLevel: selection.thinkingLevel,
@@ -300,7 +372,7 @@ export async function runPiPrompt(
       // against context overflow on long agent runs).
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: true } }),
       resourceLoader,
-    });
+    }));
 
     // 5. Map pi events to audit logging + progress + error capture.
     session.subscribe((event: AgentSessionEvent) => {
@@ -308,6 +380,10 @@ export async function runPiPrompt(
         case 'turn_end': {
           turnCount += 1;
           const msg = event.message;
+          if (msg.role === 'assistant' && msg.usage.reasoning !== undefined) {
+            parentReasoningReported = true;
+            parentReasoningTokens += msg.usage.reasoning;
+          }
           const text = extractAssistantText(msg);
           if (text.trim()) {
             void auditLogger.logLlmResponse(turnCount, text);
@@ -357,14 +433,19 @@ export async function runPiPrompt(
 
     // 6. Run the agent to completion (resolves at agent_end).
     await session.prompt(fullPrompt);
-    session.dispose();
 
     // 7. Surface any error captured during the run.
     if (pendingError) throw pendingError;
 
     // 8. Read usage/cost and final text.
     const stats = session.getSessionStats();
-    const totalCost = stats.cost + childUsage.cost;
+    const parentUsage = usageFromSessionStats(
+      stats,
+      turnCount,
+      parentReasoningReported ? parentReasoningTokens : stats.tokens.output === 0 ? 0 : null,
+    );
+    const usage = addUsage(parentUsage, childUsage);
+    const totalCost = usage.costUsd;
     const result = session.getLastAssistantText() ?? null;
 
     // 9. Defense-in-depth: detect a spending cap that produced an empty/cheap run.
@@ -387,9 +468,15 @@ export async function runPiPrompt(
       result,
       success: true,
       duration,
-      turns: turnCount,
+      turns: usage.numTurns,
       cost: totalCost,
       model: selection.model.id,
+      reasoningEffort: selection.thinkingLevel,
+      childModel: childSelection.model.id,
+      childReasoningEffort: childSelection.thinkingLevel,
+      usage,
+      parentUsage,
+      childUsage,
       partialCost: totalCost,
       apiErrorDetected,
       ...(structuredOutput !== undefined && { structuredOutput }),
@@ -398,6 +485,21 @@ export async function runPiPrompt(
     // 10. Handle errors — log, write error file, return failure
     const duration = timer.stop();
     const err = error as Error & { code?: string; status?: number };
+    let parentUsage = emptyUsage();
+    if (session) {
+      try {
+        const stats = session.getSessionStats();
+        parentUsage = usageFromSessionStats(
+          stats,
+          turnCount,
+          parentReasoningReported ? parentReasoningTokens : stats.tokens.output === 0 ? 0 : null,
+        );
+      } catch {
+        // A session that failed during construction may not expose stats. Child
+        // usage is still retained below when a task session completed first.
+      }
+    }
+    const usage = addUsage(parentUsage, childUsage);
     await auditLogger.logError(err, duration, turnCount);
     progress.stop();
     outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableError(err)));
@@ -409,8 +511,19 @@ export async function runPiPrompt(
       prompt: `${fullPrompt.slice(0, 100)}...`,
       success: false,
       duration,
-      cost: 0,
+      turns: usage.numTurns,
+      cost: usage.costUsd,
+      partialCost: usage.costUsd,
+      model: selection.model.id,
+      reasoningEffort: selection.thinkingLevel,
+      childModel: childSelection.model.id,
+      childReasoningEffort: childSelection.thinkingLevel,
+      usage,
+      parentUsage,
+      childUsage,
       retryable: isRetryableError(err),
     };
+  } finally {
+    session?.dispose();
   }
 }

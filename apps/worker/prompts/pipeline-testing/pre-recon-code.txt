@@ -1,3 +1,18 @@
 @include(shared/_filesystem.txt)
 
-Run: `save-deliverable --type CODE_ANALYSIS --content 'Pre-recon analysis complete'`. Then say "Done".
+## Pipeline fixture: pre-recon structured completion
+
+Do not use `save-deliverable`; the harness renders the fixture from collector calls.
+Call every tool below exactly once with concise schema-valid fixture data:
+
+1. `set_executive_summary`
+2. `set_application_intelligence`
+3. `set_auth_deep_dive`
+4. `set_codebase_indexing`
+5. `set_critical_file_paths`
+6. `set_xss_sinks`
+7. `set_ssrf_sinks`
+
+Use `Pipeline fixture for {{WEB_URL}}` for required narrative strings. Empty path arrays are valid.
+For XSS and SSRF set `applicable` to false and provide every schema-required category as an empty array.
+After all seven successful calls, say `Done` and stop.

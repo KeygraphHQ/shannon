@@ -43,7 +43,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 
 Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source-code analysis with live exploitation.
 
-Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
+Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. The final report includes successful proof-of-concept exploits and real vulnerabilities backed by code or live evidence whose full impact remained blocked after exhaustive documented attempts; disproven and out-of-scope hypotheses remain audit-only.
 
 Shannon is the agent. This repository is Shannon Open Source, the standalone pentester you run yourself. The same Shannon also powers the [Keygraph platform](https://keygraph.io), Keygraph's commercial pentesting product. See [Editions](#editions) for how the two compare.
 
@@ -96,7 +96,7 @@ For source builds, authenticated scans, provider-specific setup, and platform no
 
 ## Key Capabilities
 
-- **Proof-by-exploitation reports**: Shannon reports validated findings with reproducible proof-of-concept steps instead of speculative warnings.
+- **Evidence-backed exploitation reports**: Shannon reports successful exploits with reproducible proof-of-concept steps and real vulnerabilities blocked by security controls after exhaustive attempts, while excluding disproven hypotheses.
 - **White-box attack planning**: Shannon uses source-code analysis to guide dynamic testing and focus on realistic attack paths.
 - **Autonomous execution**: Shannon launches reconnaissance, vulnerability analysis, exploitation, and report generation from a single command.
 - **Authenticated testing**: configuration files can describe login flows, test credentials, TOTP, email-based login flows, focus areas, and rules of engagement.
@@ -107,7 +107,7 @@ For source builds, authenticated scans, provider-specific setup, and platform no
 
 Shannon ships in two ways: **Shannon Open Source**, the pentester you run yourself, and the **Keygraph platform**, the commercial pentesting product that runs Shannon continuously and closes the full AppSec lifecycle around it.
 
-**Shannon Open Source** (this repository) is the standalone pentester: a CLI agent for white-box, proof-by-exploitation testing of web applications and APIs you own or are authorized to test. It reads your source, plans attacks, executes real exploits, and reports only what it can prove. It runs on demand and is complete in that lane. You point it at a target, it pentests, it reports.
+**Shannon Open Source** (this repository) is the standalone pentester: a CLI agent for white-box, evidence-backed exploitation testing of web applications and APIs you own or are authorized to test. It reads your source, plans attacks, executes real exploits, and reports successful exploits plus real, evidenced vulnerabilities whose validation was blocked after exhaustive attempts. It runs on demand and is complete in that lane. You point it at a target, it pentests, it reports.
 
 The **Keygraph platform** is the enterprise-ready, continuous pentesting product powered by Shannon. In the Keygraph platform, an enhanced build of Shannon runs continuously in a hardened, orchestrated environment fed by Keygraph's full code-analysis stack. Around that engine, the platform closes the entire vulnerability lifecycle, from analysis to a verified fix:
 
@@ -122,7 +122,7 @@ Shannon is the proof engine at the center of the Keygraph platform. Shannon Open
 | AppSec lifecycle stage | Shannon Open Source | Keygraph platform |
 | --- | --- | --- |
 | Analyze | Basic LLM pass-through of source to plan attacks | Actual code-base parsing, plus Code Property Graph, SAST, SCA with reachability, secrets, IaC, and containers |
-| Pentest and prove | White-box only, proof by exploitation | Enhanced white-box, plus black-box and grey-box modes, run continuously |
+| Pentest and prove | White-box only, evidence-backed exploitation | Enhanced white-box, plus black-box and grey-box modes, run continuously |
 | Manage findings | Local Markdown report | Canonical findings system: deduplication across sources, ownership, SLA, dashboards, Jira sync, and professional pentest-grade PDF reports |
 | Remediate and verify | Fix manually from the report, then re-run the full scan to verify | Automated remediation: opens a PR with the fix, verified by point re-test without re-running the full scan |
 | Deploy and operate | Local CLI and Docker worker | Self-hosted, air-gapped, BYOK, continuous, enterprise integrations |
@@ -175,7 +175,7 @@ At a high level:
 - **Pre-reconnaissance** identifies frameworks, entry points, data flows, and likely attack surfaces from the repository.
 - **Reconnaissance** explores the live application and correlates runtime behavior with code-level context.
 - **Vulnerability analysis** runs specialized agents for Injection, XSS, SSRF, Authentication, and Authorization.
-- **Exploitation** attempts real proof-of-concept attacks and discards hypotheses that cannot be proven.
+- **Exploitation** assigns every queued hypothesis a definitive verdict: exploited, blocked with evidence after exhaustive attempts, disproven false positive, or out of scope. Reports include exploited and real blocked findings.
 - **Reporting** compiles validated findings, evidence, and remediation guidance into a final Markdown report.
 
 Each scan runs in an ephemeral Docker container with an isolated workspace and per-invocation orchestration.

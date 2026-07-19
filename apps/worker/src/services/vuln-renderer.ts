@@ -13,11 +13,9 @@
  * branching on vulnClass. The .md byte-stability concern is structural only —
  * sub-headers, column ordering, sort order — narrative prose varies per run.
  *
- * Required-call enforcement is deferred for v1. Missing tools surface as
- * placeholder sections, not activity failures. Required tools (set_findings_summary,
- * set_strategic_intelligence) produce loud `[Section X: not provided]`
- * placeholders; recommended tools (set_safe_vectors, set_blind_spots) produce
- * quiet "None identified" prose.
+ * The activity completion gate requires all four collector tools before this
+ * renderer runs. Optional-field fallbacks remain defensive renderer behavior,
+ * but are not a valid production completion path.
  *
  * The exploitation queue (`{class}_exploitation_queue.json`) is unrelated —
  * it is written by the structured-output submit path in agent-execution.ts and

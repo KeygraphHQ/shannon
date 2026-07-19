@@ -73,11 +73,11 @@ A component is **out-of-scope** if it **cannot** be invoked through the running 
 
 <cli_tools>
 Please use these tools for the following use cases:
-- `task` tool: **MANDATORY for ALL source code analysis.** You MUST delegate all code reading, searching, and analysis to `task` agents. DO NOT use `read`, `glob`, or `grep` tools for source code.
+- `task` tool: **MANDATORY for ALL source code analysis.** You MUST delegate all source reading, searching, tracing, and interpretation to `task` agents. Do not use `read` or `grep` on application source. The only direct `glob` use allowed is enumerating a configured `[GLOB]` focus rule; delegate every matched file to `task` without inspecting its contents yourself.
 - **Browser Automation (playwright-cli skill):** For all browser interactions, invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
 - **`bash` tool:** Use for creating directories, copying files, and other shell commands as needed.
 
-**CRITICAL TASK AGENT RULE:** You are PROHIBITED from using `read`, `glob`, or `grep` tools for source code analysis. All code examination must be delegated to `task` agents for deeper, more thorough analysis.
+**CRITICAL TASK AGENT RULE:** All source-code examination must be delegated to `task` agents. `glob` may only enumerate configured `[GLOB]` rules as described in `<code_path_rules>`; enumeration is not analysis and does not permit direct reading or searching of matched files.
 </cli_tools>
 
 <system_architecture>

@@ -13,9 +13,9 @@
  * section ordering, headings, sort, and the Section 0 boilerplate are owned
  * here.
  *
- * Required-call enforcement is deferred. Any tool the agent skips becomes a
- * `[Section X: not provided]` placeholder rather than an activity failure.
- * Every section renderer accepts its input as optional.
+ * The activity completion gate requires all eight one-shot collector tools and
+ * at least one endpoint before this renderer runs. Optional-input fallbacks
+ * remain defensive renderer behavior, but are not a valid production path.
  */
 
 import type {

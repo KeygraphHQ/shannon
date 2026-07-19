@@ -12,7 +12,7 @@ Shannon focuses on exploitable findings that can be validated against a running 
 
 ## Reporting Philosophy
 
-Shannon follows a proof-by-exploitation model. Findings that cannot be demonstrated with a working proof of concept are not included in the final report.
+Shannon follows an evidence-backed exploitation model. The final report includes successful proof-of-concept exploits and real vulnerabilities supported by code or live evidence when a security control or external condition still blocks full impact after exhaustive documented attempts. Disproven hypotheses and candidates outside the authorized network-accessible surface remain audit-only.
 
 This reduces speculative noise, but it also means Shannon does not aim to report every possible security issue in a repository. In particular, many dependency, policy, configuration, and broad static-analysis findings are outside the core Shannon workflow.
 

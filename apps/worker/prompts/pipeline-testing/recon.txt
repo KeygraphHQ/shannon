@@ -1,3 +1,20 @@
 @include(shared/_filesystem.txt)
 
-Run: `save-deliverable --type RECON --content 'Reconnaissance analysis complete'`. Then say "Done".
+## Pipeline fixture: recon structured completion
+
+Do not use `save-deliverable`; the harness renders the fixture from collector calls.
+Call every collector below with schema-valid fixture data:
+
+1. `set_executive_summary`
+2. `set_technology_stack`
+3. `set_authentication`
+4. `add_endpoints` once with one endpoint: `GET /`, public role, no object-ID parameters, fixture authorization, description `Pipeline fixture`, code pointer `fixture:1`
+5. `set_input_vectors`
+6. `set_network_map`
+7. `set_role_architecture`
+8. `set_authz_candidates`
+9. `set_injection_sources`
+
+Use concise `Pipeline fixture` strings and empty arrays where the visible tool schema permits them.
+For non-applicable role switching and injection sources, follow the schema's false/null/empty-array representation exactly.
+After all nine calls succeed, say `Done` and stop.

@@ -62,6 +62,27 @@ test('OpenAI is a first-class provider with Luna, Terra, and Sol tier defaults',
   });
 });
 
+test('OpenAI reasoning can be routed independently of tier without changing other providers', async () => {
+  await withEnv({ OPENAI_API_KEY: 'test-openai-key' }, () => {
+    assert.equal(resolveThinkingLevel('gpt-5.6-luna', 'openai', 'low'), 'low');
+    assert.equal(resolveThinkingLevel('gpt-5.6-terra', 'openai', 'medium'), 'medium');
+    assert.equal(resolveThinkingLevel('gpt-5.6-sol', 'openai', 'off'), 'off');
+
+    const terra = resolveModelSelection((auth) => ModelRegistry.create(auth), 'medium', 'medium');
+    assert.equal(terra.model.id, 'gpt-5.6-terra');
+    assert.equal(terra.thinkingLevel, 'medium');
+  });
+
+  await withEnv({ ANTHROPIC_API_KEY: 'test-anthropic-key' }, () => {
+    assert.equal(resolveThinkingLevel('claude-sonnet-4-6', 'anthropic', 'high'), 'off');
+    assert.equal(resolveThinkingLevel('claude-opus-4-8', 'anthropic', 'off'), 'medium');
+  });
+
+  await withEnv({ CLAUDE_CODE_USE_BEDROCK: '1', AWS_REGION: 'us-east-1' }, () => {
+    assert.equal(resolveThinkingLevel('us.anthropic.claude-opus-4-8', 'amazon-bedrock', 'off'), 'medium');
+  });
+});
+
 test('provider-specific model overrides beat shared overrides without leaking across providers', async () => {
   await withEnv(
     {

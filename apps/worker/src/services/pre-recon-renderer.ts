@@ -12,10 +12,9 @@
  * when the agent emitted it directly via chunked Write/Edit. No LLM in the
  * loop; section ordering, headings, and template are owned here.
  *
- * Required-call enforcement is deferred for v1. Any tool the agent skips becomes
- * a `[Section X: not provided]` placeholder rather than an activity failure.
- * Every section renderer accepts the corresponding collected field as possibly
- * undefined and falls back to the placeholder helper when absent.
+ * The activity completion gate requires all seven collector tools before this
+ * renderer runs. Section fallbacks remain defensive renderer behavior, but are
+ * not a valid production completion path.
  */
 
 import type {

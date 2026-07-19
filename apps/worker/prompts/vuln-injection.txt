@@ -111,7 +111,8 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 			"verdict": "safe | vulnerable.",
 			"mismatch_reason": "if vulnerable, 1–2 lines in plain language.",
 			"witness_payload": "minimal input you'd use later to show structure influence (e.g., ' for SQLi, ; ls -la for Command Injection, ../../../../etc/passwd for LFI, {{7*7}} for SSTI).",
-			"confidence": "high | med | low.",
+			"confidence": "low | medium | high.",
+			"severity": "low | medium | high | critical.",
 			"notes": "assumptions, untraversed branches, anything unusual."
 		}
   </exploitation_queue_format>
@@ -164,7 +165,8 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 		    - `verdict` (`safe` / `vulnerable`)
 		    - `mismatch_reason` (plain-language, 1–2 lines)
 		    - `witness_payload` (minimal input to demonstrate structure influence — **for later exploit phase**)
-		    - `confidence` (`high` / `med` / `low`)
+		    - `confidence` (`low` / `medium` / `high`)
+		    - `severity` (`low` / `medium` / `high` / `critical`)
 		    - `notes` (assumptions, untraversed branches, unusual conditions)
   - **7) Score confidence**
     - **High:** binds on value/like/numeric; strict casts; whitelists for all syntax slots; **no** post-sanitization concat.
@@ -277,6 +279,7 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
   * `mismatch_reason`
   * `witness_payload` (for later)
   * `confidence`
+  * `severity`
   * `notes`
 </findings_record_format>
 
@@ -296,9 +299,8 @@ The harness injects each tool's complete description and per-field guidance into
 
 **Call semantics:** All 4 tools are one-shot — each may be called exactly once with the section's complete content. Duplicate calls return `"already called"` and are no-ops. There is no incremental/append mode; synthesize each section's full content in working memory before emitting.
 
-**Required vs recommended:**
-- `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-injection` agent reads.
-- `set_safe_vectors` and `set_blind_spots` are recommended. Empty arrays are acceptable on runs with no validated-secure vectors or no constraint gaps, but explicit emission is preferred over skipping.
+**Required emissions:**
+- All 4 tools are required and must be called exactly once before terminating. Empty arrays for `set_safe_vectors` or `set_blind_spots` are the explicit no-results signal; skipping any tool fails completion.
 
 **Relationship to the exploitation queue:** The exploitation queue (`injection_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
 </deliverable_tools>
@@ -308,7 +310,7 @@ The harness injects each tool's complete description and per-field guidance into
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Todo Completion:** ALL tasks in your `todo_write` list must be marked as "completed".
-2. **Deliverable Emission:** Call the 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
+2. **Deliverable Emission:** Call all 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each. Empty arrays are valid explicit results; skipping any tool fails completion.
 
 **Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the tool calls.
 

@@ -22,13 +22,32 @@ The OpenAI defaults balance capability and cost:
 
 | Shannon tier | Default model | Typical use |
 | --- | --- | --- |
-| small | `gpt-5.6-luna` | Provider preflight |
-| medium | `gpt-5.6-terra` | Reconnaissance, security analysis, exploitation, reporting |
-| large | `gpt-5.6-sol` | Pre-reconnaissance and deep analysis |
+| small | `gpt-5.6-luna` | Provider preflight, pipeline-test stubs, bounded exploit child tasks |
+| medium | `gpt-5.6-terra` | Authentication validation, live recon, most analysis and exploitation, reporting |
+| large | `gpt-5.6-sol` | Pre-reconnaissance and authorization/business-logic analysis and exploitation |
 
 Override a tier with `OPENAI_SMALL_MODEL`, `OPENAI_MEDIUM_MODEL`, or `OPENAI_LARGE_MODEL`. OpenAI provider-specific overrides take precedence over provider-neutral `SHANNON_*_MODEL` values.
 
-Shannon explicitly uses no reasoning effort for Luna and Terra and medium effort for Sol. This preserves the previous effective tier behavior while keeping the deep-analysis tier reasoning-enabled.
+### Default Phase Routing
+
+OpenAI reasoning effort is selected for the workload independently of the price tier. Parent agents retain the judgment needed to direct a phase; bounded child tasks use the least expensive tier that can perform them reliably.
+
+| Phase | Parent model / effort | `task` child model / effort |
+| --- | --- | --- |
+| Credential preflight | Luna / off | None |
+| Authentication validation | Terra / low | None |
+| Pre-reconnaissance | Sol / medium | Terra / medium |
+| Live reconnaissance | Terra / medium | Terra / medium |
+| Injection, XSS, authentication, and SSRF analysis | Terra / medium | Terra / medium |
+| Authorization and business-logic analysis | Sol / medium | Terra / medium |
+| Injection, XSS, authentication, and SSRF exploitation | Terra / medium | Luna / low |
+| Authorization and business-logic exploitation | Sol / medium | Luna / low |
+| Final report | Terra / medium | Terra / medium |
+| Pipeline-testing mode | Luna / off | Luna / off |
+
+These effort overrides apply only when OpenAI is the active provider. Anthropic, custom Anthropic-compatible endpoints, and Bedrock retain their existing thinking behavior. Model IDs remain configurable by tier, so an override changes every phase assigned to that tier.
+
+Shannon records the effective parent and child models, reasoning efforts, turns, cost, and input, output, reasoning, cache-read, and cache-write tokens in its run metrics. Reasoning and cache token counts are informational subsets and are not added to input/output totals or billed cost a second time.
 
 ## Anthropic
 

@@ -27,7 +27,7 @@ For maximum isolation, run Shannon inside a disposable virtual machine.
 
 ## LLM and Automation Caveats
 
-- **Verification is required**: Shannon uses a proof-by-exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
+- **Verification is required**: Shannon uses an evidence-backed exploitation methodology, but final reports can still contain weakly supported or incorrect details. Human review is essential.
 - **Model support**: Shannon supports OpenAI GPT-5.6 and Claude through the Pi harness. Provider safeguards and model behavior can vary; validate outputs and custom model overrides before relying on a report.
 - **Prompt injection risk**: Do not point Shannon at untrusted or adversarial codebases. AI-powered tools that read source code can be influenced by malicious repository content.
 
@@ -41,7 +41,15 @@ Shannon currently targets exploitable vulnerabilities in these classes:
 - Cross-Site Scripting
 - Server-Side Request Forgery
 
-Shannon's proof-by-exploitation model means it does not report issues it cannot actively exploit, such as many vulnerable dependency, insecure configuration, or broad policy findings.
+Shannon's evidence-backed exploitation model does not report dependency, configuration, or broad policy issues that lack a supported network-reachable attack path. It can report a real vulnerability when code or live evidence supports it but a security control or external condition blocks full exploitation after exhaustive documented attempts.
+
+## Completion and Audit Guarantees
+
+- Pre-reconnaissance, reconnaissance, and vulnerability-analysis phases must fill every required structured collector section before their deliverables can be committed.
+- Every exploitation-queue ID must receive exactly one verdict: `exploited`, `blocked`, `false_positive`, or `out_of_scope`.
+- Human-facing reports include only `exploited` and evidence-backed `blocked` findings. False positives and out-of-scope candidates remain in per-class `*_exploitation_audit.json` files for traceability.
+- An incomplete exploit verdict set fails closed and is not automatically rerun, because replaying a live exploitation phase could repeat state-changing requests.
+- Severity and confidence thresholds are applied deterministically. A finding omitted by free-form report guidance must be recorded with its ID and reason in `report_exclusions.json`; every other eligible ID must appear exactly once in the final report.
 
 For broader coverage, the Keygraph platform adds black-box and white-box agentic pentesting, graph-based static analysis, SCA reachability, secrets detection, business logic testing, remediation workflows, SLA tracking, and reporting dashboards.
 

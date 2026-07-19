@@ -15,7 +15,7 @@
 import { readFile, rm } from 'node:fs/promises';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
-import { runPiPrompt } from '../ai/pi/pi-executor.js';
+import { type PiModelRouting, runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { CapturedSubmitTool } from '../ai/submit-tool.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
@@ -97,6 +97,30 @@ export interface ValidateAuthInput {
   readonly cancellationSignal?: AbortSignal;
 }
 
+/** Keep credential validation cheap while honoring the pipeline-fixture Luna/off contract. */
+export function resolveAuthenticationRunRouting(pipelineTestingMode: boolean): {
+  modelTier: 'small' | 'medium';
+  routing: PiModelRouting;
+} {
+  return pipelineTestingMode
+    ? {
+        modelTier: 'small',
+        routing: {
+          reasoningEffort: 'off',
+          childModelTier: 'small',
+          childReasoningEffort: 'off',
+        },
+      }
+    : {
+        modelTier: 'medium',
+        routing: {
+          reasoningEffort: 'low',
+          childModelTier: 'medium',
+          childReasoningEffort: 'low',
+        },
+      };
+}
+
 export async function validateAuthentication(input: ValidateAuthInput): Promise<Result<void, PentestError>> {
   const {
     distributedConfig,
@@ -137,6 +161,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   const startTime = Date.now();
 
   const submitTool = createAuthSubmitTool();
+  const { modelTier, routing } = resolveAuthenticationRunRouting(pipelineTestingMode ?? false);
   const result = await runPiPrompt(
     prompt,
     repoPath,
@@ -145,11 +170,12 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     AGENT_NAME,
     auditSession,
     logger,
-    'medium',
+    modelTier,
     undefined, // callerTools
     deliverablesSubdir,
     cancellationSignal,
     submitTool,
+    routing,
   );
 
   let classification = classifyResult(result, authentication);
@@ -167,6 +193,12 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     cost_usd: result.cost || 0,
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
+    ...(result.reasoningEffort !== undefined && { reasoningEffort: result.reasoningEffort }),
+    ...(result.childModel !== undefined && { childModel: result.childModel }),
+    ...(result.childReasoningEffort !== undefined && { childReasoningEffort: result.childReasoningEffort }),
+    ...(result.usage !== undefined && { usage: result.usage }),
+    ...(result.parentUsage !== undefined && { parentUsage: result.parentUsage }),
+    ...(result.childUsage !== undefined && { childUsage: result.childUsage }),
     ...(!classification.ok && { error: classification.error.message }),
   };
   await auditSession.endAgent(AGENT_NAME, endResult);

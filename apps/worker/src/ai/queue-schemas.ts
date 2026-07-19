@@ -26,10 +26,11 @@ function optStr(description?: string) {
 /** Base fields shared by every queue entry. `notes` gains guidance in analysis mode. */
 function baseFields(exploit: boolean) {
   return {
-    ID: Type.String(),
-    vulnerability_type: Type.String(),
+    ID: Type.String({ minLength: 1 }),
+    vulnerability_type: Type.String({ minLength: 1 }),
     externally_exploitable: Type.Boolean(),
-    confidence: Type.String(),
+    confidence: Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high')]),
+    severity: Type.Union([Type.Literal('low'), Type.Literal('medium'), Type.Literal('high'), Type.Literal('critical')]),
     notes: exploit ? optStr() : optStr(ANALYSIS_NOTES_DESCRIPTION),
   };
 }

@@ -9,8 +9,8 @@
  *
  * Exposes seven TypeBox-validated tools, one per section of the
  * pre_recon_deliverable.md report. Every tool is one-shot (write-once;
- * duplicate calls return DuplicateError). A skipped tool renders a placeholder
- * rather than failing the activity. After the agent finishes, the host calls
+ * duplicate calls return DuplicateError). All seven tools are mandatory; the
+ * activity completion gate rejects a run that skips any tool. After the agent finishes, the host calls
  * getAll() to harvest the typed payload bag, getCallStatus() to log the
  * per-run call pattern, and runs the deterministic renderer to produce the
  * deliverable Markdown.

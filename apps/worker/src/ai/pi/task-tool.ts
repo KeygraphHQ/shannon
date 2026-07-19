@@ -17,7 +17,7 @@
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
+import { type Api, type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
 import {
   type AuthStorage,
   createAgentSession,
@@ -29,11 +29,11 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import type { AgentUsageMetrics } from '../../types/metrics.js';
 
 export interface TaskToolContext {
   cwd: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  model: Model<any>;
+  model: Model<Api>;
   thinkingLevel?: ThinkingLevel;
   authStorage: AuthStorage;
   /** Explicit model registry for sub-session resolution. Omit to inherit the parent's default. */
@@ -46,7 +46,7 @@ export interface TaskToolContext {
    * so without this their spend (the bulk of a whitebox run, since Shannon
    * prompts delegate the heavy work) is invisible to billing.
    */
-  onUsage?: (usage: { cost: number; inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: AgentUsageMetrics) => void;
 }
 
 const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
@@ -108,20 +108,22 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       }
 
       let resultText = '';
-      let subCost = 0;
-      let subInputTokens = 0;
-      let subOutputTokens = 0;
+      let subTurns = 0;
+      let subReasoningTokens = 0;
+      let subReasoningReported = false;
       subSession.subscribe((event) => {
         if (event.type === 'turn_end') {
+          subTurns += 1;
           const msg = event.message as AssistantMessage | undefined;
           for (const block of msg?.content ?? []) {
             if (block.type === 'text' && block.text) {
               resultText += (resultText ? '\n' : '') + block.text;
             }
           }
-          if (msg?.usage?.cost?.total != null) subCost += msg.usage.cost.total;
-          subInputTokens += msg?.usage?.input ?? 0;
-          subOutputTokens += msg?.usage?.output ?? 0;
+          if (msg?.usage?.reasoning !== undefined) {
+            subReasoningReported = true;
+            subReasoningTokens += msg.usage.reasoning;
+          }
         }
       });
 
@@ -135,10 +137,20 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
         }
 
         swallowedError = subSession.state.errorMessage;
-        // Read stats before dispose; reconcile cost the same way the parent does.
+        // SessionStats is Pi's authoritative billed aggregate. Do not also sum
+        // per-message input/output/cost or multi-turn sessions would be counted
+        // twice. Reasoning is accumulated from turn_end because SessionStats does
+        // not expose its (output-subset) breakdown.
         const subStats = subSession.getSessionStats();
-        if (subStats.cost > subCost) subCost = subStats.cost;
-        config.onUsage?.({ cost: subCost, inputTokens: subInputTokens, outputTokens: subOutputTokens });
+        config.onUsage?.({
+          inputTokens: subStats.tokens.input,
+          outputTokens: subStats.tokens.output,
+          reasoningTokens: subReasoningReported ? subReasoningTokens : subStats.tokens.output === 0 ? 0 : null,
+          cacheReadTokens: subStats.tokens.cacheRead,
+          cacheWriteTokens: subStats.tokens.cacheWrite,
+          numTurns: subTurns,
+          costUsd: subStats.cost,
+        });
       } finally {
         config.cancellationSignal?.removeEventListener('abort', onCancellation);
         subSession.dispose();

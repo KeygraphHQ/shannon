@@ -6,6 +6,7 @@
 
 import { fs, path } from 'zx';
 
+import { validateReportStructure } from './services/report-validation.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
 
@@ -18,6 +19,9 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'pre-recon-code',
     deliverableFilename: 'pre_recon_deliverable.md',
     modelTier: 'large',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   recon: {
     name: 'recon',
@@ -25,6 +29,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['pre-recon'],
     promptTemplate: 'recon',
     deliverableFilename: 'recon_deliverable.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'injection-vuln': {
     name: 'injection-vuln',
@@ -32,6 +40,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['recon'],
     promptTemplate: 'vuln-injection',
     deliverableFilename: 'injection_analysis_deliverable.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'xss-vuln': {
     name: 'xss-vuln',
@@ -39,6 +51,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['recon'],
     promptTemplate: 'vuln-xss',
     deliverableFilename: 'xss_analysis_deliverable.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'auth-vuln': {
     name: 'auth-vuln',
@@ -46,6 +62,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['recon'],
     promptTemplate: 'vuln-auth',
     deliverableFilename: 'auth_analysis_deliverable.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'ssrf-vuln': {
     name: 'ssrf-vuln',
@@ -53,6 +73,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['recon'],
     promptTemplate: 'vuln-ssrf',
     deliverableFilename: 'ssrf_analysis_deliverable.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'authz-vuln': {
     name: 'authz-vuln',
@@ -60,6 +84,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['recon'],
     promptTemplate: 'vuln-authz',
     deliverableFilename: 'authz_analysis_deliverable.md',
+    modelTier: 'large',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
   'injection-exploit': {
     name: 'injection-exploit',
@@ -67,6 +95,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['injection-vuln'],
     promptTemplate: 'exploit-injection',
     deliverableFilename: 'injection_exploitation_evidence.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'small',
+    childReasoningEffort: 'low',
   },
   'xss-exploit': {
     name: 'xss-exploit',
@@ -74,6 +106,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['xss-vuln'],
     promptTemplate: 'exploit-xss',
     deliverableFilename: 'xss_exploitation_evidence.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'small',
+    childReasoningEffort: 'low',
   },
   'auth-exploit': {
     name: 'auth-exploit',
@@ -81,6 +117,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['auth-vuln'],
     promptTemplate: 'exploit-auth',
     deliverableFilename: 'auth_exploitation_evidence.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'small',
+    childReasoningEffort: 'low',
   },
   'ssrf-exploit': {
     name: 'ssrf-exploit',
@@ -88,6 +128,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['ssrf-vuln'],
     promptTemplate: 'exploit-ssrf',
     deliverableFilename: 'ssrf_exploitation_evidence.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'small',
+    childReasoningEffort: 'low',
   },
   'authz-exploit': {
     name: 'authz-exploit',
@@ -95,6 +139,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['authz-vuln'],
     promptTemplate: 'exploit-authz',
     deliverableFilename: 'authz_exploitation_evidence.md',
+    modelTier: 'large',
+    reasoningEffort: 'medium',
+    childModelTier: 'small',
+    childReasoningEffort: 'low',
   },
   report: {
     name: 'report',
@@ -102,6 +150,10 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: ['injection-exploit', 'xss-exploit', 'auth-exploit', 'ssrf-exploit', 'authz-exploit'],
     promptTemplate: 'report-executive',
     deliverableFilename: 'comprehensive_security_assessment_report.md',
+    modelTier: 'medium',
+    reasoningEffort: 'medium',
+    childModelTier: 'medium',
+    childReasoningEffort: 'medium',
   },
 });
 
@@ -138,6 +190,43 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
     const queueExists = await fs.pathExists(queueFile);
     if (!queueExists) {
       logger.warn(`Queue validation failed for ${vulnType}: ${vulnType}_exploitation_queue.json missing`);
+      return false;
+    }
+    try {
+      const queue = (await fs.readJson(queueFile)) as { vulnerabilities?: unknown };
+      if (!Array.isArray(queue.vulnerabilities)) {
+        logger.warn(`Queue validation failed for ${vulnType}: vulnerabilities must be an array`);
+        return false;
+      }
+      const ids: string[] = [];
+      for (const entry of queue.vulnerabilities) {
+        if (typeof entry !== 'object' || entry === null) {
+          logger.warn(`Queue validation failed for ${vulnType}: vulnerability entry must be an object`);
+          return false;
+        }
+        const candidate = entry as Record<string, unknown>;
+        if (
+          typeof candidate.ID !== 'string' ||
+          candidate.ID.trim() === '' ||
+          typeof candidate.vulnerability_type !== 'string' ||
+          candidate.vulnerability_type.trim() === '' ||
+          typeof candidate.externally_exploitable !== 'boolean' ||
+          typeof candidate.confidence !== 'string' ||
+          !['low', 'medium', 'high'].includes(candidate.confidence) ||
+          typeof candidate.severity !== 'string' ||
+          !['low', 'medium', 'high', 'critical'].includes(candidate.severity)
+        ) {
+          logger.warn(`Queue validation failed for ${vulnType}: entry has incomplete required fields`);
+          return false;
+        }
+        ids.push(candidate.ID);
+      }
+      if (new Set(ids).size !== ids.length) {
+        logger.warn(`Queue validation failed for ${vulnType}: duplicate vulnerability IDs`);
+        return false;
+      }
+    } catch (error) {
+      logger.warn(`Queue validation failed for ${vulnType}: ${(error as Error).message}`);
       return false;
     }
     return true;
@@ -186,14 +275,11 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
 
 // Direct agent-to-validator mapping - much simpler than pattern matching
 export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze({
-  // Pre-reconnaissance agent — skipped tools surface as renderer placeholders, not
-  // activity failures. The deliverable file is written by the renderer after the agent
-  // succeeds, so a file-existence check here would race the renderer.
+  // Collector completion is validated by the activity's writeDeliverable hook because
+  // the collector state is intentionally run-local and not visible from this registry.
   'pre-recon': async (): Promise<boolean> => true,
 
-  // Reconnaissance agent — validation lives in runReconAgent post-processing.
-  // The deliverable file is written by the renderer after the agent succeeds, so a
-  // file-existence check here would race the renderer.
+  // Recon collector completion is likewise validated before deterministic rendering.
   recon: async (): Promise<boolean> => true,
 
   // Vulnerability analysis agents
@@ -218,8 +304,14 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
 
     if (!reportExists) {
       logger.error('Missing required deliverable: comprehensive_security_assessment_report.md');
+      return false;
     }
 
-    return reportExists;
+    const content = await fs.readFile(reportFile, 'utf8');
+    const issues = validateReportStructure(content);
+    for (const issue of issues) {
+      logger.error(`Report validation failed: ${issue}`);
+    }
+    return issues.length === 0;
   },
 });

@@ -23,7 +23,7 @@
  */
 
 import { fs, path } from 'zx';
-import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/pi-executor.js';
+import { type PiModelRouting, type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/pi-executor.js';
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { authStateFile } from '../audit/utils.js';
@@ -52,6 +52,9 @@ export interface AgentExecutionInput {
   configData?: import('../types/config.js').DistributedConfig | undefined;
   configYAML?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
+  promptVulnClasses?: import('../types/config.js').VulnClass[] | undefined;
+  promptUnassessedVulnClasses?: import('../types/config.js').VulnClass[] | undefined;
+  promptExploit?: boolean | undefined;
   attemptNumber: number;
   promptDir?: string | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
@@ -93,6 +96,33 @@ function categoryForErrorCode(code: ErrorCode): PentestErrorType {
     default:
       return 'validation';
   }
+}
+
+/** Resolve the production phase route or the deterministic pipeline-fixture override. */
+export function resolveAgentRunRouting(
+  agentName: AgentName,
+  pipelineTestingMode: boolean,
+): { modelTier: 'small' | 'medium' | 'large'; routing: PiModelRouting } {
+  if (pipelineTestingMode) {
+    return {
+      modelTier: 'small',
+      routing: {
+        reasoningEffort: 'off',
+        childModelTier: 'small',
+        childReasoningEffort: 'off',
+      },
+    };
+  }
+
+  const agent = AGENTS[agentName];
+  return {
+    modelTier: agent.modelTier ?? 'medium',
+    routing: {
+      reasoningEffort: agent.reasoningEffort,
+      childModelTier: agent.childModelTier,
+      childReasoningEffort: agent.childReasoningEffort,
+    },
+  };
 }
 
 /** Wrap a failed git operation result into a PentestError attributed to the agent. */
@@ -150,6 +180,9 @@ export class AgentExecutionService {
       configData,
       configYAML,
       pipelineTestingMode = false,
+      promptVulnClasses,
+      promptUnassessedVulnClasses,
+      promptExploit,
       attemptNumber,
       promptDir,
       customTools,
@@ -171,7 +204,14 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath, AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata) },
+        {
+          webUrl,
+          repoPath,
+          AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata),
+          ...(promptVulnClasses && { vulnClasses: promptVulnClasses }),
+          ...(promptUnassessedVulnClasses && { unassessedVulnClasses: promptUnassessedVulnClasses }),
+          ...(promptExploit !== undefined && { exploit: promptExploit }),
+        },
         distributedConfig,
         pipelineTestingMode,
         logger,
@@ -219,6 +259,9 @@ export class AgentExecutionService {
     // 5. Execute agent. Vuln agents get a submit tool that captures the structured
     //    exploitation queue (pi has no JSON-schema output format).
     const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
+    // Pipeline fixtures are intentionally short and deterministic. Their route
+    // is resolved centrally so both parent and task sessions receive small/off.
+    const { modelTier: effectiveModelTier, routing } = resolveAgentRunRouting(agentName, pipelineTestingMode);
     const result: PiPromptResult = await runPiPrompt(
       prompt,
       repoPath,
@@ -227,11 +270,12 @@ export class AgentExecutionService {
       agentName,
       auditSession,
       logger,
-      AGENTS[agentName].modelTier,
+      effectiveModelTier,
       customTools,
       path.relative(repoPath, deliverablesPath),
       cancellationSignal,
       submitTool,
+      routing,
     );
 
     // 6. Spending cap check - defense-in-depth
@@ -269,41 +313,65 @@ export class AgentExecutionService {
     // 8-11. Write structured output, validate, render, and commit under one repo lock so
     //       the write→validate→commit sequence is atomic against concurrent sibling agents.
     let commitHash: string | undefined;
-    const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
-      // 8. Write structured output to disk (vuln agents only) from the executor's capture
-      const queueFilename = getQueueFilename(agentName);
-      if (submitTool && queueFilename && result.structuredOutput !== undefined) {
-        await fs.ensureDir(deliverablesPath);
-        const queuePath = path.join(deliverablesPath, queueFilename);
-        await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
-        logger.info(`Wrote structured output queue to ${queueFilename}`);
-      }
+    let finalizationError: PentestError | null;
+    try {
+      finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
+        // 8. Write structured output to disk (vuln agents only) from the executor's capture
+        const queueFilename = getQueueFilename(agentName);
+        if (submitTool && queueFilename && result.structuredOutput === undefined) {
+          return new PentestError(
+            `Agent ${agentName} did not call submit_exploitation_queue`,
+            'validation',
+            true,
+            { agentName, queueFilename },
+            ErrorCode.OUTPUT_VALIDATION_FAILED,
+          );
+        }
+        if (submitTool && queueFilename) {
+          await fs.ensureDir(deliverablesPath);
+          const queuePath = path.join(deliverablesPath, queueFilename);
+          await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
+          logger.info(`Wrote structured output queue to ${queueFilename}`);
+        }
 
-      // 9. Validate output
-      const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
-      if (!validationPassed) {
-        return new PentestError(
-          `Agent ${agentName} failed output validation`,
-          'validation',
-          true,
-          { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
-          ErrorCode.OUTPUT_VALIDATION_FAILED,
-        );
-      }
+        // 9. Validate output
+        const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
+        if (!validationPassed) {
+          return new PentestError(
+            `Agent ${agentName} failed output validation`,
+            'validation',
+            true,
+            { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+            ErrorCode.OUTPUT_VALIDATION_FAILED,
+          );
+        }
 
-      // 10. Render the deliverable to disk so the success commit below stages it
-      if (writeDeliverable) {
-        await writeDeliverable(deliverablesPath);
-      }
+        // 10. Render the deliverable to disk so the success commit below stages it
+        if (writeDeliverable) {
+          await writeDeliverable(deliverablesPath);
+        }
 
-      // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
-      const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
-      if (!commitResult.success) {
-        return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
-      }
-      commitHash = commitResult.commitHash;
-      return null;
-    });
+        // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
+        const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
+        if (!commitResult.success) {
+          return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
+        }
+        commitHash = commitResult.commitHash;
+        return null;
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      finalizationError =
+        error instanceof PentestError
+          ? error
+          : new PentestError(
+              `Agent ${agentName} failed post-processing: ${message}`,
+              'validation',
+              true,
+              { agentName, originalError: message },
+              ErrorCode.OUTPUT_VALIDATION_FAILED,
+            );
+    }
 
     if (finalizationError) {
       const rollbackReason =
@@ -328,6 +396,12 @@ export class AgentExecutionService {
       cost_usd: result.cost || 0,
       success: true,
       model: result.model,
+      reasoningEffort: result.reasoningEffort,
+      childModel: result.childModel,
+      childReasoningEffort: result.childReasoningEffort,
+      usage: result.usage,
+      parentUsage: result.parentUsage,
+      childUsage: result.childUsage,
       ...(commitHash && { checkpoint: commitHash }),
     };
     await auditSession.endAgent(agentName, endResult);
@@ -355,6 +429,12 @@ export class AgentExecutionService {
       cost_usd: opts.result.cost || 0,
       success: false,
       model: opts.result.model,
+      reasoningEffort: opts.result.reasoningEffort,
+      childModel: opts.result.childModel,
+      childReasoningEffort: opts.result.childReasoningEffort,
+      usage: opts.result.usage,
+      parentUsage: opts.result.parentUsage,
+      childUsage: opts.result.childUsage,
       error: opts.errorMessage,
     };
     await auditSession.endAgent(agentName, endResult);
@@ -404,13 +484,22 @@ export class AgentExecutionService {
    * Convert AgentEndResult to AgentMetrics for workflow state.
    */
   static toMetrics(endResult: AgentEndResult, result: PiPromptResult): AgentMetrics {
+    const usage = endResult.usage ?? result.usage;
     return {
       durationMs: endResult.duration_ms,
-      inputTokens: null, // Not currently exposed by the pi executor
-      outputTokens: null,
+      inputTokens: usage?.inputTokens ?? null,
+      outputTokens: usage?.outputTokens ?? null,
+      reasoningTokens: usage?.reasoningTokens ?? null,
+      cacheReadTokens: usage?.cacheReadTokens ?? null,
+      cacheWriteTokens: usage?.cacheWriteTokens ?? null,
       costUsd: endResult.cost_usd,
-      numTurns: result.turns ?? null,
-      model: result.model,
+      numTurns: usage?.numTurns ?? result.turns ?? null,
+      model: endResult.model ?? result.model,
+      reasoningEffort: endResult.reasoningEffort ?? result.reasoningEffort,
+      childModel: endResult.childModel ?? result.childModel,
+      childReasoningEffort: endResult.childReasoningEffort ?? result.childReasoningEffort,
+      parentUsage: endResult.parentUsage ?? result.parentUsage,
+      childUsage: endResult.childUsage ?? result.childUsage,
     };
   }
 }

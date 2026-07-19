@@ -11,10 +11,12 @@
  * Tracks attempt-level data for complete forensic trail.
  */
 
+import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { PentestError } from '../services/error-handling.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
 import { ErrorCode } from '../types/errors.js';
 import type { AgentEndResult, AgentName } from '../types/index.js';
+import type { AgentUsageMetrics } from '../types/metrics.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
 import { generateSessionJsonPath, type SessionMetadata } from './utils.js';
@@ -26,16 +28,45 @@ interface AttemptData {
   success: boolean;
   timestamp: string;
   model?: string | undefined;
+  reasoning_effort?: ThinkingLevel | undefined;
+  child_model?: string | undefined;
+  child_reasoning_effort?: ThinkingLevel | undefined;
+  usage?: AgentUsageMetrics | undefined;
+  parent_usage?: AgentUsageMetrics | undefined;
+  child_usage?: AgentUsageMetrics | undefined;
   error?: string | undefined;
 }
 
 interface AgentAuditMetrics {
   status: 'in-progress' | 'success' | 'failed';
+  skipped?: boolean;
+  skip_reason?: string;
   attempts: AttemptData[];
   final_duration_ms: number;
   total_cost_usd: number;
   model?: string | undefined;
+  reasoning_effort?: ThinkingLevel | undefined;
+  child_model?: string | undefined;
+  child_reasoning_effort?: ThinkingLevel | undefined;
+  final_usage?: AgentUsageMetrics | undefined;
+  total_usage?: AgentUsageMetrics | undefined;
   checkpoint?: string | undefined;
+}
+
+/** Add disjoint attempts/scopes; reasoning is a subset of output, not extra output. */
+function addUsage(left: AgentUsageMetrics, right: AgentUsageMetrics): AgentUsageMetrics {
+  return {
+    inputTokens: left.inputTokens + right.inputTokens,
+    outputTokens: left.outputTokens + right.outputTokens,
+    reasoningTokens:
+      left.reasoningTokens === null || right.reasoningTokens === null
+        ? null
+        : left.reasoningTokens + right.reasoningTokens,
+    cacheReadTokens: left.cacheReadTokens + right.cacheReadTokens,
+    cacheWriteTokens: left.cacheWriteTokens + right.cacheWriteTokens,
+    numTurns: left.numTurns + right.numTurns,
+    costUsd: left.costUsd + right.costUsd,
+  };
 }
 
 interface PhaseMetrics {
@@ -190,6 +221,13 @@ export class MetricsTracker {
       attempt.model = result.model;
     }
 
+    if (result.reasoningEffort) attempt.reasoning_effort = result.reasoningEffort;
+    if (result.childModel) attempt.child_model = result.childModel;
+    if (result.childReasoningEffort) attempt.child_reasoning_effort = result.childReasoningEffort;
+    if (result.usage) attempt.usage = result.usage;
+    if (result.parentUsage) attempt.parent_usage = result.parentUsage;
+    if (result.childUsage) attempt.child_usage = result.childUsage;
+
     if (result.error) {
       attempt.error = result.error;
     }
@@ -199,6 +237,12 @@ export class MetricsTracker {
 
     // 4. Recalculate total cost across all attempts (includes failures)
     agent.total_cost_usd = agent.attempts.reduce((sum, a) => sum + a.cost_usd, 0);
+    const knownAttemptUsage = agent.attempts.flatMap((item) => (item.usage ? [item.usage] : []));
+    if (knownAttemptUsage.length > 0) {
+      const [first, ...rest] = knownAttemptUsage;
+      // The length guard above guarantees first is defined.
+      agent.total_usage = rest.reduce(addUsage, first as AgentUsageMetrics);
+    }
 
     // 5. Update agent status based on outcome
     if (result.success) {
@@ -209,6 +253,11 @@ export class MetricsTracker {
       if (result.model) {
         agent.model = result.model;
       }
+
+      if (result.reasoningEffort) agent.reasoning_effort = result.reasoningEffort;
+      if (result.childModel) agent.child_model = result.childModel;
+      if (result.childReasoningEffort) agent.child_reasoning_effort = result.childReasoningEffort;
+      if (result.usage) agent.final_usage = result.usage;
 
       if (result.checkpoint) {
         agent.checkpoint = result.checkpoint;
@@ -226,6 +275,33 @@ export class MetricsTracker {
     this.recalculateAggregations();
 
     // 9. Persist to session.json
+    await this.save();
+  }
+
+  /** Persist a deterministic no-op completion (for example, exploitation disabled or an empty queue). */
+  async markAgentSkipped(agentName: string, reason: string): Promise<void> {
+    if (!this.data) {
+      throw new PentestError(
+        'MetricsTracker not initialized',
+        'validation',
+        false,
+        {},
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      );
+    }
+
+    const existing = this.data.metrics.agents[agentName];
+    if (existing?.status === 'success' && existing.skipped) return;
+
+    this.data.metrics.agents[agentName] = {
+      status: 'success',
+      skipped: true,
+      skip_reason: reason,
+      attempts: existing?.attempts ?? [],
+      final_duration_ms: 0,
+      total_cost_usd: existing?.total_cost_usd ?? 0,
+    };
+    this.recalculateAggregations();
     await this.save();
   }
 
@@ -299,38 +375,49 @@ export class MetricsTracker {
 
     const agents = this.data.metrics.agents;
 
-    // Only count successful agents
+    const allAgents = Object.entries(agents);
+    // Duration and completion counts describe successful work only. Cost is
+    // billed across every attempt, including terminal failures.
     const successfulAgents = Object.entries(agents).filter(([, data]) => data.status === 'success');
 
     // Calculate total duration and cost
     const totalDuration = successfulAgents.reduce((sum, [, data]) => sum + data.final_duration_ms, 0);
 
-    const totalCost = successfulAgents.reduce((sum, [, data]) => sum + data.total_cost_usd, 0);
+    const totalCost = allAgents.reduce((sum, [, data]) => sum + data.total_cost_usd, 0);
 
     this.data.metrics.total_duration_ms = totalDuration;
     this.data.metrics.total_cost_usd = totalCost;
 
     // Calculate phase-level metrics
-    this.data.metrics.phases = this.calculatePhaseMetrics(successfulAgents);
+    this.data.metrics.phases = this.calculatePhaseMetrics(allAgents, successfulAgents);
   }
 
   /**
    * Calculate phase-level metrics
    */
-  private calculatePhaseMetrics(successfulAgents: Array<[string, AgentAuditMetrics]>): Record<string, PhaseMetrics> {
-    const phases: Record<PhaseName, AgentAuditMetrics[]> = {
-      'pre-recon': [],
-      recon: [],
-      'vulnerability-analysis': [],
-      exploitation: [],
-      reporting: [],
+  private calculatePhaseMetrics(
+    allAgents: Array<[string, AgentAuditMetrics]>,
+    successfulAgents: Array<[string, AgentAuditMetrics]>,
+  ): Record<string, PhaseMetrics> {
+    const phases: Record<PhaseName, { all: AgentAuditMetrics[]; successful: AgentAuditMetrics[] }> = {
+      'pre-recon': { all: [], successful: [] },
+      recon: { all: [], successful: [] },
+      'vulnerability-analysis': { all: [], successful: [] },
+      exploitation: { all: [], successful: [] },
+      reporting: { all: [], successful: [] },
     };
 
     // Group agents by phase using imported AGENT_PHASE_MAP
+    for (const [agentName, agentData] of allAgents) {
+      const phase = AGENT_PHASE_MAP[agentName as AgentName];
+      if (phase) {
+        phases[phase].all.push(agentData);
+      }
+    }
     for (const [agentName, agentData] of successfulAgents) {
       const phase = AGENT_PHASE_MAP[agentName as AgentName];
       if (phase) {
-        phases[phase].push(agentData);
+        phases[phase].successful.push(agentData);
       }
     }
 
@@ -339,17 +426,17 @@ export class MetricsTracker {
     // biome-ignore lint/style/noNonNullAssertion: called from recalculateAggregations which guards this.data
     const totalDuration = this.data!.metrics.total_duration_ms;
 
-    for (const [phaseName, agentList] of Object.entries(phases)) {
-      if (agentList.length === 0) continue;
+    for (const [phaseName, agentLists] of Object.entries(phases)) {
+      if (agentLists.all.length === 0) continue;
 
-      const phaseDuration = agentList.reduce((sum, agent) => sum + agent.final_duration_ms, 0);
-      const phaseCost = agentList.reduce((sum, agent) => sum + agent.total_cost_usd, 0);
+      const phaseDuration = agentLists.successful.reduce((sum, agent) => sum + agent.final_duration_ms, 0);
+      const phaseCost = agentLists.all.reduce((sum, agent) => sum + agent.total_cost_usd, 0);
 
       phaseMetrics[phaseName] = {
         duration_ms: phaseDuration,
         duration_percentage: calculatePercentage(phaseDuration, totalDuration),
         cost_usd: phaseCost,
-        agent_count: agentList.length,
+        agent_count: agentLists.successful.length,
       };
     }
 

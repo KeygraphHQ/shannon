@@ -26,6 +26,7 @@ function renderCodePathRules(rules: Rule[]): string {
 interface VulnSummarySpec {
   readonly heading: string;
   readonly evidenceSection: string;
+  readonly findingsSection: string;
   readonly noneFoundLabel: string;
 }
 
@@ -33,36 +34,44 @@ const VULN_SUMMARY_SPECS: Record<VulnClass, VulnSummarySpec> = {
   auth: {
     heading: 'Authentication Vulnerabilities',
     evidenceSection: 'Authentication Exploitation Evidence',
+    findingsSection: 'Authentication Findings',
     noneFoundLabel: 'authentication',
   },
   authz: {
     heading: 'Authorization Vulnerabilities',
     evidenceSection: 'Authorization Exploitation Evidence',
+    findingsSection: 'Authorization Findings',
     noneFoundLabel: 'authorization',
   },
   xss: {
     heading: 'Cross-Site Scripting (XSS) Vulnerabilities',
-    evidenceSection: 'XSS Exploitation Evidence',
+    evidenceSection: 'Cross-Site Scripting (XSS) Exploitation Evidence',
+    findingsSection: 'XSS Findings',
     noneFoundLabel: 'XSS',
   },
   injection: {
     heading: 'SQL/Command Injection Vulnerabilities',
     evidenceSection: 'Injection Exploitation Evidence',
+    findingsSection: 'Injection Findings',
     noneFoundLabel: 'SQL or command injection',
   },
   ssrf: {
     heading: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
     evidenceSection: 'SSRF Exploitation Evidence',
+    findingsSection: 'SSRF Findings',
     noneFoundLabel: 'SSRF',
   },
 };
 
-function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
-  const classes = selected.length > 0 ? selected : (Object.keys(VULN_SUMMARY_SPECS) as VulnClass[]);
-  return classes
+function renderVulnSummarySubsections(selected: readonly VulnClass[], exploitEnabled: boolean): string {
+  return selected
     .map((cls) => {
       const spec = VULN_SUMMARY_SPECS[cls];
-      return `**${spec.heading}:**\n{Check for "${spec.evidenceSection}" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No ${spec.noneFoundLabel} vulnerabilities were found."}`;
+      const section = exploitEnabled ? spec.evidenceSection : spec.findingsSection;
+      const findingScope = exploitEnabled
+        ? 'Include actually exploited vulnerabilities and real vulnerabilities blocked by security controls.'
+        : 'Include reportable vulnerability candidates identified by analysis.';
+      return `**${spec.heading}:**\n{Check for the "${section}" section. ${findingScope} If vulnerabilities exist, summarize their impact and severity. If the section contains no vulnerability entries, state: "No ${spec.noneFoundLabel} vulnerabilities were found."}`;
     })
     .join('\n\n');
 }
@@ -120,6 +129,9 @@ interface PromptVariables {
   repoPath: string;
   AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
+  vulnClasses?: VulnClass[];
+  unassessedVulnClasses?: VulnClass[];
+  exploit?: boolean;
 }
 
 interface IncludeReplacement {
@@ -358,15 +370,29 @@ async function interpolateVariables(
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
     }
 
-    const vulnClasses = config?.vuln_classes ?? [];
+    const configuredVulnClasses = config?.vuln_classes;
+    const vulnClasses =
+      variables.vulnClasses ??
+      (configuredVulnClasses && configuredVulnClasses.length > 0
+        ? configuredVulnClasses
+        : (Object.keys(VULN_SUMMARY_SPECS) as VulnClass[]));
+    const exploitEnabled = variables.exploit ?? config?.exploit ?? true;
     result = replaceLiteral(
       result,
       /{{VULN_CLASSES_TESTED}}/g,
-      vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
+      vulnClasses.length > 0 ? vulnClasses.join(', ') : 'none (no class pipeline completed)',
     );
-    result = replaceLiteral(result, /{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
+    result = replaceLiteral(
+      result,
+      /{{VULN_SUMMARY_SUBSECTIONS}}/g,
+      renderVulnSummarySubsections(vulnClasses, exploitEnabled),
+    );
+    result = replaceLiteral(
+      result,
+      /{{UNASSESSED_CLASSES}}/g,
+      variables.unassessedVulnClasses?.length ? variables.unassessedVulnClasses.join(', ') : 'none',
+    );
 
-    const exploitEnabled = config?.exploit ?? true;
     result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');
     result = replaceLiteral(result, /{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings');
     result = replaceLiteral(

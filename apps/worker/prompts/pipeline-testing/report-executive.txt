@@ -1,3 +1,21 @@
 @include(shared/_filesystem.txt)
 
-Read `.shannon/deliverables/comprehensive_security_assessment_report.md`, prepend "# Security Assessment Report\n\n**Target:** {{WEB_URL}}\n\n" to the content, and save it back. Say "Done".
+## Pipeline fixture: report cleanup
+
+Read `.shannon/deliverables/comprehensive_security_assessment_report.md` and preserve every existing
+top-level per-class heading, in the same order, plus every `### ...-VULN-...` finding ID exactly once.
+Rewrite the file so it begins with:
+
+```markdown
+# Security Assessment Report
+
+## Executive Summary
+Pipeline fixture report for {{WEB_URL}}. Scope: {{VULN_CLASSES_TESTED}}. Exploitation: {{EXPLOITATION}}.
+
+- Unassessed classes: {{UNASSESSED_CLASSES}}
+```
+
+Append all original per-class sections after that summary. Do not add TODO/TBD/placeholder markers.
+If user-supplied report guidance explicitly requires an otherwise reportable ID to be omitted, call
+`exclude_report_finding` once with that exact ID and a nonempty guidance-based reason. Otherwise do
+not call the exclusion tool. Save the modified report in place, say `Done`, and stop.

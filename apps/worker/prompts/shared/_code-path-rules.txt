@@ -3,7 +3,8 @@ Source-code routing. Each rule is tagged `[FILE]` (literal path) or `[GLOB]` (pa
 
 How to apply (focus rules):
 - For `[FILE]` entries — delegate analysis to the `task` tool.
-- For `[GLOB]` entries — use the `glob` tool to enumerate matches, then delegate analysis of every match to the `task` tool.
+- For `[GLOB]` entries — the sole permitted direct use of `glob` is to enumerate matches for the configured `[GLOB]` pattern. Do not use it for ad hoc source discovery or content analysis. Delegate analysis of every matched file to the `task` tool.
+- Enumeration is not analysis: all reading, searching, tracing, and interpretation of application source remains delegated to `task` agents.
 
 Avoid — out of scope. Skip entirely; the tool layer will block any access attempts.
 {{CODE_RULES_AVOID}}

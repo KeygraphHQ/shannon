@@ -177,6 +177,13 @@ export class AuditSession {
         success: result.success,
         duration_ms: result.duration_ms,
         cost_usd: result.cost_usd,
+        model: result.model,
+        reasoning_effort: result.reasoningEffort,
+        child_model: result.childModel,
+        child_reasoning_effort: result.childReasoningEffort,
+        usage: result.usage,
+        parent_usage: result.parentUsage,
+        child_usage: result.childUsage,
         timestamp: formatTimestamp(),
       });
 
@@ -192,6 +199,11 @@ export class AuditSession {
       duration_ms: result.duration_ms,
       cost_usd: result.cost_usd,
       success: result.success,
+      ...(result.model !== undefined && { model: result.model }),
+      ...(result.reasoningEffort !== undefined && { reasoningEffort: result.reasoningEffort }),
+      ...(result.childModel !== undefined && { childModel: result.childModel }),
+      ...(result.childReasoningEffort !== undefined && { childReasoningEffort: result.childReasoningEffort }),
+      ...(result.usage !== undefined && { usage: result.usage }),
       ...(result.error !== undefined && { error: result.error }),
     };
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
@@ -202,6 +214,20 @@ export class AuditSession {
       // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
       await this.metricsTracker.reload();
       await this.metricsTracker.endAgent(agentName, result);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Record an intentionally skipped agent as complete without fabricating an LLM attempt. */
+  async markAgentSkipped(agentName: string, reason: string): Promise<void> {
+    await this.ensureInitialized();
+    await this.workflowLogger.logEvent('agent_skip', `${agentName}: ${reason}`);
+
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      await this.metricsTracker.markAgentSkipped(agentName, reason);
     } finally {
       unlock();
     }
