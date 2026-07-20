@@ -1,5 +1,5 @@
 > [!NOTE]
-> **[Shannon Now Runs on the Pi Harness (Beta) - run it today with `npx @keygraph/shannon@beta`](https://github.com/KeygraphHQ/shannon/discussions/358)**
+> **[Shannon 2.0 now runs on the Pi harness](https://github.com/KeygraphHQ/shannon/discussions/393)**
 
 <div align="center">
 
