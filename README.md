@@ -92,6 +92,9 @@ Shannon pulls the worker image from Docker Hub, starts the required local infras
 
 For source builds, authenticated scans, provider-specific setup, and platform notes, see [Documentation](#documentation).
 
+> [!TIP]
+> **Prefer to run on your Claude Code subscription instead of API credits?** The [`shannon-v1`](https://github.com/KeygraphHQ/shannon/tree/shannon-v1) branch is the last release built on the Claude Agent SDK, so it accepts a Claude Code OAuth token. Generate one with `claude setup-token`, then run `npx @keygraph/shannon@1.9.0 setup` and pick **OAuth Token**. Pentests then cost nothing beyond your existing subscription.
+
 ## Key Capabilities
 
 - **Proof-by-exploitation reports**: Shannon reports validated findings with reproducible proof-of-concept steps instead of speculative warnings.
