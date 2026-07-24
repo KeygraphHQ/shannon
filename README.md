@@ -1,5 +1,7 @@
 > [!NOTE]
-> **[Shannon Now Runs on the Pi Harness (Beta) - run it today with `npx @keygraph/shannon@beta`](https://github.com/KeygraphHQ/shannon/discussions/358)**
+> **Shannon v1 (`v1.9.0`) runs on the Claude Agent SDK**, the last release before the pi harness. Running on the Claude Agent SDK means it can authenticate with an OAuth token from your Claude Code subscription instead of an Anthropic API key. Generate one with `claude setup-token`, then pick **OAuth Token** in `npx @keygraph/shannon@1.9.0 setup` or export it as `CLAUDE_CODE_OAUTH_TOKEN`.
+>
+> Shannon v2 replaced the Claude Agent SDK with the pi harness. See [Shannon 2.0 now runs on the Pi harness](https://github.com/KeygraphHQ/shannon/discussions/393).
 
 <div align="center">
 
