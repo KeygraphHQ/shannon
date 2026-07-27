@@ -26,25 +26,17 @@ const CUSTOM_BASE_URL = '__custom_base_url__';
 const GATEWAY_DIALECTS: readonly {
   value: string;
   label: string;
-  hint: string;
   provider: 'anthropic' | 'openai';
   format?: OpenAiFormat;
 }[] = [
-  { value: 'anthropic', label: 'Anthropic Messages', hint: '/v1/messages', provider: 'anthropic' },
+  { value: 'anthropic', label: 'Anthropic Messages', provider: 'anthropic' },
   {
     value: 'openai-chat-completions',
     label: 'OpenAI Chat Completions',
-    hint: '/chat/completions — most gateways',
     provider: 'openai',
     format: 'chat-completions',
   },
-  {
-    value: 'openai-responses',
-    label: 'OpenAI Responses',
-    hint: '/responses',
-    provider: 'openai',
-    format: 'responses',
-  },
+  { value: 'openai-responses', label: 'OpenAI Responses', provider: 'openai', format: 'responses' },
 ];
 
 /** Suggested models per provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
@@ -170,7 +162,7 @@ interface GatewaySetup {
 async function setupGateway(): Promise<GatewaySetup> {
   const choice = await p.select({
     message: 'API format',
-    options: GATEWAY_DIALECTS.map(({ value, label, hint }) => ({ value, label, hint })),
+    options: GATEWAY_DIALECTS.map(({ value, label }) => ({ value, label })),
   });
   if (p.isCancel(choice)) return cancelAndExit();
 
