@@ -172,6 +172,23 @@ export interface ModelSelection {
 }
 
 /**
+ * Point a model descriptor at a gateway.
+ *
+ * OpenAI's catalogue is built for the Responses API, but a gateway advertising
+ * itself as OpenAI-compatible serves chat completions, so the dialect switches
+ * for those runs. The stored `compat` block describes Responses and is dropped
+ * along with it: pi's own `detectCompat` then derives the completions settings
+ * from the provider and the endpoint. Every other provider keeps its dialect and
+ * only changes address.
+ */
+function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: string): Model<Api> {
+  if (providerId !== 'openai') return { ...model, baseUrl };
+
+  const { compat: _responsesCompat, ...withoutCompat } = model;
+  return { ...withoutCompat, baseUrl, api: 'openai-completions' };
+}
+
+/**
  * Resolve a model against a runtime.
  *
  * Direct to a provider, the model must exist in the catalogue. Behind a custom
@@ -191,12 +208,12 @@ export function resolveModel(
 ): Model<Api> | undefined {
   const found = modelRuntime.getModel(providerId, modelId);
   if (found) {
-    return baseUrl ? { ...found, baseUrl } : found;
+    return baseUrl ? pointAtGateway(found, providerId, baseUrl) : found;
   }
   if (!baseUrl) return undefined;
 
   const reference = modelRuntime.getModels(providerId)[0];
-  return reference ? { ...reference, id: modelId, name: modelId, baseUrl } : undefined;
+  return reference ? pointAtGateway({ ...reference, id: modelId, name: modelId }, providerId, baseUrl) : undefined;
 }
 
 /**

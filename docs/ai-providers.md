@@ -76,14 +76,16 @@ Bedrock uses bearer-token authentication only. IAM access keys, session tokens, 
 
 ## Custom base URL
 
-To route model traffic through your own infrastructure — a corporate proxy, an LLM gateway such as LiteLLM, or a regional endpoint — set a base URL alongside your normal model selection. The base URL only changes where the request is sent; the credential and API dialect still come from the provider half of `SHANNON_AI_MODEL`, so pick the one matching the dialect your gateway speaks:
+To route model traffic through your own infrastructure — a corporate proxy, an LLM gateway such as LiteLLM, or a regional endpoint — set a base URL alongside your normal model selection. The provider half of `SHANNON_AI_MODEL` decides which key is sent and which API Shannon speaks, so pick the one your gateway serves:
 
-| Gateway dialect | API key | Model prefix |
+| Gateway serves | Model prefix | API key |
 | --- | --- | --- |
-| Anthropic-compatible (Messages API) | `ANTHROPIC_API_KEY` | `anthropic:` |
-| OpenAI-compatible (Chat Completions) | `OPENAI_API_KEY` | `openai:` |
+| Anthropic Messages | `anthropic:` | `ANTHROPIC_API_KEY` |
+| OpenAI Chat Completions | `openai:` | `OPENAI_API_KEY` |
 
-Anthropic-compatible:
+The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
+
+Anthropic Messages:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
@@ -91,15 +93,17 @@ export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
 
-OpenAI-compatible:
+OpenAI Chat Completions:
 
 ```bash
 export OPENAI_API_KEY=sk-...
 export SHANNON_AI_MODEL=openai:gpt-5.6-sol
-export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
+export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-`npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks for the dialect and configures the matching provider for you.
+`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not. What `SHANNON_AI_BASE_URL` changes for `openai:` is the API Shannon speaks: `openai:gpt-5` on its own calls OpenAI's Responses API, and the same `openai:gpt-5` with a base URL set calls Chat Completions, which is what OpenAI-compatible gateways serve. Every other provider speaks the same API either way and only changes address.
+
+`npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
 
 ## Validation
 
