@@ -46,6 +46,42 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<ProviderId, readonly string[]
 /** Model used when SHANNON_AI_MODEL is unset. */
 export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
 
+/**
+ * Wire formats an OpenAI-compatible gateway may serve, named by
+ * SHANNON_AI_OPENAI_FORMAT. Only `openai` offers a choice: every other supported
+ * provider has exactly one API in pi's registry.
+ */
+export const OPENAI_FORMATS = {
+  'chat-completions': 'openai-completions',
+  responses: 'openai-responses',
+} as const;
+
+export type OpenAiFormat = keyof typeof OPENAI_FORMATS;
+
+/** Format assumed when a gateway is configured but no format is named. */
+export const DEFAULT_OPENAI_FORMAT: OpenAiFormat = 'chat-completions';
+
+function isOpenAiFormat(value: string): value is OpenAiFormat {
+  return value in OPENAI_FORMATS;
+}
+
+/**
+ * Read SHANNON_AI_OPENAI_FORMAT. Unset returns undefined, which lets the caller
+ * distinguish "not configured" from an explicit choice and reject the variable
+ * where it has no effect.
+ */
+export function resolveOpenAiFormat(): OpenAiFormat | undefined {
+  const raw = process.env.SHANNON_AI_OPENAI_FORMAT?.trim();
+  if (!raw) return undefined;
+
+  if (!isOpenAiFormat(raw)) {
+    throw new Error(
+      `SHANNON_AI_OPENAI_FORMAT must be one of: ${Object.keys(OPENAI_FORMATS).join(', ')}. Got "${raw}".`,
+    );
+  }
+  return raw;
+}
+
 export interface ModelSpec {
   providerId: ProviderId;
   modelId: string;
@@ -174,18 +210,21 @@ export interface ModelSelection {
 /**
  * Point a model descriptor at a gateway.
  *
- * OpenAI's catalogue is built for the Responses API, but a gateway advertising
- * itself as OpenAI-compatible serves chat completions, so the dialect switches
- * for those runs. The stored `compat` block describes Responses and is dropped
- * along with it: pi's own `detectCompat` then derives the completions settings
- * from the provider and the endpoint. Every other provider keeps its dialect and
- * only changes address.
+ * An OpenAI gateway may serve either wire format, named by
+ * SHANNON_AI_OPENAI_FORMAT and defaulting to chat completions, which is what
+ * most gateway software exposes. Switching to completions also drops the stored
+ * `compat` block: the catalogue's block describes Responses, and an explicit
+ * entry outranks pi's `detectCompat`, so leaving it would apply Responses
+ * settings to a completions request. Staying on Responses keeps it, since it
+ * then describes the format in use. Every other provider has one API and only
+ * changes address.
  */
-function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: string): Model<Api> {
+function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: string, format: OpenAiFormat): Model<Api> {
   if (providerId !== 'openai') return { ...model, baseUrl };
+  if (format === 'responses') return { ...model, baseUrl, api: OPENAI_FORMATS.responses };
 
   const { compat: _responsesCompat, ...withoutCompat } = model;
-  return { ...withoutCompat, baseUrl, api: 'openai-completions' };
+  return { ...withoutCompat, baseUrl, api: OPENAI_FORMATS['chat-completions'] };
 }
 
 /**
@@ -205,15 +244,44 @@ export function resolveModel(
   providerId: ProviderId,
   modelId: string,
   baseUrl: string | undefined,
+  format: OpenAiFormat = DEFAULT_OPENAI_FORMAT,
 ): Model<Api> | undefined {
   const found = modelRuntime.getModel(providerId, modelId);
   if (found) {
-    return baseUrl ? pointAtGateway(found, providerId, baseUrl) : found;
+    return baseUrl ? pointAtGateway(found, providerId, baseUrl, format) : found;
   }
   if (!baseUrl) return undefined;
 
   const reference = modelRuntime.getModels(providerId)[0];
-  return reference ? pointAtGateway({ ...reference, id: modelId, name: modelId }, providerId, baseUrl) : undefined;
+  if (!reference) return undefined;
+
+  return pointAtGateway({ ...reference, id: modelId, name: modelId }, providerId, baseUrl, format);
+}
+
+/**
+ * Validate SHANNON_AI_OPENAI_FORMAT against the rest of the configuration and
+ * return the format a gateway run should use.
+ *
+ * The variable only reaches a request when both an OpenAI model and a gateway
+ * are configured, so it is rejected outside that combination rather than
+ * silently ignored.
+ */
+export function resolveGatewayFormat(providerId: ProviderId, baseUrl: string | undefined): OpenAiFormat {
+  const configured = resolveOpenAiFormat();
+  if (!configured) return DEFAULT_OPENAI_FORMAT;
+
+  if (providerId !== 'openai') {
+    throw new Error(
+      `SHANNON_AI_OPENAI_FORMAT applies to openai models only, but SHANNON_AI_MODEL selects "${providerId}". ` +
+        `${providerId} serves a single API, so there is no format to choose.`,
+    );
+  }
+  if (!baseUrl) {
+    throw new Error(
+      'SHANNON_AI_OPENAI_FORMAT applies to gateway runs only. Set SHANNON_AI_BASE_URL, or unset the format to call OpenAI directly.',
+    );
+  }
+  return configured;
 }
 
 /**
@@ -223,10 +291,11 @@ export function resolveModel(
 export async function resolveModelSelection(): Promise<ModelSelection> {
   const { providerId, modelId } = resolveModelSpec();
   const credentials = resolveProviderCredentials(providerId);
+  const format = resolveGatewayFormat(providerId, credentials.baseUrl);
 
   const modelRuntime = await createModelRuntime(providerId, credentials.apiKey);
 
-  const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl);
+  const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl, format);
   if (!model) {
     throw new Error(`Model not found in pi registry: provider="${providerId}" model="${modelId}"`);
   }

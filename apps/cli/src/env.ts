@@ -16,8 +16,11 @@ import {
   resolveModelSpec,
 } from './model-spec.js';
 
-/** Variables forwarded to every worker container regardless of provider. */
-const COMMON_FORWARD_VARS = ['SHANNON_AI_MODEL', 'SHANNON_AI_BASE_URL'] as const;
+/**
+ * Variables forwarded to every worker container regardless of provider. Each is
+ * forwarded only when set, so an unused one never appears in the container.
+ */
+const COMMON_FORWARD_VARS = ['SHANNON_AI_MODEL', 'SHANNON_AI_BASE_URL', 'SHANNON_AI_OPENAI_FORMAT'] as const;
 
 /**
  * Credential variables for one provider. Only the selected provider's entries are

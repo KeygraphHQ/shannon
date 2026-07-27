@@ -82,6 +82,7 @@ To route model traffic through your own infrastructure — a corporate proxy, an
 | --- | --- | --- |
 | Anthropic Messages | `anthropic:` | `ANTHROPIC_API_KEY` |
 | OpenAI Chat Completions | `openai:` | `OPENAI_API_KEY` |
+| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `OPENAI_API_KEY` |
 
 The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
 
@@ -101,7 +102,17 @@ export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not. What `SHANNON_AI_BASE_URL` changes for `openai:` is the API Shannon speaks: `openai:gpt-5` on its own calls OpenAI's Responses API, and the same `openai:gpt-5` with a base URL set calls Chat Completions, which is what OpenAI-compatible gateways serve. Every other provider speaks the same API either way and only changes address.
+`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not.
+
+OpenAI is the one provider serving two APIs, so a gateway run picks one:
+
+```bash
+export SHANNON_AI_OPENAI_FORMAT=responses          # default: chat-completions
+```
+
+Chat Completions is the default because that is what most gateway software exposes. Set `responses` for a gateway that passes the Responses API through — it preserves reasoning state between turns, which Chat Completions cannot. `openai:gpt-5` with no base URL always calls OpenAI's Responses API directly.
+
+The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, Google, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
 
 `npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
 

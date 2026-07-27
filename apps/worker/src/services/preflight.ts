@@ -37,7 +37,9 @@ import { glob } from 'zx';
 import {
   createModelRuntime,
   type ModelSpec,
+  type OpenAiFormat,
   type ProviderId,
+  resolveGatewayFormat,
   resolveModel,
   resolveModelSpec,
   resolveProviderCredentials,
@@ -280,17 +282,15 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
 
 /**
  * Minimal pi session probe against the model the scan will use, so credentials the
- * account cannot use fail here rather than partway through the run. An optional
- * baseUrl overrides the endpoint.
+ * account cannot use fail here rather than partway through the run. The descriptor
+ * already carries the run's endpoint and wire format, so the probe exercises the
+ * same path the scan will.
  */
 async function probeCredentialsWithPi(
-  baseModel: Model<Api>,
+  model: Model<Api>,
   modelRuntime: ModelRuntime,
   authType: string,
-  baseUrl?: string,
 ): Promise<Result<void, PentestError>> {
-  const model = baseUrl ? { ...baseModel, baseUrl } : baseModel;
-
   let errText: string | undefined;
   try {
     const { session } = await createAgentSession({
@@ -354,6 +354,24 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   // 2. Credential presence. Bedrock needs both AWS_ vars; every other provider
   //    needs one API key.
   const credentials = resolveProviderCredentials(spec.providerId);
+
+  // 3. Wire format for an OpenAI gateway. Rejects a format named where it cannot
+  //    take effect, rather than letting the run proceed on the wrong API.
+  let format: OpenAiFormat;
+  try {
+    format = resolveGatewayFormat(spec.providerId, credentials.baseUrl);
+  } catch (error) {
+    return err(
+      new PentestError(
+        error instanceof Error ? error.message : String(error),
+        'config',
+        false,
+        { providerId: spec.providerId },
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+
   const isBedrock = spec.providerId === 'amazon-bedrock';
   const missing = isBedrock ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
   if (missing.length > 0 || (!isBedrock && !credentials.apiKey)) {
@@ -368,12 +386,12 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     );
   }
 
-  // 3. Model must exist in the registry, for every provider — Bedrock IDs are the
+  // 4. Model must exist in the registry, for every provider — Bedrock IDs are the
   //    easiest to get wrong, since region prefixes and version suffixes differ per
   //    model (`us.anthropic.claude-opus-5` exists, bare `anthropic.` does not).
   //    A custom endpoint is exempt: it may serve models under its own names.
   const modelRuntime = await createModelRuntime(spec.providerId, credentials.apiKey);
-  const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl);
+  const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl, format);
   if (!baseModel) {
     return err(
       new PentestError(
@@ -390,8 +408,11 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
       `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; passing it to the custom endpoint as given. Cost figures will be approximate.`,
     );
   }
+  if (credentials.baseUrl && spec.providerId === 'openai') {
+    logger.info(`Gateway API: ${format} (${baseModel.api})`);
+  }
 
-  // 4. Bedrock stops here — pi-ai owns the live AWS auth, so there is no cheap
+  // 5. Bedrock stops here — pi-ai owns the live AWS auth, so there is no cheap
   //    session probe for it.
   if (isBedrock) {
     logger.info('Bedrock credentials OK');
@@ -400,7 +421,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
 
   const authType = describeAuth(spec.providerId, credentials.baseUrl);
   logger.info(`Validating ${authType} via pi...`);
-  const probe = await probeCredentialsWithPi(baseModel, modelRuntime, authType, credentials.baseUrl);
+  const probe = await probeCredentialsWithPi(baseModel, modelRuntime, authType);
   if (isErr(probe)) return probe;
   logger.info(`${authType} OK`);
   return ok(undefined);

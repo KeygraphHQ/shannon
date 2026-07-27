@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
-import { type ProviderId, SUPPORTED_PROVIDERS } from '../model-spec.js';
+import { type OpenAiFormat, type ProviderId, SUPPORTED_PROVIDERS } from '../model-spec.js';
 import { requireInteractive } from '../tty.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
@@ -18,10 +18,33 @@ const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 const CUSTOM_MODEL = '__custom__';
 const CUSTOM_BASE_URL = '__custom_base_url__';
 
-/** Provider ids reachable through the gateway route, keyed by API dialect. */
-const GATEWAY_DIALECTS = [
-  { value: 'anthropic' as const, label: 'Anthropic-compatible', hint: 'Messages API' },
-  { value: 'openai' as const, label: 'OpenAI-compatible', hint: 'Chat Completions API' },
+/**
+ * Wire formats reachable through the gateway route. The format picks the provider
+ * that supplies the credential, and for OpenAI it also picks which of the two
+ * OpenAI APIs Shannon calls.
+ */
+const GATEWAY_DIALECTS: readonly {
+  value: string;
+  label: string;
+  hint: string;
+  provider: 'anthropic' | 'openai';
+  format?: OpenAiFormat;
+}[] = [
+  { value: 'anthropic', label: 'Anthropic Messages', hint: '/v1/messages', provider: 'anthropic' },
+  {
+    value: 'openai-chat-completions',
+    label: 'OpenAI Chat Completions',
+    hint: '/chat/completions — most gateways',
+    provider: 'openai',
+    format: 'chat-completions',
+  },
+  {
+    value: 'openai-responses',
+    label: 'OpenAI Responses',
+    hint: '/responses',
+    provider: 'openai',
+    format: 'responses',
+  },
 ];
 
 /** Suggested models per provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
@@ -76,6 +99,7 @@ export async function setup(): Promise<void> {
   const configPath = path.join(SHANNON_HOME, 'config.toml');
   const summary = [`Provider   ${provider}`, `Model      ${provider}:${modelId}`];
   if (gateway) summary.push(`Endpoint   ${gateway.baseUrl}`);
+  if (gateway?.format) summary.push(`API        ${gateway.format}`);
 
   p.log.success(`Configuration saved to ${configPath}`);
   p.note(summary.join('\n'), 'Configuration');
@@ -135,18 +159,24 @@ interface GatewaySetup {
   provider: ProviderId;
   config: ShannonConfig;
   baseUrl: string;
+  format?: OpenAiFormat;
 }
 
 /**
- * Gateway route: the endpoint decides where requests go, but the dialect still
+ * Gateway route: the endpoint decides where requests go, but the format still
  * picks a real provider, because that is what supplies the credential and the
- * wire protocol. Anthropic-compatible and OpenAI-compatible cover the gateway
- * software in common use.
+ * wire protocol.
  */
 async function setupGateway(): Promise<GatewaySetup> {
-  const dialect = await p.select({ message: 'API format', options: GATEWAY_DIALECTS });
-  if (p.isCancel(dialect)) return cancelAndExit();
-  const provider = dialect as 'anthropic' | 'openai';
+  const choice = await p.select({
+    message: 'API format',
+    options: GATEWAY_DIALECTS.map(({ value, label, hint }) => ({ value, label, hint })),
+  });
+  if (p.isCancel(choice)) return cancelAndExit();
+
+  const dialect = GATEWAY_DIALECTS.find((entry) => entry.value === choice);
+  if (!dialect) return cancelAndExit();
+  const provider = dialect.provider;
 
   const baseUrl = await p.text({
     message: 'Endpoint URL',
@@ -165,9 +195,11 @@ async function setupGateway(): Promise<GatewaySetup> {
 
   const authToken = await promptSecret('Enter the auth token for the endpoint');
   const config: ShannonConfig =
-    provider === 'anthropic' ? { anthropic: { api_key: authToken } } : { openai: { api_key: authToken } };
+    provider === 'anthropic'
+      ? { anthropic: { api_key: authToken } }
+      : { openai: { api_key: authToken, ...(dialect.format && { format: dialect.format }) } };
 
-  return { provider, config, baseUrl };
+  return { provider, config, baseUrl, ...(dialect.format && { format: dialect.format }) };
 }
 
 // === Model Selection ===
