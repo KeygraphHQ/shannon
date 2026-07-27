@@ -131,13 +131,6 @@ login_flow:
   - "Click <exact button text>"
 ```
 
-## Adaptive Thinking
-
-Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
-
-- `npx` mode: `npx @keygraph/shannon setup` prompts you during the wizard.
-- Source-build mode: set `CLAUDE_ADAPTIVE_THINKING=false` in `.env` or export it in your shell.
-
 ## Subscription Plan Rate Limits
 
 Anthropic subscription plans reset usage on a rolling 5-hour window. The default retry strategy may exhaust retries before the window resets. Add this to your config:
