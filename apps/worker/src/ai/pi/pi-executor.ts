@@ -9,11 +9,11 @@
 import os from 'node:os';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import {
+  type AgentSession,
   type AgentSessionEvent,
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
-  ModelRegistry,
   type ResourceLoader,
   SessionManager,
   SettingsManager,
@@ -32,7 +32,7 @@ import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { formatTimestamp } from '../../utils/formatting.js';
 import { Timer } from '../../utils/metrics.js';
 import { createAuditLogger } from '../audit-logger.js';
-import { type ModelTier, resolveModelSelection } from '../models.js';
+import { resolveModelSelection } from '../models.js';
 import {
   detectExecutionContext,
   formatAssistantOutput,
@@ -105,14 +105,41 @@ async function buildResourceLoader(
   return loader;
 }
 
+interface ChildUsage {
+  cost: number;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+}
+
+/**
+ * Usage for one agent: the parent session plus every `task` sub-session it
+ * spawned. Sub-sessions keep their own stats, so their spend is accumulated
+ * separately and added here.
+ */
+function totalUsage(session: AgentSession | undefined, childUsage: ChildUsage) {
+  const stats = session?.getSessionStats();
+  return {
+    cost: (stats?.cost ?? 0) + childUsage.cost,
+    inputTokens: (stats?.tokens.input ?? 0) + childUsage.inputTokens,
+    outputTokens: (stats?.tokens.output ?? 0) + childUsage.outputTokens,
+    cacheReadTokens: (stats?.tokens.cacheRead ?? 0) + childUsage.cacheReadTokens,
+    cacheWriteTokens: (stats?.tokens.cacheWrite ?? 0) + childUsage.cacheWriteTokens,
+  };
+}
+
 export interface PiPromptResult {
   result?: string | null | undefined;
   success: boolean;
   duration: number;
   turns?: number | undefined;
   cost: number;
+  inputTokens?: number | undefined;
+  outputTokens?: number | undefined;
+  cacheReadTokens?: number | undefined;
+  cacheWriteTokens?: number | undefined;
   model?: string | undefined;
-  partialCost?: number | undefined;
   apiErrorDetected?: boolean | undefined;
   error?: string | undefined;
   errorType?: string | undefined;
@@ -222,7 +249,6 @@ export async function runPiPrompt(
   agentName: string | null = null,
   auditSession: AuditSession | null = null,
   logger: ActivityLogger,
-  modelTier: ModelTier = 'medium',
   callerTools?: ToolDefinition[],
   deliverablesSubdir?: string,
   cancellationSignal?: AbortSignal,
@@ -254,21 +280,22 @@ export async function runPiPrompt(
 
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
-  const selection = resolveModelSelection((auth) => ModelRegistry.create(auth), modelTier);
+  const selection = await resolveModelSelection();
   const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
-  const childUsage = { cost: 0, inputTokens: 0, outputTokens: 0 };
+  const childUsage: ChildUsage = { cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
   const customTools: ToolDefinition[] = [
     createTaskTool({
       model: selection.model,
-      thinkingLevel: selection.thinkingLevel,
-      authStorage: selection.authStorage,
+      modelRuntime: selection.modelRuntime,
       cwd: sourceDir,
       onUsage: (usage) => {
         childUsage.cost += usage.cost;
         childUsage.inputTokens += usage.inputTokens;
         childUsage.outputTokens += usage.outputTokens;
+        childUsage.cacheReadTokens += usage.cacheReadTokens;
+        childUsage.cacheWriteTokens += usage.cacheWriteTokens;
       },
       resourceLoader,
       ...(cancellationSignal && { cancellationSignal }),
@@ -284,23 +311,24 @@ export async function runPiPrompt(
   let turnCount = 0;
   let pendingError: PentestError | null = null;
   let apiErrorDetected = false;
+  // Declared out here so the catch can bill spend accrued before a failure.
+  let session: AgentSession | undefined;
 
   progress.start();
 
   try {
-    const { session } = await createAgentSession({
+    ({ session } = await createAgentSession({
       cwd: sourceDir,
       model: selection.model,
-      thinkingLevel: selection.thinkingLevel,
       tools,
       customTools,
-      authStorage: selection.authStorage,
+      modelRuntime: selection.modelRuntime,
       sessionManager: SessionManager.inMemory(),
       // Temporal owns retry; pi compaction stays on (no analog previously, guards
       // against context overflow on long agent runs).
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: true } }),
       resourceLoader,
-    });
+    }));
 
     // 5. Map pi events to audit logging + progress + error capture.
     session.subscribe((event: AgentSessionEvent) => {
@@ -365,12 +393,11 @@ export async function runPiPrompt(
     if (pendingError) throw pendingError;
 
     // 8. Read usage/cost and final text.
-    const stats = session.getSessionStats();
-    const totalCost = stats.cost + childUsage.cost;
+    const usage = totalUsage(session, childUsage);
     const result = session.getLastAssistantText() ?? null;
 
     // 9. Defense-in-depth: detect a spending cap that produced an empty/cheap run.
-    if (isSpendingCapBehavior(turnCount, totalCost, result || '')) {
+    if (isSpendingCapBehavior(turnCount, usage.cost, result || '')) {
       throw new PentestError(
         `Spending cap likely reached (turns=${turnCount}, cost=$0): ${result?.slice(0, 100)}`,
         'billing',
@@ -390,9 +417,12 @@ export async function runPiPrompt(
       success: true,
       duration,
       turns: turnCount,
-      cost: totalCost,
+      cost: usage.cost,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
       model: selection.model.id,
-      partialCost: totalCost,
       apiErrorDetected,
       ...(structuredOutput !== undefined && { structuredOutput }),
     };
@@ -405,13 +435,23 @@ export async function runPiPrompt(
     outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableError(err)));
     await writeErrorLog(err, sourceDir, fullPrompt, duration);
 
+    // A failed agent still spent money — on its own turns and, since Shannon's
+    // prompts delegate the heavy work, mostly on `task` sub-agents. Both count
+    // toward the run's usage.
+    const usage = totalUsage(session, childUsage);
+
     return {
       error: err.message,
       errorType: err.constructor.name,
       prompt: `${fullPrompt.slice(0, 100)}...`,
       success: false,
       duration,
-      cost: 0,
+      turns: turnCount,
+      cost: usage.cost,
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
       retryable: isRetryableError(err),
     };
   }

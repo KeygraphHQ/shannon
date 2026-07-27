@@ -17,7 +17,6 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     prerequisites: [],
     promptTemplate: 'pre-recon-code',
     deliverableFilename: 'pre_recon_deliverable.md',
-    modelTier: 'large',
   },
   recon: {
     name: 'recon',

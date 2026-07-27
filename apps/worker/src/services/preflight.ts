@@ -26,15 +26,22 @@ import http from 'node:http';
 import https from 'node:https';
 import net, { type LookupFunction } from 'node:net';
 import os from 'node:os';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import {
-  AuthStorage,
   createAgentSession,
-  ModelRegistry,
+  type ModelRuntime,
   SessionManager,
   SettingsManager,
 } from '@earendil-works/pi-coding-agent';
 import { glob } from 'zx';
-import { resolveEffectiveProvider, resolveModelId } from '../ai/models.js';
+import {
+  createModelRuntime,
+  type ModelSpec,
+  type ProviderId,
+  resolveModel,
+  resolveModelSpec,
+  resolveProviderCredentials,
+} from '../ai/models.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Config, Rule } from '../types/config.js';
@@ -222,7 +229,7 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
   if (matchesBillingTextPattern(text)) {
     return err(
       new PentestError(
-        `Anthropic account has a billing or rate-limit issue during ${authType} validation. Add credits or wait and retry.`,
+        `Provider account has a billing or rate-limit issue during ${authType} validation. Add credits or wait and retry.`,
         'billing',
         true,
         { authType },
@@ -244,7 +251,7 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
   if (/model/.test(lower) && /not found|not available|unknown/.test(lower)) {
     return err(
       new PentestError(
-        `Configured model is not available for this account. Check ANTHROPIC_*_MODEL in .env.`,
+        `Configured model is not available for this account. Check SHANNON_AI_MODEL in .env.`,
         'config',
         false,
         { authType },
@@ -255,7 +262,7 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
     /network|timeout|enotfound|econnrefused|fetch failed|getaddrinfo|socket|overloaded|unavailable|50\d/.test(lower)
   ) {
     return err(
-      new PentestError(`Anthropic API unreachable or temporarily unavailable. Try again shortly.`, 'network', true, {
+      new PentestError(`Provider API unreachable or temporarily unavailable. Try again shortly.`, 'network', true, {
         authType,
       }),
     );
@@ -271,27 +278,17 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
   );
 }
 
-/** Minimal pi session probe to validate credentials. An optional baseUrl overrides the endpoint. */
+/**
+ * Minimal pi session probe against the model the scan will use, so credentials the
+ * account cannot use fail here rather than partway through the run. An optional
+ * baseUrl overrides the endpoint.
+ */
 async function probeCredentialsWithPi(
+  baseModel: Model<Api>,
+  modelRuntime: ModelRuntime,
   authType: string,
-  token?: string,
   baseUrl?: string,
 ): Promise<Result<void, PentestError>> {
-  const authStorage = AuthStorage.inMemory();
-  if (token) authStorage.setRuntimeApiKey('anthropic', token);
-
-  const baseModel = ModelRegistry.create(authStorage).find('anthropic', resolveModelId('small'));
-  if (!baseModel) {
-    return err(
-      new PentestError(
-        `Model not found in pi registry: ${resolveModelId('small')}`,
-        'config',
-        false,
-        {},
-        ErrorCode.AUTH_FAILED,
-      ),
-    );
-  }
   const model = baseUrl ? { ...baseModel, baseUrl } : baseModel;
 
   let errText: string | undefined;
@@ -299,9 +296,8 @@ async function probeCredentialsWithPi(
     const { session } = await createAgentSession({
       cwd: os.tmpdir(),
       model,
-      thinkingLevel: 'off',
       noTools: 'all',
-      authStorage,
+      modelRuntime,
       sessionManager: SessionManager.inMemory(),
       settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }),
     });
@@ -320,52 +316,32 @@ async function probeCredentialsWithPi(
   return ok(undefined);
 }
 
-/** Validate credentials via a minimal pi session. */
+/** Credential env var a provider reads, for "credential missing" messages. */
+const PROVIDER_CREDENTIAL_HINT: Readonly<Record<ProviderId, string>> = {
+  anthropic: 'ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN)',
+  openai: 'OPENAI_API_KEY',
+  xai: 'XAI_API_KEY',
+  google: 'GEMINI_API_KEY',
+  'amazon-bedrock': 'AWS_BEARER_TOKEN_BEDROCK and AWS_REGION',
+};
+
+/** Human-readable label for which credential path a run is using. */
+function describeAuth(providerId: ProviderId, baseUrl: string | undefined): string {
+  if (baseUrl) return `custom endpoint (${baseUrl})`;
+  return `${providerId} API key`;
+}
+
+/** Validate the model selection and its credentials via a minimal pi session. */
 async function validateCredentials(logger: ActivityLogger): Promise<Result<void, PentestError>> {
-  // Resolve the active provider through the same precedence the executor uses, so
-  // preflight validates exactly the credentials the run will use (no drift).
-  const eff = resolveEffectiveProvider();
-
-  // 1. Bedrock mode — validate required AWS credentials are present (pi-ai owns the
-  //    live AWS auth, so there is no cheap session probe here)
-  if (eff.providerId === 'amazon-bedrock') {
-    const required = [
-      'AWS_REGION',
-      'AWS_BEARER_TOKEN_BEDROCK',
-      'ANTHROPIC_SMALL_MODEL',
-      'ANTHROPIC_MEDIUM_MODEL',
-      'ANTHROPIC_LARGE_MODEL',
-    ];
-    const missing = required.filter((v) => !process.env[v]);
-    if (missing.length > 0) {
-      return err(
-        new PentestError(
-          `Bedrock mode requires the following env vars in .env: ${missing.join(', ')}`,
-          'config',
-          false,
-          { missing },
-          ErrorCode.AUTH_FAILED,
-        ),
-      );
-    }
-    logger.info('Bedrock credentials OK');
-    return ok(undefined);
-  }
-
-  // 2. Custom base URL — validate the endpoint via a minimal pi session
-  if (eff.baseUrl) {
-    logger.info('Validating custom base URL');
-    const probe = await probeCredentialsWithPi(`custom endpoint (${eff.baseUrl})`, eff.anthropicToken, eff.baseUrl);
-    if (isErr(probe)) return probe;
-    logger.info('Custom base URL OK');
-    return ok(undefined);
-  }
-
-  // 3. Direct Anthropic — require a credential, then validate via a minimal pi session
-  if (!eff.anthropicToken) {
+  // 1. Resolve the run's model. A malformed spec or unknown provider fails here,
+  //    before any scan work begins.
+  let spec: ModelSpec;
+  try {
+    spec = resolveModelSpec();
+  } catch (error) {
     return err(
       new PentestError(
-        'No API credentials found. Set ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env (or use CLAUDE_CODE_USE_BEDROCK=1 for AWS Bedrock)',
+        error instanceof Error ? error.message : String(error),
         'config',
         false,
         {},
@@ -373,11 +349,58 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
       ),
     );
   }
+  logger.info(`Model: ${spec.providerId}:${spec.modelId}`);
 
-  const usingApiKey = Boolean(process.env.ANTHROPIC_API_KEY);
-  const authType = usingApiKey ? 'API key' : 'OAuth token';
+  // 2. Credential presence. Bedrock needs both AWS_ vars; every other provider
+  //    needs one API key.
+  const credentials = resolveProviderCredentials(spec.providerId);
+  const isBedrock = spec.providerId === 'amazon-bedrock';
+  const missing = isBedrock ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
+  if (missing.length > 0 || (!isBedrock && !credentials.apiKey)) {
+    return err(
+      new PentestError(
+        `No credentials found for provider "${spec.providerId}". Set ${PROVIDER_CREDENTIAL_HINT[spec.providerId]} in .env.`,
+        'config',
+        false,
+        { providerId: spec.providerId, ...(missing.length > 0 && { missing }) },
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+
+  // 3. Model must exist in the registry, for every provider — Bedrock IDs are the
+  //    easiest to get wrong, since region prefixes and version suffixes differ per
+  //    model (`us.anthropic.claude-opus-5` exists, bare `anthropic.` does not).
+  //    A custom endpoint is exempt: it may serve models under its own names.
+  const modelRuntime = await createModelRuntime(spec.providerId, credentials.apiKey);
+  const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl);
+  if (!baseModel) {
+    return err(
+      new PentestError(
+        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL.`,
+        'config',
+        false,
+        { providerId: spec.providerId, modelId: spec.modelId },
+        ErrorCode.AUTH_FAILED,
+      ),
+    );
+  }
+  if (!modelRuntime.getModel(spec.providerId, spec.modelId)) {
+    logger.warn(
+      `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; passing it to the custom endpoint as given. Cost figures will be approximate.`,
+    );
+  }
+
+  // 4. Bedrock stops here — pi-ai owns the live AWS auth, so there is no cheap
+  //    session probe for it.
+  if (isBedrock) {
+    logger.info('Bedrock credentials OK');
+    return ok(undefined);
+  }
+
+  const authType = describeAuth(spec.providerId, credentials.baseUrl);
   logger.info(`Validating ${authType} via pi...`);
-  const probe = await probeCredentialsWithPi(authType, eff.anthropicToken);
+  const probe = await probeCredentialsWithPi(baseModel, modelRuntime, authType, credentials.baseUrl);
   if (isErr(probe)) return probe;
   logger.info(`${authType} OK`);
   return ok(undefined);

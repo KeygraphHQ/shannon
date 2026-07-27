@@ -16,14 +16,12 @@
  * resource loader, and a fixed child tool surface.
  */
 
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
 import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
 import {
-  type AuthStorage,
   createAgentSession,
   defineTool,
   getAgentDir,
-  type ModelRegistry,
+  type ModelRuntime,
   type ResourceLoader,
   SessionManager,
   SettingsManager,
@@ -34,10 +32,8 @@ export interface TaskToolContext {
   cwd: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   model: Model<any>;
-  thinkingLevel?: ThinkingLevel;
-  authStorage: AuthStorage;
-  /** Explicit model registry for sub-session resolution. Omit to inherit the parent's default. */
-  modelRegistry?: ModelRegistry;
+  /** Parent's model/auth runtime, reused so sub-agents share its resolved credential. */
+  modelRuntime: ModelRuntime;
   resourceLoader: ResourceLoader;
   cancellationSignal?: AbortSignal | undefined;
   /**
@@ -46,7 +42,13 @@ export interface TaskToolContext {
    * so without this their spend (the bulk of a whitebox run, since Shannon
    * prompts delegate the heavy work) is invisible to billing.
    */
-  onUsage?: (usage: { cost: number; inputTokens: number; outputTokens: number }) => void;
+  onUsage?: (usage: {
+    cost: number;
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+  }) => void;
 }
 
 const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
@@ -83,10 +85,8 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
         agentDir,
         resourceLoader: config.resourceLoader,
         model: config.model,
-        ...(config.thinkingLevel && { thinkingLevel: config.thinkingLevel }),
         tools: CHILD_TOOLS,
-        authStorage: config.authStorage,
-        ...(config.modelRegistry && { modelRegistry: config.modelRegistry }),
+        modelRuntime: config.modelRuntime,
         sessionManager: SessionManager.inMemory(config.cwd),
         settingsManager: SettingsManager.inMemory({
           retry: { enabled: false },
@@ -109,8 +109,6 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
 
       let resultText = '';
       let subCost = 0;
-      let subInputTokens = 0;
-      let subOutputTokens = 0;
       subSession.subscribe((event) => {
         if (event.type === 'turn_end') {
           const msg = event.message as AssistantMessage | undefined;
@@ -120,8 +118,6 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
             }
           }
           if (msg?.usage?.cost?.total != null) subCost += msg.usage.cost.total;
-          subInputTokens += msg?.usage?.input ?? 0;
-          subOutputTokens += msg?.usage?.output ?? 0;
         }
       });
 
@@ -138,7 +134,13 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
         // Read stats before dispose; reconcile cost the same way the parent does.
         const subStats = subSession.getSessionStats();
         if (subStats.cost > subCost) subCost = subStats.cost;
-        config.onUsage?.({ cost: subCost, inputTokens: subInputTokens, outputTokens: subOutputTokens });
+        config.onUsage?.({
+          cost: subCost,
+          inputTokens: subStats.tokens.input,
+          outputTokens: subStats.tokens.output,
+          cacheReadTokens: subStats.tokens.cacheRead,
+          cacheWriteTokens: subStats.tokens.cacheWrite,
+        });
       } finally {
         config.cancellationSignal?.removeEventListener('abort', onCancellation);
         subSession.dispose();

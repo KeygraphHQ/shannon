@@ -8,21 +8,24 @@
 import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
+import {
+  PROVIDER_API_KEY_ENV,
+  PROVIDER_CREDENTIAL_HINT,
+  PROVIDER_EXTRA_ENV,
+  type ProviderId,
+  resolveModelSpec,
+} from './model-spec.js';
 
-/** Environment variables forwarded to worker containers. */
-const FORWARD_VARS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_AUTH_TOKEN',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'AWS_REGION',
-  'AWS_BEARER_TOKEN_BEDROCK',
-  'ANTHROPIC_SMALL_MODEL',
-  'ANTHROPIC_MEDIUM_MODEL',
-  'ANTHROPIC_LARGE_MODEL',
-  'CLAUDE_ADAPTIVE_THINKING',
-] as const;
+/** Variables forwarded to every worker container regardless of provider. */
+const COMMON_FORWARD_VARS = ['SHANNON_AI_MODEL', 'SHANNON_AI_BASE_URL'] as const;
+
+/**
+ * Credential variables for one provider. Only the selected provider's entries are
+ * forwarded, so a key for an unused provider never enters the scan container.
+ */
+function providerForwardVars(providerId: ProviderId): readonly string[] {
+  return [...PROVIDER_API_KEY_ENV[providerId], ...PROVIDER_EXTRA_ENV[providerId]];
+}
 
 /**
  * Load credentials into process.env.
@@ -39,12 +42,16 @@ export function loadEnv(): void {
 }
 
 /**
- * Build `-e KEY=VALUE` flags for docker run, only for set variables.
+ * Build `-e KEY=VALUE` flags for docker run. Forwards the common vars plus only
+ * the selected provider's credentials.
  */
 export function buildEnvFlags(): string[] {
   const flags: string[] = ['-e', 'TEMPORAL_ADDRESS=shannon-temporal:7233'];
 
-  for (const key of FORWARD_VARS) {
+  const spec = resolveModelSpec();
+  const providerVars = typeof spec === 'string' ? [] : providerForwardVars(spec.providerId);
+
+  for (const key of [...COMMON_FORWARD_VARS, ...providerVars]) {
     const value = process.env[key];
     if (value) {
       flags.push('-e', `${key}=${value}`);
@@ -57,71 +64,43 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
-  mode: 'api-key' | 'oauth' | 'custom-base-url' | 'bedrock';
-}
-
-/** Check if a custom Anthropic-compatible base URL is configured. */
-function isCustomBaseUrlConfigured(): boolean {
-  return !!(process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN);
-}
-
-/** Detect which providers are configured via environment variables. */
-function detectProviders(): string[] {
-  const providers: string[] = [];
-  if (process.env.ANTHROPIC_API_KEY) providers.push('Anthropic API key');
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) providers.push('Anthropic OAuth');
-  if (isCustomBaseUrlConfigured()) providers.push('Custom Base URL');
-  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') providers.push('AWS Bedrock');
-  return providers;
 }
 
 /**
- * Validate that exactly one authentication method is configured.
+ * Whether the selected provider has a usable credential in the environment. Any
+ * one API key satisfies a key-based provider; Bedrock instead needs every one of
+ * its AWS_ vars.
+ */
+function hasCredential(providerId: ProviderId): boolean {
+  const apiKeys = PROVIDER_API_KEY_ENV[providerId];
+  if (apiKeys.length > 0 && !apiKeys.some((name) => Boolean(process.env[name]))) {
+    return false;
+  }
+  return PROVIDER_EXTRA_ENV[providerId].every((name) => Boolean(process.env[name]));
+}
+
+/**
+ * Validate that the model selection parses and its provider has a credential.
+ * Runs before any Docker work so mistakes fail immediately.
  */
 export function validateCredentials(): CredentialValidation {
-  // Reject multiple providers
-  const providers = detectProviders();
-  if (providers.length > 1) {
+  // 1. Model selection must parse and name a supported provider
+  const spec = resolveModelSpec();
+  if (typeof spec === 'string') {
+    return { valid: false, error: spec };
+  }
+
+  // 2. The selected provider must have a credential
+  if (!hasCredential(spec.providerId)) {
+    const hint =
+      getMode() === 'local'
+        ? `Set ${PROVIDER_CREDENTIAL_HINT[spec.providerId]} in .env or export it.`
+        : `Export the variables or run 'npx @keygraph/shannon setup'.`;
     return {
       valid: false,
-      mode: 'api-key',
-      error: `Multiple providers detected: ${providers.join(', ')}. Only one provider can be active at a time.`,
+      error: `No credentials found for provider "${spec.providerId}". ${hint}`,
     };
   }
 
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { valid: true, mode: 'api-key' };
-  }
-  if (process.env.CLAUDE_CODE_OAUTH_TOKEN) {
-    return { valid: true, mode: 'oauth' };
-  }
-  if (isCustomBaseUrlConfigured()) {
-    return { valid: true, mode: 'custom-base-url' };
-  }
-  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
-    const missing: string[] = [];
-    if (!process.env.AWS_REGION) missing.push('AWS_REGION');
-    if (!process.env.AWS_BEARER_TOKEN_BEDROCK) missing.push('AWS_BEARER_TOKEN_BEDROCK');
-    if (!process.env.ANTHROPIC_SMALL_MODEL) missing.push('ANTHROPIC_SMALL_MODEL');
-    if (!process.env.ANTHROPIC_MEDIUM_MODEL) missing.push('ANTHROPIC_MEDIUM_MODEL');
-    if (!process.env.ANTHROPIC_LARGE_MODEL) missing.push('ANTHROPIC_LARGE_MODEL');
-    if (missing.length > 0) {
-      return {
-        valid: false,
-        mode: 'bedrock',
-        error: `Bedrock mode requires: ${missing.join(', ')}`,
-      };
-    }
-    return { valid: true, mode: 'bedrock' };
-  }
-
-  const hint =
-    getMode() === 'local'
-      ? `No credentials found. Set ANTHROPIC_API_KEY in .env or export it.`
-      : `Authentication not configured. Export variables or run 'npx @keygraph/shannon setup'.`;
-  return {
-    valid: false,
-    mode: 'api-key',
-    error: hint,
-  };
+  return { valid: true };
 }
