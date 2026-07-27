@@ -27,6 +27,7 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import { PI_RETRY_SETTINGS } from './retry-settings.js';
 
 export interface TaskToolContext {
   cwd: string;
@@ -89,7 +90,7 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
         modelRuntime: config.modelRuntime,
         sessionManager: SessionManager.inMemory(config.cwd),
         settingsManager: SettingsManager.inMemory({
-          retry: { enabled: false },
+          retry: PI_RETRY_SETTINGS,
           compaction: { enabled: true },
         }),
       });
