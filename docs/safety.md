@@ -49,4 +49,3 @@ For broader coverage, the Keygraph platform adds black-box and white-box agentic
 
 A full test run typically takes roughly 1 to 1.5 hours. LLM API costs vary by model pricing, target complexity, selected provider, and concurrency.
 
-If you use subscription-based model access, consider the rate-limit guidance in [Configuration](configuration.md).

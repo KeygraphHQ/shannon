@@ -65,19 +65,11 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
-  pipeline?: PipelineConfig;
   description?: string;
   vuln_classes?: VulnClass[];
   exploit?: 'true' | 'false';
   report?: ReportConfig;
   rules_of_engagement?: string;
-}
-
-export type RetryPreset = 'default' | 'subscription';
-
-export interface PipelineConfig {
-  retry_preset?: RetryPreset;
-  max_concurrent_pipelines?: number;
 }
 
 export interface DistributedConfig {

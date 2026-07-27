@@ -130,15 +130,3 @@ login_flow:
   - "If prompted for 2FA, type $totp in <exact code field label or placeholder>"
   - "Click <exact button text>"
 ```
-
-## Subscription Plan Rate Limits
-
-Anthropic subscription plans reset usage on a rolling 5-hour window. The default retry strategy may exhaust retries before the window resets. Add this to your config:
-
-```yaml
-pipeline:
-  retry_preset: subscription
-  max_concurrent_pipelines: 2
-```
-
-`max_concurrent_pipelines` controls how many vulnerability pipelines run simultaneously. Supported values are 1-5, with a default of 5. Lower values reduce burst API usage but increase wall-clock time.
