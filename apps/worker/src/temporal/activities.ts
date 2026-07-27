@@ -198,10 +198,12 @@ async function runAgentActivity(
     // 4. Return metrics
     return {
       durationMs: Date.now() - startTime,
-      inputTokens: null,
-      outputTokens: null,
+      inputTokens: endResult.input_tokens ?? null,
+      outputTokens: endResult.output_tokens ?? null,
+      cacheReadTokens: endResult.cache_read_tokens ?? null,
+      cacheWriteTokens: endResult.cache_write_tokens ?? null,
       costUsd: endResult.cost_usd,
-      numTurns: null,
+      numTurns: endResult.turns ?? null,
       model: endResult.model,
     };
   } catch (error) {
