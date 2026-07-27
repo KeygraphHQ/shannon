@@ -13,7 +13,6 @@
  * - Create git checkpoint
  * - Start audit logging
  * - Invoke the pi agent via runPiPrompt
- * - Spending cap check using isSpendingCapBehavior
  * - Handle failure (rollback, audit)
  * - Validate output using AGENTS[agentName].deliverableFilename
  * - Render the deliverable to disk via the writeDeliverable hook (if provided)
@@ -34,7 +33,6 @@ import type { AgentEndResult } from '../types/audit.js';
 import { ErrorCode, type PentestErrorType } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 import { err, isErr, ok, type Result } from '../types/result.js';
-import { isSpendingCapBehavior } from '../utils/billing-detection.js';
 import { getAgentGitPaths } from './agent-git-paths.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import { PentestError } from './error-handling.js';
@@ -80,11 +78,6 @@ function errorCodeFromResult(result: PiPromptResult): ErrorCode {
 
 function categoryForErrorCode(code: ErrorCode): PentestErrorType {
   switch (code) {
-    case ErrorCode.SPENDING_CAP_REACHED:
-    case ErrorCode.INSUFFICIENT_CREDITS:
-    case ErrorCode.BILLING_ERROR:
-    case ErrorCode.API_RATE_LIMITED:
-      return 'billing';
     case ErrorCode.GIT_CHECKPOINT_FAILED:
     case ErrorCode.GIT_ROLLBACK_FAILED:
       return 'filesystem';
@@ -233,24 +226,7 @@ export class AgentExecutionService {
       submitTool,
     );
 
-    // 6. Spending cap check - defense-in-depth
-    if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
-      const resultText = result.result || '';
-      if (isSpendingCapBehavior(result.turns ?? 0, result.cost || 0, resultText)) {
-        return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
-          attemptNumber,
-          result,
-          rollbackReason: 'spending cap detected',
-          errorMessage: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
-          errorCode: ErrorCode.SPENDING_CAP_REACHED,
-          category: 'billing',
-          retryable: true,
-          context: { agentName, turns: result.turns, cost: result.cost },
-        });
-      }
-    }
-
-    // 7. Handle execution failure
+    // 6. Handle execution failure
     if (!result.success) {
       const errorCode = errorCodeFromResult(result);
       return this.failAgent(agentName, deliverablesPath, auditSession, logger, {

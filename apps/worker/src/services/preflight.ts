@@ -26,7 +26,7 @@ import http from 'node:http';
 import https from 'node:https';
 import net, { type LookupFunction } from 'node:net';
 import os from 'node:os';
-import type { Api, Model } from '@earendil-works/pi-ai';
+import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   type ModelRuntime,
@@ -44,13 +44,14 @@ import {
   resolveModelSpec,
   resolveProviderCredentials,
 } from '../ai/models.js';
+import { PI_RETRY_SETTINGS } from '../ai/pi/retry-settings.js';
+import { providerTurnError } from '../ai/pi/turn-error.js';
 import { parseConfig } from '../config-parser.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Config, Rule } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
 import { err, isErr, ok, type Result } from '../types/result.js';
-import { matchesBillingTextPattern } from '../utils/billing-detection.js';
-import { PentestError } from './error-handling.js';
+import { isRetryableFailure, PentestError } from './error-handling.js';
 
 const TARGET_URL_TIMEOUT_MS = 10_000;
 
@@ -224,62 +225,6 @@ async function validateCodePathsExist(
 
 // === Credential Validation ===
 
-/** Map provider error text to a human-readable preflight PentestError. */
-/** Classify a provider error message (thrown or from a failed turn) into a PentestError. */
-function classifyCredentialError(text: string, authType: string): Result<void, PentestError> {
-  const lower = text.toLowerCase();
-  if (matchesBillingTextPattern(text)) {
-    return err(
-      new PentestError(
-        `Provider account has a billing or rate-limit issue during ${authType} validation. Add credits or wait and retry.`,
-        'billing',
-        true,
-        { authType },
-        ErrorCode.BILLING_ERROR,
-      ),
-    );
-  }
-  if (/401|403|invalid[ _-]?api[ _-]?key|unauthorized|authentication|forbidden|not allowed|x-api-key/.test(lower)) {
-    return err(
-      new PentestError(
-        `Invalid ${authType}. Check your credentials in .env and try again.`,
-        'config',
-        false,
-        { authType },
-        ErrorCode.AUTH_FAILED,
-      ),
-    );
-  }
-  if (/model/.test(lower) && /not found|not available|unknown/.test(lower)) {
-    return err(
-      new PentestError(
-        `Configured model is not available for this account. Check SHANNON_AI_MODEL in .env.`,
-        'config',
-        false,
-        { authType },
-      ),
-    );
-  }
-  if (
-    /network|timeout|enotfound|econnrefused|fetch failed|getaddrinfo|socket|overloaded|unavailable|50\d/.test(lower)
-  ) {
-    return err(
-      new PentestError(`Provider API unreachable or temporarily unavailable. Try again shortly.`, 'network', true, {
-        authType,
-      }),
-    );
-  }
-  return err(
-    new PentestError(
-      `${authType} validation failed: ${text.slice(0, 150)}`,
-      'config',
-      false,
-      { authType },
-      ErrorCode.AUTH_FAILED,
-    ),
-  );
-}
-
 /**
  * Minimal pi session probe against the model the scan will use, so credentials the
  * account cannot use fail here rather than partway through the run. The descriptor
@@ -291,7 +236,7 @@ async function probeCredentialsWithPi(
   modelRuntime: ModelRuntime,
   authType: string,
 ): Promise<Result<void, PentestError>> {
-  let errText: string | undefined;
+  let failedTurn: AssistantMessage | undefined;
   try {
     const { session } = await createAgentSession({
       cwd: os.tmpdir(),
@@ -299,20 +244,29 @@ async function probeCredentialsWithPi(
       noTools: 'all',
       modelRuntime,
       sessionManager: SessionManager.inMemory(),
-      settingsManager: SettingsManager.inMemory({ retry: { enabled: false }, compaction: { enabled: false } }),
+      settingsManager: SettingsManager.inMemory({ retry: PI_RETRY_SETTINGS, compaction: { enabled: false } }),
     });
     session.subscribe((e) => {
       if (e.type === 'turn_end' && e.message.role === 'assistant' && e.message.stopReason === 'error') {
-        errText = e.message.errorMessage ?? 'unknown provider error';
+        failedTurn = e.message;
       }
     });
     await session.prompt('hi');
     session.dispose();
   } catch (error) {
-    errText = error instanceof Error ? error.message : String(error);
+    const thrown = error instanceof Error ? error : new Error(String(error));
+    return err(
+      new PentestError(
+        `${authType} validation failed: ${thrown.message.slice(0, 300)}`,
+        'unknown',
+        isRetryableFailure(thrown),
+        { authType },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
   }
 
-  if (errText) return classifyCredentialError(errText, authType);
+  if (failedTurn) return err(providerTurnError(failedTurn, `${authType} validation failed`));
   return ok(undefined);
 }
 
