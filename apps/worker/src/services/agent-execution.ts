@@ -53,6 +53,7 @@ export interface AgentExecutionInput {
   attemptNumber: number;
   promptDir?: string | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
+  failedClasses?: readonly import('../types/config.js').VulnClass[] | undefined;
   // Renders the deliverable to disk; invoked after validation, before the success commit.
   writeDeliverable?: (deliverablesPath: string) => Promise<void>;
   cancellationSignal?: AbortSignal | undefined;
@@ -146,6 +147,7 @@ export class AgentExecutionService {
       attemptNumber,
       promptDir,
       customTools,
+      failedClasses,
       writeDeliverable,
       cancellationSignal,
     } = input;
@@ -164,7 +166,12 @@ export class AgentExecutionService {
     try {
       prompt = await loadPrompt(
         promptTemplate,
-        { webUrl, repoPath, AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata) },
+        {
+          webUrl,
+          repoPath,
+          AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata),
+          ...(failedClasses !== undefined && { failedClasses }),
+        },
         distributedConfig,
         pipelineTestingMode,
         logger,

@@ -68,6 +68,39 @@ function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
 }
 
 /**
+ * Renders the <not_assessed_classes> block. Empty when every class completed.
+ *
+ * A class whose analysis failed was never assessed, so the report must not present its
+ * absence of findings as a clean result. The block is authoritative for that caveat.
+ */
+function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): string {
+  if (failed.length === 0) {
+    return '';
+  }
+
+  const classes = [...new Set(failed)];
+  const lines: string[] = [
+    '<not_assessed_classes>',
+    'The following vulnerability classes did not complete and were NOT assessed in this run. Treat this list as authoritative for completeness caveats.',
+    '',
+  ];
+
+  for (const cls of classes) {
+    const spec = VULN_SUMMARY_SPECS[cls];
+    lines.push(
+      `- ${spec.heading}: analysis did not complete; this class was NOT assessed. Absence of findings here does not indicate the class is clean.`,
+    );
+  }
+
+  lines.push(
+    '',
+    'When writing report_meta.executive_summary, scope any no-findings statement to the classes that were assessed and mention these not-assessed classes. Do not state or imply that the target is clean for these classes.',
+    '</not_assessed_classes>',
+  );
+  return lines.join('\n');
+}
+
+/**
  * Renders the top-level <report_filters> block. Empty when no filters are set —
  * each filter is included only when the operator configured it, so the agent
  * never sees `none` placeholders or instructions for filters that don't apply.
@@ -118,6 +151,8 @@ function renderReportFilterRules(report: ReportConfig | undefined): string {
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  /** Classes whose analysis did not complete, so the report can mark them not assessed. */
+  failedClasses?: readonly VulnClass[];
   AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
@@ -365,6 +400,11 @@ async function interpolateVariables(
       vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
     );
     result = replaceLiteral(result, /{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
+    result = replaceLiteral(
+      result,
+      /{{NOT_ASSESSED_CLASSES}}/g,
+      renderNotAssessedClassesBlock(variables.failedClasses ?? []),
+    );
 
     const exploitEnabled = config?.exploit ?? true;
     result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');

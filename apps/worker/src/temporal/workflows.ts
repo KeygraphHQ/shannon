@@ -613,6 +613,12 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
     aggregatePipelineResults(pipelineResults, alreadyCompletedPipelineCount);
 
+    // Surface the not-assessed classes to the report stage so a failed class renders as
+    // "analysis did not complete" rather than the absence assertion "no findings".
+    if (state.failedPipelines.length > 0) {
+      activityInput.failedClasses = state.failedPipelines.map((f) => f.vulnType);
+    }
+
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
     await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');

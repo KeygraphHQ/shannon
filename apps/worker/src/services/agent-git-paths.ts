@@ -14,6 +14,7 @@
  */
 
 import { getQueueFilename } from '../ai/queue-schemas.js';
+import { REPORT_JSON_FILENAME } from '../paths.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 
@@ -26,6 +27,10 @@ export function getAgentGitPaths(agentName: AgentName): string[] {
   const queueFilename = getQueueFilename(agentName);
   if (queueFilename) {
     paths.push(queueFilename);
+  }
+  // The report agent also emits the structured findings the markdown is rendered from.
+  if (agentName === 'report') {
+    paths.push(REPORT_JSON_FILENAME);
   }
   return [...new Set(paths)];
 }

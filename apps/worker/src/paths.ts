@@ -31,6 +31,9 @@ export const ASSEMBLED_REPORT_FILENAME = 'comprehensive_security_assessment_repo
 /** Filename of the human-facing final report surfaced at the run directory root */
 export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
 
+/** Structured findings the report agent emits; the markdown report is rendered from it. */
+export const REPORT_JSON_FILENAME = 'report.json';
+
 /**
  * Resolve the session.json path for a run directory, preferring the current
  * `.shannon/` location and falling back to the legacy run-root location so
