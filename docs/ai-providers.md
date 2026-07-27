@@ -123,6 +123,7 @@ Checks run before a scan starts, so mistakes fail immediately rather than partwa
 - **Provider** — always validated against the providers Shannon's harness knows. An unrecognised provider is rejected with the valid list.
 - **Model ID** — validated against the harness catalogue for that provider, so a typo is caught instantly.
 - **Credential presence** — always validated for the selected provider.
+- **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
 
 ## Migrating from the three-tier configuration
 

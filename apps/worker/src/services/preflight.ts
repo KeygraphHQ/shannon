@@ -15,7 +15,7 @@
  * 1. Repository path exists and is a directory
  * 2. Config file parses and validates (if provided)
  * 3. code_path rules match real entries in the repo (filesystem only)
- * 4. Credentials validate via a minimal pi session (API key, OAuth, or Bedrock)
+ * 4. Credentials validate via a minimal pi session against the run's own model
  * 5. Target URL resolves, is not link-local (cloud metadata), and is reachable (DNS + HTTP)
  */
 
@@ -282,6 +282,7 @@ const PROVIDER_CREDENTIAL_HINT: Readonly<Record<ProviderId, string>> = {
 /** Human-readable label for which credential path a run is using. */
 function describeAuth(providerId: ProviderId, baseUrl: string | undefined): string {
   if (baseUrl) return `custom endpoint (${baseUrl})`;
+  if (providerId === 'amazon-bedrock') return 'Bedrock bearer token';
   return `${providerId} API key`;
 }
 
@@ -366,13 +367,10 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     logger.info(`Gateway API: ${format} (${baseModel.api})`);
   }
 
-  // 5. Bedrock stops here — pi-ai owns the live AWS auth, so there is no cheap
-  //    session probe for it.
-  if (isBedrock) {
-    logger.info('Bedrock credentials OK');
-    return ok(undefined);
-  }
-
+  // 5. One real request, so a credential the account cannot use fails here
+  //    rather than partway through the run. Bedrock included: pi resolves the
+  //    bearer token from the primed credential and the region from AWS_REGION,
+  //    so the probe exercises the same auth path the scan will.
   const authType = describeAuth(spec.providerId, credentials.baseUrl);
   logger.info(`Validating ${authType} via pi...`);
   const probe = await probeCredentialsWithPi(baseModel, modelRuntime, authType);
