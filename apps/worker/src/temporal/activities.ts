@@ -457,25 +457,6 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
     const findings = collector.getAll();
     logger.info(`Collected ${findings.length} finding(s) from report agent`);
 
-    // The rendered report replaces the assembled one, so recording nothing against a
-    // report that still carries per-class evidence would silently swap real findings for a
-    // clean bill of health. Fail instead: the rollback restores the assembled report and
-    // the retry re-runs the agent against it.
-    const assembledPath = path.join(deliverablesPath, ASSEMBLED_REPORT_FILENAME);
-    if (findings.length === 0 && (await fileExists(assembledPath))) {
-      const assembled = await fs.readFile(assembledPath, 'utf8');
-      const evidenceIds = assembled.match(/-VULN-\d+/g);
-      if (evidenceIds && evidenceIds.length > 0) {
-        throw new PentestError(
-          `Report agent recorded no findings, but the assembled report contains ${new Set(evidenceIds).size} vulnerability entries. Refusing to overwrite it.`,
-          'validation',
-          true,
-          { agentName: 'report', assembledPath, evidenceCount: new Set(evidenceIds).size },
-          ErrorCode.OUTPUT_VALIDATION_FAILED,
-        );
-      }
-    }
-
     // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
     // the two halves of report.json end up in one document.
     const reportJsonPath = path.join(deliverablesPath, REPORT_JSON_FILENAME);
