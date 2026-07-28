@@ -273,9 +273,23 @@ export class AgentExecutionService {
         );
       }
 
-      // 10. Render the deliverable to disk so the success commit below stages it
+      // 10. Render the deliverable to disk so the success commit below stages it.
+      //     A throw here must become a returned error, not escape the lock: only the
+      //     returned path rolls the workspace back and records the failed attempt.
       if (writeDeliverable) {
-        await writeDeliverable(deliverablesPath);
+        try {
+          await writeDeliverable(deliverablesPath);
+        } catch (error) {
+          if (error instanceof PentestError) return error;
+          const message = error instanceof Error ? error.message : String(error);
+          return new PentestError(
+            `Agent ${agentName} failed to render its deliverable: ${message}`,
+            'filesystem',
+            true,
+            { agentName, deliverablesPath, originalError: message },
+            ErrorCode.AGENT_EXECUTION_FAILED,
+          );
+        }
       }
 
       // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
