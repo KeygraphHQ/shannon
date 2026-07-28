@@ -66,7 +66,7 @@ export async function setup(): Promise<void> {
   const selected = await p.select({
     message: 'Select your AI provider',
     options: [
-      { value: 'anthropic' as const, label: 'Anthropic', hint: 'Claude models (recommended)' },
+      { value: 'anthropic' as const, label: 'Anthropic', hint: 'Claude models - recommended' },
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'google' as const, label: 'Google', hint: 'Gemini models' },
@@ -89,12 +89,12 @@ export async function setup(): Promise<void> {
   saveConfig(config);
 
   const configPath = path.join(SHANNON_HOME, 'config.toml');
-  const summary = [`Provider   ${provider}`, `Model      ${provider}:${modelId}`];
+  const summary = [`Provider   ${provider}`, `Model      ${modelId}`];
   if (gateway) summary.push(`Endpoint   ${gateway.baseUrl}`);
   if (gateway?.format) summary.push(`API        ${gateway.format}`);
 
   p.log.success(`Configuration saved to ${configPath}`);
-  p.note(summary.join('\n'), 'Configuration');
+  p.log.info(summary.join('\n'));
   p.outro('Run `npx @keygraph/shannon start` to begin a scan.');
 }
 
