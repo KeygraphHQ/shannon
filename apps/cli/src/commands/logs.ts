@@ -27,8 +27,18 @@ function readRange(filePath: string, start: number, end: number): string {
   return buffer.toString('utf-8');
 }
 
+/** Safe pattern for workspace IDs — alphanumeric, hyphens, underscores, and dots only. No path separators. */
+const WORKSPACE_ID_PATTERN = /^[a-zA-Z0-9_\-\.]+$/;
+
 /** Resolve a workspace ID to its workflow.log path, or exit with an error. */
 function resolveLogFile(workspaceId: string): string {
+  // Security: reject path traversal characters
+  if (!WORKSPACE_ID_PATTERN.test(workspaceId)) {
+    console.error(`ERROR: Invalid workspace name: ${workspaceId}`);
+    console.error('Workspace names may only contain letters, numbers, hyphens, underscores, and dots.');
+    process.exit(1);
+  }
+
   const workspacesDir = getWorkspacesDir();
 
   // 1. Direct match

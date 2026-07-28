@@ -9,19 +9,30 @@ import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
 
-/** Environment variables forwarded to worker containers. */
+/**
+ * Environment variables forwarded to worker containers.
+ *
+ * SECURITY: Credential variables (API keys, OAuth tokens) are NOT forwarded
+ * via Docker environment variables. They would be visible to any user with
+ * `docker inspect` access and to any process via `/proc/*/environ` inside the
+ * container. Credentials reach the worker through the Temporal activity input
+ * and Claude SDK's sdkEnv map, not through process.env passthrough.
+ */
 const FORWARD_VARS = [
-  'ANTHROPIC_API_KEY',
-  'ANTHROPIC_BASE_URL',
-  'ANTHROPIC_AUTH_TOKEN',
-  'CLAUDE_CODE_OAUTH_TOKEN',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'AWS_REGION',
-  'AWS_BEARER_TOKEN_BEDROCK',
-  'ANTHROPIC_SMALL_MODEL',
-  'ANTHROPIC_MEDIUM_MODEL',
-  'ANTHROPIC_LARGE_MODEL',
-  'CLAUDE_ADAPTIVE_THINKING',
+  // Infrastructure — not credentials
+  'ANTHROPIC_BASE_URL',            // Custom API endpoint URL (proxy/router)
+  'ANTHROPIC_AUTH_TOKEN',          // Auth token for custom endpoint
+
+  // Provider mode flags — not credentials
+  'CLAUDE_CODE_USE_BEDROCK',       // AWS Bedrock mode flag
+  'AWS_REGION',                    // AWS region (non-secret config)
+  'AWS_BEARER_TOKEN_BEDROCK',      // AWS Bedrock bearer token (needed for SDK auth in container)
+  'ANTHROPIC_SMALL_MODEL',         // Override small model tier
+  'ANTHROPIC_MEDIUM_MODEL',        // Override medium model tier
+  'ANTHROPIC_LARGE_MODEL',         // Override large model tier
+
+  // SDK configuration — not credentials
+  'CLAUDE_ADAPTIVE_THINKING',      // SDK thinking budget config
 ] as const;
 
 /**
