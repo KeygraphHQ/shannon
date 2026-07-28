@@ -42,8 +42,8 @@ const GATEWAY_DIALECTS: readonly {
 /** Suggested models per provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
 const MODEL_SUGGESTIONS: Readonly<Record<ProviderId, readonly string[]>> = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
-  openai: ['gpt-5.6-sol', 'gpt-5.6-luna', 'gpt-5.5', 'gpt-5.4'],
-  xai: ['grok-4.5', 'grok-4.3'],
+  openai: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
+  xai: ['grok-4.5'],
   google: ['gemini-3.5-flash-lite', 'gemini-3.5-flash'],
   'amazon-bedrock': ['us.anthropic.claude-sonnet-4-6', 'us.anthropic.claude-opus-4-8', 'us.anthropic.claude-opus-4-7'],
 };
