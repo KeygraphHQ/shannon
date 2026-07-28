@@ -28,6 +28,7 @@ import net, { type LookupFunction } from 'node:net';
 import os from 'node:os';
 import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 import {
+  type AgentSession,
   createAgentSession,
   type ModelRuntime,
   SessionManager,
@@ -237,22 +238,22 @@ async function probeCredentialsWithPi(
   authType: string,
 ): Promise<Result<void, PentestError>> {
   let failedTurn: AssistantMessage | undefined;
+  let session: AgentSession | undefined;
   try {
-    const { session } = await createAgentSession({
+    ({ session } = await createAgentSession({
       cwd: os.tmpdir(),
       model,
       noTools: 'all',
       modelRuntime,
       sessionManager: SessionManager.inMemory(),
       settingsManager: SettingsManager.inMemory({ retry: PI_RETRY_SETTINGS, compaction: { enabled: false } }),
-    });
+    }));
     session.subscribe((e) => {
       if (e.type === 'turn_end' && e.message.role === 'assistant' && e.message.stopReason === 'error') {
         failedTurn = e.message;
       }
     });
     await session.prompt('hi');
-    session.dispose();
   } catch (error) {
     const thrown = error instanceof Error ? error : new Error(String(error));
     return err(
@@ -264,6 +265,8 @@ async function probeCredentialsWithPi(
         ErrorCode.AGENT_EXECUTION_FAILED,
       ),
     );
+  } finally {
+    session?.dispose();
   }
 
   if (failedTurn) return err(providerTurnError(failedTurn, `${authType} validation failed`));
