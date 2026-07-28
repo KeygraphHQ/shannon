@@ -23,3 +23,7 @@ export function setMode(mode: Mode): void {
 export function isLocal(): boolean {
   return getMode() === 'local';
 }
+
+export function isDevMode(): boolean {
+  return process.env.SHANNON_DEV === '1';
+}

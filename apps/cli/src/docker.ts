@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
-import { getMode } from './mode.js';
+import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -22,6 +22,17 @@ const DEV_IMAGE = 'shannon-worker';
 
 export function getWorkerImage(version: string): string {
   return getMode() === 'local' ? DEV_IMAGE : `${NPX_IMAGE_REPO}:${version}`;
+}
+
+/** True when the working directory supplies a Dockerfile and build context. */
+export function canBuildImage(): boolean {
+  if (getMode() === 'local') return true;
+  if (!isDevMode()) return false;
+
+  const hasDockerfile = fs.existsSync(path.resolve('Dockerfile'));
+  const hasCompose = fs.existsSync(path.resolve('docker-compose.yml'));
+
+  return hasDockerfile && hasCompose;
 }
 
 function getComposeFile(): string {
@@ -96,29 +107,31 @@ export async function ensureInfra(): Promise<void> {
 }
 
 /**
- * Build the worker image locally (local mode only).
+ * Build the worker image from the repository, tagged with the name this mode
+ * resolves at run time.
  */
-export function buildImage(noCache: boolean): void {
-  console.log(`Building ${DEV_IMAGE}...`);
+export function buildImage(noCache: boolean, version: string): void {
+  const image = getWorkerImage(version);
+  console.log(`Building ${image}...`);
   const args = ['build'];
   if (noCache) args.push('--no-cache');
-  args.push('-t', DEV_IMAGE, '.');
+  args.push('-t', image, '.');
   execFileSync('docker', args, { stdio: 'inherit' });
-  console.log(`Build complete: ${DEV_IMAGE}`);
+  console.log(`Build complete: ${image}`);
 }
 
 /**
  * Ensure the worker image is available.
- * Local mode: auto-builds if missing. NPX mode: pulls from Docker Hub.
+ * Buildable checkout: auto-builds if missing. Otherwise: pulls from Docker Hub.
  */
 export function ensureImage(version: string): void {
   const image = getWorkerImage(version);
   const exists = runQuiet('docker', ['image', 'inspect', image]);
   if (exists) return;
 
-  if (getMode() === 'local') {
+  if (canBuildImage()) {
     console.log('Shannon image not found, building...');
-    buildImage(false);
+    buildImage(false, version);
   } else {
     console.log(`Pulling ${image}...`);
     try {

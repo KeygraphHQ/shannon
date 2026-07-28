@@ -220,7 +220,7 @@ switch (command) {
     setup();
     break;
   case 'build':
-    build(args.includes('--no-cache'));
+    build(args.includes('--no-cache'), getVersion());
     break;
   case 'uninstall':
     if (getMode() === 'local') {

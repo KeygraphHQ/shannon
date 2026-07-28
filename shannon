@@ -1,3 +1,10 @@
 #!/usr/bin/env node
-process.env.SHANNON_LOCAL = '1';
+const npxFlagIndex = process.env.SHANNON_DEV === '1' ? process.argv.indexOf('--npx') : -1;
+
+if (npxFlagIndex === -1) {
+  process.env.SHANNON_LOCAL = '1';
+} else {
+  process.argv.splice(npxFlagIndex, 1);
+}
+
 import('./apps/cli/dist/index.mjs');
