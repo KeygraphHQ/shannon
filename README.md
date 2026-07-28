@@ -1,6 +1,3 @@
-> [!NOTE]
-> **[Shannon 2.0 now runs on the Pi harness](https://github.com/KeygraphHQ/shannon/discussions/393)**
-
 <div align="center">
 
 <img src="./assets/github-banner.png" alt="Shannon - AI Pentester by Keygraph" width="100%">
