@@ -14,6 +14,7 @@ import {
   PROVIDER_EXTRA_ENV,
   type ProviderId,
   resolveModelSpec,
+  SUPPORTED_PROVIDERS,
 } from './model-spec.js';
 
 /**
@@ -82,6 +83,11 @@ function hasCredential(providerId: ProviderId): boolean {
   return PROVIDER_EXTRA_ENV[providerId].every((name) => Boolean(process.env[name]));
 }
 
+/** Every provider that currently has a complete credential in the environment. */
+function configuredProviders(): ProviderId[] {
+  return SUPPORTED_PROVIDERS.filter((providerId) => hasCredential(providerId));
+}
+
 /**
  * Validate that the model selection parses and its provider has a credential.
  * Runs before any Docker work so mistakes fail immediately.
@@ -103,6 +109,13 @@ export function validateCredentials(): CredentialValidation {
       valid: false,
       error: `No credentials found for provider "${spec.providerId}". ${hint}`,
     };
+  }
+
+  // 3. Exactly one provider may be configured. Several complete credentials make
+  //    the scan's provider depend on SHANNON_AI_MODEL alone, which is too easy to
+  //    misread as "both are in play" and too easy to redirect by editing one line.
+  if (configuredProviders().length > 1) {
+    return { valid: false, error: 'Credentials for more than one provider are set.' };
   }
 
   return { valid: true };
