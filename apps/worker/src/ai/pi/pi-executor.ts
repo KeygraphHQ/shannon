@@ -300,8 +300,9 @@ export async function runPiPrompt(
       customTools,
       modelRuntime: selection.modelRuntime,
       sessionManager: SessionManager.inMemory(),
-      // Temporal owns retry; pi compaction stays on (no analog previously, guards
-      // against context overflow on long agent runs).
+      // Temporal owns agent restarts, pi absorbs transport faults (see
+      // PI_RETRY_SETTINGS); compaction stays on to guard against context overflow
+      // on long agent runs.
       settingsManager: SettingsManager.inMemory({ retry: PI_RETRY_SETTINGS, compaction: { enabled: true } }),
       resourceLoader,
     }));
