@@ -252,53 +252,53 @@ export class AgentExecutionService {
     //       the write→validate→commit sequence is atomic against concurrent sibling agents.
     let commitHash: string | undefined;
     const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
-      // 8. Write structured output to disk (vuln agents only) from the executor's capture
-      const queueFilename = getQueueFilename(agentName);
-      if (submitTool && queueFilename && result.structuredOutput !== undefined) {
-        await fs.ensureDir(deliverablesPath);
-        const queuePath = path.join(deliverablesPath, queueFilename);
-        await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
-        logger.info(`Wrote structured output queue to ${queueFilename}`);
-      }
+      // Every step below must surface as a returned error rather than a throw: only the
+      // returned path rolls the workspace back and records the failed attempt.
+      try {
+        // 8. Write structured output to disk (vuln agents only) from the executor's capture
+        const queueFilename = getQueueFilename(agentName);
+        if (submitTool && queueFilename && result.structuredOutput !== undefined) {
+          await fs.ensureDir(deliverablesPath);
+          const queuePath = path.join(deliverablesPath, queueFilename);
+          await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
+          logger.info(`Wrote structured output queue to ${queueFilename}`);
+        }
 
-      // 9. Validate output
-      const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
-      if (!validationPassed) {
+        // 9. Validate output
+        const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
+        if (!validationPassed) {
+          return new PentestError(
+            `Agent ${agentName} failed output validation`,
+            'validation',
+            true,
+            { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+            ErrorCode.OUTPUT_VALIDATION_FAILED,
+          );
+        }
+
+        // 10. Render the deliverable to disk so the success commit below stages it
+        if (writeDeliverable) {
+          await writeDeliverable(deliverablesPath);
+        }
+
+        // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
+        const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
+        if (!commitResult.success) {
+          return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
+        }
+        commitHash = commitResult.commitHash;
+        return null;
+      } catch (error) {
+        if (error instanceof PentestError) return error;
+        const errorMessage = error instanceof Error ? error.message : String(error);
         return new PentestError(
-          `Agent ${agentName} failed output validation`,
+          `Agent ${agentName} post-processing failed: ${errorMessage}`,
           'validation',
           true,
-          { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+          { agentName, originalError: errorMessage },
           ErrorCode.OUTPUT_VALIDATION_FAILED,
         );
       }
-
-      // 10. Render the deliverable to disk so the success commit below stages it.
-      //     A throw here must become a returned error, not escape the lock: only the
-      //     returned path rolls the workspace back and records the failed attempt.
-      if (writeDeliverable) {
-        try {
-          await writeDeliverable(deliverablesPath);
-        } catch (error) {
-          if (error instanceof PentestError) return error;
-          const message = error instanceof Error ? error.message : String(error);
-          return new PentestError(
-            `Agent ${agentName} failed to render its deliverable: ${message}`,
-            'filesystem',
-            true,
-            { agentName, deliverablesPath, originalError: message },
-            ErrorCode.AGENT_EXECUTION_FAILED,
-          );
-        }
-      }
-
-      // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
-      const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
-      if (!commitResult.success) {
-        return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
-      }
-      commitHash = commitResult.commitHash;
-      return null;
     });
 
     if (finalizationError) {
