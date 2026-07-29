@@ -633,7 +633,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       await a.assembleReportActivity(activityInput, exploit);
 
       // Then run the report agent to add executive summary and clean up
-      state.agentMetrics.report = await a.runReportAgent(activityInput);
+      state.agentMetrics.report = await a.runReportAgent(activityInput, exploit);
       state.completedAgents.push('report');
       if (input.checkpointsEnabled) {
         await a.saveCheckpoint(activityInput, 'report', 'reporting', state);

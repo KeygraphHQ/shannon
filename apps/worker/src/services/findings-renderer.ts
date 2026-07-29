@@ -53,9 +53,15 @@ function formatLocation(endpoint: string | undefined, codeLocation: string | und
   return endpoint ?? codeLocation ?? '';
 }
 
+/** Confidence only — the analysis queue carries no severity field. */
+interface EntryRatings {
+  readonly confidence: string;
+}
+
 function buildEntry(
   id: string,
   title: string,
+  ratings: EntryRatings,
   summaryRows: ReadonlyArray<string | null>,
   notes: string | undefined,
 ): string {
@@ -63,6 +69,7 @@ function buildEntry(
   lines.push(`### ${id}: ${title}`);
   lines.push('');
   lines.push('**Summary:**');
+  lines.push(`- **Confidence:** ${ratings.confidence}`);
   for (const row of summaryRows) {
     if (row !== null) lines.push(row);
   }
@@ -79,6 +86,7 @@ function renderAuthEntry(e: AuthFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
+    { confidence: e.confidence },
     [
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
@@ -92,6 +100,7 @@ function renderSsrfEntry(e: SsrfFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
+    { confidence: e.confidence },
     [
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
@@ -105,6 +114,7 @@ function renderAuthzEntry(e: AuthzFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
+    { confidence: e.confidence },
     [
       summaryRow('Vulnerable location', formatLocation(e.endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.guard_evidence),
@@ -119,6 +129,7 @@ function renderInjectionEntry(e: InjectionFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
+    { confidence: e.confidence },
     [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );
@@ -129,6 +140,7 @@ function renderXssEntry(e: XssFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
+    { confidence: e.confidence },
     [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );

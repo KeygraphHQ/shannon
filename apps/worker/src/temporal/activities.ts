@@ -446,11 +446,11 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
   return runExploitAgentWithCollector('authz-exploit', 'authz', input);
 }
 
-export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
+export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
   const { createFindingCollector } = await import('../collectors/finding-collector.js');
   const { renderReport } = await import('../services/report-renderer.js');
 
-  const collector = createFindingCollector();
+  const collector = createFindingCollector(exploit);
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
@@ -465,6 +465,7 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
       assessment_date: new Date().toISOString().split('T')[0]!,
       scope: '',
       executive_summary: '',
+      exploit,
     };
     if (await fileExists(reportJsonPath)) {
       try {
@@ -475,7 +476,9 @@ export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics
             assessment_date: String(existing.report_meta.assessment_date ?? reportMeta.assessment_date),
             scope: String(existing.report_meta.scope ?? ''),
             executive_summary: String(existing.report_meta.executive_summary ?? ''),
-            ...(existing.report_meta.exploit !== undefined && { exploit: Boolean(existing.report_meta.exploit) }),
+            // Run scope, not agent output — keeps the rendered report and the schema the agent
+            // was given in agreement.
+            exploit,
             ...(existing.report_meta.model !== undefined && { model: String(existing.report_meta.model) }),
           };
         }

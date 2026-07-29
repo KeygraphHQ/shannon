@@ -11,6 +11,9 @@
  * calls `add_finding` once per finding with TypeBox-validated parameters. After
  * the agent finishes, the caller retrieves collected findings via `getAll()`
  * for downstream rendering (markdown, PDF, DB).
+ *
+ * The tool schema is mode-dependent: fields describing a demonstrated attack have no source in
+ * an analysis-only run, and offering them would only make the agent invent them.
  */
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
@@ -114,99 +117,154 @@ const AdditionalSectionSchema = Type.Object({
   }),
 });
 
-export const AddFindingInputSchema = Type.Object({
-  // === Identity ===
-  finding_id: Type.String({
-    minLength: 1,
-    description: 'Finding identifier (e.g., "AUTH-VULN-07", "INJ-VULN-03"). Must be unique per report.',
-  }),
-  title: Type.String({
-    minLength: 1,
-    description: 'Descriptive name (e.g., "SQL Injection — User Search", "IDOR — Unauthorized Access to User Orders").',
-  }),
-  category: stringEnum(['Injection', 'XSS', 'Authentication', 'Authorization', 'SSRF'], {
-    description: 'Vulnerability category, derived from the finding ID prefix.',
-  }),
-  severity: stringEnum(SEVERITY_VALUES, { description: 'Finding severity.' }),
-  owasp_category: stringEnum(OWASP_CATEGORY_VALUES, {
-    description: 'OWASP Top Ten 2025 category.',
-  }),
-
-  // === Location & Context ===
-  vulnerable_location: Type.String({
-    minLength: 1,
-    description: 'Endpoint or code location where the vulnerability exists.',
-  }),
-  code_locations: Type.Optional(
-    Type.Array(CodeLocationSchema, {
+function identityFields() {
+  return {
+    finding_id: Type.String({
+      minLength: 1,
+      description: 'Finding identifier (e.g., "AUTH-VULN-07", "INJ-VULN-03"). Must be unique per report.',
+    }),
+    title: Type.String({
+      minLength: 1,
       description:
-        'Structured code locations for this finding, taken from the file:line references in the ' +
-        'deliverable. List the sink first, then any source or guard locations. Omit entirely when the ' +
-        'finding has no code location.',
+        'Descriptive name (e.g., "SQL Injection — User Search", "IDOR — Unauthorized Access to User Orders").',
     }),
-  ),
-  http_location: Type.Optional(
-    Type.Union([HttpLocationSchema, Type.Null()], {
+    category: stringEnum(['Injection', 'XSS', 'Authentication', 'Authorization', 'SSRF'], {
+      description: 'Vulnerability category, derived from the finding ID prefix.',
+    }),
+    owasp_category: stringEnum(OWASP_CATEGORY_VALUES, {
+      description: 'OWASP Top Ten 2025 category.',
+    }),
+  };
+}
+
+function locationFields() {
+  return {
+    vulnerable_location: Type.String({
+      minLength: 1,
+      description: 'Endpoint or code location where the vulnerability exists.',
+    }),
+    code_locations: Type.Optional(
+      Type.Array(CodeLocationSchema, {
+        description:
+          'Structured code locations for this finding, taken from the file:line references in the ' +
+          'deliverable. List the sink first, then any source or guard locations. Omit entirely when the ' +
+          'finding has no code location.',
+      }),
+    ),
+    http_location: Type.Optional(
+      Type.Union([HttpLocationSchema, Type.Null()], {
+        description:
+          'The HTTP request the finding is reached through, when the deliverable names one. Omit for ' +
+          'findings with no network entry point.',
+      }),
+    ),
+  };
+}
+
+/** `impact` is described per mode: an analysis run demonstrated nothing, and implying otherwise invites fabrication. */
+function narrativeFields(exploit: boolean) {
+  const impactDescription = exploit
+    ? 'What the exploit demonstrably achieved.'
+    : 'What an attacker could achieve if this were exploited. State it as assessed, not demonstrated.';
+
+  return {
+    overview: Type.String({
+      minLength: 1,
+      description: 'What the vulnerability is and why it matters. 2-3 sentences of professional prose.',
+    }),
+    impact: Type.String({ minLength: 1, description: impactDescription }),
+    remediation: Type.String({
+      minLength: 1,
+      description: 'Specific, actionable fix guidance. Code-level or configuration-level.',
+    }),
+  };
+}
+
+/** Fields that only mean something once an exploit has run. Absent from the analysis schema. */
+function exploitOnlyFields() {
+  return {
+    severity: stringEnum(SEVERITY_VALUES, {
+      description: 'Severity of the finding, based on the impact the exploit demonstrated.',
+    }),
+    auth_state: Type.String({
+      minLength: 1,
+      description: 'Authentication state during testing (e.g., "Unauthenticated", "Any authenticated user").',
+    }),
+    prerequisites: Type.String({
+      minLength: 1,
+      description: 'What is needed to exploit the vulnerability (or "None").',
+    }),
+    exploitation_steps: Type.Array(StructuredStepSchema, {
+      minItems: 1,
+      description: 'Ordered exploitation steps. Each step has an optional title and prose/code items.',
+    }),
+    proof_of_impact: Type.Array(StepItemSchema, {
+      minItems: 1,
+      description: 'Evidence of what the exploit achieved — prose and code items.',
+    }),
+    status: Type.Optional(
+      Type.Union([stringEnum(STATUS_VALUES), Type.Null()], {
+        description: 'Finding status. Use "exploited" for confirmed exploits.',
+      }),
+    ),
+  };
+}
+
+/** Replaces `severity` when nothing was exploited. */
+function analysisOnlyFields() {
+  return {
+    confidence: stringEnum(CONFIDENCE_VALUES, {
       description:
-        'The HTTP request the finding is reached through, when the deliverable names one. Omit for ' +
-        'findings with no network entry point.',
+        'Confidence that this is a real, reachable vulnerability. Carry it over from the analysis ' +
+        'deliverable rather than reassessing.',
     }),
-  ),
-  overview: Type.String({
-    minLength: 1,
-    description: 'What the vulnerability is and why it matters. 2-3 sentences of professional prose.',
-  }),
-  impact: Type.String({
-    minLength: 1,
-    description: 'Demonstrated or assessed impact of the vulnerability.',
-  }),
-  auth_state: Type.String({
-    minLength: 1,
-    description: 'Authentication state during testing (e.g., "Unauthenticated", "Any authenticated user").',
-  }),
-  prerequisites: Type.String({
-    minLength: 1,
-    description: 'What is needed to exploit the vulnerability (or "None").',
-  }),
-  remediation: Type.String({
-    minLength: 1,
-    description: 'Specific, actionable fix guidance. Code-level or configuration-level.',
-  }),
+  };
+}
 
-  // === Structured Content ===
-  exploitation_steps: Type.Array(StructuredStepSchema, {
-    minItems: 1,
-    description: 'Ordered exploitation or analysis steps. Each step has an optional title and prose/code items.',
-  }),
-  proof_of_impact: Type.Array(StepItemSchema, {
-    minItems: 1,
-    description: 'Evidence of what the exploit achieved — prose and code items.',
-  }),
+function sharedOptionalFields() {
+  return {
+    notes: Type.Optional(
+      Type.Union([Type.Array(StepItemSchema), Type.Null()], {
+        description: 'Additional context as prose/code items.',
+      }),
+    ),
+    additional_sections: Type.Optional(
+      Type.Union([Type.Array(AdditionalSectionSchema), Type.Null()], {
+        description: 'Extra report sections that do not fit into other fields (e.g., "Real-World Attack Scenario").',
+      }),
+    ),
+  };
+}
 
-  // === Optional ===
-  status: Type.Optional(
-    Type.Union([stringEnum(STATUS_VALUES), Type.Null()], {
-      description: 'Finding status. Set when exploitation phase ran; omit for analysis-only runs.',
-    }),
-  ),
-  confidence: Type.Optional(
-    Type.Union([stringEnum(CONFIDENCE_VALUES), Type.Null()], {
-      description: 'Confidence level for analysis-only findings. Set when exploitation phase did not run.',
-    }),
-  ),
-  notes: Type.Optional(
-    Type.Union([Type.Array(StepItemSchema), Type.Null()], {
-      description: 'Additional context as prose/code items.',
-    }),
-  ),
-  additional_sections: Type.Optional(
-    Type.Union([Type.Array(AdditionalSectionSchema), Type.Null()], {
-      description: 'Extra report sections that do not fit into other fields (e.g., "Real-World Attack Scenario").',
-    }),
-  ),
+export function buildAddFindingSchema(exploit: boolean) {
+  return Type.Object({
+    ...identityFields(),
+    ...(exploit ? exploitOnlyFields() : analysisOnlyFields()),
+    ...locationFields(),
+    ...narrativeFields(exploit),
+    ...sharedOptionalFields(),
+  });
+}
+
+/**
+ * Superset of both modes, for typing only. Consumers must check presence rather than assume:
+ * `report.json` from an analysis run has no `severity` or `exploitation_steps` key at all.
+ */
+const AddFindingSupersetSchema = Type.Object({
+  ...identityFields(),
+  severity: Type.Optional(stringEnum(SEVERITY_VALUES)),
+  auth_state: Type.Optional(Type.String()),
+  prerequisites: Type.Optional(Type.String()),
+  exploitation_steps: Type.Optional(Type.Array(StructuredStepSchema)),
+  proof_of_impact: Type.Optional(Type.Array(StepItemSchema)),
+  status: Type.Optional(Type.Union([stringEnum(STATUS_VALUES), Type.Null()])),
+  confidence: Type.Optional(Type.Union([stringEnum(CONFIDENCE_VALUES), Type.Null()])),
+  ...locationFields(),
+  ...narrativeFields(true),
+  ...sharedOptionalFields(),
 });
 
-export type AddFindingInput = Static<typeof AddFindingInputSchema>;
+export type AddFindingInput = Static<typeof AddFindingSupersetSchema>;
 
 // Re-export schema types for downstream consumers
 export type CodeLocation = Static<typeof CodeLocationSchema>;
@@ -243,15 +301,16 @@ export interface FindingCollector {
   getAll(): AddFindingInput[];
 }
 
-export function createFindingCollector(): FindingCollector {
+export function createFindingCollector(exploit: boolean): FindingCollector {
   const findings: AddFindingInput[] = [];
+  const schema = buildAddFindingSchema(exploit);
 
   const addFindingTool = defineTool({
     name: 'add_finding',
     label: 'Add Finding',
     description:
       'Record a single finding as structured data for report rendering and DB persistence. Call once per finding after grouping/dedup. Duplicate finding_ids are rejected.',
-    parameters: AddFindingInputSchema,
+    parameters: schema,
     async execute(_toolCallId, input) {
       const existing = findings.find((f) => f.finding_id === input.finding_id);
       if (existing) {
@@ -261,7 +320,7 @@ export function createFindingCollector(): FindingCollector {
           false,
         );
       }
-      const typed = cleanInput(AddFindingInputSchema, input);
+      const typed = cleanInput(schema, input) as AddFindingInput;
       findings.push(typed);
       return successResult({ added: [typed.finding_id] });
     },

@@ -36,6 +36,13 @@ export interface ReportData {
   readonly not_assessed?: readonly VulnClass[];
 }
 
+// Without this, an analysis-only report reads as though the impact was demonstrated.
+const ANALYSIS_ONLY_DISCLAIMER = [
+  '> Exploitation was not run for this assessment. Each finding documents a vulnerability',
+  '> identified through analysis; impact is assessed rather than demonstrated, and no live',
+  '> exploitation steps or proof of impact are included.',
+].join('\n');
+
 const NOT_ASSESSED_LABELS: Record<VulnClass, string> = {
   auth: 'Authentication',
   authz: 'Authorization',
@@ -106,19 +113,25 @@ function renderFinding(finding: AddFindingInput, exploitEnabled: boolean): strin
   lines.push(`### ${finding.finding_id}: ${finding.title}`);
   lines.push('');
 
-  // Summary block
+  // Each row is emitted only when the mode that produced the finding supplied its field.
   lines.push('**Summary:**');
-  lines.push(`- **Severity:** ${titleCase(finding.severity)}`);
+  if (finding.severity) {
+    lines.push(`- **Severity:** ${titleCase(finding.severity)}`);
+  }
+  if (finding.confidence) {
+    lines.push(`- **Confidence:** ${titleCase(finding.confidence)}`);
+  }
   lines.push(`- **OWASP:** ${finding.owasp_category}`);
   lines.push(`- **Vulnerable location:** ${finding.vulnerable_location}`);
-  lines.push(`- **Auth state:** ${finding.auth_state}`);
+  if (finding.auth_state) {
+    lines.push(`- **Auth state:** ${finding.auth_state}`);
+  }
   if (exploitEnabled && finding.status) {
     lines.push(`- **Status:** ${titleCase(finding.status)}`);
   }
-  if (!exploitEnabled && finding.confidence) {
-    lines.push(`- **Confidence:** ${titleCase(finding.confidence)}`);
+  if (finding.prerequisites) {
+    lines.push(`- **Prerequisites:** ${finding.prerequisites}`);
   }
-  lines.push(`- **Prerequisites:** ${finding.prerequisites}`);
   lines.push('');
 
   // Overview
@@ -131,20 +144,21 @@ function renderFinding(finding: AddFindingInput, exploitEnabled: boolean): strin
   lines.push(finding.impact);
   lines.push('');
 
-  // Exploitation steps / analysis steps
-  const stepsHeading = exploitEnabled ? 'Exploitation Steps' : 'Analysis Steps';
-  lines.push(`**${stepsHeading}:**`);
-  lines.push('');
-  for (let i = 0; i < finding.exploitation_steps.length; i++) {
-    lines.push(renderStructuredStep(finding.exploitation_steps[i]!, i));
+  if (finding.exploitation_steps && finding.exploitation_steps.length > 0) {
+    lines.push('**Exploitation Steps:**');
     lines.push('');
+    for (let i = 0; i < finding.exploitation_steps.length; i++) {
+      lines.push(renderStructuredStep(finding.exploitation_steps[i]!, i));
+      lines.push('');
+    }
   }
 
-  // Proof of impact
-  lines.push('**Proof of Impact:**');
-  lines.push('');
-  lines.push(renderStepItems(finding.proof_of_impact));
-  lines.push('');
+  if (finding.proof_of_impact && finding.proof_of_impact.length > 0) {
+    lines.push('**Proof of Impact:**');
+    lines.push('');
+    lines.push(renderStepItems(finding.proof_of_impact));
+    lines.push('');
+  }
 
   // Remediation
   lines.push('**Remediation:**');
@@ -209,6 +223,10 @@ export function renderReport(data: ReportData): string {
   sections.push('');
   sections.push(report_meta.executive_summary);
   sections.push('');
+  if (!exploitEnabled) {
+    sections.push(ANALYSIS_ONLY_DISCLAIMER);
+    sections.push('');
+  }
 
   if (findings.length === 0) {
     if (notAssessedClasses.length > 0) {
@@ -245,7 +263,9 @@ export function renderReport(data: ReportData): string {
     sections.push(`### ${cat}`);
     sections.push('');
     for (const f of catFindings) {
-      sections.push(`- **${f.finding_id}:** ${f.title} (${titleCase(f.severity)})`);
+      const rating = f.severity ?? f.confidence;
+      const suffix = rating ? ` (${titleCase(rating)})` : '';
+      sections.push(`- **${f.finding_id}:** ${f.title}${suffix}`);
     }
     sections.push('');
   }

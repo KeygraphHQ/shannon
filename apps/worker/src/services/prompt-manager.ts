@@ -101,26 +101,42 @@ function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): strin
 }
 
 /**
+ * Which configured filters this run can actually enforce.
+ *
+ * The two ratings are mode-exclusive (see ../collectors/finding-collector.ts): an exploited
+ * finding carries `severity`, an analysed one carries `confidence`. Handing the agent a
+ * threshold for the rating its findings do not have is a directive it cannot honor.
+ */
+function applicableFilters(report: ReportConfig | undefined, exploitEnabled: boolean) {
+  return {
+    severity: Boolean(report?.min_severity) && exploitEnabled,
+    confidence: Boolean(report?.min_confidence) && !exploitEnabled,
+    guidance: Boolean(report?.guidance?.trim()),
+  };
+}
+
+/**
  * Renders the top-level <report_filters> block. Empty when no filters are set —
  * each filter is included only when the operator configured it, so the agent
  * never sees `none` placeholders or instructions for filters that don't apply.
  */
-function renderReportFiltersBlock(report: ReportConfig | undefined): string {
+function renderReportFiltersBlock(report: ReportConfig | undefined, exploitEnabled: boolean): string {
   if (!report) return '';
   const guidance = report.guidance?.trim();
-  if (!report.min_severity && !report.min_confidence && !guidance) return '';
+  const applies = applicableFilters(report, exploitEnabled);
+  if (!applies.severity && !applies.confidence && !applies.guidance) return '';
 
   const lines: string[] = [
     '<report_filters>',
     'The filters below are user-supplied and binding for this assessment. Honor each strictly when assembling the final report.',
     '',
   ];
-  if (report.min_severity) {
+  if (applies.severity) {
     lines.push(
       `- Minimum severity: ${report.min_severity} — keep only findings rated this severity or higher (scale: low < medium < high < critical).`,
     );
   }
-  if (report.min_confidence) {
+  if (applies.confidence) {
     lines.push(
       `- Minimum confidence: ${report.min_confidence} — keep only findings rated this confidence or higher (scale: low < medium < high).`,
     );
@@ -139,10 +155,11 @@ function renderReportFiltersBlock(report: ReportConfig | undefined): string {
  * confidence inline as concrete thresholds; guidance is referenced by pointer
  * so the actual text only lives in <report_filters>, avoiding double-statement.
  */
-function renderReportFilterRules(report: ReportConfig | undefined): string {
+function renderReportFilterRules(report: ReportConfig | undefined, exploitEnabled: boolean): string {
+  const applies = applicableFilters(report, exploitEnabled);
   const drops: string[] = [];
-  if (report?.min_severity) drops.push(`* severity is below ${report.min_severity}`);
-  if (report?.min_confidence) drops.push(`* confidence is below ${report.min_confidence}`);
+  if (applies.severity) drops.push(`* severity is below ${report?.min_severity}`);
+  if (applies.confidence) drops.push(`* confidence is below ${report?.min_confidence}`);
   if (report?.guidance?.trim()) drops.push('* topic matches an exclusion in the user guidance');
   if (drops.length === 0) return '';
   return ['   - DROP any `### [TYPE]-VULN-[NUMBER]` finding whose:', ...drops.map((d) => `     ${d}`)].join('\n');
@@ -407,6 +424,13 @@ async function interpolateVariables(
     );
 
     const exploitEnabled = config?.exploit ?? true;
+
+    // Drop every block belonging to the mode this run is not in, so the prompt never documents
+    // a field the tool would reject. The backreference pins each match to a closed pair.
+    const droppedMode = exploitEnabled ? 'analysis' : 'exploit';
+    result = result.replace(new RegExp(`<(${droppedMode}_mode_[a-z_]+)>[\\s\\S]*?</\\1>\\n?`, 'g'), '');
+    result = result.replace(/<\/?(?:exploit|analysis)_mode_[a-z_]+>\n?/g, '');
+
     result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');
     result = replaceLiteral(result, /{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings');
     result = replaceLiteral(
@@ -415,8 +439,28 @@ async function interpolateVariables(
       exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
     );
 
-    result = replaceLiteral(result, /{{REPORT_FILTERS_BLOCK}}/g, renderReportFiltersBlock(config?.report));
-    result = replaceLiteral(result, /{{REPORT_FILTER_RULES}}/g, renderReportFilterRules(config?.report));
+    if (config?.report?.min_severity && !exploitEnabled) {
+      logger.warn(
+        `report.min_severity="${config.report.min_severity}" is ignored when exploit=false: an ` +
+          'analysis-only run rates findings by confidence, not severity. Use report.min_confidence.',
+      );
+    }
+    if (config?.report?.min_confidence && exploitEnabled) {
+      logger.warn(
+        `report.min_confidence="${config.report.min_confidence}" is ignored when exploit=true: an ` +
+          'exploited finding is rated by severity, not confidence. Use report.min_severity.',
+      );
+    }
+    result = replaceLiteral(
+      result,
+      /{{REPORT_FILTERS_BLOCK}}/g,
+      renderReportFiltersBlock(config?.report, exploitEnabled),
+    );
+    result = replaceLiteral(
+      result,
+      /{{REPORT_FILTER_RULES}}/g,
+      renderReportFilterRules(config?.report, exploitEnabled),
+    );
 
     // Collapse runs of 3+ newlines (left behind by tag-strip and empty-fragment substitutions).
     result = result.replace(/\n{3,}/g, '\n\n');
