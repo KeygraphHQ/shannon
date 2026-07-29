@@ -18,13 +18,18 @@ export function formatDuration(ms: number): string {
     return `${ms}ms`;
   }
 
-  const seconds = ms / 1000;
-  if (seconds < 60) {
-    return `${seconds.toFixed(1)}s`;
+  const totalSeconds = ms / 1000;
+  // Round before branching — otherwise a value like 59.95s takes the sub-minute
+  // branch (seconds < 60) but toFixed(1) then rounds its *display* up to "60.0s",
+  // which reads as a full minute while the unit says seconds.
+  const roundedSeconds = Math.round(totalSeconds * 10) / 10;
+  if (roundedSeconds < 60) {
+    return `${roundedSeconds.toFixed(1)}s`;
   }
 
-  const minutes = Math.floor(seconds / 60);
-  const remainingSeconds = Math.floor(seconds % 60);
+  const wholeSeconds = Math.round(totalSeconds);
+  const minutes = Math.floor(wholeSeconds / 60);
+  const remainingSeconds = wholeSeconds % 60;
   return `${minutes}m ${remainingSeconds}s`;
 }
 

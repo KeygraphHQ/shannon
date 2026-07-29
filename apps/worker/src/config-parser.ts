@@ -400,7 +400,8 @@ const validateConfig = (config: Config): void => {
     !!config.vuln_classes ||
     config.exploit !== undefined ||
     !!config.report ||
-    !!config.rules_of_engagement;
+    !!config.rules_of_engagement ||
+    !!config.pipeline;
   if (!hasAnySteering) {
     console.warn('⚠️  Configuration file contains no steering fields. The pentest will run with all defaults.');
   } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
@@ -455,6 +456,21 @@ const performSecurityValidation = (config: Config): void => {
           }
         }
       });
+    }
+
+    // Rendered into the same login prompt templates as login_url/credentials/login_flow above.
+    if (auth.success_condition?.value) {
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(auth.success_condition.value)) {
+          throw new PentestError(
+            `authentication.success_condition.value contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: 'success_condition.value', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED,
+          );
+        }
+      }
     }
   }
 
@@ -631,10 +647,16 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
   }
 };
 
+// Matches the normalization sanitizeRule applies later, so a duplicate/conflict
+// hiding behind incidental whitespace or type casing differences (e.g. "/admin "
+// vs "/admin") is caught here instead of silently resolving to the same rule
+// after sanitization.
+const ruleKey = (rule: Rule): string => `${rule.type.trim().toLowerCase()}:${rule.value.trim()}`;
+
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
   rules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.value}`;
+    const key = ruleKey(rule);
     if (seen.has(key)) {
       throw new PentestError(
         `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.value}'`,
@@ -649,10 +671,10 @@ const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
 };
 
 const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): void => {
-  const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.value}`));
+  const avoidSet = new Set(avoidRules.map(ruleKey));
 
   focusRules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.value}`;
+    const key = ruleKey(rule);
     if (avoidSet.has(key)) {
       throw new PentestError(
         `Conflicting rule found: rules.focus[${index}] '${rule.value}' also exists in rules.avoid`,

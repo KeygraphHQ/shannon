@@ -85,8 +85,16 @@ export class AuditSession {
     // Create directory structure
     await initializeAuditStructure(this.sessionMetadata);
 
-    // Initialize metrics tracker (loads or creates session.json)
-    await this.metricsTracker.initialize(workflowId);
+    // Initialize metrics tracker (loads or creates session.json). Mutex-protected
+    // like every other session.json mutator — without it, two concurrently-
+    // initializing AuditSessions racing the "doesn't exist yet" create path could
+    // each write their own initial session.json, the second clobbering the first.
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.initialize(workflowId);
+    } finally {
+      unlock();
+    }
 
     // Initialize workflow logger with actual Temporal workflow ID
     await this.workflowLogger.initialize(workflowId);
