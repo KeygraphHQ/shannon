@@ -263,8 +263,7 @@ export function renderReport(data: ReportData): string {
     sections.push(`### ${cat}`);
     sections.push('');
     for (const f of catFindings) {
-      const rating = f.severity ?? f.confidence;
-      const suffix = rating ? ` (${titleCase(rating)})` : '';
+      const suffix = f.severity ? ` (${titleCase(f.severity)})` : '';
       sections.push(`- **${f.finding_id}:** ${f.title}${suffix}`);
     }
     sections.push('');
