@@ -15,9 +15,10 @@
  *   node save-deliverable.js --type INJECTION_ANALYSIS --file-path deliverables/injection_analysis_deliverable.md
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { DELIVERABLE_FILENAMES, type DeliverableType } from '../types/deliverables.js';
+import { atomicWrite } from '../utils/file-io.js';
 
 // === Help ===
 
@@ -76,7 +77,7 @@ function parseArgs(argv: string[]): ParsedArgs {
 
 // === File Operations ===
 
-function saveDeliverableFile(targetDir: string, filename: string, content: string): string {
+async function saveDeliverableFile(targetDir: string, filename: string, content: string): Promise<string> {
   const subdir = process.env.SHANNON_DELIVERABLES_SUBDIR || '.shannon/deliverables';
   const deliverablesDir = join(targetDir, ...subdir.split('/'));
   const filepath = join(deliverablesDir, filename);
@@ -87,13 +88,16 @@ function saveDeliverableFile(targetDir: string, filename: string, content: strin
     throw new Error(`Cannot create deliverables directory at ${deliverablesDir}`);
   }
 
-  writeFileSync(filepath, content, 'utf8');
+  // Atomic write (temp file + rename) — same crash-safety guarantee used
+  // everywhere else deliverables/state get written, so a crash mid-write can't
+  // leave a truncated deliverable file on disk.
+  await atomicWrite(filepath, content);
   return filepath;
 }
 
 // === Main ===
 
-function main(): void {
+async function main(): Promise<void> {
   if (process.argv.includes('--help') || process.argv.includes('-h')) {
     printHelp();
     return;
@@ -154,7 +158,7 @@ function main(): void {
   // 3. Save the file
   try {
     const targetDir = process.cwd();
-    const filepath = saveDeliverableFile(targetDir, filename, content);
+    const filepath = await saveDeliverableFile(targetDir, filename, content);
     console.log(JSON.stringify({ status: 'success', filepath }));
   } catch (error) {
     const msg = error instanceof Error ? error.message : String(error);
@@ -163,4 +167,4 @@ function main(): void {
   }
 }
 
-main();
+await main();

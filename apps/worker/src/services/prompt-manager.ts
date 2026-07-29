@@ -225,8 +225,23 @@ async function buildLoginInstructions(
   }
 }
 
-// Pure function: Process @include() directives
-async function processIncludes(content: string, baseDir: string): Promise<string> {
+const MAX_INCLUDE_DEPTH = 5;
+
+// Pure function: Process @include() directives, recursively — an included
+// partial may itself use @include() to pull in further nested partials.
+async function processIncludes(content: string, baseDir: string, depth = 0): Promise<string> {
+  if (!content.includes('@include(')) {
+    return content;
+  }
+  if (depth >= MAX_INCLUDE_DEPTH) {
+    throw new PentestError(
+      `@include() nesting exceeds max depth (${MAX_INCLUDE_DEPTH}) — check for a circular include`,
+      'prompt',
+      false,
+      { baseDir, depth },
+    );
+  }
+
   const includeRegex = /@include\(([^)]+)\)/g;
   const resolvedBase = path.resolve(baseDir);
 
@@ -251,7 +266,7 @@ async function processIncludes(content: string, baseDir: string): Promise<string
   for (const replacement of replacements) {
     content = replaceLiteral(content, replacement.placeholder, replacement.content);
   }
-  return content;
+  return processIncludes(content, baseDir, depth + 1);
 }
 
 /**

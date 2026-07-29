@@ -44,10 +44,11 @@ try {
 
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\.\.\//, // Path traversal
-  /[<>]/, // HTML/XML injection
-  /javascript:/i, // JavaScript URLs
-  /data:/i, // Data URLs
-  /file:/i, // File URLs
+  /<\/?[a-zA-Z!]/, // HTML/XML tags (e.g. <script, </div, <!--) — not a bare '<'/'>', which
+  // also rejected benign text like "count > 5"
+  /\bjavascript:/i, // JavaScript URL scheme
+  /\bdata:/i, // Data URL scheme — \b avoids matching inside words like "metadata:"
+  /\bfile:/i, // File URL scheme — \b avoids matching inside words like "profile:"
 ];
 
 /**

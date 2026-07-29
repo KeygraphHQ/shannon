@@ -202,6 +202,15 @@ export async function executeGitCommandWithRetry(
     return withGitRepoLock(() => executeGitCommandWithRetry(commandArgs, sourceDir, description, maxRetries));
   }
 
+  const exhaustedRetriesError = (errMsg: string): PentestError =>
+    new PentestError(
+      `Git command failed after ${maxRetries} retries: ${errMsg}`,
+      'filesystem',
+      true, // Retryable - transient git lock issues
+      { maxRetries, description },
+      ErrorCode.GIT_CHECKPOINT_FAILED,
+    );
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const [cmd, ...args] = commandArgs;
@@ -210,27 +219,28 @@ export async function executeGitCommandWithRetry(
     } catch (error) {
       const errMsg = error instanceof Error ? error.message : String(error);
 
-      if (isGitLockError(errMsg) && attempt < maxRetries) {
-        const delay = 2 ** (attempt - 1) * 1000;
-        // executeGitCommandWithRetry is also called outside activity context
-        // (e.g., from resume logic), so we use console.warn as a fallback here
-        console.warn(
-          `Git lock conflict during ${description} (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
+      if (isGitLockError(errMsg)) {
+        if (attempt < maxRetries) {
+          const delay = 2 ** (attempt - 1) * 1000;
+          // executeGitCommandWithRetry is also called outside activity context
+          // (e.g., from resume logic), so we use console.warn as a fallback here
+          console.warn(
+            `Git lock conflict during ${description} (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          continue;
+        }
+        // Retries exhausted on a genuine lock conflict — surface the classified,
+        // retryable error instead of letting the raw git/zx failure propagate.
+        throw exhaustedRetriesError(errMsg);
       }
 
       throw error;
     }
   }
-  throw new PentestError(
-    `Git command failed after ${maxRetries} retries`,
-    'filesystem',
-    true, // Retryable - transient git lock issues
-    { maxRetries, description },
-    ErrorCode.GIT_CHECKPOINT_FAILED,
-  );
+  // Unreachable — every iteration above returns or throws — but required so the
+  // function's return type checks without an explicit return after the loop.
+  throw exhaustedRetriesError('retries exhausted');
 }
 
 // Substring git uses when `checkout -- <path>` fails because that path has no
