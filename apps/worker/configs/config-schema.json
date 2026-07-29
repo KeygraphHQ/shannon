@@ -160,6 +160,11 @@
           "minLength": 1,
           "maxLength": 500,
           "description": "Free-text guidance to the report agent (e.g., 'Drop findings about missing security headers')."
+        },
+        "sarif": {
+          "type": "string",
+          "enum": ["true", "false"],
+          "description": "Emit a SARIF 2.1.0 log (report.sarif) beside the report. Requires exploit=true; ignored otherwise."
         }
       },
       "additionalProperties": false

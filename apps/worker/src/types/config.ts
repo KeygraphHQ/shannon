@@ -32,6 +32,8 @@ export interface ReportConfig {
   min_severity?: Severity;
   min_confidence?: Confidence;
   guidance?: string;
+  /** Emit report.sarif alongside the markdown report. Ignored when exploit is false. */
+  sarif?: 'true' | 'false';
 }
 
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
@@ -72,6 +74,9 @@ export interface Config {
   rules_of_engagement?: string;
 }
 
+/** Report config after coercion. The YAML form of `sarif` is a string (see ReportConfig). */
+export type DistributedReportConfig = Omit<ReportConfig, 'sarif'> & { sarif: boolean };
+
 export interface DistributedConfig {
   avoid: Rule[];
   focus: Rule[];
@@ -79,7 +84,7 @@ export interface DistributedConfig {
   description: string;
   vuln_classes: VulnClass[];
   exploit: boolean;
-  report: ReportConfig;
+  report: DistributedReportConfig;
   rules_of_engagement: string;
 }
 

@@ -14,7 +14,7 @@
  */
 
 import { getQueueFilename } from '../ai/queue-schemas.js';
-import { REPORT_JSON_FILENAME } from '../paths.js';
+import { REPORT_JSON_FILENAME, SARIF_FILENAME } from '../paths.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 
@@ -28,9 +28,12 @@ export function getAgentGitPaths(agentName: AgentName): string[] {
   if (queueFilename) {
     paths.push(queueFilename);
   }
-  // The report agent also emits the structured findings the markdown is rendered from.
+  // The report agent also emits the structured findings the markdown is rendered from, and the
+  // SARIF log when enabled. Listing the log unconditionally is harmless when it was not written,
+  // and keeps a stale one from surviving the rollback of a failed attempt.
   if (agentName === 'report') {
     paths.push(REPORT_JSON_FILENAME);
+    paths.push(SARIF_FILENAME);
   }
   return [...new Set(paths)];
 }

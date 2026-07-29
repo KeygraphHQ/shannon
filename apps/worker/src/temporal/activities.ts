@@ -31,6 +31,7 @@ import {
   deliverablesDir,
   REPORT_JSON_FILENAME,
   resolveSessionJsonPath,
+  SARIF_FILENAME,
 } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
@@ -446,6 +447,42 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
   return runExploitAgentWithCollector('authz-exploit', 'authz', input);
 }
 
+/**
+ * Write report.sarif when the run is exploitative and the operator asked for it.
+ *
+ * Skipped entirely for analysis-only runs: those findings carry no severity, so every
+ * `result.level` would be invented. Failures are logged and swallowed — the SARIF log is a
+ * secondary artifact and must not fail a run whose report is already written.
+ */
+async function writeSarifIfEnabled(
+  input: ActivityInput,
+  exploit: boolean,
+  reportData: ReportData,
+  deliverablesPath: string,
+  logger: ReturnType<typeof createActivityLogger>,
+): Promise<void> {
+  if (!exploit) return;
+
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult) || configResult.value?.report?.sarif !== true) return;
+
+  try {
+    const { renderSarif } = await import('../services/sarif-renderer.js');
+    const { sarif, droppedFindingIds } = renderSarif(reportData, { workspaceName: input.sessionId });
+    await atomicWrite(path.join(deliverablesPath, SARIF_FILENAME), sarif);
+    logger.info(`Wrote ${SARIF_FILENAME}`);
+    if (droppedFindingIds.length > 0) {
+      logger.warn(
+        `${SARIF_FILENAME}: omitted ${droppedFindingIds.length} finding(s) with no code or HTTP ` +
+          `location — a result without a location is discarded by consumers: ${droppedFindingIds.join(', ')}`,
+      );
+    }
+  } catch (error) {
+    logger.warn(`Failed to write ${SARIF_FILENAME}: ${(error as Error).message}`);
+  }
+}
+
 export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
   const { createFindingCollector } = await import('../collectors/finding-collector.js');
   const { renderReport } = await import('../services/report-renderer.js');
@@ -498,6 +535,8 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
 
     await atomicWrite(path.join(deliverablesPath, ASSEMBLED_REPORT_FILENAME), renderReport(reportData));
     logger.info(`Wrote ${ASSEMBLED_REPORT_FILENAME} from structured data`);
+
+    await writeSarifIfEnabled(input, exploit, reportData, deliverablesPath, logger);
   };
 
   return runAgentActivity('report', input, collector.tools, writeDeliverable);

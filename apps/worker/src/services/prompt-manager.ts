@@ -8,7 +8,7 @@ import { fs, path } from 'zx';
 import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
-import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
+import type { Authentication, DistributedConfig, DistributedReportConfig, Rule, VulnClass } from '../types/config.js';
 import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
 
@@ -107,7 +107,7 @@ function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): strin
  * finding carries `severity`, an analysed one carries `confidence`. Handing the agent a
  * threshold for the rating its findings do not have is a directive it cannot honor.
  */
-function applicableFilters(report: ReportConfig | undefined, exploitEnabled: boolean) {
+function applicableFilters(report: DistributedReportConfig | undefined, exploitEnabled: boolean) {
   return {
     severity: Boolean(report?.min_severity) && exploitEnabled,
     confidence: Boolean(report?.min_confidence) && !exploitEnabled,
@@ -120,7 +120,7 @@ function applicableFilters(report: ReportConfig | undefined, exploitEnabled: boo
  * each filter is included only when the operator configured it, so the agent
  * never sees `none` placeholders or instructions for filters that don't apply.
  */
-function renderReportFiltersBlock(report: ReportConfig | undefined, exploitEnabled: boolean): string {
+function renderReportFiltersBlock(report: DistributedReportConfig | undefined, exploitEnabled: boolean): string {
   if (!report) return '';
   const guidance = report.guidance?.trim();
   const applies = applicableFilters(report, exploitEnabled);
@@ -155,7 +155,7 @@ function renderReportFiltersBlock(report: ReportConfig | undefined, exploitEnabl
  * confidence inline as concrete thresholds; guidance is referenced by pointer
  * so the actual text only lives in <report_filters>, avoiding double-statement.
  */
-function renderReportFilterRules(report: ReportConfig | undefined, exploitEnabled: boolean): string {
+function renderReportFilterRules(report: DistributedReportConfig | undefined, exploitEnabled: boolean): string {
   const applies = applicableFilters(report, exploitEnabled);
   const drops: string[] = [];
   if (applies.severity) drops.push(`* severity is below ${report?.min_severity}`);

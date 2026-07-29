@@ -34,6 +34,9 @@ export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
 /** Structured findings the report agent emits; the markdown report is rendered from it. */
 export const REPORT_JSON_FILENAME = 'report.json';
 
+/** SARIF 2.1.0 log, written only for exploit=true runs when report.sarif is enabled. */
+export const SARIF_FILENAME = 'report.sarif';
+
 /**
  * Resolve the session.json path for a run directory, preferring the current
  * `.shannon/` location and falling back to the legacy run-root location so
