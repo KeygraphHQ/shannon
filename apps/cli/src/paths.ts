@@ -54,9 +54,13 @@ export function resolveRepo(repoArg: string): MountPair {
   let hostPath: string;
 
   if (isLocal() && !repoArg.startsWith('/') && !repoArg.startsWith('.')) {
-    // Bare name — check ./repos/<name> for backward compatibility
-    const barePath = path.resolve('repos', repoArg);
-    if (fs.existsSync(barePath)) {
+    // Bare name — check ./repos/<name> for backward compatibility. Reject any name
+    // (e.g. containing ../) that would resolve outside ./repos/ — otherwise a bare
+    // name could mount an arbitrary host directory into the worker container.
+    const reposRoot = path.resolve('repos');
+    const barePath = path.resolve(reposRoot, repoArg);
+    const withinReposRoot = barePath === reposRoot || barePath.startsWith(`${reposRoot}${path.sep}`);
+    if (withinReposRoot && fs.existsSync(barePath)) {
       hostPath = barePath;
     } else {
       console.error(`ERROR: Repository not found at ./repos/${repoArg}`);

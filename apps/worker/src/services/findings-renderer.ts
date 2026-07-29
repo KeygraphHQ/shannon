@@ -33,6 +33,8 @@ interface ClassConfig<T> {
   readonly noneFoundLabel: string;
   readonly queueFile: string;
   readonly findingsFile: string;
+  /** Exploit agent's evidence file — when present, it takes precedence over rendered findings. */
+  readonly evidenceFile: string;
   readonly renderEntry: (entry: T) => string;
 }
 
@@ -159,6 +161,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'authentication',
     queueFile: 'auth_exploitation_queue.json',
     findingsFile: 'auth_findings.md',
+    evidenceFile: 'auth_exploitation_evidence.md',
     renderEntry: (e) => renderAuthEntry(e as AuthFinding),
   },
   authz: {
@@ -166,6 +169,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'authorization',
     queueFile: 'authz_exploitation_queue.json',
     findingsFile: 'authz_findings.md',
+    evidenceFile: 'authz_exploitation_evidence.md',
     renderEntry: (e) => renderAuthzEntry(e as AuthzFinding),
   },
   injection: {
@@ -173,6 +177,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'injection',
     queueFile: 'injection_exploitation_queue.json',
     findingsFile: 'injection_findings.md',
+    evidenceFile: 'injection_exploitation_evidence.md',
     renderEntry: (e) => renderInjectionEntry(e as InjectionFinding),
   },
   xss: {
@@ -180,6 +185,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'XSS',
     queueFile: 'xss_exploitation_queue.json',
     findingsFile: 'xss_findings.md',
+    evidenceFile: 'xss_exploitation_evidence.md',
     renderEntry: (e) => renderXssEntry(e as XssFinding),
   },
   ssrf: {
@@ -187,6 +193,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'SSRF',
     queueFile: 'ssrf_exploitation_queue.json',
     findingsFile: 'ssrf_findings.md',
+    evidenceFile: 'ssrf_exploitation_evidence.md',
     renderEntry: (e) => renderSsrfEntry(e as SsrfFinding),
   },
 };
@@ -233,9 +240,12 @@ function renderClassFile(
 /**
  * Render `*_findings.md` per class from each `*_exploitation_queue.json`.
  *
- * Idempotent: skips classes whose findings file already exists, or whose queue
- * is missing (class out of scope this run). Per-class failures are logged and
- * other classes still proceed.
+ * Idempotent: skips classes whose findings file already exists, whose exploit
+ * agent already produced an evidence file (evidence takes precedence — this
+ * fills the gap only when there's no evidence, e.g. exploit:false globally, or
+ * the exploit agent failed/never ran for this one class on an exploit:true run),
+ * or whose queue is missing (class out of scope this run). Per-class failures
+ * are logged and other classes still proceed.
  */
 export async function renderFindingsFromQueues(
   sourceDir: string,
@@ -247,9 +257,14 @@ export async function renderFindingsFromQueues(
   for (const config of Object.values(CLASSES)) {
     const queuePath = path.join(dir, config.queueFile);
     const findingsPath = path.join(dir, config.findingsFile);
+    const evidencePath = path.join(dir, config.evidenceFile);
 
     if (await fs.pathExists(findingsPath)) {
       logger.info(`${config.heading}: ${config.findingsFile} already exists, skipping`);
+      continue;
+    }
+    if (await fs.pathExists(evidencePath)) {
+      logger.info(`${config.heading}: ${config.evidenceFile} already covers this class, skipping`);
       continue;
     }
     if (!(await fs.pathExists(queuePath))) {

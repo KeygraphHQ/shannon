@@ -334,6 +334,16 @@ function checkDeprecatedFields(config: Config): void {
   checkRules(rules?.avoid, 'avoid');
   checkRules(rules?.focus, 'focus');
 
+  // The top-level 'login' block predates 'authentication' and is never read by
+  // distributeConfig — accepting it silently would let a scan run unauthenticated
+  // while the user believes credentials are configured. Fail loudly instead.
+  if (raw.login !== undefined) {
+    messages.push(
+      "'login' has been replaced by 'authentication' and is no longer read — migrate its contents to the " +
+        "'authentication' section, or the scan will run unauthenticated.",
+    );
+  }
+
   if (messages.length > 0) {
     throw new PentestError(
       `Configuration uses deprecated fields. Please update:\n  - ${messages.join('\n  - ')}`,

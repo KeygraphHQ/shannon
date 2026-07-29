@@ -666,22 +666,23 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
 /**
  * Assemble the final report by concatenating per-class deliverables.
  *
- * Under exploit=true, each exploit agent has produced `*_exploitation_evidence.md`
- * directly. Under exploit=false, exploit agents didn't run; we deterministically
- * render `*_findings.md` from each `*_exploitation_queue.json` first, then assemble.
+ * Renders `*_findings.md` from each `*_exploitation_queue.json` first — this is a
+ * no-op per class when `*_exploitation_evidence.md` already exists. That covers not
+ * just exploit=false (exploit agents never ran) but also exploit=true runs where one
+ * class's exploit agent failed or never ran (partial run): without this fallback the
+ * class would have neither an evidence nor a findings file, and assembleFinalReport
+ * would silently omit it — reporting confirmed queue findings as if none existed.
  */
-export async function assembleReportActivity(input: ActivityInput, exploit: boolean): Promise<void> {
+export async function assembleReportActivity(input: ActivityInput): Promise<void> {
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
 
-  if (!exploit) {
-    logger.info('Rendering per-class findings from analysis queues...');
-    try {
-      await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
-    } catch (error) {
-      const err = error as Error;
-      logger.warn(`Error rendering findings from queues: ${err.message}`);
-    }
+  logger.info('Rendering per-class findings from analysis queues...');
+  try {
+    await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
+  } catch (error) {
+    const err = error as Error;
+    logger.warn(`Error rendering findings from queues: ${err.message}`);
   }
 
   logger.info('Assembling deliverables from specialist agents...');

@@ -233,9 +233,42 @@ export async function executeGitCommandWithRetry(
   );
 }
 
+// Substring git uses when `checkout -- <path>` fails because that path has no
+// entry in HEAD (never committed) — expected for files a still-running attempt
+// created fresh; nothing to restore, and `git clean` below removes them as untracked.
+const PATHSPEC_MISMATCH_PATTERN = 'did not match any file';
+
+function isPathspecMismatchError(errorMessage: string): boolean {
+  return errorMessage.toLowerCase().includes(PATHSPEC_MISMATCH_PATTERN);
+}
+
+// Discard tracked-file modifications under `paths`, restoring each back to HEAD's
+// content. Paths with no HEAD entry (never committed) are left for `git clean` to
+// remove as untracked. Scoped equivalent of `git reset --hard` for a path subset —
+// `reset --hard` itself has no path-scoping form, so it can't be used here.
+async function restoreScopedPaths(sourceDir: string, paths: readonly string[]): Promise<void> {
+  await executeGitCommandWithRetry(['git', 'reset', '--', ...paths], sourceDir, 'unstage scoped paths for rollback');
+  for (const relPath of paths) {
+    try {
+      await executeGitCommandWithRetry(
+        ['git', 'checkout', 'HEAD', '--', relPath],
+        sourceDir,
+        `restore ${relPath} for rollback`,
+      );
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (!isPathspecMismatchError(errorMessage)) {
+        throw error;
+      }
+    }
+  }
+}
+
 // Two-phase reset: hard reset (tracked files) + clean (untracked files).
-// When paths is provided, the untracked clean is scoped to those paths so a
-// failing agent's rollback can't delete a concurrent sibling agent's scratch.
+// When paths is provided, BOTH phases are scoped to those paths so a failing
+// agent's rollback can't touch a concurrent sibling agent's tracked or untracked
+// changes in the shared deliverables repo. Without paths, the reset/clean are
+// repo-wide (used only when no per-agent scope applies).
 export async function rollbackGitWorkspace(
   sourceDir: string,
   reason: string = 'retry preparation',
@@ -250,10 +283,15 @@ export async function rollbackGitWorkspace(
 
   logger.info(`Rolling back workspace for ${reason}`);
   try {
+    const scoped = paths && paths.length > 0;
     const changes = await withGitRepoLock(async () => {
       const pendingChanges = await getChangedFiles(sourceDir, 'status check for rollback');
-      await executeGitCommandWithRetry(['git', 'reset', '--hard', 'HEAD'], sourceDir, 'hard reset for rollback');
-      const cleanArgs = paths && paths.length > 0 ? ['git', 'clean', '-fd', '--', ...paths] : ['git', 'clean', '-fd'];
+      if (scoped) {
+        await restoreScopedPaths(sourceDir, paths);
+      } else {
+        await executeGitCommandWithRetry(['git', 'reset', '--hard', 'HEAD'], sourceDir, 'hard reset for rollback');
+      }
+      const cleanArgs = scoped ? ['git', 'clean', '-fd', '--', ...paths] : ['git', 'clean', '-fd'];
       await executeGitCommandWithRetry(cleanArgs, sourceDir, 'cleaning untracked files for rollback');
       return pendingChanges;
     });
