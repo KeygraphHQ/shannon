@@ -18,7 +18,10 @@
  *
  * The active provider is chosen from the env-var contract the CLI forwards
  * (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else
- * direct Anthropic). Resolution returns a pi `Model` via `ModelRegistry.find`, the
+ * direct Anthropic). When the custom base URL points at a MiniMax Anthropic-compatible
+ * endpoint, the first-class `minimax` (global) / `minimax-cn` provider is selected so
+ * models resolve from the MiniMax catalog with the correct endpoint instead of the
+ * Anthropic registry. Resolution returns a pi `Model` via `ModelRegistry.find`, the
  * `thinkingLevel`, and an `AuthStorage` primed with the right credential. Bedrock
  * authenticates from the AWS_ env vars via pi-ai.
  */
@@ -36,20 +39,47 @@ const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
 };
 
 export interface EffectiveProvider {
-  /** pi-ai provider id: 'anthropic' or 'amazon-bedrock'. */
+  /** pi-ai provider id: 'anthropic', 'amazon-bedrock', 'minimax', or 'minimax-cn'. */
   providerId: string;
   /** Custom-base-URL override applied to the resolved anthropic model. */
   baseUrl?: string;
-  /** Runtime credential to prime on AuthStorage for the 'anthropic' provider. */
+  /**
+   * Runtime credential to prime on AuthStorage for the resolved anthropic-compatible
+   * provider ('anthropic', 'minimax', or 'minimax-cn').
+   */
   anthropicToken?: string;
 }
 
 /**
+ * MiniMax exposes an Anthropic-compatible endpoint per region. Map the configured
+ * base URL host to the matching first-class pi provider so models resolve from the
+ * MiniMax catalog. Exact host match only, so a look-alike host is never routed here.
+ */
+function resolveMiniMaxProvider(baseUrl: string): 'minimax' | 'minimax-cn' | undefined {
+  let host: string;
+  try {
+    host = new URL(baseUrl).host.toLowerCase();
+  } catch {
+    return undefined;
+  }
+  if (host === 'api.minimaxi.com') return 'minimax-cn';
+  if (host === 'api.minimax.io') return 'minimax';
+  return undefined;
+}
+
+/** MiniMax-M2.7 reasons on every request; its thinking cannot be disabled. */
+const MINIMAX_ALWAYS_ON_THINKING = /^minimax-m2\.7/i;
+
+/** MiniMax-M3 supports adaptive thinking (adaptive / disabled). */
+const MINIMAX_ADAPTIVE_THINKING = /^minimax-m3/i;
+
+/**
  * Determine the active provider + auth from the env-var contract the CLI forwards:
  * `CLAUDE_CODE_USE_BEDROCK` → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`
- * → custom base URL; else direct Anthropic (`ANTHROPIC_API_KEY`, or
- * `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock authenticates from the AWS_ env vars via
- * pi-ai, so it needs no anthropic token.
+ * → custom base URL (a MiniMax endpoint selects the first-class `minimax`/`minimax-cn`
+ * provider; any other endpoint stays on Anthropic with a base-URL override); else
+ * direct Anthropic (`ANTHROPIC_API_KEY`, or `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock
+ * authenticates from the AWS_ env vars via pi-ai, so it needs no anthropic token.
  */
 export function resolveEffectiveProvider(): EffectiveProvider {
   // Bedrock — env flag.
@@ -59,6 +89,15 @@ export function resolveEffectiveProvider(): EffectiveProvider {
 
   // Custom base URL — env contract.
   if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
+    // MiniMax Anthropic-compatible endpoint → resolve from the first-class MiniMax
+    // catalog (correct endpoint baked in), not the Anthropic registry.
+    const miniMaxProvider = resolveMiniMaxProvider(process.env.ANTHROPIC_BASE_URL);
+    if (miniMaxProvider) {
+      return {
+        providerId: miniMaxProvider,
+        anthropicToken: process.env.ANTHROPIC_AUTH_TOKEN,
+      };
+    }
     return {
       providerId: 'anthropic',
       baseUrl: process.env.ANTHROPIC_BASE_URL,
@@ -85,19 +124,22 @@ export function resolveModelId(tier: ModelTier = 'medium'): string {
   }
 }
 
-/** Whether a model supports adaptive thinking. Opus 4.6, 4.7, and 4.8 only. */
+/** Whether a model supports adaptive thinking. Opus 4.6/4.7/4.8 and MiniMax-M3. */
 export function supportsAdaptiveThinking(model: string): boolean {
-  return /opus-4-[678]/.test(model);
+  return /opus-4-[678]/.test(model) || MINIMAX_ADAPTIVE_THINKING.test(model);
 }
 
 /**
  * Resolve the thinking level for a run.
  *
- * Adaptive thinking is enabled only on capable models (Opus 4.6/4.7/4.8), mapped to
- * pi's 'medium' level; every other model runs with thinking 'off'. The
- * CLAUDE_ADAPTIVE_THINKING=false kill switch forces 'off' regardless of model.
+ * MiniMax-M2.7 reasons on every request, so it always runs with thinking on
+ * regardless of the kill switch. Otherwise adaptive thinking is enabled only on
+ * capable models (Opus 4.6/4.7/4.8, MiniMax-M3), mapped to pi's 'medium' level;
+ * every other model runs with thinking 'off'. The CLAUDE_ADAPTIVE_THINKING=false
+ * kill switch forces 'off' for the adaptive models.
  */
 export function resolveThinkingLevel(modelId: string): ThinkingLevel {
+  if (MINIMAX_ALWAYS_ON_THINKING.test(modelId)) return 'medium';
   if (process.env.CLAUDE_ADAPTIVE_THINKING === 'false') return 'off';
   return supportsAdaptiveThinking(modelId) ? 'medium' : 'off';
 }
@@ -124,8 +166,12 @@ export function resolveModelSelection(
   const modelId = resolveModelId(modelTier);
 
   const authStorage = AuthStorage.inMemory();
-  if (eff.providerId === 'anthropic' && eff.anthropicToken) {
-    authStorage.setRuntimeApiKey('anthropic', eff.anthropicToken);
+  // Anthropic and the MiniMax providers all authenticate with a runtime bearer token
+  // primed under their own provider id.
+  const usesRuntimeToken =
+    eff.providerId === 'anthropic' || eff.providerId === 'minimax' || eff.providerId === 'minimax-cn';
+  if (usesRuntimeToken && eff.anthropicToken) {
+    authStorage.setRuntimeApiKey(eff.providerId, eff.anthropicToken);
   }
   // Bedrock auth flows from the AWS_ env vars; prime the bearer token explicitly so
   // it resolves via AuthStorage in addition to pi-ai's own env fallback.

@@ -271,16 +271,21 @@ function classifyCredentialError(text: string, authType: string): Result<void, P
   );
 }
 
-/** Minimal pi session probe to validate credentials. An optional baseUrl overrides the endpoint. */
+/**
+ * Minimal pi session probe to validate credentials. `providerId` selects the pi
+ * provider whose catalog the small-tier model is resolved from (Anthropic by
+ * default, or a MiniMax provider). An optional baseUrl overrides the endpoint.
+ */
 async function probeCredentialsWithPi(
   authType: string,
   token?: string,
   baseUrl?: string,
+  providerId = 'anthropic',
 ): Promise<Result<void, PentestError>> {
   const authStorage = AuthStorage.inMemory();
-  if (token) authStorage.setRuntimeApiKey('anthropic', token);
+  if (token) authStorage.setRuntimeApiKey(providerId, token);
 
-  const baseModel = ModelRegistry.create(authStorage).find('anthropic', resolveModelId('small'));
+  const baseModel = ModelRegistry.create(authStorage).find(providerId, resolveModelId('small'));
   if (!baseModel) {
     return err(
       new PentestError(
@@ -352,7 +357,17 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     return ok(undefined);
   }
 
-  // 2. Custom base URL — validate the endpoint via a minimal pi session
+  // 2. MiniMax — first-class provider; validate the small-tier MiniMax model via a
+  //    minimal pi session against the MiniMax catalog (correct endpoint baked in).
+  if (eff.providerId === 'minimax' || eff.providerId === 'minimax-cn') {
+    logger.info('Validating MiniMax credentials');
+    const probe = await probeCredentialsWithPi('MiniMax API key', eff.anthropicToken, undefined, eff.providerId);
+    if (isErr(probe)) return probe;
+    logger.info('MiniMax credentials OK');
+    return ok(undefined);
+  }
+
+  // 3. Custom base URL — validate the endpoint via a minimal pi session
   if (eff.baseUrl) {
     logger.info('Validating custom base URL');
     const probe = await probeCredentialsWithPi(`custom endpoint (${eff.baseUrl})`, eff.anthropicToken, eff.baseUrl);
@@ -361,7 +376,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     return ok(undefined);
   }
 
-  // 3. Direct Anthropic — require a credential, then validate via a minimal pi session
+  // 4. Direct Anthropic — require a credential, then validate via a minimal pi session
   if (!eff.anthropicToken) {
     return err(
       new PentestError(
