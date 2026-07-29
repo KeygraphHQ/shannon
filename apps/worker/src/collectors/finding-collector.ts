@@ -21,6 +21,19 @@ import { cleanInput, stringEnum } from './schema.js';
 // SCHEMA
 // ============================================================================
 
+const OWASP_CATEGORY_VALUES = [
+  'A01:2025 — Broken Access Control',
+  'A02:2025 — Security Misconfiguration',
+  'A03:2025 — Software Supply Chain Failures',
+  'A04:2025 — Cryptographic Failures',
+  'A05:2025 — Injection',
+  'A06:2025 — Insecure Design',
+  'A07:2025 — Authentication Failures',
+  'A08:2025 — Software or Data Integrity Failures',
+  'A09:2025 — Security Logging and Alerting Failures',
+  'A10:2025 — Mishandling of Exceptional Conditions',
+] as const;
+
 const SEVERITY_VALUES = ['critical', 'high', 'medium', 'low', 'informational'] as const;
 const STATUS_VALUES = ['exploited', 'out_of_scope', 'blocked_by_constraints', 'false_positive'] as const;
 const CONFIDENCE_VALUES = ['high', 'medium', 'low'] as const;
@@ -53,6 +66,43 @@ const StructuredStepSchema = Type.Object({
   }),
 });
 
+const CodeLocationSchema = Type.Object({
+  file: Type.String({
+    minLength: 1,
+    description: 'Repository-relative path, no leading slash (e.g., "routes/search.ts").',
+  }),
+  start_line: Type.Optional(
+    Type.Union([Type.Integer({ minimum: 1 }), Type.Null()], {
+      description: '1-indexed line number. Omit when the deliverable gives only a file.',
+    }),
+  ),
+  end_line: Type.Optional(
+    Type.Union([Type.Integer({ minimum: 1 }), Type.Null()], {
+      description: 'End of the range, when the finding spans multiple lines.',
+    }),
+  ),
+  role: stringEnum(['sink', 'source', 'guard'], {
+    description:
+      'What this location is in the data flow. `sink` is where the vulnerability manifests, `source` ' +
+      'where untrusted input enters, `guard` a check that is missing or misplaced.',
+  }),
+  symbol: Type.Optional(
+    Type.Union([Type.String(), Type.Null()], {
+      description: 'Enclosing function or method name, when known.',
+    }),
+  ),
+});
+
+const HttpLocationSchema = Type.Object({
+  method: Type.String({ minLength: 1, description: 'HTTP method (e.g., "GET", "POST").' }),
+  url: Type.String({ minLength: 1, description: 'Full URL of the affected endpoint.' }),
+  parameter: Type.Optional(
+    Type.Union([Type.String(), Type.Null()], {
+      description: 'The specific parameter carrying the payload, when the finding names one.',
+    }),
+  ),
+});
+
 const AdditionalSectionSchema = Type.Object({
   heading: Type.String({
     minLength: 1,
@@ -74,14 +124,12 @@ export const AddFindingInputSchema = Type.Object({
     minLength: 1,
     description: 'Descriptive name (e.g., "SQL Injection — User Search", "IDOR — Unauthorized Access to User Orders").',
   }),
-  category: Type.String({
-    minLength: 1,
-    description: 'Vulnerability category (e.g., "Authentication", "Injection", "XSS", "Authorization", "SSRF").',
+  category: stringEnum(['Injection', 'XSS', 'Authentication', 'Authorization', 'SSRF'], {
+    description: 'Vulnerability category, derived from the finding ID prefix.',
   }),
   severity: stringEnum(SEVERITY_VALUES, { description: 'Finding severity.' }),
-  owasp_category: Type.String({
-    minLength: 1,
-    description: 'OWASP Top 10 (2025) label (e.g., "A05:2025 — Injection").',
+  owasp_category: stringEnum(OWASP_CATEGORY_VALUES, {
+    description: 'OWASP Top Ten 2025 category.',
   }),
 
   // === Location & Context ===
@@ -89,6 +137,21 @@ export const AddFindingInputSchema = Type.Object({
     minLength: 1,
     description: 'Endpoint or code location where the vulnerability exists.',
   }),
+  code_locations: Type.Optional(
+    Type.Array(CodeLocationSchema, {
+      description:
+        'Structured code locations for this finding, taken from the file:line references in the ' +
+        'deliverable. List the sink first, then any source or guard locations. Omit entirely when the ' +
+        'finding has no code location.',
+    }),
+  ),
+  http_location: Type.Optional(
+    Type.Union([HttpLocationSchema, Type.Null()], {
+      description:
+        'The HTTP request the finding is reached through, when the deliverable names one. Omit for ' +
+        'findings with no network entry point.',
+    }),
+  ),
   overview: Type.String({
     minLength: 1,
     description: 'What the vulnerability is and why it matters. 2-3 sentences of professional prose.',
@@ -146,6 +209,8 @@ export const AddFindingInputSchema = Type.Object({
 export type AddFindingInput = Static<typeof AddFindingInputSchema>;
 
 // Re-export schema types for downstream consumers
+export type CodeLocation = Static<typeof CodeLocationSchema>;
+export type HttpLocation = Static<typeof HttpLocationSchema>;
 export type StepItem = Static<typeof StepItemSchema>;
 export type StructuredStep = Static<typeof StructuredStepSchema>;
 export type AdditionalSection = Static<typeof AdditionalSectionSchema>;

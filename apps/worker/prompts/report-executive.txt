@@ -103,6 +103,8 @@ Map the finding's content from the per-class deliverable sections to `add_findin
   - `"A09:2025 — Security Logging and Alerting Failures"`
   - `"A10:2025 — Mishandling of Exceptional Conditions"`
 - `vulnerable_location`: From the finding's "Vulnerable location" field
+- `code_locations`: Structured form of every `file:line` reference the finding gives. One entry per location, `role: "sink"` for where the vulnerability manifests, `"source"` for where untrusted input enters, `"guard"` for a missing or misplaced check. List the sink first. Paths must be repository-relative with no leading slash — strip any absolute prefix. Include `start_line` only when the deliverable states a line number; never invent one. Omit the field entirely if the finding names no file.
+- `http_location`: The HTTP request the finding is reached through, when the deliverable names one (e.g. `"GET /api/products?id="` gives `method: "GET"`, `url: "{{WEB_URL}}/api/products"`, `parameter: "id"`). Omit for findings with no network entry point.
 - `overview`: Synthesize from the finding's "Overview" field into professional prose. Do not paste verbatim.
 - `impact`: From the finding's "Impact" field if present, otherwise derive from the overview and proof of impact
 - `auth_state`: From the finding's authentication context or prerequisites
