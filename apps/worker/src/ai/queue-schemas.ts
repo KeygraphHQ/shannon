@@ -14,6 +14,7 @@
 
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { type Static, type TObject, Type } from 'typebox';
+import { stringEnum } from '../collectors/schema.js';
 import type { AgentName } from '../types/agents.js';
 import type { CapturedSubmitTool } from './submit-tool.js';
 
@@ -23,13 +24,20 @@ function optStr(description?: string) {
   return Type.Optional(Type.String(description === undefined ? {} : { description }));
 }
 
-/** Base fields shared by every queue entry. `notes` gains guidance in analysis mode. */
+/**
+ * Base fields shared by every queue entry. `notes` gains guidance in analysis mode.
+ *
+ * `confidence` is enumerated so it reaches the report agent in the same casing the report
+ * schema accepts — an analysis-only run carries it through verbatim as its only rating.
+ */
 function baseFields(exploit: boolean) {
   return {
     ID: Type.String(),
     vulnerability_type: Type.String(),
     externally_exploitable: Type.Boolean(),
-    confidence: Type.String(),
+    confidence: stringEnum(['high', 'medium', 'low'], {
+      description: 'Confidence that this is a real, reachable vulnerability.',
+    }),
     notes: exploit ? optStr() : optStr(ANALYSIS_NOTES_DESCRIPTION),
   };
 }

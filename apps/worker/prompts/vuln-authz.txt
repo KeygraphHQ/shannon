@@ -107,7 +107,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 		"side_effect": "specific unauthorized action possible (e.g., 'read other users profiles', 'delete any file', 'skip payment')",
 		"reason": "1-2 lines explaining why this is vulnerable",
 		"minimal_witness": "brief description of how to trigger (e.g., 'change user_id param to another user', 'call admin endpoint as regular user')",
-		"confidence": "high | med | low",
+		"confidence": "high | medium | low",
 		"notes": "any assumptions, related findings, or special conditions"
 	}
 </exploitation_queue_format>
@@ -220,7 +220,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
     - `guard_evidence` (missing/misplaced),
     - `side_effect` observed,
     - `reason` (1–2 lines: e.g., "ownership check absent"),
-    - `confidence` (high/med/low),
+    - `confidence` (high/medium/low),
     - `minimal_witness` (sketch for exploit agent).
 
 ---
