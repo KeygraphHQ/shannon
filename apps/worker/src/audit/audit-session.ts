@@ -19,7 +19,12 @@ import { formatTimestamp } from '../utils/formatting.js';
 import { AgentLogger } from './logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, type SessionMetadata } from './utils.js';
-import { type AgentLogDetails, WorkflowLogger, type WorkflowSummary } from './workflow-logger.js';
+import {
+  type AgentLogDetails,
+  getOrCreateWorkflowLogger,
+  type WorkflowLogger,
+  type WorkflowSummary,
+} from './workflow-logger.js';
 
 // Global mutex instance
 const sessionMutex = new SessionMutex();
@@ -60,9 +65,10 @@ export class AuditSession {
       );
     }
 
-    // Components
+    // Components. The workflow logger is shared (and its log stream kept open) across
+    // every AuditSession instance for this session — see getOrCreateWorkflowLogger.
     this.metricsTracker = new MetricsTracker(sessionMetadata);
-    this.workflowLogger = new WorkflowLogger(sessionMetadata);
+    this.workflowLogger = getOrCreateWorkflowLogger(sessionMetadata);
   }
 
   /**

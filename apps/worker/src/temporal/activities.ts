@@ -23,7 +23,7 @@ import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js'
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
-import type { WorkflowSummary } from '../audit/workflow-logger.js';
+import { closeWorkflowLogger, type WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
@@ -1140,6 +1140,9 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
 
   // 8. Clean up container
   removeContainer(workflowId);
+
+  // 9. This is the last write to workflow.log for this session — release its file handle.
+  await closeWorkflowLogger(sessionMetadata.id);
 }
 
 /**

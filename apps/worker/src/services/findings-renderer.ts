@@ -53,6 +53,23 @@ function formatLocation(endpoint: string | undefined, codeLocation: string | und
   return endpoint ?? codeLocation ?? '';
 }
 
+/**
+ * Every finding type carries ID + vulnerability_type as its render identity. The queue
+ * JSON is read straight off disk (not the in-memory, already-validated submit-tool
+ * payload), so a hand-edited or partially-written file can still reach this renderer —
+ * guard against silently emitting "undefined: undefined" into the customer report.
+ */
+function hasValidIdentity(entry: unknown): entry is { ID: string; vulnerability_type: string } {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const record = entry as Record<string, unknown>;
+  return (
+    typeof record.ID === 'string' &&
+    record.ID.trim() !== '' &&
+    typeof record.vulnerability_type === 'string' &&
+    record.vulnerability_type.trim() !== ''
+  );
+}
+
 function buildEntry(
   id: string,
   title: string,
@@ -176,7 +193,22 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
 
 // === Class File Assembly ===
 
-function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown[]): string {
+function renderClassFile(
+  config: ClassConfig<unknown>,
+  entries: readonly unknown[],
+  logger: ActivityLogger,
+): { markdown: string; renderedCount: number; skippedCount: number } {
+  const renderable: unknown[] = [];
+  let skippedCount = 0;
+  for (const entry of entries) {
+    if (hasValidIdentity(entry)) {
+      renderable.push(entry);
+    } else {
+      skippedCount++;
+      logger.warn(`${config.heading}: skipping malformed queue entry (missing ID or vulnerability_type)`);
+    }
+  }
+
   const sections: string[] = [];
   sections.push(`# ${config.heading} Findings`);
   sections.push('');
@@ -184,16 +216,16 @@ function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown
   sections.push('');
   sections.push('## Identified Vulnerabilities');
   sections.push('');
-  if (entries.length === 0) {
+  if (renderable.length === 0) {
     sections.push(`No ${config.noneFoundLabel} vulnerabilities were identified.`);
     sections.push('');
   } else {
-    for (const entry of entries) {
+    for (const entry of renderable) {
       sections.push(config.renderEntry(entry));
       sections.push('');
     }
   }
-  return `${sections.join('\n').trimEnd()}\n`;
+  return { markdown: `${sections.join('\n').trimEnd()}\n`, renderedCount: renderable.length, skippedCount };
 }
 
 // === Public Entry Point ===
@@ -228,9 +260,11 @@ export async function renderFindingsFromQueues(
     try {
       const doc = (await fs.readJson(queuePath)) as QueueDocument<unknown>;
       const entries = doc.vulnerabilities ?? [];
-      const markdown = renderClassFile(config, entries);
+      const { markdown, renderedCount, skippedCount } = renderClassFile(config, entries, logger);
       await fs.writeFile(findingsPath, markdown);
-      logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
+      const skippedNote =
+        skippedCount > 0 ? ` (${skippedCount} malformed entr${skippedCount === 1 ? 'y' : 'ies'} skipped)` : '';
+      logger.info(`${config.heading}: rendered ${renderedCount} finding(s) to ${config.findingsFile}${skippedNote}`);
     } catch (error) {
       const err = error as Error;
       logger.warn(`${config.heading}: failed to render findings from ${config.queueFile}: ${err.message}`);

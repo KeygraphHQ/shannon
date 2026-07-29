@@ -33,7 +33,6 @@ import {
   workflowInfo,
 } from '@temporalio/workflow';
 import type { AgentName, VulnType } from '../types/agents.js';
-import { ALL_AGENTS } from '../types/agents.js';
 import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
@@ -274,8 +273,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       input.deliverablesSubdir,
     );
 
-    // 2. Restore git workspace and clean up incomplete deliverables
-    const incompleteAgents = ALL_AGENTS.filter(
+    // 2. Restore git workspace and clean up incomplete deliverables. Scoped to this run's
+    // expectedAgents (not ALL_AGENTS) so a class-scoped run doesn't treat agents outside
+    // its locked vuln_classes/exploit scope as "incomplete" and target them for cleanup.
+    const incompleteAgents = expectedAgents.filter(
       (agentName) => !resumeState?.completedAgents.includes(agentName),
     ) as AgentName[];
 
