@@ -469,15 +469,9 @@ async function writeSarifIfEnabled(
 
   try {
     const { renderSarif } = await import('../services/sarif-renderer.js');
-    const { sarif, droppedFindingIds } = renderSarif(reportData, { workspaceName: input.sessionId });
+    const sarif = renderSarif(reportData, { workspaceName: input.sessionId });
     await atomicWrite(path.join(deliverablesPath, SARIF_FILENAME), sarif);
     logger.info(`Wrote ${SARIF_FILENAME}`);
-    if (droppedFindingIds.length > 0) {
-      logger.warn(
-        `${SARIF_FILENAME}: omitted ${droppedFindingIds.length} finding(s) with no code or HTTP ` +
-          `location — a result without a location is discarded by consumers: ${droppedFindingIds.join(', ')}`,
-      );
-    }
   } catch (error) {
     logger.warn(`Failed to write ${SARIF_FILENAME}: ${(error as Error).message}`);
   }

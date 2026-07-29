@@ -4,14 +4,8 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-/**
- * Deterministic report.json to SARIF 2.1.0 renderer, for `exploit=true` runs only.
- *
- * Consumers match alerts across runs by fingerprint and read a rule's absent results as
- * resolved, so `partialFingerprints` and `invocations[].executionSuccessful` are load-bearing.
- */
+/** Deterministic report.json to SARIF 2.1.0 renderer, for `exploit=true` runs only. */
 
-import { createHash } from 'node:crypto';
 import type { AddFindingInput, CodeLocation } from '../collectors/finding-collector.js';
 import type { ReportData } from './report-renderer.js';
 
@@ -123,18 +117,6 @@ function severityToLevel(severity: string | undefined): string {
   }
 }
 
-/**
- * Alert identity across runs.
- *
- * Excludes line numbers and `symbol`: an edit above the sink shifts the line and `symbol` is
- * optional, so either would re-key the alert. `finding_id` is agent-assigned per run and names a
- * different vulnerability next time. Two findings of one class in one file therefore collapse
- * into a single alert.
- */
-function fingerprint(ruleId: string, file: string): string {
-  return createHash('sha256').update(`${ruleId}\n${file}`).digest('hex').slice(0, 16);
-}
-
 function toPhysicalLocation(location: CodeLocation) {
   const region: Record<string, number> = {};
   if (location.start_line) region.startLine = location.start_line;
@@ -142,7 +124,7 @@ function toPhysicalLocation(location: CodeLocation) {
 
   return {
     physicalLocation: {
-      artifactLocation: { uri: location.file, uriBaseId: 'SRCROOT' },
+      artifactLocation: { uri: location.file },
       ...(Object.keys(region).length > 0 && { region }),
     },
     ...(location.symbol && { logicalLocations: [{ name: location.symbol, kind: 'function' }] }),
@@ -158,7 +140,8 @@ function syntheticLocationFromHttp(finding: AddFindingInput) {
   if (!finding.http_location) return undefined;
   let uri = finding.http_location.url;
   try {
-    uri = new URL(finding.http_location.url).pathname;
+    const parsed = new URL(finding.http_location.url);
+    uri = `${parsed.pathname}${parsed.hash}`;
   } catch {}
   return {
     physicalLocation: { artifactLocation: { uri } },
@@ -233,36 +216,22 @@ function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult 
           toolComponent: { name: OWASP_TAXONOMY_NAME },
         },
       ],
-      partialFingerprints: {
-        shannonFindingV1: fingerprint(ruleId, primary?.file ?? finding.vulnerable_location),
-      },
       properties,
     },
   };
 }
 
-/**
- * Render a SARIF 2.1.0 log from the structured report. Findings with no location at all are
- * dropped and their IDs returned, so the caller can log what was omitted rather than lose it.
- */
-export function renderSarif(data: ReportData, options: SarifOptions): { sarif: string; droppedFindingIds: string[] } {
+/** Render a SARIF 2.1.0 log from the structured report. Findings with no location are omitted. */
+export function renderSarif(data: ReportData, options: SarifOptions): string {
   const { report_meta, findings, not_assessed = [] } = data;
 
   const rendered: RenderedResult[] = [];
-  const droppedFindingIds: string[] = [];
 
   for (const finding of findings) {
     const rule = RULES[finding.category];
-    if (!rule) {
-      droppedFindingIds.push(finding.finding_id);
-      continue;
-    }
+    if (!rule) continue;
     const result = renderResult(finding, rule.id);
-    if (result === null) {
-      droppedFindingIds.push(finding.finding_id);
-      continue;
-    }
-    rendered.push(result);
+    if (result !== null) rendered.push(result);
   }
 
   // Only classes that produced a result are declared, and `ruleIndex` is the position in this list.
@@ -303,7 +272,6 @@ export function renderSarif(data: ReportData, options: SarifOptions): { sarif: s
             executionSuccessful: not_assessed.length === 0,
           },
         ],
-        originalUriBaseIds: { SRCROOT: { uri: 'file:///' } },
         ...(owaspCategories.length > 0 && {
           taxonomies: [
             {
@@ -321,5 +289,5 @@ export function renderSarif(data: ReportData, options: SarifOptions): { sarif: s
     ],
   };
 
-  return { sarif: `${JSON.stringify(log, null, 2)}\n`, droppedFindingIds };
+  return `${JSON.stringify(log, null, 2)}\n`;
 }
