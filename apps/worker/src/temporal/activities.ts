@@ -485,8 +485,10 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
 
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
-    const findings = collector.getAll();
-    logger.info(`Collected ${findings.length} finding(s) from report agent`);
+    const { attachQueueCodeLocations } = await import('../services/code-location-join.js');
+    const collected = collector.getAll();
+    logger.info(`Collected ${collected.length} finding(s) from report agent`);
+    const findings = await attachQueueCodeLocations(collected, deliverablesPath, logger);
 
     // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
     // the two halves of report.json end up in one document.

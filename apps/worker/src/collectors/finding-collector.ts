@@ -143,14 +143,6 @@ function locationFields() {
       minLength: 1,
       description: 'Endpoint or code location where the vulnerability exists.',
     }),
-    code_locations: Type.Optional(
-      Type.Array(CodeLocationSchema, {
-        description:
-          'Structured code locations for this finding, taken from the file:line references in the ' +
-          'deliverable. List the sink first, then any source or guard locations. Omit entirely when the ' +
-          'finding has no code location.',
-      }),
-    ),
     http_location: Type.Optional(
       Type.Union([HttpLocationSchema, Type.Null()], {
         description:
@@ -252,6 +244,7 @@ export function buildAddFindingSchema(exploit: boolean) {
  */
 const AddFindingSupersetSchema = Type.Object({
   ...identityFields(),
+  code_locations: Type.Optional(Type.Array(CodeLocationSchema)),
   severity: Type.Optional(stringEnum(SEVERITY_VALUES)),
   auth_state: Type.Optional(Type.String()),
   prerequisites: Type.Optional(Type.String()),
