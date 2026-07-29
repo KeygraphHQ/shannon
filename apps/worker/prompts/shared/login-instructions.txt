@@ -37,6 +37,22 @@ Execute the login flow based on the login_type specified in the configuration:
 4. Ensure all consent and authorization steps are explicitly handled
 <!-- END:SSO -->
 
+<!-- BEGIN:API -->
+**API-based authentication (no browser login form):**
+1. If login_flow steps are provided, execute them sequentially against login_url (e.g. via `curl` through the `bash` tool), replacing $username, $password, and $totp with the credential placeholders below.
+2. If no login_flow is provided, authenticate directly: send the username/password credentials to login_url using the target's documented request shape (commonly a POST with a JSON or form-encoded body), and capture the returned token, session cookie, or bearer credential from the response.
+3. If the target's session is cookie-based, set the captured cookie in the Playwright browser context so subsequent browser-driven testing is authenticated.
+4. If the target uses a bearer/API token instead, include it as an `Authorization` header on subsequent API requests made via the `bash` tool for the remainder of the assessment.
+<!-- END:API -->
+
+<!-- BEGIN:BASIC -->
+**HTTP Basic authentication:**
+1. Navigate to the specified login_url using Playwright.
+2. If the browser presents a native Basic Auth prompt, enter the username and password credentials and submit.
+3. If no prompt appears, the target likely expects credentials embedded in the URL or an `Authorization: Basic` header — retry navigation using `https://$username:$password@<host><path>`, or verify credentials with `curl -u $username:$password` via the `bash` tool.
+4. Basic Auth credentials are typically cached per-origin by the browser for the remainder of the session — confirm subsequent navigation stays authenticated without re-prompting.
+<!-- END:BASIC -->
+
 <!-- BEGIN:VERIFICATION -->
 </authentication_execution>
 

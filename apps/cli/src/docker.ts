@@ -217,11 +217,13 @@ function forwardEtcHostsFlags(): string[] {
     if (!ip || names.length === 0) continue;
     if (shouldSkipHostsIp(ip)) continue;
 
+    // Docker's --add-host parser splits on the first colon only, then validates the
+    // remainder as a bare IP literal — bracketing an IPv6 address (valid in URLs, invalid
+    // here) makes Docker reject the whole flag.
     const targetIp = isLoopbackIp(ip) ? 'host-gateway' : ip;
-    const formattedIp = targetIp.includes(':') ? `[${targetIp}]` : targetIp;
     for (const name of names) {
       if (shouldSkipHostsName(name, hostname)) continue;
-      flags.push('--add-host', `${name}:${formattedIp}`);
+      flags.push('--add-host', `${name}:${targetIp}`);
     }
   }
 

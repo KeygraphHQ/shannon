@@ -17,7 +17,7 @@
  */
 
 import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
+import { type Api, type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
 import {
   type AuthStorage,
   createAgentSession,
@@ -32,8 +32,7 @@ import {
 
 export interface TaskToolContext {
   cwd: string;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  model: Model<any>;
+  model: Model<Api>;
   thinkingLevel?: ThinkingLevel;
   authStorage: AuthStorage;
   /** Explicit model registry for sub-session resolution. Omit to inherit the parent's default. */

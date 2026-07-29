@@ -44,10 +44,11 @@ try {
 
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\.\.\//, // Path traversal
-  /[<>]/, // HTML/XML injection
-  /javascript:/i, // JavaScript URLs
-  /data:/i, // Data URLs
-  /file:/i, // File URLs
+  /<\/?[a-zA-Z!]/, // HTML/XML tags (e.g. <script, </div, <!--) — not a bare '<'/'>', which
+  // also rejected benign text like "count > 5"
+  /\bjavascript:/i, // JavaScript URL scheme
+  /\bdata:/i, // Data URL scheme — \b avoids matching inside words like "metadata:"
+  /\bfile:/i, // File URL scheme — \b avoids matching inside words like "profile:"
 ];
 
 /**
@@ -334,6 +335,16 @@ function checkDeprecatedFields(config: Config): void {
   checkRules(rules?.avoid, 'avoid');
   checkRules(rules?.focus, 'focus');
 
+  // The top-level 'login' block predates 'authentication' and is never read by
+  // distributeConfig — accepting it silently would let a scan run unauthenticated
+  // while the user believes credentials are configured. Fail loudly instead.
+  if (raw.login !== undefined) {
+    messages.push(
+      "'login' has been replaced by 'authentication' and is no longer read — migrate its contents to the " +
+        "'authentication' section, or the scan will run unauthenticated.",
+    );
+  }
+
   if (messages.length > 0) {
     throw new PentestError(
       `Configuration uses deprecated fields. Please update:\n  - ${messages.join('\n  - ')}`,
@@ -390,7 +401,8 @@ const validateConfig = (config: Config): void => {
     !!config.vuln_classes ||
     config.exploit !== undefined ||
     !!config.report ||
-    !!config.rules_of_engagement;
+    !!config.rules_of_engagement ||
+    !!config.pipeline;
   if (!hasAnySteering) {
     console.warn('⚠️  Configuration file contains no steering fields. The pentest will run with all defaults.');
   } else if (config.rules && !config.rules.avoid && !config.rules.focus) {
@@ -445,6 +457,21 @@ const performSecurityValidation = (config: Config): void => {
           }
         }
       });
+    }
+
+    // Rendered into the same login prompt templates as login_url/credentials/login_flow above.
+    if (auth.success_condition?.value) {
+      for (const pattern of DANGEROUS_PATTERNS) {
+        if (pattern.test(auth.success_condition.value)) {
+          throw new PentestError(
+            `authentication.success_condition.value contains potentially dangerous pattern: ${pattern.source}`,
+            'config',
+            false,
+            { field: 'success_condition.value', pattern: pattern.source },
+            ErrorCode.CONFIG_VALIDATION_FAILED,
+          );
+        }
+      }
     }
   }
 
@@ -621,10 +648,16 @@ const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): 
   }
 };
 
+// Matches the normalization sanitizeRule applies later, so a duplicate/conflict
+// hiding behind incidental whitespace or type casing differences (e.g. "/admin "
+// vs "/admin") is caught here instead of silently resolving to the same rule
+// after sanitization.
+const ruleKey = (rule: Rule): string => `${rule.type.trim().toLowerCase()}:${rule.value.trim()}`;
+
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
   rules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.value}`;
+    const key = ruleKey(rule);
     if (seen.has(key)) {
       throw new PentestError(
         `Duplicate rule found in rules.${ruleType}[${index}]: ${rule.type} '${rule.value}'`,
@@ -639,10 +672,10 @@ const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
 };
 
 const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): void => {
-  const avoidSet = new Set(avoidRules.map((rule) => `${rule.type}:${rule.value}`));
+  const avoidSet = new Set(avoidRules.map(ruleKey));
 
   focusRules.forEach((rule, index) => {
-    const key = `${rule.type}:${rule.value}`;
+    const key = ruleKey(rule);
     if (avoidSet.has(key)) {
       throw new PentestError(
         `Conflicting rule found: rules.focus[${index}] '${rule.value}' also exists in rules.avoid`,

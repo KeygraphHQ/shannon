@@ -172,7 +172,20 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
 
   // === STRING-BASED CLASSIFICATION (Fallback for external errors) ===
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  const stringClassification = classifyByMessage(message);
 
+  // A PentestError without a code still carries an author-set retryable flag that is
+  // more reliable than message heuristics (e.g. queue-validation intentionally marks
+  // malformed-JSON retryable, preflight intentionally marks an unavailable model
+  // non-retryable) — honor it, keeping the message-derived type for reporting.
+  if (error instanceof PentestError) {
+    return { type: stringClassification.type, retryable: error.retryable };
+  }
+
+  return stringClassification;
+}
+
+function classifyByMessage(message: string): { type: string; retryable: boolean } {
   // === BILLING ERRORS (Retryable with long backoff) ===
   // Anthropic returns billing as 400 invalid_request_error
   // Human can add credits OR wait for spending cap to reset (5-30 min backoff)

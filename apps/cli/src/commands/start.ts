@@ -40,12 +40,28 @@ function migrateLegacyWorkspaceLayout(workspacePath: string): void {
     return;
   }
 
-  fs.mkdirSync(internalPath, { recursive: true });
-  for (const entry of fs.readdirSync(workspacePath)) {
-    if (entry === INTERNAL_DIR) {
-      continue;
+  // Stage the moves in a sibling temp dir and rename it into place as the one final,
+  // atomic step. internalPath must never come into existence until every entry has been
+  // moved — otherwise a failure partway through the loop would leave it existing, and the
+  // existsSync guard above would then treat migration as already done and permanently
+  // skip it on every future run, stranding whatever hadn't been moved yet.
+  const stagingPath = `${internalPath}.migrating-${process.pid}`;
+  fs.rmSync(stagingPath, { recursive: true, force: true });
+  fs.mkdirSync(stagingPath, { recursive: true });
+  try {
+    for (const entry of fs.readdirSync(workspacePath)) {
+      if (entry === INTERNAL_DIR || entry.startsWith(`${INTERNAL_DIR}.migrating-`)) {
+        continue;
+      }
+      fs.renameSync(path.join(workspacePath, entry), path.join(stagingPath, entry));
     }
-    fs.renameSync(path.join(workspacePath, entry), path.join(internalPath, entry));
+    fs.renameSync(stagingPath, internalPath);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.error(`ERROR: Failed to migrate workspace to ${INTERNAL_DIR}/ layout: ${detail}`);
+    console.error(`  Partially-migrated files are staged at: ${stagingPath}`);
+    console.error('  Resolve the underlying issue and retry, or restore the workspace from backup.');
+    process.exit(1);
   }
   console.log(`Migrated workspace to ${INTERNAL_DIR}/ layout: ${workspacePath}`);
 }

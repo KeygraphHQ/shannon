@@ -208,7 +208,8 @@
     { "required": ["vuln_classes"] },
     { "required": ["exploit"] },
     { "required": ["report"] },
-    { "required": ["rules_of_engagement"] }
+    { "required": ["rules_of_engagement"] },
+    { "required": ["pipeline"] }
   ],
   "additionalProperties": false,
   "$defs": {

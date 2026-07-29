@@ -386,3 +386,29 @@ export class WorkflowLogger {
     return this.logStream.close();
   }
 }
+
+// Every activity in a workflow constructs its own AuditSession (required for per-agent
+// instance state — see audit-session.ts), which would otherwise open a brand new
+// WriteStream onto the same workflow.log on every single activity call and never close
+// it. WorkflowLogger itself carries no per-agent state, so it's safe to share one
+// instance — and its one open stream — per session across all of a workflow's activities.
+const workflowLoggers = new Map<string, WorkflowLogger>();
+
+/** Reuse the cached WorkflowLogger (and its open log stream) for this session, if any. */
+export function getOrCreateWorkflowLogger(sessionMetadata: SessionMetadata): WorkflowLogger {
+  const existing = workflowLoggers.get(sessionMetadata.id);
+  if (existing) return existing;
+
+  const logger = new WorkflowLogger(sessionMetadata);
+  workflowLoggers.set(sessionMetadata.id, logger);
+  return logger;
+}
+
+/** Close and evict the cached WorkflowLogger — call once the workflow has finished
+ * writing to workflow.log (logWorkflowComplete), releasing its file descriptor. */
+export async function closeWorkflowLogger(sessionId: string): Promise<void> {
+  const logger = workflowLoggers.get(sessionId);
+  if (!logger) return;
+  workflowLoggers.delete(sessionId);
+  await logger.close();
+}

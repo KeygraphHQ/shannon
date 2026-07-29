@@ -33,6 +33,8 @@ interface ClassConfig<T> {
   readonly noneFoundLabel: string;
   readonly queueFile: string;
   readonly findingsFile: string;
+  /** Exploit agent's evidence file — when present, it takes precedence over rendered findings. */
+  readonly evidenceFile: string;
   readonly renderEntry: (entry: T) => string;
 }
 
@@ -51,6 +53,23 @@ function summaryRow(label: string, value: string | undefined | null | boolean): 
 function formatLocation(endpoint: string | undefined, codeLocation: string | undefined): string {
   if (endpoint && codeLocation) return `${endpoint} (${codeLocation})`;
   return endpoint ?? codeLocation ?? '';
+}
+
+/**
+ * Every finding type carries ID + vulnerability_type as its render identity. The queue
+ * JSON is read straight off disk (not the in-memory, already-validated submit-tool
+ * payload), so a hand-edited or partially-written file can still reach this renderer —
+ * guard against silently emitting "undefined: undefined" into the customer report.
+ */
+function hasValidIdentity(entry: unknown): entry is { ID: string; vulnerability_type: string } {
+  if (typeof entry !== 'object' || entry === null) return false;
+  const record = entry as Record<string, unknown>;
+  return (
+    typeof record.ID === 'string' &&
+    record.ID.trim() !== '' &&
+    typeof record.vulnerability_type === 'string' &&
+    record.vulnerability_type.trim() !== ''
+  );
 }
 
 function buildEntry(
@@ -142,6 +161,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'authentication',
     queueFile: 'auth_exploitation_queue.json',
     findingsFile: 'auth_findings.md',
+    evidenceFile: 'auth_exploitation_evidence.md',
     renderEntry: (e) => renderAuthEntry(e as AuthFinding),
   },
   authz: {
@@ -149,6 +169,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'authorization',
     queueFile: 'authz_exploitation_queue.json',
     findingsFile: 'authz_findings.md',
+    evidenceFile: 'authz_exploitation_evidence.md',
     renderEntry: (e) => renderAuthzEntry(e as AuthzFinding),
   },
   injection: {
@@ -156,6 +177,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'injection',
     queueFile: 'injection_exploitation_queue.json',
     findingsFile: 'injection_findings.md',
+    evidenceFile: 'injection_exploitation_evidence.md',
     renderEntry: (e) => renderInjectionEntry(e as InjectionFinding),
   },
   xss: {
@@ -163,6 +185,7 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'XSS',
     queueFile: 'xss_exploitation_queue.json',
     findingsFile: 'xss_findings.md',
+    evidenceFile: 'xss_exploitation_evidence.md',
     renderEntry: (e) => renderXssEntry(e as XssFinding),
   },
   ssrf: {
@@ -170,13 +193,29 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     noneFoundLabel: 'SSRF',
     queueFile: 'ssrf_exploitation_queue.json',
     findingsFile: 'ssrf_findings.md',
+    evidenceFile: 'ssrf_exploitation_evidence.md',
     renderEntry: (e) => renderSsrfEntry(e as SsrfFinding),
   },
 };
 
 // === Class File Assembly ===
 
-function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown[]): string {
+function renderClassFile(
+  config: ClassConfig<unknown>,
+  entries: readonly unknown[],
+  logger: ActivityLogger,
+): { markdown: string; renderedCount: number; skippedCount: number } {
+  const renderable: unknown[] = [];
+  let skippedCount = 0;
+  for (const entry of entries) {
+    if (hasValidIdentity(entry)) {
+      renderable.push(entry);
+    } else {
+      skippedCount++;
+      logger.warn(`${config.heading}: skipping malformed queue entry (missing ID or vulnerability_type)`);
+    }
+  }
+
   const sections: string[] = [];
   sections.push(`# ${config.heading} Findings`);
   sections.push('');
@@ -184,16 +223,16 @@ function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown
   sections.push('');
   sections.push('## Identified Vulnerabilities');
   sections.push('');
-  if (entries.length === 0) {
+  if (renderable.length === 0) {
     sections.push(`No ${config.noneFoundLabel} vulnerabilities were identified.`);
     sections.push('');
   } else {
-    for (const entry of entries) {
+    for (const entry of renderable) {
       sections.push(config.renderEntry(entry));
       sections.push('');
     }
   }
-  return `${sections.join('\n').trimEnd()}\n`;
+  return { markdown: `${sections.join('\n').trimEnd()}\n`, renderedCount: renderable.length, skippedCount };
 }
 
 // === Public Entry Point ===
@@ -201,9 +240,12 @@ function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown
 /**
  * Render `*_findings.md` per class from each `*_exploitation_queue.json`.
  *
- * Idempotent: skips classes whose findings file already exists, or whose queue
- * is missing (class out of scope this run). Per-class failures are logged and
- * other classes still proceed.
+ * Idempotent: skips classes whose findings file already exists, whose exploit
+ * agent already produced an evidence file (evidence takes precedence — this
+ * fills the gap only when there's no evidence, e.g. exploit:false globally, or
+ * the exploit agent failed/never ran for this one class on an exploit:true run),
+ * or whose queue is missing (class out of scope this run). Per-class failures
+ * are logged and other classes still proceed.
  */
 export async function renderFindingsFromQueues(
   sourceDir: string,
@@ -215,9 +257,14 @@ export async function renderFindingsFromQueues(
   for (const config of Object.values(CLASSES)) {
     const queuePath = path.join(dir, config.queueFile);
     const findingsPath = path.join(dir, config.findingsFile);
+    const evidencePath = path.join(dir, config.evidenceFile);
 
     if (await fs.pathExists(findingsPath)) {
       logger.info(`${config.heading}: ${config.findingsFile} already exists, skipping`);
+      continue;
+    }
+    if (await fs.pathExists(evidencePath)) {
+      logger.info(`${config.heading}: ${config.evidenceFile} already covers this class, skipping`);
       continue;
     }
     if (!(await fs.pathExists(queuePath))) {
@@ -228,9 +275,11 @@ export async function renderFindingsFromQueues(
     try {
       const doc = (await fs.readJson(queuePath)) as QueueDocument<unknown>;
       const entries = doc.vulnerabilities ?? [];
-      const markdown = renderClassFile(config, entries);
+      const { markdown, renderedCount, skippedCount } = renderClassFile(config, entries, logger);
       await fs.writeFile(findingsPath, markdown);
-      logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
+      const skippedNote =
+        skippedCount > 0 ? ` (${skippedCount} malformed entr${skippedCount === 1 ? 'y' : 'ies'} skipped)` : '';
+      logger.info(`${config.heading}: rendered ${renderedCount} finding(s) to ${config.findingsFile}${skippedNote}`);
     } catch (error) {
       const err = error as Error;
       logger.warn(`${config.heading}: failed to render findings from ${config.queueFile}: ${err.message}`);

@@ -292,32 +292,43 @@ export class MetricsTracker {
   }
 
   /**
+   * Elapsed time for an agent regardless of outcome. `final_duration_ms` is only set
+   * on success, so a failed or still-retrying agent's real elapsed time is the sum of
+   * its own attempts' durations instead.
+   */
+  private static effectiveDuration(data: AgentAuditMetrics): number {
+    return data.status === 'success'
+      ? data.final_duration_ms
+      : data.attempts.reduce((sum, a) => sum + a.duration_ms, 0);
+  }
+
+  /**
    * Recalculate aggregations (total duration, total cost, phases)
    */
   private recalculateAggregations(): void {
     if (!this.data) return;
 
-    const agents = this.data.metrics.agents;
+    const allAgents = Object.entries(this.data.metrics.agents);
 
-    // Only count successful agents
-    const successfulAgents = Object.entries(agents).filter(([, data]) => data.status === 'success');
-
-    // Calculate total duration and cost
-    const totalDuration = successfulAgents.reduce((sum, [, data]) => sum + data.final_duration_ms, 0);
-
-    const totalCost = successfulAgents.reduce((sum, [, data]) => sum + data.total_cost_usd, 0);
+    // Every agent's total_cost_usd already sums cost across all its attempts —
+    // success and failure alike, since a retried attempt still burns real, billed
+    // spend. Roll that into the session total regardless of the agent's final
+    // status, or a permanently-failed agent's spend silently disappears from the
+    // cumulative cost surfaced to the user.
+    const totalDuration = allAgents.reduce((sum, [, data]) => sum + MetricsTracker.effectiveDuration(data), 0);
+    const totalCost = allAgents.reduce((sum, [, data]) => sum + data.total_cost_usd, 0);
 
     this.data.metrics.total_duration_ms = totalDuration;
     this.data.metrics.total_cost_usd = totalCost;
 
     // Calculate phase-level metrics
-    this.data.metrics.phases = this.calculatePhaseMetrics(successfulAgents);
+    this.data.metrics.phases = this.calculatePhaseMetrics(allAgents);
   }
 
   /**
    * Calculate phase-level metrics
    */
-  private calculatePhaseMetrics(successfulAgents: Array<[string, AgentAuditMetrics]>): Record<string, PhaseMetrics> {
+  private calculatePhaseMetrics(allAgents: Array<[string, AgentAuditMetrics]>): Record<string, PhaseMetrics> {
     const phases: Record<PhaseName, AgentAuditMetrics[]> = {
       'pre-recon': [],
       recon: [],
@@ -327,7 +338,7 @@ export class MetricsTracker {
     };
 
     // Group agents by phase using imported AGENT_PHASE_MAP
-    for (const [agentName, agentData] of successfulAgents) {
+    for (const [agentName, agentData] of allAgents) {
       const phase = AGENT_PHASE_MAP[agentName as AgentName];
       if (phase) {
         phases[phase].push(agentData);
@@ -342,7 +353,7 @@ export class MetricsTracker {
     for (const [phaseName, agentList] of Object.entries(phases)) {
       if (agentList.length === 0) continue;
 
-      const phaseDuration = agentList.reduce((sum, agent) => sum + agent.final_duration_ms, 0);
+      const phaseDuration = agentList.reduce((sum, agent) => sum + MetricsTracker.effectiveDuration(agent), 0);
       const phaseCost = agentList.reduce((sum, agent) => sum + agent.total_cost_usd, 0);
 
       phaseMetrics[phaseName] = {
