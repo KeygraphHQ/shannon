@@ -17,10 +17,18 @@
  */
 
 import { fs, path } from 'zx';
-import type { AuthFinding, AuthzFinding, InjectionFinding, SsrfFinding, XssFinding } from '../ai/queue-schemas.js';
+import type {
+  AuthFinding,
+  AuthzFinding,
+  InjectionFinding,
+  QueueCodeLocation,
+  SsrfFinding,
+  XssFinding,
+} from '../ai/queue-schemas.js';
 import { deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { VulnClass } from '../types/config.js';
+import { formatCodeLocations } from './code-locations.js';
 
 const DISCLAIMER = [
   '> Exploitation phase was not run for this assessment. Each entry documents a',
@@ -53,15 +61,17 @@ function formatLocation(endpoint: string | undefined, codeLocation: string | und
   return endpoint ?? codeLocation ?? '';
 }
 
-/** Confidence only — the analysis queue carries no severity field. */
-interface EntryRatings {
+/** Fields shared by every class, rendered ahead of the per-class rows. */
+interface CommonEntryFields {
+  /** The analysis queue carries no severity, so confidence is the only rating. */
   readonly confidence: string;
+  readonly codeLocations: QueueCodeLocation[] | undefined;
 }
 
 function buildEntry(
   id: string,
   title: string,
-  ratings: EntryRatings,
+  common: CommonEntryFields,
   summaryRows: ReadonlyArray<string | null>,
   notes: string | undefined,
 ): string {
@@ -69,11 +79,16 @@ function buildEntry(
   lines.push(`### ${id}: ${title}`);
   lines.push('');
   lines.push('**Summary:**');
-  lines.push(`- **Confidence:** ${ratings.confidence}`);
+  lines.push(`- **Confidence:** ${common.confidence}`);
   for (const row of summaryRows) {
     if (row !== null) lines.push(row);
   }
   lines.push('');
+  const codeLocations = formatCodeLocations(common.codeLocations);
+  if (codeLocations !== null) {
+    lines.push(codeLocations);
+    lines.push('');
+  }
   if (notes && notes.trim() !== '') {
     lines.push(`**Notes:** ${notes.trim()}`);
   }
@@ -86,7 +101,7 @@ function renderAuthEntry(e: AuthFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    { confidence: e.confidence },
+    { confidence: e.confidence, codeLocations: e.code_locations },
     [
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
@@ -100,7 +115,7 @@ function renderSsrfEntry(e: SsrfFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    { confidence: e.confidence },
+    { confidence: e.confidence, codeLocations: e.code_locations },
     [
       summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.missing_defense),
@@ -114,7 +129,7 @@ function renderAuthzEntry(e: AuthzFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    { confidence: e.confidence },
+    { confidence: e.confidence, codeLocations: e.code_locations },
     [
       summaryRow('Vulnerable location', formatLocation(e.endpoint, e.vulnerable_code_location)),
       summaryRow('Overview', e.guard_evidence),
@@ -129,7 +144,7 @@ function renderInjectionEntry(e: InjectionFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    { confidence: e.confidence },
+    { confidence: e.confidence, codeLocations: e.code_locations },
     [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );
@@ -140,7 +155,7 @@ function renderXssEntry(e: XssFinding): string {
   return buildEntry(
     e.ID,
     e.vulnerability_type,
-    { confidence: e.confidence },
+    { confidence: e.confidence, codeLocations: e.code_locations },
     [summaryRow('Vulnerable location', location), summaryRow('Overview', e.mismatch_reason)],
     e.notes,
   );

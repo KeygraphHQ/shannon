@@ -103,6 +103,10 @@ An **exploitable vulnerability** is a data flow where user-controlled input infl
 	  "exploitation_hypothesis": "A clear statement describing the expected outcome of a successful exploit (e.g., 'An attacker can access internal services by providing internal URLs', 'An attacker can retrieve cloud metadata through URL manipulation').",
 	  "suggested_exploit_technique": "The specific attack pattern to attempt, derived from the methodology (e.g., 'internal_service_access', 'cloud_metadata_retrieval', 'port_scanning', 'webhook_abuse').",
 	  "confidence": "high | medium | low",
+	  "code_locations": [
+	    { "file": "routes/profileImageUrlUpload.ts", "start_line": 24, "role": "sink", "symbol": "profileImageUrlUpload" },
+	    { "file": "routes/profileImageUrlUpload.ts", "start_line": 18, "role": "source" }
+	  ],
 	  "notes": "Relevant details about request format, authentication requirements, observed timeouts, or links to related findings."
 	}
 </exploitation_queue_format>

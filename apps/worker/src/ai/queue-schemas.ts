@@ -38,6 +38,24 @@ function baseFields(exploit: boolean) {
     confidence: stringEnum(['high', 'medium', 'low'], {
       description: 'Confidence that this is a real, reachable vulnerability.',
     }),
+    code_locations: Type.Optional(
+      Type.Array(
+        Type.Object({
+          file: Type.String({ description: 'Repository-relative path, no leading slash.' }),
+          start_line: Type.Optional(Type.Integer({ minimum: 1 })),
+          end_line: Type.Optional(Type.Integer({ minimum: 1, description: 'Set when the flaw spans a range.' })),
+          role: stringEnum(['sink', 'source', 'guard'], {
+            description:
+              'sink where the flaw manifests, source where untrusted input enters, guard for a check ' +
+              'that is missing or misplaced.',
+          }),
+          symbol: Type.Optional(
+            Type.String({ description: 'Enclosing function or method, named as written in the code.' }),
+          ),
+        }),
+        { description: 'Every code site this finding touches, sink first.' },
+      ),
+    ),
     notes: exploit ? optStr() : optStr(ANALYSIS_NOTES_DESCRIPTION),
   };
 }
@@ -101,6 +119,8 @@ const xssEntry = () => Type.Object({ ...baseFields(true), ...xssFields });
 const authEntry = () => Type.Object({ ...baseFields(true), ...authFields });
 const ssrfEntry = () => Type.Object({ ...baseFields(true), ...ssrfFields });
 const authzEntry = () => Type.Object({ ...baseFields(true), ...authzFields });
+
+export type QueueCodeLocation = NonNullable<Static<ReturnType<typeof injectionEntry>>['code_locations']>[number];
 
 export type InjectionFinding = Static<ReturnType<typeof injectionEntry>>;
 export type XssFinding = Static<ReturnType<typeof xssEntry>>;

@@ -111,7 +111,11 @@ An **exploitable vulnerability** is a confirmed source-to-sink path where the en
 			"verdict": "safe | vulnerable.",
 			"mismatch_reason": "if vulnerable, 1–2 lines in plain language.",
 			"witness_payload": "minimal input you'd use later to show structure influence (e.g., ' for SQLi, ; ls -la for Command Injection, ../../../../etc/passwd for LFI, {{7*7}} for SSTI).",
-			"confidence": "high | medium | low",,
+			"confidence": "high | medium | low",
+			"code_locations": [
+			  { "file": "routes/search.ts", "start_line": 42, "role": "sink", "symbol": "searchProducts" },
+			  { "file": "routes/search.ts", "start_line": 38, "role": "source" }
+			],
 			"notes": "assumptions, untraversed branches, anything unusual."
 		}
   </exploitation_queue_format>

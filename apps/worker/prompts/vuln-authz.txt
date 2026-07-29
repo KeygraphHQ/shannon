@@ -108,6 +108,10 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 		"reason": "1-2 lines explaining why this is vulnerable",
 		"minimal_witness": "brief description of how to trigger (e.g., 'change user_id param to another user', 'call admin endpoint as regular user')",
 		"confidence": "high | medium | low",
+		"code_locations": [
+		  { "file": "server.ts", "start_line": 365, "role": "sink", "symbol": "getUserById" },
+		  { "file": "lib/insecurity.ts", "start_line": 92, "role": "guard" }
+		],
 		"notes": "any assumptions, related findings, or special conditions"
 	}
 </exploitation_queue_format>
