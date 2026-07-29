@@ -122,16 +122,45 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   });
 
   const stateFile = authStateFile(auditSession.sessionMetadata);
-  await rm(stateFile, { force: true });
 
-  const prompt = await loadPrompt(
-    AGENT_NAME,
-    { webUrl, repoPath, AUTH_STATE_FILE: stateFile },
-    distributedConfig,
-    pipelineTestingMode ?? false,
-    logger,
-    promptDir,
-  );
+  try {
+    await rm(stateFile, { force: true });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(
+      new PentestError(
+        `Failed to clear stale authentication state at ${stateFile}: ${detail}`,
+        'filesystem',
+        true,
+        { stateFile, originalError: detail },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  let prompt: string;
+  try {
+    prompt = await loadPrompt(
+      AGENT_NAME,
+      { webUrl, repoPath, AUTH_STATE_FILE: stateFile },
+      distributedConfig,
+      pipelineTestingMode ?? false,
+      logger,
+      promptDir,
+    );
+  } catch (error) {
+    // loadPrompt throws PentestError directly rather than returning a Result —
+    // convert to satisfy this function's Result-only contract.
+    if (error instanceof PentestError) {
+      return err(error);
+    }
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(
+      new PentestError(`Failed to build authentication validation prompt: ${detail}`, 'prompt', false, {
+        originalError: detail,
+      }),
+    );
+  }
 
   await auditSession.startAgent(AGENT_NAME, prompt, attemptNumber);
   const startTime = Date.now();

@@ -23,7 +23,7 @@ import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js'
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
-import type { WorkflowSummary } from '../audit/workflow-logger.js';
+import { closeWorkflowLogger, type WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
@@ -948,6 +948,15 @@ async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise
   return result.stdout.trim();
 }
 
+// Substrings git itself uses when `cat-file -e <hash>^{commit}` fails because the object
+// genuinely doesn't exist — as opposed to a transient failure (lock exhaustion, FS error).
+const MISSING_COMMIT_PATTERNS = ['not a valid object name', 'bad object', 'unknown revision'];
+
+function isMissingCommitError(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return MISSING_COMMIT_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
 /**
  * Restore deliverables git to a checkpoint.
  * Operates on the private git inside workspace deliverables, not the user's repo.
@@ -970,7 +979,13 @@ export async function restoreGitCheckpoint(
       deliverablesPath,
       'verify checkpoint hash exists',
     );
-  } catch {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!isMissingCommitError(errorMessage)) {
+      // A transient failure (lock exhaustion, FS error) — not proof the checkpoint is
+      // missing. Propagate so Temporal retries instead of silently skipping cleanup.
+      throw error;
+    }
     logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);
     return;
   }
@@ -1125,6 +1140,9 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
 
   // 8. Clean up container
   removeContainer(workflowId);
+
+  // 9. This is the last write to workflow.log for this session — release its file handle.
+  await closeWorkflowLogger(sessionMetadata.id);
 }
 
 /**
