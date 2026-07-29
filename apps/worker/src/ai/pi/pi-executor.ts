@@ -314,15 +314,20 @@ export async function runPiPrompt(
             progress.stop();
             outputLines(formatAssistantOutput(text, execContext, turnCount, description));
             progress.start();
-            const billing = classifyErrorText(text);
-            if (billing) pendingError = billing;
           }
+          // Billing/session-limit text matching only applies to turns the harness itself
+          // flagged as errors — legitimate report prose (e.g. "no usage limit is enforced")
+          // must never be misread as a real billing error.
           if (msg.role === 'assistant' && msg.stopReason === 'error') {
             apiErrorDetected = true;
             pendingError =
               pendingError ??
-              classifyErrorText(msg.errorMessage ?? '') ??
-              new PentestError(`Agent error: ${(msg.errorMessage ?? 'unknown').slice(0, 200)}`, 'unknown', true);
+              classifyErrorText(msg.errorMessage ?? text) ??
+              new PentestError(
+                `Agent error: ${(msg.errorMessage ?? text ?? 'unknown').slice(0, 200)}`,
+                'unknown',
+                true,
+              );
           }
           break;
         }
@@ -397,22 +402,25 @@ export async function runPiPrompt(
       ...(structuredOutput !== undefined && { structuredOutput }),
     };
   } catch (error) {
-    // 10. Handle errors — log, write error file, return failure
+    // 10. Handle errors — log, write error file, return failure. A PentestError already
+    //     carries an author-classified code/retryable (e.g. billing text, session limit) —
+    //     trust those instead of re-deriving from generic message patterns.
     const duration = timer.stop();
     const err = error as Error & { code?: string; status?: number };
+    const retryable = err instanceof PentestError ? err.retryable : isRetryableError(err);
     await auditLogger.logError(err, duration, turnCount);
     progress.stop();
-    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableError(err)));
+    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, retryable));
     await writeErrorLog(err, sourceDir, fullPrompt, duration);
 
     return {
       error: err.message,
-      errorType: err.constructor.name,
+      errorType: err instanceof PentestError && err.code ? err.code : err.constructor.name,
       prompt: `${fullPrompt.slice(0, 100)}...`,
       success: false,
       duration,
       cost: 0,
-      retryable: isRetryableError(err),
+      retryable,
     };
   }
 }

@@ -948,6 +948,15 @@ async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise
   return result.stdout.trim();
 }
 
+// Substrings git itself uses when `cat-file -e <hash>^{commit}` fails because the object
+// genuinely doesn't exist — as opposed to a transient failure (lock exhaustion, FS error).
+const MISSING_COMMIT_PATTERNS = ['not a valid object name', 'bad object', 'unknown revision'];
+
+function isMissingCommitError(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return MISSING_COMMIT_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
 /**
  * Restore deliverables git to a checkpoint.
  * Operates on the private git inside workspace deliverables, not the user's repo.
@@ -970,7 +979,13 @@ export async function restoreGitCheckpoint(
       deliverablesPath,
       'verify checkpoint hash exists',
     );
-  } catch {
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    if (!isMissingCommitError(errorMessage)) {
+      // A transient failure (lock exhaustion, FS error) — not proof the checkpoint is
+      // missing. Propagate so Temporal retries instead of silently skipping cleanup.
+      throw error;
+    }
     logger.info(`Checkpoint hash not found in clone, skipping git reset: ${checkpointHash}`);
     return;
   }
