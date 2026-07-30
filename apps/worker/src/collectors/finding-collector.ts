@@ -129,7 +129,10 @@ function identityFields() {
         'Descriptive name (e.g., "SQL Injection — User Search", "IDOR — Unauthorized Access to User Orders").',
     }),
     category: stringEnum(['Injection', 'XSS', 'Authentication', 'Authorization', 'SSRF'], {
-      description: 'Vulnerability category, derived from the finding ID prefix.',
+      description:
+        'From the finding_id prefix: INJ-VULN-xxx Injection, ' +
+        'XSS-VULN-xxx XSS, AUTH-VULN-xxx Authentication, AUTHZ-VULN-xxx Authorization, ' +
+        'SSRF-VULN-xxx SSRF.',
     }),
     owasp_category: stringEnum(OWASP_CATEGORY_VALUES, {
       description: 'OWASP Top Ten 2025 category.',
