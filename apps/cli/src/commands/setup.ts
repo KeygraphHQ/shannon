@@ -44,7 +44,6 @@ const MODEL_SUGGESTIONS: Readonly<Record<ProviderId, readonly string[]>> = {
   anthropic: ['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
   openai: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
   xai: ['grok-4.5'],
-  google: ['gemini-3.5-flash-lite', 'gemini-3.5-flash'],
   'amazon-bedrock': ['us.anthropic.claude-sonnet-4-6', 'us.anthropic.claude-opus-4-8', 'us.anthropic.claude-opus-4-7'],
 };
 
@@ -53,7 +52,6 @@ const MODEL_ID_PLACEHOLDER: Readonly<Record<ProviderId, string>> = {
   anthropic: 'claude-sonnet-4-6',
   openai: 'gpt-5.6-sol',
   xai: 'grok-4.5',
-  google: 'gemini-3.5-flash-lite',
   'amazon-bedrock': 'us.anthropic.claude-opus-4-8',
 };
 
@@ -69,7 +67,6 @@ export async function setup(): Promise<void> {
       { value: 'anthropic' as const, label: 'Anthropic', hint: 'Claude models - recommended' },
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
-      { value: 'google' as const, label: 'Google', hint: 'Gemini models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
       { value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL, label: 'Custom Base URL', hint: 'your own proxy or gateway' },
     ],
@@ -108,8 +105,6 @@ async function setupProvider(provider: ProviderId): Promise<ShannonConfig> {
       return { openai: { api_key: await promptSecret('Enter your OpenAI API key') } };
     case 'xai':
       return { xai: { api_key: await promptSecret('Enter your xAI API key') } };
-    case 'google':
-      return { google: { api_key: await promptSecret('Enter your Gemini API key') } };
   }
 }
 

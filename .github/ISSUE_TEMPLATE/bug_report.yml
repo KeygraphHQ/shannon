@@ -119,7 +119,6 @@ body:
         - "Anthropic (OAuth token)"
         - "Custom base URL (proxy/gateway)"
         - "AWS Bedrock"
-        - "Google Vertex AI"
     validations:
       required: true
 

@@ -39,9 +39,6 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   // xAI
   { env: 'XAI_API_KEY', toml: 'xai.api_key', type: 'string' },
 
-  // Google
-  { env: 'GEMINI_API_KEY', toml: 'google.api_key', type: 'string' },
-
   // Bedrock
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
   { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
@@ -52,7 +49,6 @@ const PROVIDER_SECTIONS: Readonly<Record<ProviderId, string>> = {
   anthropic: 'anthropic',
   openai: 'openai',
   xai: 'xai',
-  google: 'google',
   'amazon-bedrock': 'bedrock',
 };
 

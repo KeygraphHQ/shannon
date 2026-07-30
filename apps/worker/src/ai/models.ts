@@ -25,7 +25,7 @@ import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@e
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 
 /** Providers Shannon can currently reach. Each is a pi-ai provider id. */
-export const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'xai', 'google', 'amazon-bedrock'] as const;
+export const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
 
 export type ProviderId = (typeof SUPPORTED_PROVIDERS)[number];
 
@@ -39,7 +39,6 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<ProviderId, readonly string[]
   anthropic: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
   openai: ['OPENAI_API_KEY'],
   xai: ['XAI_API_KEY'],
-  google: ['GEMINI_API_KEY'],
   'amazon-bedrock': ['AWS_BEARER_TOKEN_BEDROCK'],
 };
 

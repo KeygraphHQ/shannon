@@ -568,7 +568,6 @@ The provider half decides where the request goes, which credential is used, and 
 | Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` |
 | OpenAI | `openai` | `OPENAI_API_KEY` |
 | xAI | `xai` | `XAI_API_KEY` |
-| Google | `google` | `GEMINI_API_KEY` |
 | AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
 
 Shannon does not invent credential names — each is the variable that provider's own tooling already uses. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
@@ -604,13 +603,6 @@ xAI:
 ```bash
 export XAI_API_KEY=xai-...
 export SHANNON_AI_MODEL=xai:grok-4.5
-```
-
-Google:
-
-```bash
-export GEMINI_API_KEY=...
-export SHANNON_AI_MODEL=google:gemini-3.5-flash-lite
 ```
 
 Source-build mode reads the same variables from a `.env` file.
@@ -665,7 +657,7 @@ export SHANNON_AI_OPENAI_FORMAT=responses          # default: chat-completions
 
 Chat Completions is the default because that is what most gateway software exposes. Set `responses` for a gateway that passes the Responses API through — it preserves reasoning state between turns, which Chat Completions cannot. `openai:gpt-5` with no base URL always calls OpenAI's Responses API directly.
 
-The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, Google, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
+The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, xAI, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
 
 `npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
 
