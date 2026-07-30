@@ -125,7 +125,6 @@ Map the finding's content from the per-class deliverable sections to `add_findin
   - `"A09:2025 — Security Logging and Alerting Failures"`
   - `"A10:2025 — Mishandling of Exceptional Conditions"`
 - `vulnerable_location`: From the finding's "Vulnerable location" field
-- `code_locations`: Map the finding's "Code locations" block, one entry per line. Each line reads `path:start-end (role, symbol)`, where the line range and symbol may be absent. Keep the given order and roles; do not reassess them. If a finding has no such block, fall back to any `file:line` the entry mentions in prose, and omit the field when it names no file at all. Never invent a line number.
 - `http_location`: The HTTP request the finding is reached through, when the deliverable names one (e.g. `"GET /api/products?id="` gives `method: "GET"`, `url: "{{WEB_URL}}/api/products"`, `parameter: "id"`). Omit for findings with no network entry point.
 - `overview`: Synthesize from the finding's "Overview" field into professional prose. Do not paste verbatim.
 - `remediation`: Specific, actionable fix guidance from the finding. Code-level or configuration-level. Avoid generic advice.
