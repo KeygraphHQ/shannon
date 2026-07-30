@@ -1,6 +1,6 @@
 # Configuration
 
-Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, report filtering, and rate-limit tuning.
+Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, and report filtering.
 
 ## Credential Precedence
 
