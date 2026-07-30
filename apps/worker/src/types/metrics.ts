@@ -13,6 +13,8 @@ export interface AgentMetrics {
   durationMs: number;
   inputTokens: number | null;
   outputTokens: number | null;
+  cacheReadTokens: number | null;
+  cacheWriteTokens: number | null;
   costUsd: number | null;
   numTurns: number | null;
   model?: string | undefined;

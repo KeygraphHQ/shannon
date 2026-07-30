@@ -8,7 +8,7 @@
 # File: README.md
 
 > [!NOTE]
-> **[Shannon Now Runs on the Pi Harness (Beta) - run it today with `npx @keygraph/shannon@beta`](https://github.com/KeygraphHQ/shannon/discussions/358)**
+> **[Shannon 2.0 now runs on the Pi harness](https://github.com/KeygraphHQ/shannon/discussions/393)**
 
 <div align="center">
 
@@ -82,7 +82,8 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic is recommended. AWS Bedrock and compatible proxy setups are documented separately.
+- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock. Claude models are recommended. Gateway and proxy setups are documented separately.
+- **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 ### Run Shannon
 
@@ -100,6 +101,9 @@ npx @keygraph/shannon start -u https://your-app.com -r /path/to/your-repo
 Shannon pulls the worker image from Docker Hub, starts the required local infrastructure, mounts the target repository read-only inside an ephemeral worker container, and writes results to a local workspace.
 
 For source builds, authenticated scans, provider-specific setup, and platform notes, see [Documentation](#documentation).
+
+> [!TIP]
+> **Prefer to run on your Claude Code subscription instead of API credits?** The [`shannon-v1`](https://github.com/KeygraphHQ/shannon/tree/shannon-v1) branch is the last release built on the Claude Agent SDK, so it accepts a Claude Code OAuth token. Generate one with `claude setup-token`, then run `npx @keygraph/shannon@1.9.0 setup` and pick **OAuth Token**. Pentests then cost nothing beyond your existing subscription.
 
 ## Key Capabilities
 
@@ -194,8 +198,8 @@ Use these guides for operational detail:
 | Guide | Use it for |
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
-| [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, report filters, and rate-limit settings. |
-| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
+| [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, and report filters. |
+| [AI providers](docs/ai-providers.md) | Selecting the model, the supported providers (Anthropic, OpenAI, xAI, AWS Bedrock), and custom gateways. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
 | [Workspaces and resuming](docs/workspaces.md) | Naming workspaces, resuming interrupted scans, and workspace storage. |
 | [Safety and limitations](docs/safety.md) | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats. |
@@ -413,7 +417,7 @@ workspaces/{hostname}_{sessionId}/
 
 # Configuration
 
-Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, report filtering, and rate-limit tuning.
+Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, and report filtering.
 
 ## Credential Precedence
 
@@ -506,13 +510,39 @@ rules:
       type: url_path
       value: "/api"
 
-# Filters applied by the report agent when assembling the final report.
+# Report options applied when assembling the final report.
 # report:
 #   min_severity: low
 #   min_confidence: low
 #   guidance: |
 #     Drop findings about missing security headers and rate-limit gaps.
+#   sarif: "true"
 ```
+
+## Report Options
+
+| Key | Effect |
+| --- | --- |
+| `min_severity` | Drops findings rated below this severity. Applies only when `exploit` is `"true"`. |
+| `min_confidence` | Drops findings rated below this confidence. Applies only when `exploit` is `"false"`. |
+| `guidance` | Free-text instruction to the report agent, such as which topics to exclude. |
+| `sarif` | Emits a SARIF 2.1.0 log alongside the Markdown report. Requires `exploit: "true"`. |
+
+A finding carries one rating or the other, never both: an exploited finding is rated by severity, an analysis-only finding by confidence. Setting the threshold that does not apply to the run is ignored, and Shannon logs a warning naming the one to use instead.
+
+### SARIF Output
+
+Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.md` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
+
+```yaml
+exploit: "true"
+report:
+  sarif: "true"
+```
+
+Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+
+The log is written only for exploitative runs. An analysis-only run rates findings by confidence and produces no severity, so there is nothing to populate `level` with; `sarif` is ignored when `exploit` is `"false"`.
 
 Supported rule types include `url_path`, `subdomain`, `domain`, `method`, `header`, `parameter`, and `code_path`.
 
@@ -544,117 +574,175 @@ login_flow:
   - "Click <exact button text>"
 ```
 
-## Adaptive Thinking
-
-Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
-
-- `npx` mode: `npx @keygraph/shannon setup` prompts you during the wizard.
-- Source-build mode: set `CLAUDE_ADAPTIVE_THINKING=false` in `.env` or export it in your shell.
-
-## Subscription Plan Rate Limits
-
-Anthropic subscription plans reset usage on a rolling 5-hour window. The default retry strategy may exhaust retries before the window resets. Add this to your config:
-
-```yaml
-pipeline:
-  retry_preset: subscription
-  max_concurrent_pipelines: 2
-```
-
-`max_concurrent_pipelines` controls how many vulnerability pipelines run simultaneously. Supported values are 1-5, with a default of 5. Lower values reduce burst API usage but increase wall-clock time.
-
 ---
 
 # File: docs/ai-providers.md
 
 # AI Providers
 
-Shannon works best with Claude models. Anthropic API keys are recommended for most users, and Shannon also supports AWS Bedrock and custom Anthropic-compatible endpoints.
-
-## Anthropic
-
-Run the setup wizard:
+One model runs the entire scan — pre-recon, recon, vulnerability analysis, exploitation, and reporting. A single setting names both the provider and the model:
 
 ```bash
-npx @keygraph/shannon setup
+export SHANNON_AI_MODEL=<provider>:<model-id>
 ```
 
-Or export an API key directly:
+The provider half decides where the request goes, which credential is used, and which API dialect is spoken. You never configure those separately.
+
+## Supported providers
+
+| Provider | Value | Credential |
+| --- | --- | --- |
+| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` |
+| OpenAI | `openai` | `OPENAI_API_KEY` |
+| xAI | `xai` | `XAI_API_KEY` |
+| AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
+
+Shannon does not invent credential names — each is the variable that provider's own tooling already uses. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
+
+Shannon forwards only the selected provider's credential into the scan container. Keys for other providers stay on your machine.
+
+> [!NOTE]
+> Only the **first** colon separates the provider from the model ID, so Bedrock IDs that contain colons work unchanged: `amazon-bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0`.
+
+> [!IMPORTANT]
+> Claude models are the best-supported option. Shannon's evaluations, internal testing, and agent harness are tuned for Claude. Other models are permitted and validated against the harness catalogue, but may not follow Shannon's instructions or tool-use constraints as reliably. Use them at your own risk.
+
+## Cyber safeguards (do this before your first scan)
+
+Anthropic and OpenAI both apply real-time safeguards to cyber-security workloads. Shannon is exactly such a workload. If a safeguard engages mid-run, the model can refuse, and the scan fails partway through rather than at the start.
+
+Review each vendor's guidance and complete the verification or enrollment they ask of legitimate security testers before running Shannon:
+
+- Anthropic - [Real-time cyber safeguards on Claude Opus and Sonnet](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet)
+- OpenAI - [Cyber](https://chatgpt.com/cyber)
+
+This applies to the Anthropic and OpenAI providers, including when either is reached through a gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
+
+## Suggested models
+
+These are the models `npx @keygraph/shannon setup` offers, best-first. They are suggestions: the wizard also takes a typed model ID, and `SHANNON_AI_MODEL` accepts any model in the provider's catalogue.
+
+| Provider | Suggested model IDs |
+| --- | --- |
+| `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
+| `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
+| `xai` | `grok-4.5` |
+| `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
+
+Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
+
+## Switching provider
+
+The pattern is learned once: export the provider's key, name the model. Two lines change, nothing else.
+
+Anthropic (default):
 
 ```bash
-export ANTHROPIC_API_KEY=your-api-key
+export ANTHROPIC_API_KEY=sk-ant-...
+export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 ```
 
-Source-build mode can use a `.env` file:
+OpenAI:
 
 ```bash
-ANTHROPIC_API_KEY=your-api-key
+export OPENAI_API_KEY=sk-...
+export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 ```
 
-Each tier can be pointed at any Claude model via `ANTHROPIC_SMALL_MODEL` / `ANTHROPIC_MEDIUM_MODEL` / `ANTHROPIC_LARGE_MODEL` (or the setup wizard). If you set a tier to `claude-fable-5`, note that Fable's safety classifiers route cybersecurity tasks to Opus 4.8, so those phases run on Opus 4.8 regardless.
+xAI:
+
+```bash
+export XAI_API_KEY=xai-...
+export SHANNON_AI_MODEL=xai:grok-4.5
+```
+
+Source-build mode reads the same variables from a `.env` file.
 
 ## AWS Bedrock
 
-Run `npx @keygraph/shannon setup` and select **AWS Bedrock**. The wizard prompts for region, bearer token, and model IDs.
-
-Or export environment variables directly:
+Run `npx @keygraph/shannon setup` and select **AWS Bedrock**, or export directly:
 
 ```bash
-export CLAUDE_CODE_USE_BEDROCK=1
 export AWS_REGION=us-east-1
 export AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
-export ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
-export ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
+export SHANNON_AI_MODEL=amazon-bedrock:us.anthropic.claude-opus-4-8
 ```
 
-Source-build `.env` equivalent:
+Bedrock uses bearer-token authentication only. IAM access keys, session tokens, assumed roles, and instance profiles are not supported. The model must be enabled in your region.
+
+## Custom base URL
+
+To route model traffic through your own infrastructure — a corporate proxy, an LLM gateway such as LiteLLM, or a regional endpoint — set a base URL alongside your normal model selection. The provider half of `SHANNON_AI_MODEL` decides which key is sent and which API Shannon speaks, so pick the one your gateway serves:
+
+| Gateway serves | Model prefix | API key |
+| --- | --- | --- |
+| Anthropic Messages | `anthropic:` | `ANTHROPIC_API_KEY` |
+| OpenAI Chat Completions | `openai:` | `OPENAI_API_KEY` |
+| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `OPENAI_API_KEY` |
+
+The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
+
+Anthropic Messages:
 
 ```bash
-CLAUDE_CODE_USE_BEDROCK=1
-AWS_REGION=us-east-1
-AWS_BEARER_TOKEN_BEDROCK=your-bearer-token
-ANTHROPIC_SMALL_MODEL=us.anthropic.claude-haiku-4-5-20251001-v1:0
-ANTHROPIC_MEDIUM_MODEL=us.anthropic.claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=us.anthropic.claude-opus-4-8
+export ANTHROPIC_API_KEY=sk-ant-...
+export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
+export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
 
-Shannon uses three model tiers:
-
-- **small** for summarization
-- **medium** for security analysis
-- **large** for deep reasoning
-
-Set `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, and `ANTHROPIC_LARGE_MODEL` to Bedrock model IDs available in your region.
-
-## Custom Base URL
-
-Shannon supports pointing the SDK at an Anthropic-compatible endpoint with `ANTHROPIC_BASE_URL`. For proxy-based routing, use an LLM proxy such as LiteLLM configured to expose an Anthropic-compatible endpoint.
-
-> [!IMPORTANT]
-> Only Claude models are officially supported. Shannon's evaluations, internal testing, and agent harness are optimized for Claude. Smaller or alternative models, including non-Claude models routed through a proxy, may not reliably follow Shannon's instructions or tool-use constraints. Use them at your own risk.
-
-The experimental `claude-code-router` integration has been removed. If you previously relied on it, migrate to an Anthropic-compatible proxy such as LiteLLM.
-
-Run `npx @keygraph/shannon setup` and select **Custom Base URL**, or export variables directly:
+OpenAI Chat Completions:
 
 ```bash
-export ANTHROPIC_BASE_URL=https://your-proxy.example.com
-export ANTHROPIC_AUTH_TOKEN=your-auth-token
-export ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
-export ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-export ANTHROPIC_LARGE_MODEL=claude-opus-4-8
+export OPENAI_API_KEY=sk-...
+export SHANNON_AI_MODEL=openai:gpt-5.6-sol
+export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-Source-build `.env` equivalent:
+`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not.
+
+OpenAI is the one provider serving two APIs, so a gateway run picks one:
 
 ```bash
-ANTHROPIC_BASE_URL=https://your-proxy.example.com
-ANTHROPIC_AUTH_TOKEN=your-auth-token
-ANTHROPIC_SMALL_MODEL=claude-haiku-4-5-20251001
-ANTHROPIC_MEDIUM_MODEL=claude-sonnet-4-6
-ANTHROPIC_LARGE_MODEL=claude-opus-4-8
+export SHANNON_AI_OPENAI_FORMAT=responses          # default: chat-completions
 ```
+
+Chat Completions is the default because that is what most gateway software exposes. Set `responses` for a gateway that passes the Responses API through — it preserves reasoning state between turns, which Chat Completions cannot. `openai:gpt-5` with no base URL always calls OpenAI's Responses API directly.
+
+The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, xAI, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
+
+`npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
+
+## Validation
+
+Checks run before a scan starts, so mistakes fail immediately rather than partway through a run:
+
+- **Provider** — always validated against the providers Shannon's harness knows. An unrecognised provider is rejected with the valid list.
+- **Model ID** — validated against the harness catalogue for that provider, so a typo is caught instantly.
+- **Credential presence** — always validated for the selected provider.
+- **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
+
+## Migrating from the three-tier configuration
+
+Earlier versions took three model variables. They no longer do anything — replace them with `SHANNON_AI_MODEL`.
+
+| Before | Now |
+| --- | --- |
+| `ANTHROPIC_SMALL_MODEL`, `ANTHROPIC_MEDIUM_MODEL`, `ANTHROPIC_LARGE_MODEL` | a single `SHANNON_AI_MODEL` |
+| `CLAUDE_CODE_USE_BEDROCK=1` plus three Bedrock model IDs | `SHANNON_AI_MODEL=amazon-bedrock:<model-id>` |
+| `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` selected a provider | `SHANNON_AI_BASE_URL` overrides the endpoint; `SHANNON_AI_MODEL` selects the provider |
+
+In `~/.shannon/config.toml`, the `[models]` section and `bedrock.use` are gone, each provider has its own section, and the model lives at `core.model`:
+
+```toml
+[core]
+model = "anthropic:claude-sonnet-4-6"
+# base_url = "https://llm-gateway.example.com"
+
+[anthropic]
+api_key = "your-api-key"
+```
+
+Re-run `npx @keygraph/shannon setup` to regenerate the file.
 
 ---
 
@@ -856,7 +944,6 @@ For broader coverage, the Keygraph platform adds black-box and white-box agentic
 
 A full test run typically takes roughly 1 to 1.5 hours. LLM API costs vary by model pricing, target complexity, selected provider, and concurrency.
 
-If you use subscription-based model access, consider the rate-limit guidance in [Configuration](configuration.md).
 
 ---
 

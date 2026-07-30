@@ -5,157 +5,304 @@
 // as published by the Free Software Foundation.
 
 /**
- * Model tier definitions and resolution for the pi harness.
+ * Model selection and resolution for the pi harness.
  *
- * Three tiers mapped to capability levels:
- * - "small"  (Haiku — summarization, structured extraction)
- * - "medium" (Sonnet — tool use, general analysis)
- * - "large"  (Opus — deep reasoning, complex analysis)
+ * One model runs the entire workflow. Users name it with a single setting:
  *
- * Users override per tier via ANTHROPIC_SMALL_MODEL / ANTHROPIC_MEDIUM_MODEL /
- * ANTHROPIC_LARGE_MODEL, which works across all providers (Anthropic, Bedrock,
- * custom base URL).
+ *   SHANNON_AI_MODEL=<provider>:<model-id>
  *
- * The active provider is chosen from the env-var contract the CLI forwards
- * (`CLAUDE_CODE_USE_BEDROCK`, `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`, else
- * direct Anthropic). Resolution returns a pi `Model` via `ModelRegistry.find`, the
- * `thinkingLevel`, and an `AuthStorage` primed with the right credential. Bedrock
- * authenticates from the AWS_ env vars via pi-ai.
+ * The provider half decides the endpoint, the credential, and the API dialect;
+ * the model half is passed to pi's registry as-is. The separator is a colon
+ * because model IDs routinely contain slashes, and it is the *first* colon that
+ * splits, because Bedrock model IDs contain colons of their own
+ * (`amazon-bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0`).
+ *
+ * Resolution returns a pi `Model` plus the `ModelRuntime` that owns its auth,
+ * built over an in-memory credential store primed from the environment.
  */
 
-import type { ThinkingLevel } from '@earendil-works/pi-agent-core';
-import type { Api, Model } from '@earendil-works/pi-ai';
-import { AuthStorage, type ModelRegistry } from '@earendil-works/pi-coding-agent';
+import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@earendil-works/pi-ai';
+import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 
-export type ModelTier = 'small' | 'medium' | 'large';
+/** Providers Shannon can currently reach. Each is a pi-ai provider id. */
+export const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
 
-const DEFAULT_MODELS: Readonly<Record<ModelTier, string>> = {
-  small: 'claude-haiku-4-5-20251001',
-  medium: 'claude-sonnet-4-6',
-  large: 'claude-opus-4-8',
+export type ProviderId = (typeof SUPPORTED_PROVIDERS)[number];
+
+/**
+ * Env vars carrying each provider's API key, in precedence order. Shannon does not
+ * invent credential names — these are the variables each provider's own tooling
+ * uses. Bedrock pairs its bearer token with AWS_REGION, which is provider config
+ * rather than a credential.
+ */
+export const PROVIDER_API_KEY_ENV: Readonly<Record<ProviderId, readonly string[]>> = {
+  anthropic: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
+  openai: ['OPENAI_API_KEY'],
+  xai: ['XAI_API_KEY'],
+  'amazon-bedrock': ['AWS_BEARER_TOKEN_BEDROCK'],
 };
 
-export interface EffectiveProvider {
-  /** pi-ai provider id: 'anthropic' or 'amazon-bedrock'. */
-  providerId: string;
-  /** Custom-base-URL override applied to the resolved anthropic model. */
+/** Model used when SHANNON_AI_MODEL is unset. */
+export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
+
+/**
+ * Wire formats an OpenAI-compatible gateway may serve, named by
+ * SHANNON_AI_OPENAI_FORMAT. Only `openai` offers a choice: every other supported
+ * provider has exactly one API in pi's registry.
+ */
+export const OPENAI_FORMATS = {
+  'chat-completions': 'openai-completions',
+  responses: 'openai-responses',
+} as const;
+
+export type OpenAiFormat = keyof typeof OPENAI_FORMATS;
+
+/** Format assumed when a gateway is configured but no format is named. */
+export const DEFAULT_OPENAI_FORMAT: OpenAiFormat = 'chat-completions';
+
+function isOpenAiFormat(value: string): value is OpenAiFormat {
+  return value in OPENAI_FORMATS;
+}
+
+/**
+ * Read SHANNON_AI_OPENAI_FORMAT. Unset returns undefined, which lets the caller
+ * distinguish "not configured" from an explicit choice and reject the variable
+ * where it has no effect.
+ */
+export function resolveOpenAiFormat(): OpenAiFormat | undefined {
+  const raw = process.env.SHANNON_AI_OPENAI_FORMAT?.trim();
+  if (!raw) return undefined;
+
+  if (!isOpenAiFormat(raw)) {
+    throw new Error(
+      `SHANNON_AI_OPENAI_FORMAT must be one of: ${Object.keys(OPENAI_FORMATS).join(', ')}. Got "${raw}".`,
+    );
+  }
+  return raw;
+}
+
+export interface ModelSpec {
+  providerId: ProviderId;
+  modelId: string;
+}
+
+function isSupportedProvider(value: string): value is ProviderId {
+  return (SUPPORTED_PROVIDERS as readonly string[]).includes(value);
+}
+
+/**
+ * Parse a `<provider>:<model-id>` spec. Splits on the first colon only, so
+ * colons inside a model ID survive. Throws with the supported provider list on
+ * a malformed or unknown provider.
+ */
+export function parseModelSpec(spec: string): ModelSpec {
+  const trimmed = spec.trim();
+  const separator = trimmed.indexOf(':');
+  if (separator === -1) {
+    throw new Error(
+      `SHANNON_AI_MODEL must be "<provider>:<model-id>", got "${trimmed}". Example: ${DEFAULT_MODEL_SPEC}`,
+    );
+  }
+
+  const providerId = trimmed.slice(0, separator).trim();
+  const modelId = trimmed.slice(separator + 1).trim();
+
+  if (!providerId || !modelId) {
+    throw new Error(
+      `SHANNON_AI_MODEL must be "<provider>:<model-id>", got "${trimmed}". Example: ${DEFAULT_MODEL_SPEC}`,
+    );
+  }
+  if (!isSupportedProvider(providerId)) {
+    throw new Error(
+      `Unsupported provider "${providerId}" in SHANNON_AI_MODEL. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
+    );
+  }
+
+  return { providerId, modelId };
+}
+
+/** Resolve the run's model from SHANNON_AI_MODEL, falling back to the default. */
+export function resolveModelSpec(): ModelSpec {
+  return parseModelSpec(process.env.SHANNON_AI_MODEL || DEFAULT_MODEL_SPEC);
+}
+
+export interface ProviderCredentials {
+  /** Endpoint override, applied whatever the provider (proxies, gateways). */
   baseUrl?: string;
-  /** Runtime credential to prime on AuthStorage for the 'anthropic' provider. */
-  anthropicToken?: string;
+  /** Runtime API key primed into the ModelRuntime's credential store. */
+  apiKey?: string;
+}
+
+/** Collect the API key and optional endpoint override for a provider. */
+export function resolveProviderCredentials(providerId: ProviderId): ProviderCredentials {
+  const credentials: ProviderCredentials = {};
+
+  for (const name of PROVIDER_API_KEY_ENV[providerId]) {
+    const value = process.env[name];
+    if (value) {
+      credentials.apiKey = value;
+      break;
+    }
+  }
+  if (process.env.SHANNON_AI_BASE_URL) credentials.baseUrl = process.env.SHANNON_AI_BASE_URL;
+
+  return credentials;
 }
 
 /**
- * Determine the active provider + auth from the env-var contract the CLI forwards:
- * `CLAUDE_CODE_USE_BEDROCK` → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`
- * → custom base URL; else direct Anthropic (`ANTHROPIC_API_KEY`, or
- * `CLAUDE_CODE_OAUTH_TOKEN`). Bedrock authenticates from the AWS_ env vars via
- * pi-ai, so it needs no anthropic token.
- */
-export function resolveEffectiveProvider(): EffectiveProvider {
-  // Bedrock — env flag.
-  if (process.env.CLAUDE_CODE_USE_BEDROCK === '1') {
-    return { providerId: 'amazon-bedrock' };
-  }
-
-  // Custom base URL — env contract.
-  if (process.env.ANTHROPIC_BASE_URL && process.env.ANTHROPIC_AUTH_TOKEN) {
-    return {
-      providerId: 'anthropic',
-      baseUrl: process.env.ANTHROPIC_BASE_URL,
-      anthropicToken: process.env.ANTHROPIC_AUTH_TOKEN,
-    };
-  }
-
-  // Direct Anthropic (API key, or OAuth token).
-  const eff: EffectiveProvider = { providerId: 'anthropic' };
-  const token = process.env.ANTHROPIC_API_KEY ?? process.env.CLAUDE_CODE_OAUTH_TOKEN;
-  if (token) eff.anthropicToken = token;
-  return eff;
-}
-
-/** Resolve a model tier to a concrete model ID (env override → default). */
-export function resolveModelId(tier: ModelTier = 'medium'): string {
-  switch (tier) {
-    case 'small':
-      return process.env.ANTHROPIC_SMALL_MODEL || DEFAULT_MODELS.small;
-    case 'large':
-      return process.env.ANTHROPIC_LARGE_MODEL || DEFAULT_MODELS.large;
-    default:
-      return process.env.ANTHROPIC_MEDIUM_MODEL || DEFAULT_MODELS.medium;
-  }
-}
-
-/** Whether a model supports adaptive thinking. Opus 4.6, 4.7, and 4.8 only. */
-export function supportsAdaptiveThinking(model: string): boolean {
-  return /opus-4-[678]/.test(model);
-}
-
-/**
- * Resolve the thinking level for a run.
+ * In-memory credential store holding the selected provider's API key.
  *
- * Adaptive thinking is enabled only on capable models (Opus 4.6/4.7/4.8), mapped to
- * pi's 'medium' level; every other model runs with thinking 'off'. The
- * CLAUDE_ADAPTIVE_THINKING=false kill switch forces 'off' regardless of model.
+ * pi ships the `CredentialStore` interface but no in-memory implementation — its
+ * own store reads `auth.json` from disk. Shannon's credentials arrive as env vars
+ * in an ephemeral container, so nothing may be read from or written to disk.
  */
-export function resolveThinkingLevel(modelId: string): ThinkingLevel {
-  if (process.env.CLAUDE_ADAPTIVE_THINKING === 'false') return 'off';
-  return supportsAdaptiveThinking(modelId) ? 'medium' : 'off';
+class RuntimeCredentialStore implements CredentialStore {
+  private readonly credentials = new Map<string, Credential>();
+
+  constructor(providerId: string, apiKey: string | undefined) {
+    if (apiKey) {
+      this.credentials.set(providerId, { type: 'api_key', key: apiKey });
+    }
+  }
+
+  async read(providerId: string): Promise<Credential | undefined> {
+    return this.credentials.get(providerId);
+  }
+
+  async list(): Promise<readonly CredentialInfo[]> {
+    return [...this.credentials].map(([providerId, credential]) => ({ providerId, type: credential.type }));
+  }
+
+  /** Serialized read-modify-write. `fn` returning undefined leaves the entry alone. */
+  async modify(
+    providerId: string,
+    fn: (current: Credential | undefined) => Promise<Credential | undefined>,
+  ): Promise<Credential | undefined> {
+    const next = await fn(this.credentials.get(providerId));
+    if (next !== undefined) {
+      this.credentials.set(providerId, next);
+    }
+    return this.credentials.get(providerId);
+  }
+
+  async delete(providerId: string): Promise<void> {
+    this.credentials.delete(providerId);
+  }
+}
+
+/**
+ * Build a ModelRuntime whose only credential is the one supplied. Model catalogs
+ * stay offline (`allowModelNetwork` defaults to false) so a scan never blocks on
+ * a catalog refresh.
+ */
+export async function createModelRuntime(providerId: string, apiKey: string | undefined): Promise<ModelRuntime> {
+  return ModelRuntime.create({ credentials: new RuntimeCredentialStore(providerId, apiKey) });
 }
 
 export interface ModelSelection {
   model: Model<Api>;
-  thinkingLevel: ThinkingLevel;
-  authStorage: AuthStorage;
+  modelRuntime: ModelRuntime;
   modelId: string;
-  providerId: string;
+  providerId: ProviderId;
 }
 
 /**
- * Resolve the active provider (see resolveEffectiveProvider), prime an AuthStorage
- * with its credential, and resolve the tier's model from a fresh ModelRegistry.
- * Anthropic / custom-base-URL use a runtime anthropic key; Bedrock authenticates
- * from the AWS_ env vars (bearer token primed explicitly as a belt-and-suspenders).
+ * Point a model descriptor at a gateway.
+ *
+ * An OpenAI gateway may serve either wire format, named by
+ * SHANNON_AI_OPENAI_FORMAT and defaulting to chat completions, which is what
+ * most gateway software exposes. Switching to completions also drops the stored
+ * `compat` block: the catalogue's block describes Responses, and an explicit
+ * entry outranks pi's `detectCompat`, so leaving it would apply Responses
+ * settings to a completions request. Staying on Responses keeps it, since it
+ * then describes the format in use. Every other provider has one API and only
+ * changes address.
  */
-export function resolveModelSelection(
-  registryFactory: (authStorage: AuthStorage) => ModelRegistry,
-  modelTier: ModelTier,
-): ModelSelection {
-  const eff = resolveEffectiveProvider();
-  const modelId = resolveModelId(modelTier);
+function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: string, format: OpenAiFormat): Model<Api> {
+  if (providerId !== 'openai') return { ...model, baseUrl };
+  if (format === 'responses') return { ...model, baseUrl, api: OPENAI_FORMATS.responses };
 
-  const authStorage = AuthStorage.inMemory();
-  if (eff.providerId === 'anthropic' && eff.anthropicToken) {
-    authStorage.setRuntimeApiKey('anthropic', eff.anthropicToken);
-  }
-  // Bedrock auth flows from the AWS_ env vars; prime the bearer token explicitly so
-  // it resolves via AuthStorage in addition to pi-ai's own env fallback.
-  if (eff.providerId === 'amazon-bedrock' && process.env.AWS_BEARER_TOKEN_BEDROCK) {
-    authStorage.setRuntimeApiKey('amazon-bedrock', process.env.AWS_BEARER_TOKEN_BEDROCK);
-  }
+  const { compat: _responsesCompat, ...withoutCompat } = model;
+  return { ...withoutCompat, baseUrl, api: OPENAI_FORMATS['chat-completions'] };
+}
 
-  const registry = registryFactory(authStorage);
-  const found = registry.find(eff.providerId, modelId);
-  if (!found) {
-    throw new Error(`Model not found in pi registry: provider="${eff.providerId}" model="${modelId}"`);
+/**
+ * Resolve a model against a runtime.
+ *
+ * Direct to a provider, the model must exist in the catalogue. Behind a custom
+ * endpoint it need not: a gateway may serve models under its own names, so an
+ * unknown id is passed through on a descriptor borrowed from the provider's
+ * catalogue for its API dialect. Cost and context window on such a descriptor
+ * are the reference model's, so spend figures are approximate there.
+ *
+ * Returns undefined when the id is unresolvable — unknown with no endpoint
+ * override, or a provider carrying no models at all.
+ */
+export function resolveModel(
+  modelRuntime: ModelRuntime,
+  providerId: ProviderId,
+  modelId: string,
+  baseUrl: string | undefined,
+  format: OpenAiFormat = DEFAULT_OPENAI_FORMAT,
+): Model<Api> | undefined {
+  const found = modelRuntime.getModel(providerId, modelId);
+  if (found) {
+    return baseUrl ? pointAtGateway(found, providerId, baseUrl, format) : found;
   }
+  if (!baseUrl) return undefined;
 
-  // Custom base URL: override the resolved model's endpoint.
-  const model: Model<Api> = eff.baseUrl ? { ...found, baseUrl: eff.baseUrl } : found;
+  const reference = modelRuntime.getModels(providerId)[0];
+  if (!reference) return undefined;
+
+  return pointAtGateway({ ...reference, id: modelId, name: modelId }, providerId, baseUrl, format);
+}
+
+/**
+ * Validate SHANNON_AI_OPENAI_FORMAT against the rest of the configuration and
+ * return the format a gateway run should use.
+ *
+ * The variable only reaches a request when both an OpenAI model and a gateway
+ * are configured, so it is rejected outside that combination rather than
+ * silently ignored.
+ */
+export function resolveGatewayFormat(providerId: ProviderId, baseUrl: string | undefined): OpenAiFormat {
+  const configured = resolveOpenAiFormat();
+  if (!configured) return DEFAULT_OPENAI_FORMAT;
+
+  if (providerId !== 'openai') {
+    throw new Error(
+      `SHANNON_AI_OPENAI_FORMAT applies to openai models only, but SHANNON_AI_MODEL selects "${providerId}". ` +
+        `${providerId} serves a single API, so there is no format to choose.`,
+    );
+  }
+  if (!baseUrl) {
+    throw new Error(
+      'SHANNON_AI_OPENAI_FORMAT applies to gateway runs only. Set SHANNON_AI_BASE_URL, or unset the format to call OpenAI directly.',
+    );
+  }
+  return configured;
+}
+
+/**
+ * Resolve SHANNON_AI_MODEL, build a ModelRuntime primed with the provider's
+ * credential, and look the model up in it.
+ */
+export async function resolveModelSelection(): Promise<ModelSelection> {
+  const { providerId, modelId } = resolveModelSpec();
+  const credentials = resolveProviderCredentials(providerId);
+  const format = resolveGatewayFormat(providerId, credentials.baseUrl);
+
+  const modelRuntime = await createModelRuntime(providerId, credentials.apiKey);
+
+  const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl, format);
+  if (!model) {
+    throw new Error(`Model not found in pi registry: provider="${providerId}" model="${modelId}"`);
+  }
 
   return {
     model,
-    thinkingLevel: resolveThinkingLevel(modelId),
-    authStorage,
+    modelRuntime,
     modelId,
-    providerId: eff.providerId,
+    providerId,
   };
-}
-
-/**
- * Whether a model is in the Fable family. Fable's safety classifiers flag
- * cybersecurity tasks and route them to Opus 4.8, so a security scan on Fable
- * largely runs on Opus 4.8 anyway.
- */
-export function isFableModel(model: string): boolean {
-  return /fable/i.test(model);
 }

@@ -23,7 +23,7 @@ function evaluateBashTimeout(timeout: number | undefined): ToolCallEventResult |
   if (!hasValidTimeout) {
     return {
       block: true,
-      reason: `Set bash 'timeout' (seconds). Default ${DEFAULT_TIMEOUT_SECONDS}s, max ${MAX_TIMEOUT_SECONDS}s.`,
+      reason: `A timeout in seconds is required for the bash tool. The bash tool was not executed. Use the default of ${DEFAULT_TIMEOUT_SECONDS} seconds, or up to a maximum of ${MAX_TIMEOUT_SECONDS} seconds.`,
     };
   }
 

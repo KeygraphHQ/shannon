@@ -23,6 +23,11 @@ interface AttemptData {
   attempt_number: number;
   duration_ms: number;
   cost_usd: number;
+  input_tokens?: number | undefined;
+  output_tokens?: number | undefined;
+  cache_read_tokens?: number | undefined;
+  cache_write_tokens?: number | undefined;
+  turns?: number | undefined;
   success: boolean;
   timestamp: string;
   model?: string | undefined;
@@ -34,6 +39,10 @@ interface AgentAuditMetrics {
   attempts: AttemptData[];
   final_duration_ms: number;
   total_cost_usd: number;
+  total_input_tokens: number;
+  total_output_tokens: number;
+  total_cache_read_tokens: number;
+  total_cache_write_tokens: number;
   model?: string | undefined;
   checkpoint?: string | undefined;
 }
@@ -174,6 +183,10 @@ export class MetricsTracker {
       attempts: [],
       final_duration_ms: 0,
       total_cost_usd: 0,
+      total_input_tokens: 0,
+      total_output_tokens: 0,
+      total_cache_read_tokens: 0,
+      total_cache_write_tokens: 0,
     };
     this.data.metrics.agents[agentName] = agent;
 
@@ -184,6 +197,11 @@ export class MetricsTracker {
       cost_usd: result.cost_usd,
       success: result.success,
       timestamp: formatTimestamp(),
+      ...(result.input_tokens !== undefined && { input_tokens: result.input_tokens }),
+      ...(result.output_tokens !== undefined && { output_tokens: result.output_tokens }),
+      ...(result.cache_read_tokens !== undefined && { cache_read_tokens: result.cache_read_tokens }),
+      ...(result.cache_write_tokens !== undefined && { cache_write_tokens: result.cache_write_tokens }),
+      ...(result.turns !== undefined && { turns: result.turns }),
     };
 
     if (result.model) {
@@ -197,8 +215,12 @@ export class MetricsTracker {
     // 3. Append attempt to history
     agent.attempts.push(attempt);
 
-    // 4. Recalculate total cost across all attempts (includes failures)
+    // 4. Recalculate totals across all attempts (includes failures)
     agent.total_cost_usd = agent.attempts.reduce((sum, a) => sum + a.cost_usd, 0);
+    agent.total_input_tokens = agent.attempts.reduce((sum, a) => sum + (a.input_tokens ?? 0), 0);
+    agent.total_output_tokens = agent.attempts.reduce((sum, a) => sum + (a.output_tokens ?? 0), 0);
+    agent.total_cache_read_tokens = agent.attempts.reduce((sum, a) => sum + (a.cache_read_tokens ?? 0), 0);
+    agent.total_cache_write_tokens = agent.attempts.reduce((sum, a) => sum + (a.cache_write_tokens ?? 0), 0);
 
     // 5. Update agent status based on outcome
     if (result.success) {

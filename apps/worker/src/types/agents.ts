@@ -48,7 +48,6 @@ export interface AgentDefinition {
   prerequisites: AgentName[];
   promptTemplate: string;
   deliverableFilename: string;
-  modelTier?: 'small' | 'medium' | 'large';
 }
 
 /**

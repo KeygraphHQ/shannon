@@ -12,6 +12,7 @@ import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.j
 import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
+import { resolveModelSpec } from '../model-spec.js';
 import { FINAL_REPORT_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
 import { stdoutIsTerminal } from '../tty.js';
@@ -261,19 +262,9 @@ function printInfo(
     console.log('  Mode:       Pipeline Testing');
   }
 
-  // Surface Fable usage: its safety classifiers route cybersecurity tasks to
-  // Opus 4.8, so those phases run on Opus 4.8 regardless of the tier setting.
-  const fableTiers = (
-    [
-      ['small', process.env.ANTHROPIC_SMALL_MODEL],
-      ['medium', process.env.ANTHROPIC_MEDIUM_MODEL],
-      ['large', process.env.ANTHROPIC_LARGE_MODEL],
-    ] as const
-  ).filter(([, model]) => model && /fable/i.test(model));
-  if (fableTiers.length > 0) {
-    const tierList = fableTiers.map(([tier, model]) => `${tier} (${model})`).join(', ');
-    console.log(`  Note:       ${tierList} set to a Fable model. Fable's safety classifiers`);
-    console.log('              route cybersecurity tasks to Opus 4.8, so those phases run on Opus 4.8.');
+  const spec = resolveModelSpec();
+  if (typeof spec !== 'string') {
+    console.log(`  Model:      ${spec.providerId}:${spec.modelId}`);
   }
 
   console.log('');

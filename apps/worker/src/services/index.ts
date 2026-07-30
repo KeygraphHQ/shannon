@@ -20,4 +20,6 @@ export type { ContainerDependencies } from './container.js';
 export { Container, getContainer, getOrCreateContainer, removeContainer, setContainerFactory } from './container.js';
 export { ExploitationCheckerService } from './exploitation-checker.js';
 export { loadPrompt } from './prompt-manager.js';
+export type { ReportData, ReportMeta } from './report-renderer.js';
+export { renderReport } from './report-renderer.js';
 export { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from './reporting.js';

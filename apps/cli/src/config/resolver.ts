@@ -9,6 +9,7 @@ import fs from 'node:fs';
 import { parse as parseTOML } from 'smol-toml';
 import { getConfigFile } from '../home.js';
 import { getMode } from '../mode.js';
+import { DEFAULT_MODEL_SPEC, type ProviderId, parseModelSpec } from '../model-spec.js';
 
 // === TOML ↔ Env Mapping ===
 
@@ -23,27 +24,33 @@ interface ConfigMapping {
 
 /** Maps every supported env var to its TOML path (section.key) and expected type. */
 const CONFIG_MAP: readonly ConfigMapping[] = [
-  // Core
-  { env: 'CLAUDE_ADAPTIVE_THINKING', toml: 'core.adaptive_thinking', type: 'boolean', boolFormat: 'literal' },
+  // Core — base_url points any provider at a proxy or gateway
+  { env: 'SHANNON_AI_MODEL', toml: 'core.model', type: 'string' },
+  { env: 'SHANNON_AI_BASE_URL', toml: 'core.base_url', type: 'string' },
 
   // Anthropic
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
 
+  // OpenAI — format picks the wire API a gateway serves
+  { env: 'OPENAI_API_KEY', toml: 'openai.api_key', type: 'string' },
+  { env: 'SHANNON_AI_OPENAI_FORMAT', toml: 'openai.format', type: 'string' },
+
+  // xAI
+  { env: 'XAI_API_KEY', toml: 'xai.api_key', type: 'string' },
+
   // Bedrock
-  { env: 'CLAUDE_CODE_USE_BEDROCK', toml: 'bedrock.use', type: 'boolean' },
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
   { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
-
-  // Custom Base URL
-  { env: 'ANTHROPIC_BASE_URL', toml: 'custom_base_url.base_url', type: 'string' },
-  { env: 'ANTHROPIC_AUTH_TOKEN', toml: 'custom_base_url.auth_token', type: 'string' },
-
-  // Model tiers
-  { env: 'ANTHROPIC_SMALL_MODEL', toml: 'models.small', type: 'string' },
-  { env: 'ANTHROPIC_MEDIUM_MODEL', toml: 'models.medium', type: 'string' },
-  { env: 'ANTHROPIC_LARGE_MODEL', toml: 'models.large', type: 'string' },
 ] as const;
+
+/** TOML section holding each provider's credentials, keyed by provider id. */
+const PROVIDER_SECTIONS: Readonly<Record<ProviderId, string>> = {
+  anthropic: 'anthropic',
+  openai: 'openai',
+  xai: 'xai',
+  'amazon-bedrock': 'bedrock',
+};
 
 // === TOML Parsing ===
 
@@ -118,52 +125,33 @@ function buildSchema(): Map<string, Map<string, TOMLType>> {
   return schema;
 }
 
-/** Check that a provider section has all required fields and dependencies. */
-function validateProviderFields(config: TOMLConfig, provider: string, errors: string[]): void {
-  const section = config[provider] as Record<string, unknown> | undefined;
-  if (!section) return;
-  const keys = Object.keys(section);
+/**
+ * Check that the section backing the selected provider carries a usable
+ * credential. `core.model` names the provider, so only that section is required;
+ * other providers' sections are ignored and never forwarded.
+ */
+function validateProviderFields(config: TOMLConfig, providerId: ProviderId, errors: string[]): void {
+  const sectionName = PROVIDER_SECTIONS[providerId];
+  const section = config[sectionName] as Record<string, unknown> | undefined;
+  const keys = section ? Object.keys(section) : [];
 
-  switch (provider) {
-    case 'anthropic':
-      if (!keys.includes('api_key') && !keys.includes('oauth_token')) {
-        errors.push('[anthropic] requires either api_key or oauth_token');
-      }
-      break;
-
-    case 'custom_base_url': {
-      const required = ['base_url', 'auth_token'];
-      const missing = required.filter((k) => !keys.includes(k));
-      if (missing.length > 0) {
-        errors.push(`[custom_base_url] missing required keys: ${missing.join(', ')}`);
-      }
-      break;
+  if (providerId === 'amazon-bedrock') {
+    const missing = ['region', 'token'].filter((k) => !keys.includes(k));
+    if (missing.length > 0) {
+      errors.push(`[bedrock] missing required keys: ${missing.join(', ')}`);
     }
-
-    case 'bedrock': {
-      const required = ['use', 'region', 'token'];
-      const missing = required.filter((k) => !keys.includes(k));
-      if (missing.length > 0) {
-        errors.push(`[bedrock] missing required keys: ${missing.join(', ')}`);
-      }
-      validateModelTiers(config, 'bedrock', errors);
-      break;
-    }
-  }
-}
-
-/** Bedrock requires a [models] section with all three tiers. */
-function validateModelTiers(config: TOMLConfig, provider: string, errors: string[]): void {
-  const models = config.models as Record<string, unknown> | undefined;
-  if (!models || typeof models !== 'object') {
-    errors.push(`[${provider}] requires a [models] section with small, medium, and large`);
     return;
   }
 
-  const required = ['small', 'medium', 'large'];
-  const missing = required.filter((k) => !Object.keys(models).includes(k));
-  if (missing.length > 0) {
-    errors.push(`[models] missing required keys for ${provider}: ${missing.join(', ')}`);
+  if (providerId === 'anthropic') {
+    if (!keys.includes('api_key') && !keys.includes('oauth_token')) {
+      errors.push('[anthropic] requires either api_key or oauth_token');
+    }
+    return;
+  }
+
+  if (!keys.includes('api_key')) {
+    errors.push(`[${sectionName}] requires api_key`);
   }
 }
 
@@ -211,23 +199,19 @@ function validateConfig(config: TOMLConfig): string[] {
     }
   }
 
-  // 4. Only one provider section allowed (ignore empty sections)
-  const PROVIDER_SECTIONS = ['anthropic', 'custom_base_url', 'bedrock'] as const;
-  const present = PROVIDER_SECTIONS.filter((s) => {
-    const section = config[s];
-    return section && typeof section === 'object' && Object.keys(section).length > 0;
-  });
-  if (present.length > 1) {
-    errors.push(
-      `Multiple providers configured: [${present.join('], [')}]. Only one provider section is allowed at a time`,
-    );
+  // 4. core.model must parse and name a supported provider
+  const modelValue = config.core?.model;
+  if (modelValue !== undefined && typeof modelValue !== 'string') {
+    return errors;
+  }
+  const spec = parseModelSpec(modelValue || DEFAULT_MODEL_SPEC);
+  if (typeof spec === 'string') {
+    errors.push(`[core].model — ${spec}`);
+    return errors;
   }
 
-  // 5. Required fields per provider
-  const singleProvider = present.length === 1 ? present[0] : undefined;
-  if (singleProvider) {
-    validateProviderFields(config, singleProvider, errors);
-  }
+  // 5. The selected provider's section must carry a credential
+  validateProviderFields(config, spec.providerId, errors);
 
   return errors;
 }

@@ -145,7 +145,6 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     AGENT_NAME,
     auditSession,
     logger,
-    'medium',
     undefined, // callerTools
     deliverablesSubdir,
     cancellationSignal,

@@ -70,7 +70,8 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic is recommended. AWS Bedrock and compatible proxy setups are documented separately.
+- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock. Claude models are recommended. Gateway and proxy setups are documented separately.
+- **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 ### Run Shannon
 
@@ -185,8 +186,8 @@ Use these guides for operational detail:
 | Guide | Use it for |
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
-| [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, report filters, and rate-limit settings. |
-| [AI providers](docs/ai-providers.md) | Anthropic, AWS Bedrock, and custom Anthropic-compatible endpoints. |
+| [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, and report filters. |
+| [AI providers](docs/ai-providers.md) | Selecting the model, the supported providers (Anthropic, OpenAI, xAI, AWS Bedrock), and custom gateways. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
 | [Workspaces and resuming](docs/workspaces.md) | Naming workspaces, resuming interrupted scans, and workspace storage. |
 | [Safety and limitations](docs/safety.md) | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats. |
