@@ -6,7 +6,7 @@
 
 <a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
-Shannon is an autonomous, white-box AI pentester for web applications and APIs. <br />
+Shannon is an autonomous, AI pentester for web applications and APIs. <br />
 It analyzes your source code, identifies attack paths, and executes real exploits to prove vulnerabilities before they reach production.
 
 **This repository is Shannon Open Source: the full agent, run locally from your command line.**
@@ -32,13 +32,13 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 - [Architecture](#architecture)
 - [Documentation](#documentation)
 - [Safety, Scope, and Limitations](#safety-scope-and-limitations)
-- [License and Enterprise Licensing](#license-and-enterprise-licensing)
+- [License](#license)
 - [About Keygraph](#about-keygraph)
 - [Community and Support](#community-and-support)
 
 ## What is Shannon?
 
-Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.io). It performs white-box security testing of web applications and their underlying APIs by combining source-code analysis with live exploitation.
+Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.io). It performs security testing of web applications and their underlying APIs by combining source-code analysis with live exploitation.
 
 Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
 
@@ -210,7 +210,7 @@ Important limitations:
 
 Read the full [Safety and limitations](docs/safety.md) guide before running Shannon in a new environment.
 
-## License and Enterprise Licensing
+## License
 
 Shannon Open Source is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
