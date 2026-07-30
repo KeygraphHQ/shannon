@@ -27,6 +27,30 @@ Shannon forwards only the selected provider's credential into the scan container
 > [!IMPORTANT]
 > Claude models are the best-supported option. Shannon's evaluations, internal testing, and agent harness are tuned for Claude. Other models are permitted and validated against the harness catalogue, but may not follow Shannon's instructions or tool-use constraints as reliably. Use them at your own risk.
 
+## Cyber safeguards (do this before your first scan)
+
+Anthropic and OpenAI both apply real-time safeguards to cyber-security workloads. Shannon is exactly such a workload. If a safeguard engages mid-run, the model can refuse, and the scan fails partway through rather than at the start.
+
+Review each vendor's guidance and complete the verification or enrollment they ask of legitimate security testers before running Shannon:
+
+- Anthropic - [Real-time cyber safeguards on Claude Opus and Sonnet](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet)
+- OpenAI - [Cyber](https://chatgpt.com/cyber)
+
+This applies to the Anthropic and OpenAI providers, including when either is reached through a gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
+
+## Suggested models
+
+These are the models `npx @keygraph/shannon setup` offers, best-first. They are suggestions: the wizard also takes a typed model ID, and `SHANNON_AI_MODEL` accepts any model in the provider's catalogue.
+
+| Provider | Suggested model IDs |
+| --- | --- |
+| `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
+| `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
+| `xai` | `grok-4.5` |
+| `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
+
+Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
+
 ## Switching provider
 
 The pattern is learned once: export the provider's key, name the model. Two lines change, nothing else.
