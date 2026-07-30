@@ -70,7 +70,7 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock. Claude models are recommended. Gateway and proxy setups are documented separately.
+- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock. Claude models are recommended. For suggested model IDs per provider, plus gateways and custom base URLs, see [AI providers](docs/ai-providers.md#suggested-models).
 - **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 ### Run Shannon
