@@ -68,6 +68,7 @@ export function buildEnvFlags(): string[] {
 interface CredentialValidation {
   valid: boolean;
   error?: string;
+  warning?: string;
 }
 
 /**
@@ -118,5 +119,44 @@ export function validateCredentials(): CredentialValidation {
     return { valid: false, error: 'Credentials for more than one provider are set.' };
   }
 
-  return { valid: true };
+  return { valid: true, ...anthropicCredentialWarning(spec.providerId) };
+}
+
+/**
+ * De-silence the two ways an Anthropic credential surprises the user. Both are
+ * warnings, not errors: the run still starts, but the operator is told what will
+ * actually happen on the wire.
+ *
+ * - Both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN set: they authenticate
+ *   differently (x-api-key vs OAuth bearer) yet share the `anthropic` provider, so
+ *   the "exactly one provider" gate never fires and the API key silently wins — a
+ *   run the user believes is on their subscription quietly bills API credits.
+ * - A CLAUDE_CODE_OAUTH_TOKEN without the `sk-ant-oat` marker: pi recognises OAuth
+ *   only by that marker, so anything else is sent as an x-api-key that
+ *   api.anthropic.com rejects.
+ */
+function anthropicCredentialWarning(providerId: ProviderId): { warning?: string } {
+  if (providerId !== 'anthropic') return {};
+
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const oauthToken = process.env.CLAUDE_CODE_OAUTH_TOKEN;
+
+  if (apiKey && oauthToken) {
+    return {
+      warning:
+        'Both ANTHROPIC_API_KEY and CLAUDE_CODE_OAUTH_TOKEN are set. ANTHROPIC_API_KEY takes precedence, ' +
+        'so this scan bills API credits and the OAuth token is ignored. Unset ANTHROPIC_API_KEY to run on a ' +
+        'Claude Code subscription.',
+    };
+  }
+
+  if (oauthToken && !oauthToken.includes('sk-ant-oat')) {
+    return {
+      warning:
+        'CLAUDE_CODE_OAUTH_TOKEN does not contain the "sk-ant-oat" marker, so it is sent as an API key rather ' +
+        'than an OAuth token. Generate a Claude Code token with `claude setup-token`.',
+    };
+  }
+
+  return {};
 }

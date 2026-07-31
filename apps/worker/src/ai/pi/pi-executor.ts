@@ -22,7 +22,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../../audit/index.js';
-import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir, OAUTH_PROMPT_SHAPE_EXTENSION_DIR } from '../../paths.js';
 import { isRetryableFailure, PentestError } from '../../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../../session-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
@@ -76,7 +76,9 @@ async function buildResourceLoader(
   agentName: string | null,
 ): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
-  const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
+  // The OAuth-prompt-shape extension self-gates on the token, so loading it always is a
+  // no-op for non-OAuth runs.
+  const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR, OAUTH_PROMPT_SHAPE_EXTENSION_DIR];
   if (permissionSystemConfigExists(getAgentDir())) {
     try {
       additionalExtensionPaths.push(permissionSystemPackageDir());

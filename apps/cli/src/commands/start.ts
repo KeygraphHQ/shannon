@@ -62,6 +62,9 @@ export async function start(args: StartArgs): Promise<void> {
     console.error(`ERROR: ${creds.error}`);
     process.exit(1);
   }
+  if (creds.warning) {
+    console.warn(`WARNING: ${creds.warning}`);
+  }
 
   // 3. Resolve paths
   const repo = resolveRepo(args.repo);

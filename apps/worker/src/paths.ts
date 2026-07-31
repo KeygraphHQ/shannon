@@ -12,6 +12,14 @@ export const CONFIGS_DIR = path.join(WORKER_ROOT, 'configs');
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');
 
+/** Compiled pi extension dir that keeps OAuth requests on subscription billing (resolved from dist/) */
+export const OAUTH_PROMPT_SHAPE_EXTENSION_DIR = path.join(
+  import.meta.dirname,
+  'ai',
+  'extensions',
+  'oauth-prompt-shape',
+);
+
 /** Default deliverables subdirectory relative to repoPath */
 export const DEFAULT_DELIVERABLES_SUBDIR = '.shannon/deliverables';
 
