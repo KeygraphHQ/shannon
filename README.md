@@ -1,3 +1,7 @@
+> [!NOTE]
+> **SHANNON 2.0 is officially here!**
+> Click [here](https://github.com/KeygraphHQ/shannon/discussions/405) to find out more!
+
 <div align="center">
 
 <img src="./assets/github-banner.png" alt="Shannon - AI Pentester by Keygraph" width="100%">
