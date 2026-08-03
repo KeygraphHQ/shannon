@@ -514,7 +514,7 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
           ErrorCode.CONFIG_VALIDATION_FAILED,
         );
       }
-      if (pattern.test(rule.description)) {
+      if (rule.description !== undefined && pattern.test(rule.description)) {
         throw new PentestError(
           `rules.${ruleType}[${index}].description contains potentially dangerous pattern: ${pattern.source}`,
           'config',
@@ -656,11 +656,15 @@ const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): vo
 };
 
 const sanitizeRule = (rule: Rule): Rule => {
-  return {
-    description: rule.description.trim(),
+  const sanitized: Rule = {
     type: rule.type.toLowerCase().trim() as Rule['type'],
     value: rule.value.trim(),
   };
+  const description = rule.description?.trim();
+  if (description) {
+    sanitized.description = description;
+  }
+  return sanitized;
 };
 
 export const distributeConfig = (config: Config | null): DistributedConfig => {

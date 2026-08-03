@@ -12,14 +12,21 @@ import type { Authentication, DistributedConfig, DistributedReportConfig, Rule, 
 import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
 
+function renderRuleLine(tag: string, value: string, description?: string): string {
+  const base = `- ${tag} ${value}`;
+  return description ? `${base} - ${description}` : base;
+}
+
+function renderUrlRules(rules: Rule[]): string {
+  if (rules.length === 0) return 'None';
+  return rules.map((r) => renderRuleLine(`[${r.type.toUpperCase()}]`, r.value, r.description)).join('\n');
+}
+
 function renderCodePathRules(rules: Rule[]): string {
   const filtered = rules.filter((r) => r.type === 'code_path');
   if (filtered.length === 0) return 'None';
   return filtered
-    .map((r) => {
-      const kind = isGlobPattern(r.value) ? '[GLOB]' : '[FILE]';
-      return `- ${r.value} ${kind} — ${r.description}`;
-    })
+    .map((r) => renderRuleLine(isGlobPattern(r.value) ? '[GLOB]' : '[FILE]', r.value, r.description))
     .join('\n');
 }
 
@@ -375,8 +382,8 @@ async function interpolateVariables(
     if (avoidUrlRules.length === 0 && focusUrlRules.length === 0) {
       result = result.replace(/<rules>[\s\S]*?<\/rules>\s*/g, '');
     } else {
-      const avoidStr = avoidUrlRules.length > 0 ? avoidUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
-      const focusStr = focusUrlRules.length > 0 ? focusUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
+      const avoidStr = renderUrlRules(avoidUrlRules);
+      const focusStr = renderUrlRules(focusUrlRules);
       result = replaceLiteral(result, /{{RULES_AVOID}}/g, avoidStr);
       result = replaceLiteral(result, /{{RULES_FOCUS}}/g, focusStr);
     }
