@@ -37,7 +37,7 @@ const OWASP_CATEGORY_VALUES = [
   'A10:2025 — Mishandling of Exceptional Conditions',
 ] as const;
 
-const SEVERITY_VALUES = ['critical', 'high', 'medium', 'low', 'informational'] as const;
+const SEVERITY_VALUES = ['critical', 'high', 'medium', 'low'] as const;
 const STATUS_VALUES = ['exploited', 'out_of_scope', 'blocked_by_constraints', 'false_positive'] as const;
 const CONFIDENCE_VALUES = ['high', 'medium', 'low'] as const;
 
