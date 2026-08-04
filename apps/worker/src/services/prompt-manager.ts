@@ -103,13 +103,13 @@ function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): strin
 /**
  * Which configured filters this run can actually enforce.
  *
- * The two ratings are mode-exclusive (see ../collectors/finding-collector.ts): an exploited
- * finding carries `severity`, an analysed one carries `confidence`. Handing the agent a
- * threshold for the rating its findings do not have is a directive it cannot honor.
+ * Every finding carries `severity` (see ../collectors/finding-collector.ts), so a severity
+ * threshold always applies. `confidence` exists only on an analysed finding — handing an
+ * exploit run a confidence threshold is a directive it cannot honor.
  */
 function applicableFilters(report: DistributedReportConfig | undefined, exploitEnabled: boolean) {
   return {
-    severity: Boolean(report?.min_severity) && exploitEnabled,
+    severity: Boolean(report?.min_severity),
     confidence: Boolean(report?.min_confidence) && !exploitEnabled,
     guidance: Boolean(report?.guidance?.trim()),
   };
@@ -439,12 +439,6 @@ async function interpolateVariables(
       exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
     );
 
-    if (config?.report?.min_severity && !exploitEnabled) {
-      logger.warn(
-        `report.min_severity="${config.report.min_severity}" is ignored when exploit=false: an ` +
-          'analysis-only run rates findings by confidence, not severity. Use report.min_confidence.',
-      );
-    }
     if (config?.report?.min_confidence && exploitEnabled) {
       logger.warn(
         `report.min_confidence="${config.report.min_confidence}" is ignored when exploit=true: an ` +

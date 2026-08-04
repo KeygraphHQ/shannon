@@ -117,8 +117,18 @@ const AdditionalSectionSchema = Type.Object({
   }),
 });
 
-function identityFields() {
+/**
+ * `severity` is recorded in both modes, but it does not mean the same thing in each: an exploit
+ * run measures it from what the exploit demonstrated, an analysis run assesses it from the class
+ * of flaw. The description says which, so the agent never presents an assessment as a measurement.
+ */
+function identityFields(exploit: boolean) {
+  const severityDescription = exploit
+    ? 'Severity of the finding, based on the impact the exploit demonstrated.'
+    : 'Severity of the finding, assessed from the vulnerability class and the impact it would have.';
+
   return {
+    severity: stringEnum(SEVERITY_VALUES, { description: severityDescription }),
     finding_id: Type.String({
       minLength: 1,
       description: 'Finding identifier (e.g., "AUTH-VULN-07", "INJ-VULN-03"). Must be unique per report.',
@@ -178,9 +188,6 @@ function narrativeFields(exploit: boolean) {
 /** Fields that only mean something once an exploit has run. Absent from the analysis schema. */
 function exploitOnlyFields() {
   return {
-    severity: stringEnum(SEVERITY_VALUES, {
-      description: 'Severity of the finding, based on the impact the exploit demonstrated.',
-    }),
     auth_state: Type.String({
       minLength: 1,
       description: 'Authentication state during testing (e.g., "Unauthenticated", "Any authenticated user").',
@@ -205,7 +212,7 @@ function exploitOnlyFields() {
   };
 }
 
-/** Replaces `severity` when nothing was exploited. */
+/** Accompanies `severity` when nothing was exploited — the rating the analysis deliverable itself carries. */
 function analysisOnlyFields() {
   return {
     confidence: stringEnum(CONFIDENCE_VALUES, {
@@ -233,7 +240,7 @@ function sharedOptionalFields() {
 
 export function buildAddFindingSchema(exploit: boolean) {
   return Type.Object({
-    ...identityFields(),
+    ...identityFields(exploit),
     ...(exploit ? exploitOnlyFields() : analysisOnlyFields()),
     ...locationFields(),
     ...narrativeFields(exploit),
@@ -243,12 +250,12 @@ export function buildAddFindingSchema(exploit: boolean) {
 
 /**
  * Superset of both modes, for typing only. Consumers must check presence rather than assume:
- * `report.json` from an analysis run has no `severity` or `exploitation_steps` key at all.
+ * `report.json` from an analysis run has no `exploitation_steps` key at all. `severity` is the
+ * exception — both modes record it, so it is required here too.
  */
 const AddFindingSupersetSchema = Type.Object({
-  ...identityFields(),
+  ...identityFields(true),
   code_locations: Type.Optional(Type.Array(CodeLocationSchema)),
-  severity: Type.Optional(stringEnum(SEVERITY_VALUES)),
   auth_state: Type.Optional(Type.String()),
   prerequisites: Type.Optional(Type.String()),
   exploitation_steps: Type.Optional(Type.Array(StructuredStepSchema)),
