@@ -514,7 +514,7 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
           ErrorCode.CONFIG_VALIDATION_FAILED,
         );
       }
-      if (pattern.test(rule.description)) {
+      if (rule.description !== undefined && pattern.test(rule.description)) {
         throw new PentestError(
           `rules.${ruleType}[${index}].description contains potentially dangerous pattern: ${pattern.source}`,
           'config',
@@ -656,11 +656,15 @@ const checkForConflicts = (avoidRules: Rule[] = [], focusRules: Rule[] = []): vo
 };
 
 const sanitizeRule = (rule: Rule): Rule => {
-  return {
-    description: rule.description.trim(),
+  const sanitized: Rule = {
     type: rule.type.toLowerCase().trim() as Rule['type'],
     value: rule.value.trim(),
   };
+  const description = rule.description?.trim();
+  if (description) {
+    sanitized.description = description;
+  }
+  return sanitized;
 };
 
 export const distributeConfig = (config: Config | null): DistributedConfig => {
@@ -702,13 +706,15 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
     credentials: {
       username: auth.credentials.username.trim(),
       ...(auth.credentials.password && { password: auth.credentials.password }),
-      ...(auth.credentials.totp_secret && { totp_secret: auth.credentials.totp_secret.trim() }),
+      ...(auth.credentials.totp_secret && {
+        totp_secret: auth.credentials.totp_secret.replace(/\s/g, ''),
+      }),
       ...(auth.credentials.email_login && {
         email_login: {
           address: auth.credentials.email_login.address.trim(),
           password: auth.credentials.email_login.password,
           ...(auth.credentials.email_login.totp_secret && {
-            totp_secret: auth.credentials.email_login.totp_secret.trim(),
+            totp_secret: auth.credentials.email_login.totp_secret.replace(/\s/g, ''),
           }),
         },
       }),

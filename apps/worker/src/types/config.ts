@@ -11,7 +11,7 @@
 export type RuleType = 'url_path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter' | 'code_path';
 
 export interface Rule {
-  description: string;
+  description?: string;
   type: RuleType;
   value: string;
 }

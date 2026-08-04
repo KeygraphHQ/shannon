@@ -206,7 +206,6 @@
       "properties": {
         "description": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 200,
           "description": "Human-readable description of the rule"
         },
@@ -222,7 +221,7 @@
           "description": "Value to match"
         }
       },
-      "required": ["description", "type", "value"],
+      "required": ["type", "value"],
       "additionalProperties": false
     }
   }

@@ -263,7 +263,16 @@ export function renderReport(data: ReportData): string {
     sections.push(`### ${cat}`);
     sections.push('');
     for (const f of catFindings) {
-      const suffix = f.severity ? ` (${titleCase(f.severity)})` : '';
+      // Both ratings when the mode produced both. Confidence is labelled so it is never
+      // read as a severity in the position where a severity usually sits.
+      const ratings: string[] = [];
+      if (f.severity) {
+        ratings.push(titleCase(f.severity));
+      }
+      if (f.confidence) {
+        ratings.push(`${titleCase(f.confidence)} confidence`);
+      }
+      const suffix = ratings.length > 0 ? ` (${ratings.join(', ')})` : '';
       sections.push(`- **${f.finding_id}:** ${f.title}${suffix}`);
     }
     sections.push('');

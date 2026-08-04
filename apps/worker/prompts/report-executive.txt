@@ -89,7 +89,7 @@ Fields:
 - `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — severity distribution, most critical issues, and overall risk demonstrated by exploitation. If no vulnerabilities were confirmed in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present. If that block is present, explicitly say the listed classes were not assessed and do not assert they are free of vulnerabilities.
 </exploit_mode_summary>
 <analysis_mode_summary>
-- `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — confidence distribution, the most serious weaknesses identified, and overall risk. State plainly that this was an analysis-only assessment and that no finding was confirmed by exploitation; do not describe risk as demonstrated or proven. Findings carry no severity rating in this mode, so do not assert one. If no vulnerabilities were identified in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present. If that block is present, explicitly say the listed classes were not assessed and do not assert they are free of vulnerabilities.
+- `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — severity and confidence distribution, the most serious weaknesses identified, and overall risk. State plainly that this was an analysis-only assessment and that no finding was confirmed by exploitation; do not describe risk as demonstrated or proven, and present severity as assessed rather than measured. If no vulnerabilities were identified in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present. If that block is present, explicitly say the listed classes were not assessed and do not assert they are free of vulnerabilities.
 </analysis_mode_summary>
 </record_report_meta>
 
@@ -112,6 +112,7 @@ Map the finding's content from the per-class deliverable sections to `add_findin
 </exploit_mode_fields>
 <analysis_mode_fields>
 - `confidence`: From the finding's "Confidence" field. Use as-is; do not reassess.
+- `severity`: The analysis deliverables carry no severity field — no exploit ran to measure impact. Assess it from the vulnerability class and the impact you describe. It is an assessed rating, not a measured one.
 </analysis_mode_fields>
 - `owasp_category`: Map to the appropriate OWASP Top 10 (2025) category:
   - `"A01:2025 — Broken Access Control"`
@@ -139,7 +140,7 @@ Map the finding's content from the per-class deliverable sections to `add_findin
 <analysis_mode_fields>
 - `impact`: What an attacker could achieve if this vulnerability were exploited. Derive it from the finding's "Impact" and "Overview" fields. Write it as assessed, never as achieved.
 
-This run had no exploitation phase. Nothing was executed against the target, nothing was demonstrated, and no exploit evidence exists. Accordingly `severity`, `auth_state`, `prerequisites`, `exploitation_steps`, `proof_of_impact` and `status` are **not** part of your tool schema — the deliverables contain no source for any of them. `confidence` is the only rating this run produces; take it straight from the deliverable. Do not compensate for the missing fields by describing attack execution in `overview`, `impact` or `notes`. Report the weakness and how to fix it; that is the whole deliverable for this run.
+This run had no exploitation phase. Nothing was executed against the target, nothing was demonstrated, and no exploit evidence exists. Accordingly `auth_state`, `prerequisites`, `exploitation_steps`, `proof_of_impact` and `status` are **not** part of your tool schema — the deliverables contain no source for any of them. `confidence` is the deliverable's own rating and carries over verbatim; `severity` is yours to assess, since nothing measured it. Do not compensate for the missing fields by describing attack execution in `overview`, `impact` or `notes`. Report the weakness and how to fix it; that is the whole deliverable for this run.
 </analysis_mode_fields>
 
 **Optional fields:**
@@ -160,6 +161,7 @@ If no valid findings exist after filtering, do not call `add_finding` at all. Th
 - **No Fabrications:** Every piece of data must come from the deliverable files. If a finding has incomplete data, include it but note the gap in `overview`.
 - **Nothing Was Demonstrated:** No exploit ran. Do not write that a vulnerability was confirmed, proven, exploited, or verified against the running target, and do not describe payloads, requests, or responses as having been sent.
 - **No Confidence Changes:** Use the confidence from the deliverable as-is. Do not raise or lower it.
+- **Severity Is Assessed:** Rate severity from the vulnerability class and the impact you describe. Never present it as measured or demonstrated.
 </analysis_mode_constraints>
 - **No Speculation:** Only record findings that appear in the deliverables with valid vulnerability IDs. Do not add your own assessments.
 - **OWASP 2025:** Map all findings to OWASP Top 10 (2025) categories.
@@ -187,6 +189,7 @@ Before finalizing, verify:
 </exploit_mode_checks>
 <analysis_mode_checks>
 - [ ] Does every finding have `confidence` carried over unchanged from the deliverable?
+- [ ] Is every `severity` assessed from the impact I described, with no claim that it was measured?
 - [ ] Is every `impact` phrased as assessed rather than demonstrated, with no claim that anything was executed?
 </analysis_mode_checks>
 - [ ] Are remediation recommendations specific and actionable (not generic)?

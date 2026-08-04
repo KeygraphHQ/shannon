@@ -179,7 +179,7 @@ type RuleKind = 'avoid' | 'focus';
 interface MissingCodePath {
   kind: RuleKind;
   value: string;
-  description: string;
+  description?: string;
 }
 
 async function validateCodePathsExist(
@@ -202,12 +202,16 @@ async function validateCodePathsExist(
   const missing: MissingCodePath[] = [];
   for (const { kind, rule } of tagged) {
     if (!(await patternMatchesAny(repoPath, rule.value))) {
-      missing.push({ kind, value: rule.value, description: rule.description });
+      const entry: MissingCodePath = { kind, value: rule.value };
+      if (rule.description) {
+        entry.description = rule.description;
+      }
+      missing.push(entry);
     }
   }
 
   if (missing.length > 0) {
-    const lines = missing.map((m) => `[${m.kind}] '${m.value}' — ${m.description}`);
+    const lines = missing.map((m) => `[${m.kind}] '${m.value}'${m.description ? ` - ${m.description}` : ''}`);
     return err(
       new PentestError(
         `code_path rules don't match any file or directory in the repo:\n  - ${lines.join('\n  - ')}\n` +
