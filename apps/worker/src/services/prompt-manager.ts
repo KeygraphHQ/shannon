@@ -432,7 +432,6 @@ async function interpolateVariables(
     result = result.replace(/<\/?(?:exploit|analysis)_mode_[a-z_]+>\n?/g, '');
 
     result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');
-    result = replaceLiteral(result, /{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings');
     result = replaceLiteral(
       result,
       /{{REPORT_VULN_SUBHEADING}}/g,
