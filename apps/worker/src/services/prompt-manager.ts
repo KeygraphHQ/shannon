@@ -30,49 +30,13 @@ function renderCodePathRules(rules: Rule[]): string {
     .join('\n');
 }
 
-interface VulnSummarySpec {
-  readonly heading: string;
-  readonly evidenceSection: string;
-  readonly noneFoundLabel: string;
-}
-
-const VULN_SUMMARY_SPECS: Record<VulnClass, VulnSummarySpec> = {
-  auth: {
-    heading: 'Authentication Vulnerabilities',
-    evidenceSection: 'Authentication Exploitation Evidence',
-    noneFoundLabel: 'authentication',
-  },
-  authz: {
-    heading: 'Authorization Vulnerabilities',
-    evidenceSection: 'Authorization Exploitation Evidence',
-    noneFoundLabel: 'authorization',
-  },
-  xss: {
-    heading: 'Cross-Site Scripting (XSS) Vulnerabilities',
-    evidenceSection: 'XSS Exploitation Evidence',
-    noneFoundLabel: 'XSS',
-  },
-  injection: {
-    heading: 'SQL/Command Injection Vulnerabilities',
-    evidenceSection: 'Injection Exploitation Evidence',
-    noneFoundLabel: 'SQL or command injection',
-  },
-  ssrf: {
-    heading: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
-    evidenceSection: 'SSRF Exploitation Evidence',
-    noneFoundLabel: 'SSRF',
-  },
+const VULN_CLASS_HEADINGS: Record<VulnClass, string> = {
+  auth: 'Authentication Vulnerabilities',
+  authz: 'Authorization Vulnerabilities',
+  xss: 'Cross-Site Scripting (XSS) Vulnerabilities',
+  injection: 'SQL/Command Injection Vulnerabilities',
+  ssrf: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
 };
-
-function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
-  const classes = selected.length > 0 ? selected : (Object.keys(VULN_SUMMARY_SPECS) as VulnClass[]);
-  return classes
-    .map((cls) => {
-      const spec = VULN_SUMMARY_SPECS[cls];
-      return `**${spec.heading}:**\n{Check for "${spec.evidenceSection}" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No ${spec.noneFoundLabel} vulnerabilities were found."}`;
-    })
-    .join('\n\n');
-}
 
 /**
  * Renders the <not_assessed_classes> block. Empty when every class completed.
@@ -93,9 +57,8 @@ function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): strin
   ];
 
   for (const cls of classes) {
-    const spec = VULN_SUMMARY_SPECS[cls];
     lines.push(
-      `- ${spec.heading}: analysis did not complete; this class was NOT assessed. Absence of findings here does not indicate the class is clean.`,
+      `- ${VULN_CLASS_HEADINGS[cls]}: analysis did not complete; this class was NOT assessed. Absence of findings here does not indicate the class is clean.`,
     );
   }
 
@@ -423,7 +386,6 @@ async function interpolateVariables(
       /{{VULN_CLASSES_TESTED}}/g,
       vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
     );
-    result = replaceLiteral(result, /{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
     result = replaceLiteral(
       result,
       /{{NOT_ASSESSED_CLASSES}}/g,
