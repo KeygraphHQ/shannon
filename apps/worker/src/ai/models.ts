@@ -24,18 +24,29 @@
 import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@earendil-works/pi-ai';
 import { ModelRuntime } from '@earendil-works/pi-coding-agent';
 
-/** Providers Shannon can currently reach. Each is a pi-ai provider id. */
-export const SUPPORTED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
+/**
+ * Providers Shannon curates with their own credential variables, config sections,
+ * and setup flows. Each is a pi-ai provider id; any other pi provider is still
+ * reachable through the generic credential path below.
+ */
+export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
 
-export type ProviderId = (typeof SUPPORTED_PROVIDERS)[number];
+export type CuratedProviderId = (typeof CURATED_PROVIDERS)[number];
+
+function isCuratedProvider(value: string): value is CuratedProviderId {
+  return (CURATED_PROVIDERS as readonly string[]).includes(value);
+}
+
+/** Generic API key, honored for any provider Shannon does not curate. */
+export const GENERIC_API_KEY_ENV = 'SHANNON_AI_API_KEY';
 
 /**
- * Env vars carrying each provider's API key, in precedence order. Shannon does not
- * invent credential names — these are the variables each provider's own tooling
- * uses. Bedrock pairs its bearer token with AWS_REGION, which is provider config
- * rather than a credential.
+ * Env vars carrying each curated provider's API key, in precedence order. Shannon
+ * does not invent credential names — these are the variables each provider's own
+ * tooling uses. Bedrock pairs its bearer token with AWS_REGION, which is provider
+ * config rather than a credential.
  */
-export const PROVIDER_API_KEY_ENV: Readonly<Record<ProviderId, readonly string[]>> = {
+export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly string[]>> = {
   anthropic: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
   openai: ['OPENAI_API_KEY'],
   xai: ['XAI_API_KEY'],
@@ -82,18 +93,14 @@ export function resolveOpenAiFormat(): OpenAiFormat | undefined {
 }
 
 export interface ModelSpec {
-  providerId: ProviderId;
+  providerId: string;
   modelId: string;
 }
 
-function isSupportedProvider(value: string): value is ProviderId {
-  return (SUPPORTED_PROVIDERS as readonly string[]).includes(value);
-}
-
 /**
- * Parse a `<provider>:<model-id>` spec. Splits on the first colon only, so
- * colons inside a model ID survive. Throws with the supported provider list on
- * a malformed or unknown provider.
+ * Parse a `<provider>:<model-id>` spec. Splits on the first colon only, so colons
+ * inside a model ID survive. The provider id is passed through as given — pi's
+ * registry validates it later — so this throws only on a malformed spec.
  */
 export function parseModelSpec(spec: string): ModelSpec {
   const trimmed = spec.trim();
@@ -112,11 +119,6 @@ export function parseModelSpec(spec: string): ModelSpec {
       `SHANNON_AI_MODEL must be "<provider>:<model-id>", got "${trimmed}". Example: ${DEFAULT_MODEL_SPEC}`,
     );
   }
-  if (!isSupportedProvider(providerId)) {
-    throw new Error(
-      `Unsupported provider "${providerId}" in SHANNON_AI_MODEL. Supported providers: ${SUPPORTED_PROVIDERS.join(', ')}`,
-    );
-  }
 
   return { providerId, modelId };
 }
@@ -133,16 +135,24 @@ export interface ProviderCredentials {
   apiKey?: string;
 }
 
-/** Collect the API key and optional endpoint override for a provider. */
-export function resolveProviderCredentials(providerId: ProviderId): ProviderCredentials {
+/**
+ * Collect the API key and optional endpoint override for a provider. A curated
+ * provider's own variables win, then the generic SHANNON_AI_API_KEY. Bedrock is
+ * excluded — it authenticates through its AWS_ variables, which pi reads directly.
+ */
+export function resolveProviderCredentials(providerId: string): ProviderCredentials {
   const credentials: ProviderCredentials = {};
 
-  for (const name of PROVIDER_API_KEY_ENV[providerId]) {
+  const namedVars = isCuratedProvider(providerId) ? PROVIDER_API_KEY_ENV[providerId] : [];
+  for (const name of namedVars) {
     const value = process.env[name];
     if (value) {
       credentials.apiKey = value;
       break;
     }
+  }
+  if (!credentials.apiKey && providerId !== 'amazon-bedrock' && process.env[GENERIC_API_KEY_ENV]) {
+    credentials.apiKey = process.env[GENERIC_API_KEY_ENV];
   }
   if (process.env.SHANNON_AI_BASE_URL) credentials.baseUrl = process.env.SHANNON_AI_BASE_URL;
 
@@ -203,7 +213,7 @@ export interface ModelSelection {
   model: Model<Api>;
   modelRuntime: ModelRuntime;
   modelId: string;
-  providerId: ProviderId;
+  providerId: string;
 }
 
 /**
@@ -218,7 +228,7 @@ export interface ModelSelection {
  * then describes the format in use. Every other provider has one API and only
  * changes address.
  */
-function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: string, format: OpenAiFormat): Model<Api> {
+function pointAtGateway(model: Model<Api>, providerId: string, baseUrl: string, format: OpenAiFormat): Model<Api> {
   if (providerId !== 'openai') return { ...model, baseUrl };
   if (format === 'responses') return { ...model, baseUrl, api: OPENAI_FORMATS.responses };
 
@@ -240,7 +250,7 @@ function pointAtGateway(model: Model<Api>, providerId: ProviderId, baseUrl: stri
  */
 export function resolveModel(
   modelRuntime: ModelRuntime,
-  providerId: ProviderId,
+  providerId: string,
   modelId: string,
   baseUrl: string | undefined,
   format: OpenAiFormat = DEFAULT_OPENAI_FORMAT,
@@ -265,7 +275,7 @@ export function resolveModel(
  * are configured, so it is rejected outside that combination rather than
  * silently ignored.
  */
-export function resolveGatewayFormat(providerId: ProviderId, baseUrl: string | undefined): OpenAiFormat {
+export function resolveGatewayFormat(providerId: string, baseUrl: string | undefined): OpenAiFormat {
   const configured = resolveOpenAiFormat();
   if (!configured) return DEFAULT_OPENAI_FORMAT;
 

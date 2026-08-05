@@ -9,7 +9,13 @@ import fs from 'node:fs';
 import { parse as parseTOML } from 'smol-toml';
 import { getConfigFile } from '../home.js';
 import { getMode } from '../mode.js';
-import { DEFAULT_MODEL_SPEC, type ProviderId, parseModelSpec } from '../model-spec.js';
+import {
+  type CuratedProviderId,
+  DEFAULT_MODEL_SPEC,
+  GENERIC_API_KEY_ENV,
+  isCuratedProvider,
+  parseModelSpec,
+} from '../model-spec.js';
 
 // === TOML ↔ Env Mapping ===
 
@@ -42,15 +48,21 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   // Bedrock
   { env: 'AWS_REGION', toml: 'bedrock.region', type: 'string' },
   { env: 'AWS_BEARER_TOKEN_BEDROCK', toml: 'bedrock.token', type: 'string' },
+
+  // Generic — credential for any provider Shannon does not curate
+  { env: GENERIC_API_KEY_ENV, toml: 'provider.api_key', type: 'string' },
 ] as const;
 
-/** TOML section holding each provider's credentials, keyed by provider id. */
-const PROVIDER_SECTIONS: Readonly<Record<ProviderId, string>> = {
+/** TOML section holding each curated provider's credentials, keyed by provider id. */
+const PROVIDER_SECTIONS: Readonly<Record<CuratedProviderId, string>> = {
   anthropic: 'anthropic',
   openai: 'openai',
   xai: 'xai',
   'amazon-bedrock': 'bedrock',
 };
+
+/** TOML section holding the generic credential for uncurated providers. */
+const GENERIC_PROVIDER_SECTION = 'provider';
 
 // === TOML Parsing ===
 
@@ -128,9 +140,18 @@ function buildSchema(): Map<string, Map<string, TOMLType>> {
 /**
  * Check that the section backing the selected provider carries a usable
  * credential. `core.model` names the provider, so only that section is required;
- * other providers' sections are ignored and never forwarded.
+ * other providers' sections are ignored and never forwarded. An uncurated
+ * provider draws its credential from the generic [provider] section.
  */
-function validateProviderFields(config: TOMLConfig, providerId: ProviderId, errors: string[]): void {
+function validateProviderFields(config: TOMLConfig, providerId: string, errors: string[]): void {
+  if (!isCuratedProvider(providerId)) {
+    const section = config[GENERIC_PROVIDER_SECTION] as Record<string, unknown> | undefined;
+    if (!section || !Object.keys(section).includes('api_key')) {
+      errors.push(`[${GENERIC_PROVIDER_SECTION}] requires api_key for provider "${providerId}"`);
+    }
+    return;
+  }
+
   const sectionName = PROVIDER_SECTIONS[providerId];
   const section = config[sectionName] as Record<string, unknown> | undefined;
   const keys = section ? Object.keys(section) : [];
