@@ -56,6 +56,9 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly s
 /** Model used when SHANNON_AI_MODEL is unset. */
 export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
 
+/** Browsable pi model catalogue — the source of valid `<provider>:<model-id>` ids. */
+export const PI_CATALOG_URL = 'https://pi.dev/models';
+
 /**
  * Wire formats an OpenAI-compatible gateway may serve, named by
  * SHANNON_AI_OPENAI_FORMAT. Only `openai` offers a choice: every other supported
@@ -306,7 +309,9 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
 
   const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl, format);
   if (!model) {
-    throw new Error(`Model not found in pi registry: provider="${providerId}" model="${modelId}"`);
+    throw new Error(
+      `Model not found in pi registry: provider="${providerId}" model="${modelId}". Browse valid providers and models at ${PI_CATALOG_URL}.`,
+    );
   }
 
   return {

@@ -41,6 +41,7 @@ import {
   GENERIC_API_KEY_ENV,
   type ModelSpec,
   type OpenAiFormat,
+  PI_CATALOG_URL,
   resolveGatewayFormat,
   resolveModel,
   resolveModelSpec,
@@ -363,7 +364,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   if (!baseModel) {
     return err(
       new PentestError(
-        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL.`,
+        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}.`,
         'config',
         false,
         { providerId: spec.providerId, modelId: spec.modelId },

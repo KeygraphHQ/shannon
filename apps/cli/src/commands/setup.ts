@@ -143,8 +143,9 @@ async function setupProvider(provider: CuratedProviderId): Promise<ShannonConfig
  * preflight validates it — and the key is stored generically as SHANNON_AI_API_KEY.
  */
 async function setupOtherProvider(): Promise<Selection> {
+  p.log.info('Browse supported providers and models at https://pi.dev/models');
   const provider = await p.text({
-    message: 'Provider ID (as named by the Pi harness)',
+    message: 'Provider ID',
     validate: (value) => {
       const id = value?.trim();
       if (!id) return 'Provider ID is required';
