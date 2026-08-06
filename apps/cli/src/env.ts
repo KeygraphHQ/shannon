@@ -9,25 +9,35 @@ import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
 import {
+  CURATED_PROVIDERS,
+  type CuratedProviderId,
+  GENERIC_API_KEY_ENV,
+  isCuratedProvider,
   PROVIDER_API_KEY_ENV,
   PROVIDER_CREDENTIAL_HINT,
   PROVIDER_EXTRA_ENV,
-  type ProviderId,
   resolveModelSpec,
-  SUPPORTED_PROVIDERS,
 } from './model-spec.js';
 
 /**
  * Variables forwarded to every worker container regardless of provider. Each is
  * forwarded only when set, so an unused one never appears in the container.
+ * SHANNON_AI_API_KEY rides along because it is provider-neutral.
  */
-const COMMON_FORWARD_VARS = ['SHANNON_AI_MODEL', 'SHANNON_AI_BASE_URL', 'SHANNON_AI_OPENAI_FORMAT'] as const;
+const COMMON_FORWARD_VARS = [
+  'SHANNON_AI_MODEL',
+  'SHANNON_AI_BASE_URL',
+  'SHANNON_AI_OPENAI_FORMAT',
+  GENERIC_API_KEY_ENV,
+] as const;
 
 /**
  * Credential variables for one provider. Only the selected provider's entries are
- * forwarded, so a key for an unused provider never enters the scan container.
+ * forwarded, so a key for an unused provider never enters the scan container. An
+ * uncurated provider has none — it relies on the common SHANNON_AI_API_KEY.
  */
-function providerForwardVars(providerId: ProviderId): readonly string[] {
+function providerForwardVars(providerId: string): readonly string[] {
+  if (!isCuratedProvider(providerId)) return [];
   return [...PROVIDER_API_KEY_ENV[providerId], ...PROVIDER_EXTRA_ENV[providerId]];
 }
 
@@ -70,22 +80,23 @@ interface CredentialValidation {
   error?: string;
 }
 
-/**
- * Whether the selected provider has a usable credential in the environment. Any
- * one API key satisfies a key-based provider; Bedrock instead needs every one of
- * its AWS_ vars.
- */
-function hasCredential(providerId: ProviderId): boolean {
+/** Whether a curated provider has its own named credential set (API key plus any extra var). */
+function hasNamedCredential(providerId: CuratedProviderId): boolean {
   const apiKeys = PROVIDER_API_KEY_ENV[providerId];
-  if (apiKeys.length > 0 && !apiKeys.some((name) => Boolean(process.env[name]))) {
-    return false;
-  }
+  if (!apiKeys.some((name) => Boolean(process.env[name]))) return false;
   return PROVIDER_EXTRA_ENV[providerId].every((name) => Boolean(process.env[name]));
 }
 
-/** Every provider that currently has a complete credential in the environment. */
-function configuredProviders(): ProviderId[] {
-  return SUPPORTED_PROVIDERS.filter((providerId) => hasCredential(providerId));
+/** Whether the selected provider has a credential. Bedrock needs its AWS_ vars; the generic key never stands in for it. */
+function hasCredential(providerId: string): boolean {
+  if (providerId === 'amazon-bedrock') return hasNamedCredential('amazon-bedrock');
+  if (isCuratedProvider(providerId) && hasNamedCredential(providerId)) return true;
+  return Boolean(process.env[GENERIC_API_KEY_ENV]);
+}
+
+/** Curated providers with a named credential. The generic key is neutral, so it never counts toward ambiguity. */
+function configuredProviders(): CuratedProviderId[] {
+  return CURATED_PROVIDERS.filter((providerId) => hasNamedCredential(providerId));
 }
 
 /**
@@ -93,7 +104,7 @@ function configuredProviders(): ProviderId[] {
  * Runs before any Docker work so mistakes fail immediately.
  */
 export function validateCredentials(): CredentialValidation {
-  // 1. Model selection must parse and name a supported provider
+  // 1. Model selection must parse into a provider and model id
   const spec = resolveModelSpec();
   if (typeof spec === 'string') {
     return { valid: false, error: spec };
@@ -101,9 +112,12 @@ export function validateCredentials(): CredentialValidation {
 
   // 2. The selected provider must have a credential
   if (!hasCredential(spec.providerId)) {
+    const requirement = isCuratedProvider(spec.providerId)
+      ? PROVIDER_CREDENTIAL_HINT[spec.providerId]
+      : GENERIC_API_KEY_ENV;
     const hint =
       getMode() === 'local'
-        ? `Set ${PROVIDER_CREDENTIAL_HINT[spec.providerId]} in .env or export it.`
+        ? `Set ${requirement} in .env or export it.`
         : `Export the variables or run 'npx @keygraph/shannon setup'.`;
     return {
       valid: false,

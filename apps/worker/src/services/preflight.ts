@@ -36,10 +36,12 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { glob } from 'zx';
 import {
+  type CuratedProviderId,
   createModelRuntime,
+  GENERIC_API_KEY_ENV,
   type ModelSpec,
   type OpenAiFormat,
-  type ProviderId,
+  PI_CATALOG_URL,
   resolveGatewayFormat,
   resolveModel,
   resolveModelSpec,
@@ -277,16 +279,22 @@ async function probeCredentialsWithPi(
   return ok(undefined);
 }
 
-/** Credential env var a provider reads, for "credential missing" messages. */
-const PROVIDER_CREDENTIAL_HINT: Readonly<Record<ProviderId, string>> = {
+/** Credential env var a curated provider reads, for "credential missing" messages. */
+const PROVIDER_CREDENTIAL_HINT: Readonly<Record<CuratedProviderId, string>> = {
   anthropic: 'ANTHROPIC_API_KEY (or CLAUDE_CODE_OAUTH_TOKEN)',
   openai: 'OPENAI_API_KEY',
   xai: 'XAI_API_KEY',
   'amazon-bedrock': 'AWS_BEARER_TOKEN_BEDROCK and AWS_REGION',
 };
 
+/** Which variable to set when a provider's credential is missing. */
+function credentialHint(providerId: string): string {
+  const curated = (PROVIDER_CREDENTIAL_HINT as Record<string, string | undefined>)[providerId];
+  return curated ?? GENERIC_API_KEY_ENV;
+}
+
 /** Human-readable label for which credential path a run is using. */
-function describeAuth(providerId: ProviderId, baseUrl: string | undefined): string {
+function describeAuth(providerId: string, baseUrl: string | undefined): string {
   if (baseUrl) return `custom endpoint (${baseUrl})`;
   if (providerId === 'amazon-bedrock') return 'Bedrock bearer token';
   return `${providerId} API key`;
@@ -338,7 +346,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   if (missing.length > 0 || (!isBedrock && !credentials.apiKey)) {
     return err(
       new PentestError(
-        `No credentials found for provider "${spec.providerId}". Set ${PROVIDER_CREDENTIAL_HINT[spec.providerId]} in .env.`,
+        `No credentials found for provider "${spec.providerId}". Set ${credentialHint(spec.providerId)} in .env.`,
         'config',
         false,
         { providerId: spec.providerId, ...(missing.length > 0 && { missing }) },
@@ -356,7 +364,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   if (!baseModel) {
     return err(
       new PentestError(
-        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL.`,
+        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}.`,
         'config',
         false,
         { providerId: spec.providerId, modelId: spec.modelId },
