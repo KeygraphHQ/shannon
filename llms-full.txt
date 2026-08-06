@@ -82,7 +82,7 @@ Sample penetration test reports from intentionally vulnerable applications, prod
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock. Claude models are recommended. Gateway and proxy setups are documented separately.
+- **AI provider credentials**: Anthropic, OpenAI, xAI, or AWS Bedrock - or [any other provider](docs/ai-providers.md#any-other-provider). Claude models are recommended. Gateway and proxy setups are documented separately.
 - **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 ### Run Shannon
@@ -592,17 +592,29 @@ The provider half decides where the request goes, which credential is used, and 
 
 | Provider | Value | Credential |
 | --- | --- | --- |
-| Anthropic | `anthropic` | `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN` |
-| OpenAI | `openai` | `OPENAI_API_KEY` |
-| xAI | `xai` | `XAI_API_KEY` |
+| Anthropic | `anthropic` | `SHANNON_AI_API_KEY` (or `CLAUDE_CODE_OAUTH_TOKEN`) |
+| OpenAI | `openai` | `SHANNON_AI_API_KEY` |
+| xAI | `xai` | `SHANNON_AI_API_KEY` |
 | AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
 
-Shannon does not invent credential names — each is the variable that provider's own tooling already uses. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
+`SHANNON_AI_API_KEY` holds the key for whichever provider `SHANNON_AI_MODEL` names. Bedrock is the exception — it authenticates through its `AWS_` variables only. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
+
+Anthropic, OpenAI, and xAI also accept their native variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`); if one of those is set, it is used instead of `SHANNON_AI_API_KEY`.
 
 Shannon forwards only the selected provider's credential into the scan container. Keys for other providers stay on your machine.
 
-> [!NOTE]
-> Only the **first** colon separates the provider from the model ID, so Bedrock IDs that contain colons work unchanged: `amazon-bedrock:us.anthropic.claude-opus-4-5-20251101-v1:0`.
+### Any other provider
+
+Shannon accepts any provider and model present in the Pi harness catalogue. Browse them at [pi.dev/models](https://pi.dev/models). These are technically supported but not recommended. Claude models are best-supported (see the note below).
+
+```bash
+export SHANNON_AI_API_KEY=your-api-key                 # the provider's API key
+export SHANNON_AI_MODEL=openrouter:moonshotai/kimi-k3  # <provider>:<model-id>
+```
+
+This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
+
+`npx @keygraph/shannon setup` exposes this as the **Other provider** option.
 
 > [!IMPORTANT]
 > Claude models are the best-supported option. Shannon's evaluations, internal testing, and agent harness are tuned for Claude. Other models are permitted and validated against the harness catalogue, but may not follow Shannon's instructions or tool-use constraints as reliably. Use them at your own risk.
@@ -638,21 +650,21 @@ The pattern is learned once: export the provider's key, name the model. Two line
 Anthropic (default):
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export SHANNON_AI_API_KEY=sk-ant-...
 export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 ```
 
 OpenAI:
 
 ```bash
-export OPENAI_API_KEY=sk-...
+export SHANNON_AI_API_KEY=sk-...
 export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 ```
 
 xAI:
 
 ```bash
-export XAI_API_KEY=xai-...
+export SHANNON_AI_API_KEY=xai-...
 export SHANNON_AI_MODEL=xai:grok-4.5
 ```
 
@@ -676,16 +688,16 @@ To route model traffic through your own infrastructure — a corporate proxy, an
 
 | Gateway serves | Model prefix | API key |
 | --- | --- | --- |
-| Anthropic Messages | `anthropic:` | `ANTHROPIC_API_KEY` |
-| OpenAI Chat Completions | `openai:` | `OPENAI_API_KEY` |
-| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `OPENAI_API_KEY` |
+| Anthropic Messages | `anthropic:` | `SHANNON_AI_API_KEY` |
+| OpenAI Chat Completions | `openai:` | `SHANNON_AI_API_KEY` |
+| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `SHANNON_AI_API_KEY` |
 
 The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
 
 Anthropic Messages:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...
+export SHANNON_AI_API_KEY=sk-ant-...
 export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
@@ -693,7 +705,7 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 OpenAI Chat Completions:
 
 ```bash
-export OPENAI_API_KEY=sk-...
+export SHANNON_AI_API_KEY=sk-...
 export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
@@ -716,8 +728,7 @@ The variable is rejected in preflight where it cannot take effect: with a non-`o
 
 Checks run before a scan starts, so mistakes fail immediately rather than partway through a run:
 
-- **Provider** — always validated against the providers Shannon's harness knows. An unrecognised provider is rejected with the valid list.
-- **Model ID** — validated against the harness catalogue for that provider, so a typo is caught instantly.
+- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since a gateway may serve its own names.
 - **Credential presence** — always validated for the selected provider.
 - **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
 
