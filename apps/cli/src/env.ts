@@ -5,6 +5,9 @@
  * NPX mode: fills gaps from ~/.shannon/config.toml (no .env).
  */
 
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import dotenv from 'dotenv';
 import { resolveConfig } from './config/resolver.js';
 import { getMode } from './mode.js';
@@ -39,6 +42,34 @@ const COMMON_FORWARD_VARS = [
 function providerForwardVars(providerId: string): readonly string[] {
   if (!isCuratedProvider(providerId)) return [];
   return [...PROVIDER_API_KEY_ENV[providerId], ...PROVIDER_EXTRA_ENV[providerId]];
+}
+
+/** Parse a user-facing boolean env var: `1`/`true` (any case) true, `0`/`false`/empty false, else the default. */
+export function envBool(name: string, defaultValue: boolean): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (raw === undefined || raw === '') return defaultValue;
+  if (raw === '1' || raw === 'true') return true;
+  if (raw === '0' || raw === 'false') return false;
+  return defaultValue;
+}
+
+const USE_PI_AUTH_ENV = 'SHANNON_USE_PI_AUTH';
+
+/** Where the host's auth.json is mounted: pi's standard location (worker HOME is /tmp), read natively. */
+export const PI_AUTH_CONTAINER_PATH = '/tmp/.pi/agent/auth.json';
+
+/** Host path to pi's credential file. */
+export function resolveHostPiAuthPath(): string {
+  return path.join(os.homedir(), '.pi', 'agent', 'auth.json');
+}
+
+export function piAuthFlagEnabled(): boolean {
+  return envBool(USE_PI_AUTH_ENV, false);
+}
+
+/** Opted into pi auth via the flag, and the auth file exists to mount. */
+export function shouldUsePiAuth(): boolean {
+  return piAuthFlagEnabled() && fs.existsSync(resolveHostPiAuthPath());
 }
 
 /**
@@ -108,6 +139,18 @@ export function validateCredentials(): CredentialValidation {
   const spec = resolveModelSpec();
   if (typeof spec === 'string') {
     return { valid: false, error: spec };
+  }
+
+  // Pi-auth: skip the API-key checks, but the host auth file must exist to mount.
+  if (piAuthFlagEnabled()) {
+    const authPath = resolveHostPiAuthPath();
+    if (!fs.existsSync(authPath)) {
+      return {
+        valid: false,
+        error: `${USE_PI_AUTH_ENV} is set but no pi credentials were found at ${authPath}. Authenticate with pi first.`,
+      };
+    }
+    return { valid: true };
   }
 
   // 2. The selected provider must have a credential

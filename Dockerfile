@@ -107,12 +107,12 @@ RUN ln -s /app/apps/worker/dist/scripts/save-deliverable.js /usr/local/bin/save-
 
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/repos /app/workspaces && \
-    mkdir -p /tmp/.cache /tmp/.config /tmp/.npm && \
+    mkdir -p /tmp/.cache /tmp/.config /tmp/.npm /tmp/.pi/agent && \
     chmod 777 /app && \
     chmod 777 /tmp/.cache && \
     chmod 777 /tmp/.config && \
     chmod 777 /tmp/.npm && \
-    chown -R pentest:pentest /app /tmp/.claude
+    chown -R pentest:pentest /app /tmp/.claude /tmp/.pi
 
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh

@@ -94,7 +94,10 @@ Shannon pulls the worker image from Docker Hub, starts the required local infras
 For source builds, authenticated scans, provider-specific setup, and platform notes, see [Documentation](#documentation).
 
 > [!TIP]
-> **Prefer to run on your Claude Code subscription instead of API credits?** The [`shannon-v1`](https://github.com/KeygraphHQ/shannon/tree/shannon-v1) branch is the last release built on the Claude Agent SDK, so it accepts a Claude Code OAuth token. Generate one with `claude setup-token`, then run `npx @keygraph/shannon@1.9.0 setup` and pick **OAuth Token**. Pentests then cost nothing beyond your existing subscription.
+> **Prefer to use a subscription instead of API credits?**
+>
+> - **OpenAI Codex:** The latest version of Shannon supports ChatGPT Plus and Pro subscriptions. Follow the [OpenAI Codex subscription setup guide](docs/ai-providers.md#openai-codex-chatgpt-pluspro-subscription) to get started.
+> - **Claude Code:** The latest version of Shannon does not support Claude Code subscriptions. Follow the [Claude Code subscription setup guide](docs/ai-providers.md#claude-code-subscription) to use version `1.9.0`, which is the final release built on the Claude Agent SDK.
 
 ## Key Capabilities
 

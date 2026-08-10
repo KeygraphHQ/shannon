@@ -12,7 +12,7 @@ if [ -n "$TARGET_UID" ] && [ "$TARGET_UID" != "$CURRENT_UID" ]; then
   groupadd -g "$TARGET_GID" pentest
   useradd -u "$TARGET_UID" -g pentest -s /bin/bash -M pentest
 
-  chown -R pentest:pentest /app/sessions /app/workspaces /tmp/.claude
+  chown -R pentest:pentest /app/sessions /app/workspaces /tmp/.claude /tmp/.pi
 fi
 
 exec su -m pentest -c "exec $*"

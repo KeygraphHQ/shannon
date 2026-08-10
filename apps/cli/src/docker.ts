@@ -12,6 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
 
@@ -203,7 +204,7 @@ function shouldSkipHostsName(name: string, hostname: string): boolean {
  * `host-gateway` so they target the host's loopback instead of the container's.
  */
 function forwardEtcHostsFlags(): string[] {
-  if (process.env.SHANNON_FORWARD_HOSTS === 'false') return [];
+  if (!envBool('SHANNON_FORWARD_HOSTS', true)) return [];
   if (os.platform() === 'win32') return [];
 
   let content: string;
@@ -255,6 +256,7 @@ export interface WorkerOptions {
   workspace: string;
   pipelineTesting?: boolean;
   debug?: boolean;
+  piAuthHostPath?: string;
 }
 
 /**
@@ -303,6 +305,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Output directory for deliverables copy
   if (opts.outputDir) {
     args.push('-v', `${opts.outputDir}:/app/output`);
+  }
+
+  // Reuse the host's pi credentials: mount only the auth file, allowing token refreshes to persist.
+  if (opts.piAuthHostPath) {
+    args.push('-v', `${opts.piAuthHostPath}:${PI_AUTH_CONTAINER_PATH}`);
   }
 
   // Environment
