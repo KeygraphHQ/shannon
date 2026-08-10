@@ -16,8 +16,12 @@ import { requireInteractive } from '../tty.js';
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
 const CUSTOM_MODEL = '__custom__';
+const ATLAS_CLOUD = '__atlas_cloud__';
 const CUSTOM_BASE_URL = '__custom_base_url__';
 const OTHER_PROVIDER = '__other_provider__';
+
+const ATLAS_CLOUD_BASE_URL = 'https://api.atlascloud.ai/v1';
+const ATLAS_CLOUD_MODELS = ['qwen/qwen3.8-max'] as const;
 
 /**
  * Wire formats reachable through the gateway route. The format picks the provider
@@ -65,9 +69,9 @@ export async function setup(): Promise<void> {
   requireInteractive('setup', 'For non-interactive use, export credentials as env vars (e.g. ANTHROPIC_API_KEY).');
   p.intro('Shannon Setup');
 
-  // 1. Select provider. "Custom Base URL" is a route, not a provider — it asks
-  //    which API dialect the gateway speaks and configures that provider. "Other
-  //    provider" reaches any pi-supported provider Shannon does not curate.
+  // 1. Select provider. Atlas Cloud is a preset for its OpenAI-compatible
+  //    endpoint. "Custom Base URL" asks which API dialect a gateway speaks, and
+  //    "Other provider" reaches any pi-supported provider Shannon does not curate.
   const selected = await p.select({
     message: 'Select your AI provider',
     options: [
@@ -75,6 +79,7 @@ export async function setup(): Promise<void> {
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
+      { value: ATLAS_CLOUD as typeof ATLAS_CLOUD, label: 'Atlas Cloud', hint: 'OpenAI-compatible models' },
       { value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL, label: 'Custom Base URL', hint: 'your own proxy or gateway' },
       {
         value: OTHER_PROVIDER as typeof OTHER_PROVIDER,
@@ -86,10 +91,10 @@ export async function setup(): Promise<void> {
   if (p.isCancel(selected)) return cancelAndExit();
 
   // 2. Credentials — and, on the gateway route, the endpoint and its dialect.
-  const { provider, config, gateway } = await setupSelection(selected);
+  const { provider, config, gateway, modelSuggestions, modelPlaceholder } = await setupSelection(selected);
 
   // 3. The model that runs every phase.
-  const modelId = await promptModel(provider);
+  const modelId = await promptModel(provider, modelSuggestions, modelPlaceholder);
   config.core = { ...config.core, model: `${provider}:${modelId}` };
   if (gateway) config.core = { ...config.core, base_url: gateway.baseUrl };
 
@@ -109,12 +114,30 @@ interface Selection {
   provider: string;
   config: ShannonConfig;
   gateway?: GatewaySetup;
+  modelSuggestions?: readonly string[];
+  modelPlaceholder?: string;
 }
 
 /** Resolve the provider selection into a provider id and its credential config. */
 async function setupSelection(
-  selected: CuratedProviderId | typeof CUSTOM_BASE_URL | typeof OTHER_PROVIDER,
+  selected: CuratedProviderId | typeof ATLAS_CLOUD | typeof CUSTOM_BASE_URL | typeof OTHER_PROVIDER,
 ): Promise<Selection> {
+  if (selected === ATLAS_CLOUD) {
+    const apiKey = await promptSecret('Enter your Atlas Cloud API key');
+    const config: ShannonConfig = { openai: { api_key: apiKey, format: 'chat-completions' } };
+    return {
+      provider: 'openai',
+      config,
+      gateway: {
+        provider: 'openai',
+        config,
+        baseUrl: ATLAS_CLOUD_BASE_URL,
+        format: 'chat-completions',
+      },
+      modelSuggestions: ATLAS_CLOUD_MODELS,
+      modelPlaceholder: ATLAS_CLOUD_MODELS[0],
+    };
+  }
   if (selected === CUSTOM_BASE_URL) {
     const gateway = await setupGateway();
     return { provider: gateway.provider, config: gateway.config, gateway };
@@ -246,11 +269,16 @@ async function setupGateway(): Promise<GatewaySetup> {
  * Ask for the one model that runs every phase. Providers with suggestions offer a
  * pick list with a free-text escape hatch; the rest go straight to free text.
  */
-async function promptModel(provider: string): Promise<string> {
-  const suggestions = isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : [];
+async function promptModel(
+  provider: string,
+  modelSuggestions?: readonly string[],
+  modelPlaceholder?: string,
+): Promise<string> {
+  const suggestions = modelSuggestions ?? (isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : []);
+  const placeholder = modelPlaceholder ?? modelIdPlaceholder(provider);
 
   if (suggestions.length === 0) {
-    return promptModelId(provider, modelIdPlaceholder(provider));
+    return promptModelId(provider, placeholder);
   }
 
   const choice = await p.select({
@@ -263,7 +291,7 @@ async function promptModel(provider: string): Promise<string> {
   if (p.isCancel(choice)) return cancelAndExit();
 
   if (choice === CUSTOM_MODEL) {
-    return promptModelId(provider, modelIdPlaceholder(provider));
+    return promptModelId(provider, placeholder);
   }
   return choice as string;
 }

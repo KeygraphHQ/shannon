@@ -16,6 +16,7 @@ The provider half decides where the request goes, which credential is used, and 
 | OpenAI | `openai` | `SHANNON_AI_API_KEY` |
 | xAI | `xai` | `SHANNON_AI_API_KEY` |
 | AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
+| Atlas Cloud | `openai` with the Atlas Cloud base URL | `SHANNON_AI_API_KEY` |
 
 `SHANNON_AI_API_KEY` holds the key for whichever provider `SHANNON_AI_MODEL` names. Bedrock is the exception — it authenticates through its `AWS_` variables only. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
 
@@ -60,6 +61,7 @@ These are the models `npx @keygraph/shannon setup` offers, best-first. They are 
 | `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
 | `xai` | `grok-4.5` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
+| Atlas Cloud preset | `qwen/qwen3.8-max` |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
 
@@ -101,6 +103,19 @@ export SHANNON_AI_MODEL=amazon-bedrock:us.anthropic.claude-opus-4-8
 ```
 
 Bedrock uses bearer-token authentication only. IAM access keys, session tokens, assumed roles, and instance profiles are not supported. The model must be enabled in your region.
+
+## Atlas Cloud
+
+Run `npx @keygraph/shannon setup` and select **Atlas Cloud**. The wizard configures the OpenAI Chat Completions dialect and `https://api.atlascloud.ai/v1`, then prompts for your Atlas Cloud API key and model.
+
+For environment-based configuration:
+
+```bash
+export SHANNON_AI_API_KEY=your-atlas-cloud-api-key
+export SHANNON_AI_MODEL=openai:qwen/qwen3.8-max
+export SHANNON_AI_BASE_URL=https://api.atlascloud.ai/v1
+export SHANNON_AI_OPENAI_FORMAT=chat-completions
+```
 
 ## Custom base URL
 
