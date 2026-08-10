@@ -42,6 +42,7 @@ import {
   type ModelSpec,
   type OpenAiFormat,
   PI_CATALOG_URL,
+  piAuthPresent,
   resolveGatewayFormat,
   resolveModel,
   resolveModelSpec,
@@ -296,6 +297,7 @@ function credentialHint(providerId: string): string {
 /** Human-readable label for which credential path a run is using. */
 function describeAuth(providerId: string, baseUrl: string | undefined): string {
   if (baseUrl) return `custom endpoint (${baseUrl})`;
+  if (piAuthPresent()) return `${providerId} credentials from pi auth.json`;
   if (providerId === 'amazon-bedrock') return 'Bedrock bearer token';
   return `${providerId} API key`;
 }
@@ -341,9 +343,11 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     );
   }
 
+  // With a mounted pi auth.json the env-var checks don't apply — step 5's probe validates it.
   const isBedrock = spec.providerId === 'amazon-bedrock';
-  const missing = isBedrock ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
-  if (missing.length > 0 || (!isBedrock && !credentials.apiKey)) {
+  const missing =
+    isBedrock && !piAuthPresent() ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
+  if (!piAuthPresent() && (missing.length > 0 || (!isBedrock && !credentials.apiKey))) {
     return err(
       new PentestError(
         `No credentials found for provider "${spec.providerId}". Set ${credentialHint(spec.providerId)} in .env.`,

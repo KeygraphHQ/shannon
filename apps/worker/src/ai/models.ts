@@ -21,8 +21,10 @@
  * built over an in-memory credential store primed from the environment.
  */
 
+import { existsSync } from 'node:fs';
+import path from 'node:path';
 import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@earendil-works/pi-ai';
-import { ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
 
 /**
  * Providers Shannon curates with their own credential variables, config sections,
@@ -203,12 +205,29 @@ class RuntimeCredentialStore implements CredentialStore {
   }
 }
 
+/** The file pi reads credentials from: the agent dir's auth.json. */
+function piAuthPath(): string {
+  return path.join(getAgentDir(), 'auth.json');
+}
+
+/** Whether the host's pi credentials are mounted (auth.json present in the agent dir). */
+export function piAuthPresent(): boolean {
+  return existsSync(piAuthPath());
+}
+
 /**
  * Build a ModelRuntime whose only credential is the one supplied. Model catalogs
  * stay offline (`allowModelNetwork` defaults to false) so a scan never blocks on
  * a catalog refresh.
+ *
+ * When the host's pi auth.json is present, the runtime reads it instead: pi's
+ * disk-backed store resolves the credential. The mount is writable so OAuth
+ * refreshes persist to the host for subsequent runs.
  */
 export async function createModelRuntime(providerId: string, apiKey: string | undefined): Promise<ModelRuntime> {
+  if (piAuthPresent()) {
+    return ModelRuntime.create({ authPath: piAuthPath() });
+  }
   return ModelRuntime.create({ credentials: new RuntimeCredentialStore(providerId, apiKey) });
 }
 

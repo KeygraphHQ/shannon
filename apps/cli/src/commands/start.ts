@@ -9,7 +9,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
-import { buildEnvFlags, loadEnv, validateCredentials } from '../env.js';
+import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
@@ -135,6 +135,7 @@ export async function start(args: StartArgs): Promise<void> {
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
     ...(args.debug && { debug: true }),
+    ...(shouldUsePiAuth() && { piAuthHostPath: resolveHostPiAuthPath() }),
   });
 
   // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
