@@ -73,6 +73,12 @@ const MINIMAX_ALWAYS_ON_THINKING = /^minimax-m2\.7/i;
 /** MiniMax-M3 supports adaptive thinking (adaptive / disabled). */
 const MINIMAX_ADAPTIVE_THINKING = /^minimax-m3/i;
 
+/** Keep runtime limits aligned with the current MiniMax-M3 specification. */
+function normalizeMiniMaxModel(model: Model<Api>, modelId: string): Model<Api> {
+  if (!MINIMAX_ADAPTIVE_THINKING.test(modelId)) return model;
+  return { ...model, contextWindow: 1_000_000 };
+}
+
 /**
  * Determine the active provider + auth from the env-var contract the CLI forwards:
  * `CLAUDE_CODE_USE_BEDROCK` → Bedrock; `ANTHROPIC_BASE_URL`+`ANTHROPIC_AUTH_TOKEN`
@@ -186,7 +192,8 @@ export function resolveModelSelection(
   }
 
   // Custom base URL: override the resolved model's endpoint.
-  const model: Model<Api> = eff.baseUrl ? { ...found, baseUrl: eff.baseUrl } : found;
+  const resolvedModel = eff.baseUrl ? { ...found, baseUrl: eff.baseUrl } : found;
+  const model = eff.providerId.startsWith('minimax') ? normalizeMiniMaxModel(resolvedModel, modelId) : resolvedModel;
 
   return {
     model,
