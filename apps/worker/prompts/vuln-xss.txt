@@ -108,7 +108,11 @@ Structure: The vulnerability JSON object MUST follow this exact format:
 		"verdict": "vulnerable | safe.",
 		"mismatch_reason": "If vulnerable, explain why the observed encoding is wrong for the render context (e.g., 'URL encoding used in an HTML attribute context, allowing event handler injection.').",
 		"witness_payload": "A minimal, non-malicious payload that proves context control (e.g., '><script>alert(1)</script>', '" onmouseover=alert(1) ').",
-		"confidence": "high | med | low.",
+		"confidence": "high | medium | low",
+		"code_locations": [
+		  { "file": "frontend/src/app/search-result/search-result.component.ts", "start_line": 121, "role": "sink", "symbol": "filterTable" },
+		  { "file": "frontend/src/app/search-result/search-result.component.ts", "start_line": 115, "role": "source" }
+		],
 		"notes": "Relevant CSP, HttpOnly flags, WAF behavior, or other environmental factors."
 	}
 </exploitation_queue_format>

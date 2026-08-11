@@ -5,7 +5,13 @@
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
+import {
+  ASSEMBLED_REPORT_FILENAME,
+  deliverablesDir,
+  FINAL_REPORT_FILENAME,
+  resolveSessionJsonPath,
+  SARIF_FILENAME,
+} from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
 import { PentestError } from './error-handling.js';
@@ -166,9 +172,13 @@ export async function injectModelIntoReport(
 }
 
 /**
- * Surface the assembled report at the run directory's top level as the single
- * human-facing deliverable, so a customer opening the run folder sees only the
- * report. The source stays in the deliverables dir (git-checkpointed, used by resume).
+ * Surface the run's deliverables at the run directory's top level, so a customer opening the run
+ * folder sees the report without digging through internals. Sources stay in the deliverables dir
+ * (git-checkpointed, used by resume).
+ *
+ * The SARIF log is surfaced beside it when present, since a CI step consuming it needs a stable
+ * path and cannot be expected to reach into the internals directory. It is absent whenever the
+ * run was analysis-only or `report.sarif` was not enabled.
  */
 export async function copyReportToRunRoot(
   repoPath: string,
@@ -176,14 +186,21 @@ export async function copyReportToRunRoot(
   runDir: string,
   logger: ActivityLogger,
 ): Promise<void> {
-  const source = path.join(deliverablesDir(repoPath, deliverablesSubdir), ASSEMBLED_REPORT_FILENAME);
+  const dir = deliverablesDir(repoPath, deliverablesSubdir);
 
-  if (!(await fs.pathExists(source))) {
+  const source = path.join(dir, ASSEMBLED_REPORT_FILENAME);
+  if (await fs.pathExists(source)) {
+    const destination = path.join(runDir, FINAL_REPORT_FILENAME);
+    await fs.copy(source, destination, { overwrite: true });
+    logger.info(`Surfaced report at ${destination}`);
+  } else {
     logger.warn(`Final report not found, skipping ${FINAL_REPORT_FILENAME}`);
-    return;
   }
 
-  const destination = path.join(runDir, FINAL_REPORT_FILENAME);
-  await fs.copy(source, destination, { overwrite: true });
-  logger.info(`Surfaced report at ${destination}`);
+  const sarifSource = path.join(dir, SARIF_FILENAME);
+  if (await fs.pathExists(sarifSource)) {
+    const sarifDestination = path.join(runDir, SARIF_FILENAME);
+    await fs.copy(sarifSource, sarifDestination, { overwrite: true });
+    logger.info(`Surfaced SARIF log at ${sarifDestination}`);
+  }
 }

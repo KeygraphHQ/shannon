@@ -8,63 +8,81 @@ import { fs, path } from 'zx';
 import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
-import type { Authentication, DistributedConfig, ReportConfig, Rule, VulnClass } from '../types/config.js';
+import type { Authentication, DistributedConfig, DistributedReportConfig, Rule, VulnClass } from '../types/config.js';
 import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
+
+function renderRuleLine(tag: string, value: string, description?: string): string {
+  const base = `- ${tag} ${value}`;
+  return description ? `${base} - ${description}` : base;
+}
+
+function renderUrlRules(rules: Rule[]): string {
+  if (rules.length === 0) return 'None';
+  return rules.map((r) => renderRuleLine(`[${r.type.toUpperCase()}]`, r.value, r.description)).join('\n');
+}
 
 function renderCodePathRules(rules: Rule[]): string {
   const filtered = rules.filter((r) => r.type === 'code_path');
   if (filtered.length === 0) return 'None';
   return filtered
-    .map((r) => {
-      const kind = isGlobPattern(r.value) ? '[GLOB]' : '[FILE]';
-      return `- ${r.value} ${kind} — ${r.description}`;
-    })
+    .map((r) => renderRuleLine(isGlobPattern(r.value) ? '[GLOB]' : '[FILE]', r.value, r.description))
     .join('\n');
 }
 
-interface VulnSummarySpec {
-  readonly heading: string;
-  readonly evidenceSection: string;
-  readonly noneFoundLabel: string;
-}
-
-const VULN_SUMMARY_SPECS: Record<VulnClass, VulnSummarySpec> = {
-  auth: {
-    heading: 'Authentication Vulnerabilities',
-    evidenceSection: 'Authentication Exploitation Evidence',
-    noneFoundLabel: 'authentication',
-  },
-  authz: {
-    heading: 'Authorization Vulnerabilities',
-    evidenceSection: 'Authorization Exploitation Evidence',
-    noneFoundLabel: 'authorization',
-  },
-  xss: {
-    heading: 'Cross-Site Scripting (XSS) Vulnerabilities',
-    evidenceSection: 'XSS Exploitation Evidence',
-    noneFoundLabel: 'XSS',
-  },
-  injection: {
-    heading: 'SQL/Command Injection Vulnerabilities',
-    evidenceSection: 'Injection Exploitation Evidence',
-    noneFoundLabel: 'SQL or command injection',
-  },
-  ssrf: {
-    heading: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
-    evidenceSection: 'SSRF Exploitation Evidence',
-    noneFoundLabel: 'SSRF',
-  },
+const VULN_CLASS_HEADINGS: Record<VulnClass, string> = {
+  auth: 'Authentication Vulnerabilities',
+  authz: 'Authorization Vulnerabilities',
+  xss: 'Cross-Site Scripting (XSS) Vulnerabilities',
+  injection: 'SQL/Command Injection Vulnerabilities',
+  ssrf: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
 };
 
-function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
-  const classes = selected.length > 0 ? selected : (Object.keys(VULN_SUMMARY_SPECS) as VulnClass[]);
-  return classes
-    .map((cls) => {
-      const spec = VULN_SUMMARY_SPECS[cls];
-      return `**${spec.heading}:**\n{Check for "${spec.evidenceSection}" section. Include actually exploited vulnerabilities and those blocked by security controls. Exclude theoretical vulnerabilities requiring internal network access. If vulnerabilities exist, summarize their impact and severity. If section is missing or empty, state: "No ${spec.noneFoundLabel} vulnerabilities were found."}`;
-    })
-    .join('\n\n');
+/**
+ * Renders the <not_assessed_classes> block. Empty when every class completed.
+ *
+ * A class whose analysis failed was never assessed, so the report must not present its
+ * absence of findings as a clean result. The block is authoritative for that caveat.
+ */
+function renderNotAssessedClassesBlock(failed: readonly VulnClass[] = []): string {
+  if (failed.length === 0) {
+    return '';
+  }
+
+  const classes = [...new Set(failed)];
+  const lines: string[] = [
+    '<not_assessed_classes>',
+    'The following vulnerability classes did not complete and were NOT assessed in this run. Treat this list as authoritative for completeness caveats.',
+    '',
+  ];
+
+  for (const cls of classes) {
+    lines.push(
+      `- ${VULN_CLASS_HEADINGS[cls]}: analysis did not complete; this class was NOT assessed. Absence of findings here does not indicate the class is clean.`,
+    );
+  }
+
+  lines.push(
+    '',
+    'When writing report_meta.executive_summary, scope any no-findings statement to the classes that were assessed and mention these not-assessed classes. Do not state or imply that the target is clean for these classes.',
+    '</not_assessed_classes>',
+  );
+  return lines.join('\n');
+}
+
+/**
+ * Which configured filters this run can actually enforce.
+ *
+ * Every finding carries `severity` (see ../collectors/finding-collector.ts), so a severity
+ * threshold always applies. `confidence` exists only on an analysed finding — handing an
+ * exploit run a confidence threshold is a directive it cannot honor.
+ */
+function applicableFilters(report: DistributedReportConfig | undefined, exploitEnabled: boolean) {
+  return {
+    severity: Boolean(report?.min_severity),
+    confidence: Boolean(report?.min_confidence) && !exploitEnabled,
+    guidance: Boolean(report?.guidance?.trim()),
+  };
 }
 
 /**
@@ -72,22 +90,23 @@ function renderVulnSummarySubsections(selected: readonly VulnClass[]): string {
  * each filter is included only when the operator configured it, so the agent
  * never sees `none` placeholders or instructions for filters that don't apply.
  */
-function renderReportFiltersBlock(report: ReportConfig | undefined): string {
+function renderReportFiltersBlock(report: DistributedReportConfig | undefined, exploitEnabled: boolean): string {
   if (!report) return '';
   const guidance = report.guidance?.trim();
-  if (!report.min_severity && !report.min_confidence && !guidance) return '';
+  const applies = applicableFilters(report, exploitEnabled);
+  if (!applies.severity && !applies.confidence && !applies.guidance) return '';
 
   const lines: string[] = [
     '<report_filters>',
     'The filters below are user-supplied and binding for this assessment. Honor each strictly when assembling the final report.',
     '',
   ];
-  if (report.min_severity) {
+  if (applies.severity) {
     lines.push(
       `- Minimum severity: ${report.min_severity} — keep only findings rated this severity or higher (scale: low < medium < high < critical).`,
     );
   }
-  if (report.min_confidence) {
+  if (applies.confidence) {
     lines.push(
       `- Minimum confidence: ${report.min_confidence} — keep only findings rated this confidence or higher (scale: low < medium < high).`,
     );
@@ -106,10 +125,11 @@ function renderReportFiltersBlock(report: ReportConfig | undefined): string {
  * confidence inline as concrete thresholds; guidance is referenced by pointer
  * so the actual text only lives in <report_filters>, avoiding double-statement.
  */
-function renderReportFilterRules(report: ReportConfig | undefined): string {
+function renderReportFilterRules(report: DistributedReportConfig | undefined, exploitEnabled: boolean): string {
+  const applies = applicableFilters(report, exploitEnabled);
   const drops: string[] = [];
-  if (report?.min_severity) drops.push(`* severity is below ${report.min_severity}`);
-  if (report?.min_confidence) drops.push(`* confidence is below ${report.min_confidence}`);
+  if (applies.severity) drops.push(`* severity is below ${report?.min_severity}`);
+  if (applies.confidence) drops.push(`* confidence is below ${report?.min_confidence}`);
   if (report?.guidance?.trim()) drops.push('* topic matches an exclusion in the user guidance');
   if (drops.length === 0) return '';
   return ['   - DROP any `### [TYPE]-VULN-[NUMBER]` finding whose:', ...drops.map((d) => `     ${d}`)].join('\n');
@@ -118,6 +138,8 @@ function renderReportFilterRules(report: ReportConfig | undefined): string {
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  /** Classes whose analysis did not complete, so the report can mark them not assessed. */
+  failedClasses?: readonly VulnClass[];
   AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
@@ -323,8 +345,8 @@ async function interpolateVariables(
     if (avoidUrlRules.length === 0 && focusUrlRules.length === 0) {
       result = result.replace(/<rules>[\s\S]*?<\/rules>\s*/g, '');
     } else {
-      const avoidStr = avoidUrlRules.length > 0 ? avoidUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
-      const focusStr = focusUrlRules.length > 0 ? focusUrlRules.map((r) => `- ${r.description}`).join('\n') : 'None';
+      const avoidStr = renderUrlRules(avoidUrlRules);
+      const focusStr = renderUrlRules(focusUrlRules);
       result = replaceLiteral(result, /{{RULES_AVOID}}/g, avoidStr);
       result = replaceLiteral(result, /{{RULES_FOCUS}}/g, focusStr);
     }
@@ -364,19 +386,43 @@ async function interpolateVariables(
       /{{VULN_CLASSES_TESTED}}/g,
       vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
     );
-    result = replaceLiteral(result, /{{VULN_SUMMARY_SUBSECTIONS}}/g, renderVulnSummarySubsections(vulnClasses));
+    result = replaceLiteral(
+      result,
+      /{{NOT_ASSESSED_CLASSES}}/g,
+      renderNotAssessedClassesBlock(variables.failedClasses ?? []),
+    );
 
     const exploitEnabled = config?.exploit ?? true;
+
+    // Drop every block belonging to the mode this run is not in, so the prompt never documents
+    // a field the tool would reject. The backreference pins each match to a closed pair.
+    const droppedMode = exploitEnabled ? 'analysis' : 'exploit';
+    result = result.replace(new RegExp(`<(${droppedMode}_mode_[a-z_]+)>[\\s\\S]*?</\\1>\\n?`, 'g'), '');
+    result = result.replace(/<\/?(?:exploit|analysis)_mode_[a-z_]+>\n?/g, '');
+
     result = replaceLiteral(result, /{{EXPLOITATION}}/g, exploitEnabled ? 'enabled' : 'disabled');
-    result = replaceLiteral(result, /{{REPORT_VULN_HEADING}}/g, exploitEnabled ? 'Exploitation Evidence' : 'Findings');
     result = replaceLiteral(
       result,
       /{{REPORT_VULN_SUBHEADING}}/g,
       exploitEnabled ? 'Successfully Exploited Vulnerabilities' : 'Identified Vulnerabilities',
     );
 
-    result = replaceLiteral(result, /{{REPORT_FILTERS_BLOCK}}/g, renderReportFiltersBlock(config?.report));
-    result = replaceLiteral(result, /{{REPORT_FILTER_RULES}}/g, renderReportFilterRules(config?.report));
+    if (config?.report?.min_confidence && exploitEnabled) {
+      logger.warn(
+        `report.min_confidence="${config.report.min_confidence}" is ignored when exploit=true: an ` +
+          'exploited finding is rated by severity, not confidence. Use report.min_severity.',
+      );
+    }
+    result = replaceLiteral(
+      result,
+      /{{REPORT_FILTERS_BLOCK}}/g,
+      renderReportFiltersBlock(config?.report, exploitEnabled),
+    );
+    result = replaceLiteral(
+      result,
+      /{{REPORT_FILTER_RULES}}/g,
+      renderReportFilterRules(config?.report, exploitEnabled),
+    );
 
     // Collapse runs of 3+ newlines (left behind by tag-strip and empty-fragment substitutions).
     result = result.replace(/\n{3,}/g, '\n\n');

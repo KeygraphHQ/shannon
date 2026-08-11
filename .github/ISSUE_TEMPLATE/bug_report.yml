@@ -117,9 +117,12 @@ body:
       options:
         - "Anthropic (API key)"
         - "Anthropic (OAuth token)"
-        - "Custom base URL (proxy/gateway)"
+        - "OpenAI"
+        - "xAI"
         - "AWS Bedrock"
-        - "Google Vertex AI"
+        - "Custom base URL - Anthropic Messages"
+        - "Custom base URL - OpenAI Chat Completions"
+        - "Custom base URL - OpenAI Responses"
     validations:
       required: true
 

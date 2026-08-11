@@ -4,8 +4,8 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
+import { type AssistantMessage, isRetryableAssistantError } from '@earendil-works/pi-ai';
 import { ErrorCode, type PentestErrorContext, type PentestErrorType, type PromptErrorResult } from '../types/errors.js';
-import { matchesBillingApiPattern, matchesBillingTextPattern } from '../utils/billing-detection.js';
 
 export class PentestError extends Error {
   override name = 'PentestError' as const;
@@ -44,53 +44,23 @@ export function handlePromptError(promptName: string, error: Error): PromptError
   };
 }
 
-const RETRYABLE_PATTERNS = [
-  // Network and connection errors
-  'network',
-  'connection',
-  'timeout',
-  'econnreset',
-  'enotfound',
-  'econnrefused',
-  // Rate limiting
-  'rate limit',
-  '429',
-  'too many requests',
-  // Server errors
-  'server error',
-  '5xx',
-  'internal server error',
-  'service unavailable',
-  'bad gateway',
-  // Provider API errors
-  'model unavailable',
-  'service temporarily unavailable',
-  'api error',
-  'terminated',
-  // Max turns
-  'max turns',
-  'maximum turns',
-];
+/**
+ * Whether a failed agent attempt is worth retrying.
+ *
+ * A PentestError already carries a verdict — for provider turns that verdict
+ * comes from pi — so it is taken as given. Anything else is raw text, judged by
+ * pi's classifier: transient for load, throttling, and transport failures,
+ * terminal for quota, billing, and auth. Unrecognised errors are not retried, so
+ * a permanent fault fails fast.
+ */
+export function isRetryableFailure(error: Error): boolean {
+  if (error instanceof PentestError) return error.retryable;
 
-// Patterns that indicate non-retryable errors (checked before default)
-const NON_RETRYABLE_PATTERNS = [
-  'authentication',
-  'invalid prompt',
-  'out of memory',
-  'permission denied',
-  'session limit reached',
-  'invalid api key',
-];
-
-// Conservative retry classification - unknown errors don't retry (fail-safe default)
-export function isRetryableError(error: Error): boolean {
-  const message = error.message.toLowerCase();
-
-  if (NON_RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern))) {
-    return false;
-  }
-
-  return RETRYABLE_PATTERNS.some((pattern) => message.includes(pattern));
+  return isRetryableAssistantError({
+    role: 'assistant',
+    stopReason: 'error',
+    errorMessage: error.message,
+  } as AssistantMessage);
 }
 
 /**
@@ -99,14 +69,6 @@ export function isRetryableError(error: Error): boolean {
  */
 function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { type: string; retryable: boolean } {
   switch (code) {
-    // Billing errors - retryable (wait for cap reset or credits added)
-    case ErrorCode.SPENDING_CAP_REACHED:
-    case ErrorCode.INSUFFICIENT_CREDITS:
-      return { type: 'BillingError', retryable: true };
-
-    case ErrorCode.API_RATE_LIMITED:
-      return { type: 'RateLimitError', retryable: true };
-
     // Config errors - non-retryable (need manual fix)
     case ErrorCode.CONFIG_NOT_FOUND:
     case ErrorCode.CONFIG_VALIDATION_FAILED:
@@ -143,11 +105,10 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
     case ErrorCode.AUTH_LOGIN_FAILED:
       return { type: 'AuthLoginFailedError', retryable: false };
 
-    case ErrorCode.BILLING_ERROR:
-      return { type: 'BillingError', retryable: true };
+    case ErrorCode.TARGET_UNREACHABLE:
+      return { type: 'InvalidTargetError', retryable: false };
 
     default:
-      // Unknown code - fall through to string matching
       return { type: 'UnknownError', retryable: retryableFromError };
   }
 }
@@ -161,8 +122,8 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
  * - Non-retryable errors: Temporal fails immediately
  *
  * Classification priority:
- * 1. If error is PentestError with ErrorCode, classify by code (reliable)
- * 2. Fall through to string matching for external errors (provider, network, etc.)
+ * 1. A PentestError carrying an ErrorCode is classified by that code.
+ * 2. Anything else falls through to isRetryableFailure.
  */
 export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
   // === CODE-BASED CLASSIFICATION (Preferred for internal errors) ===
@@ -170,101 +131,11 @@ export function classifyErrorForTemporal(error: unknown): { type: string; retrya
     return classifyByErrorCode(error.code, error.retryable);
   }
 
-  // === STRING-BASED CLASSIFICATION (Fallback for external errors) ===
-  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-
-  // === BILLING ERRORS (Retryable with long backoff) ===
-  // Anthropic returns billing as 400 invalid_request_error
-  // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
-  // Check both API patterns and text patterns for comprehensive detection
-  if (matchesBillingApiPattern(message) || matchesBillingTextPattern(message)) {
-    return { type: 'BillingError', retryable: true };
-  }
-
-  // === PERMANENT ERRORS (Non-retryable) ===
-
-  // Authentication (401) - bad API key won't fix itself
-  if (
-    message.includes('authentication') ||
-    message.includes('api key') ||
-    message.includes('401') ||
-    message.includes('authentication_error')
-  ) {
-    return { type: 'AuthenticationError', retryable: false };
-  }
-
-  // Permission (403) - access won't be granted
-  if (message.includes('permission') || message.includes('forbidden') || message.includes('403')) {
-    return { type: 'PermissionError', retryable: false };
-  }
-
-  // Out of memory - deterministic resource exhaustion, retrying won't help
-  if (message.includes('out of memory')) {
-    return { type: 'OutOfMemoryError', retryable: false };
-  }
-
-  // Invalid prompt - malformed/rejected prompt content won't fix itself on retry
-  if (message.includes('invalid prompt')) {
-    return { type: 'InvalidPromptError', retryable: false };
-  }
-
-  // Session limit reached - distinct from billing/rate-limit; needs manual intervention
-  if (message.includes('session limit reached')) {
-    return { type: 'SessionLimitError', retryable: false };
-  }
-
-  // Overloaded - provider's own error-type token is authoritative regardless of the
-  // HTTP status it arrives under (seen in production under 400, not just 529)
-  if (message.includes('overloaded_error') || message.includes('overloaded')) {
-    return { type: 'OverloadedError', retryable: true };
-  }
-
-  // === OUTPUT VALIDATION ERRORS (Retryable) ===
-  // Agent didn't produce expected deliverables - retry may succeed
-  // IMPORTANT: Must come BEFORE generic 'validation' check below
-  if (message.includes('failed output validation') || message.includes('output validation failed')) {
-    return { type: 'OutputValidationError', retryable: true };
-  }
-
-  // Invalid Request (400) - malformed request is permanent
-  // Note: Checked AFTER billing and AFTER output validation
-  if (message.includes('invalid_request_error') || message.includes('malformed') || message.includes('validation')) {
-    return { type: 'InvalidRequestError', retryable: false };
-  }
-
-  // Request Too Large (413) - won't fit no matter how many retries
-  if (message.includes('request_too_large') || message.includes('too large') || message.includes('413')) {
-    return { type: 'RequestTooLargeError', retryable: false };
-  }
-
-  // Configuration errors - missing files need manual fix
-  if (message.includes('enoent') || message.includes('no such file') || message.includes('cli not installed')) {
-    return { type: 'ConfigurationError', retryable: false };
-  }
-
-  // Execution limits - max turns/budget reached
-  if (
-    message.includes('max turns') ||
-    message.includes('budget') ||
-    message.includes('execution limit') ||
-    message.includes('error_max_turns') ||
-    message.includes('error_max_budget')
-  ) {
-    return { type: 'ExecutionLimitError', retryable: false };
-  }
-
-  // Invalid target URL - bad URL format won't fix itself
-  if (
-    message.includes('invalid url') ||
-    message.includes('invalid target') ||
-    message.includes('malformed url') ||
-    message.includes('invalid uri')
-  ) {
-    return { type: 'InvalidTargetError', retryable: false };
-  }
-
-  // === TRANSIENT ERRORS (Retryable) ===
-  // Rate limits (429), server errors (5xx), network issues
-  // Let Temporal retry with configured backoff
-  return { type: 'TransientError', retryable: true };
+  // === FALLBACK ===
+  // Everything else is a raw throw: a library error, or a PentestError carrying no
+  // code. isRetryableFailure decides — pi's classifier for provider text, the
+  // error's own verdict when it has one, and no retry for anything unrecognised.
+  const err = error instanceof Error ? error : new Error(String(error));
+  const retryable = isRetryableFailure(err);
+  return { type: retryable ? 'TransientError' : 'PermanentError', retryable };
 }

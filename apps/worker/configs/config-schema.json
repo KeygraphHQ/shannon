@@ -102,23 +102,6 @@
       "required": ["login_type", "login_url", "credentials", "success_condition"],
       "additionalProperties": false
     },
-    "pipeline": {
-      "type": "object",
-      "description": "Pipeline execution settings for retry behavior and concurrency",
-      "properties": {
-        "retry_preset": {
-          "type": "string",
-          "enum": ["default", "subscription"],
-          "description": "Retry preset. 'subscription' extends timeouts for Anthropic subscription rate limit windows (5h+)."
-        },
-        "max_concurrent_pipelines": {
-          "type": "string",
-          "pattern": "^[1-5]$",
-          "description": "Max concurrent vulnerability pipelines (1-5, default: 5)"
-        }
-      },
-      "additionalProperties": false
-    },
     "rules": {
       "type": "object",
       "description": "Testing rules that define what to focus on or avoid during penetration testing",
@@ -177,6 +160,11 @@
           "minLength": 1,
           "maxLength": 500,
           "description": "Free-text guidance to the report agent (e.g., 'Drop findings about missing security headers')."
+        },
+        "sarif": {
+          "type": "string",
+          "enum": ["true", "false"],
+          "description": "Emit a SARIF 2.1.0 log (report.sarif) beside the report. Requires exploit=true; ignored otherwise."
         }
       },
       "additionalProperties": false
@@ -218,7 +206,6 @@
       "properties": {
         "description": {
           "type": "string",
-          "minLength": 1,
           "maxLength": 200,
           "description": "Human-readable description of the rule"
         },
@@ -234,7 +221,7 @@
           "description": "Value to match"
         }
       },
-      "required": ["description", "type", "value"],
+      "required": ["type", "value"],
       "additionalProperties": false
     }
   }

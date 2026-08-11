@@ -36,7 +36,7 @@ import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
 import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
-import type { PipelineConfig, VulnClass } from '../types/config.js';
+import type { VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
 import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js';
@@ -276,26 +276,16 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
 // === Pipeline Input Construction ===
 
 interface OrchestrationConfig {
-  pipelineConfig: PipelineConfig;
   vulnClasses?: VulnClass[];
   exploit?: boolean;
 }
 
 async function loadOrchestrationConfig(configPath: string | undefined): Promise<OrchestrationConfig> {
-  if (!configPath) return { pipelineConfig: {} };
+  if (!configPath) return {};
   try {
     const config = await parseConfig(configPath);
 
-    const pipelineConfig: PipelineConfig = {};
-    if (config.pipeline?.retry_preset !== undefined) {
-      pipelineConfig.retry_preset = config.pipeline.retry_preset;
-    }
-    if (config.pipeline?.max_concurrent_pipelines !== undefined) {
-      pipelineConfig.max_concurrent_pipelines = Number(config.pipeline.max_concurrent_pipelines);
-    }
-
     return {
-      pipelineConfig,
       ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
       ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
     };
@@ -322,7 +312,6 @@ function buildPipelineInput(
     ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
-    ...(Object.keys(orchestration.pipelineConfig).length > 0 && { pipelineConfig: orchestration.pipelineConfig }),
     ...(orchestration.vulnClasses && { vulnClasses: orchestration.vulnClasses }),
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
   };

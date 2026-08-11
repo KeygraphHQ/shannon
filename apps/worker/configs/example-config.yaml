@@ -96,13 +96,10 @@ rules:
 # Report filters applied by the report agent when assembling the final report (optional).
 # Example below is illustrative; edit, remove, or add sections as needed.
 # report:
+#   # Emit a SARIF 2.1.0 log (report.sarif) beside the report. Requires exploit: "true".
+#   sarif: "true"
 #   min_severity: low
 #   min_confidence: low
 #   guidance: |
 #     Drop findings about missing security headers and rate-limit gaps.
 #     ...
-
-# Pipeline execution settings (optional)
-# pipeline:
-#   retry_preset: subscription          # 'default' or 'subscription' (6h max retry for rate limit recovery)
-#   max_concurrent_pipelines: 2         # 1-5, default: 5 (reduce to lower API usage spikes)

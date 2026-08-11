@@ -1,6 +1,6 @@
 # Configuration
 
-Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, report filtering, and rate-limit tuning.
+Shannon can run without a configuration file, but configuration enables authenticated testing, scope guidance, rules of engagement, and report filtering.
 
 ## Credential Precedence
 
@@ -93,13 +93,39 @@ rules:
       type: url_path
       value: "/api"
 
-# Filters applied by the report agent when assembling the final report.
+# Report options applied when assembling the final report.
 # report:
 #   min_severity: low
 #   min_confidence: low
 #   guidance: |
 #     Drop findings about missing security headers and rate-limit gaps.
+#   sarif: "true"
 ```
+
+## Report Options
+
+| Key | Effect |
+| --- | --- |
+| `min_severity` | Drops findings rated below this severity. Applies only when `exploit` is `"true"`. |
+| `min_confidence` | Drops findings rated below this confidence. Applies only when `exploit` is `"false"`. |
+| `guidance` | Free-text instruction to the report agent, such as which topics to exclude. |
+| `sarif` | Emits a SARIF 2.1.0 log alongside the Markdown report. Requires `exploit: "true"`. |
+
+A finding carries one rating or the other, never both: an exploited finding is rated by severity, an analysis-only finding by confidence. Setting the threshold that does not apply to the run is ignored, and Shannon logs a warning naming the one to use instead.
+
+### SARIF Output
+
+Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.md` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
+
+```yaml
+exploit: "true"
+report:
+  sarif: "true"
+```
+
+Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+
+The log is written only for exploitative runs. An analysis-only run rates findings by confidence and produces no severity, so there is nothing to populate `level` with; `sarif` is ignored when `exploit` is `"false"`.
 
 Supported rule types include `url_path`, `subdomain`, `domain`, `method`, `header`, `parameter`, and `code_path`.
 
@@ -130,22 +156,3 @@ login_flow:
   - "If prompted for 2FA, type $totp in <exact code field label or placeholder>"
   - "Click <exact button text>"
 ```
-
-## Adaptive Thinking
-
-Claude decides when and how deeply to reason on Opus 4.6, 4.7, and 4.8. This is enabled by default whenever a tier resolves to one of these models.
-
-- `npx` mode: `npx @keygraph/shannon setup` prompts you during the wizard.
-- Source-build mode: set `CLAUDE_ADAPTIVE_THINKING=false` in `.env` or export it in your shell.
-
-## Subscription Plan Rate Limits
-
-Anthropic subscription plans reset usage on a rolling 5-hour window. The default retry strategy may exhaust retries before the window resets. Add this to your config:
-
-```yaml
-pipeline:
-  retry_preset: subscription
-  max_concurrent_pipelines: 2
-```
-
-`max_concurrent_pipelines` controls how many vulnerability pipelines run simultaneously. Supported values are 1-5, with a default of 5. Lower values reduce burst API usage but increase wall-clock time.

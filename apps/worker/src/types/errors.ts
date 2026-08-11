@@ -25,11 +25,6 @@ export enum ErrorCode {
   AGENT_EXECUTION_FAILED = 'AGENT_EXECUTION_FAILED',
   OUTPUT_VALIDATION_FAILED = 'OUTPUT_VALIDATION_FAILED',
 
-  // Billing errors (PentestErrorType: 'billing')
-  API_RATE_LIMITED = 'API_RATE_LIMITED',
-  SPENDING_CAP_REACHED = 'SPENDING_CAP_REACHED',
-  INSUFFICIENT_CREDITS = 'INSUFFICIENT_CREDITS',
-
   // Git errors (PentestErrorType: 'filesystem')
   GIT_CHECKPOINT_FAILED = 'GIT_CHECKPOINT_FAILED',
   GIT_ROLLBACK_FAILED = 'GIT_ROLLBACK_FAILED',
@@ -45,10 +40,9 @@ export enum ErrorCode {
   TARGET_UNREACHABLE = 'TARGET_UNREACHABLE',
   AUTH_FAILED = 'AUTH_FAILED',
   AUTH_LOGIN_FAILED = 'AUTH_LOGIN_FAILED',
-  BILLING_ERROR = 'BILLING_ERROR',
 }
 
-export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'billing' | 'unknown';
+export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'unknown';
 
 export interface PentestErrorContext {
   [key: string]: unknown;

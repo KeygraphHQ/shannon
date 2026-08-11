@@ -25,7 +25,14 @@ import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
-import { DEFAULT_DELIVERABLES_SUBDIR, deliverablesDir, resolveSessionJsonPath } from '../paths.js';
+import {
+  ASSEMBLED_REPORT_FILENAME,
+  DEFAULT_DELIVERABLES_SUBDIR,
+  deliverablesDir,
+  REPORT_JSON_FILENAME,
+  resolveSessionJsonPath,
+  SARIF_FILENAME,
+} from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
@@ -34,6 +41,7 @@ import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
+import type { ReportData, ReportMeta } from '../services/report-renderer.js';
 import { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
@@ -76,6 +84,10 @@ export interface ActivityInput {
   auditDir?: string;
   promptDir?: string;
   sastSarifPath?: string;
+
+  // Vuln classes whose pipeline failed. Set before the report stage on a partial run so the
+  // report marks them "not assessed" instead of asserting no findings were present.
+  failedClasses?: VulnClass[];
 }
 
 /**
@@ -187,6 +199,7 @@ async function runAgentActivity(
         attemptNumber,
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
+        ...(input.failedClasses !== undefined && { failedClasses: input.failedClasses }),
         ...(customTools && { customTools }),
         ...(writeDeliverable && { writeDeliverable }),
         cancellationSignal: Context.current().cancellationSignal,
@@ -198,10 +211,12 @@ async function runAgentActivity(
     // 4. Return metrics
     return {
       durationMs: Date.now() - startTime,
-      inputTokens: null,
-      outputTokens: null,
+      inputTokens: endResult.input_tokens ?? null,
+      outputTokens: endResult.output_tokens ?? null,
+      cacheReadTokens: endResult.cache_read_tokens ?? null,
+      cacheWriteTokens: endResult.cache_write_tokens ?? null,
       costUsd: endResult.cost_usd,
-      numTurns: null,
+      numTurns: endResult.turns ?? null,
       model: endResult.model,
     };
   } catch (error) {
@@ -432,8 +447,95 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
   return runExploitAgentWithCollector('authz-exploit', 'authz', input);
 }
 
-export async function runReportAgent(input: ActivityInput): Promise<AgentMetrics> {
-  return runAgentActivity('report', input);
+/**
+ * Write report.sarif when the run is exploitative and the operator asked for it.
+ *
+ * Skipped entirely for analysis-only runs: those findings carry no severity, so every
+ * `result.level` would be invented. Failures are logged and swallowed — the SARIF log is a
+ * secondary artifact and must not fail a run whose report is already written.
+ */
+async function writeSarifIfEnabled(
+  input: ActivityInput,
+  exploit: boolean,
+  reportData: ReportData,
+  deliverablesPath: string,
+  logger: ReturnType<typeof createActivityLogger>,
+): Promise<void> {
+  if (!exploit) return;
+
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult) || configResult.value?.report?.sarif !== true) return;
+
+  try {
+    const { renderSarif } = await import('../services/sarif-renderer.js');
+    const sarif = renderSarif(reportData, { workspaceName: input.sessionId });
+    await atomicWrite(path.join(deliverablesPath, SARIF_FILENAME), sarif);
+    logger.info(`Wrote ${SARIF_FILENAME}`);
+  } catch (error) {
+    logger.warn(`Failed to write ${SARIF_FILENAME}: ${(error as Error).message}`);
+  }
+}
+
+export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
+  const { createFindingCollector } = await import('../collectors/finding-collector.js');
+  const { renderReport } = await import('../services/report-renderer.js');
+
+  const collector = createFindingCollector(exploit);
+
+  const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
+    const logger = createActivityLogger();
+    const { attachQueueCodeLocations } = await import('../services/code-location-join.js');
+    const collected = collector.getAll();
+    logger.info(`Collected ${collected.length} finding(s) from report agent`);
+    const findings = await attachQueueCodeLocations(collected, deliverablesPath, logger);
+
+    // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
+    // the two halves of report.json end up in one document.
+    const reportJsonPath = path.join(deliverablesPath, REPORT_JSON_FILENAME);
+    let reportMeta: ReportMeta = {
+      target: input.webUrl,
+      assessment_date: new Date().toISOString().split('T')[0]!,
+      scope: '',
+      executive_summary: '',
+      exploit,
+    };
+    if (await fileExists(reportJsonPath)) {
+      try {
+        const existing = await readJson<{ report_meta?: Record<string, unknown> }>(reportJsonPath);
+        if (existing.report_meta) {
+          reportMeta = {
+            target: String(existing.report_meta.target ?? input.webUrl),
+            assessment_date: String(existing.report_meta.assessment_date ?? reportMeta.assessment_date),
+            scope: String(existing.report_meta.scope ?? ''),
+            executive_summary: String(existing.report_meta.executive_summary ?? ''),
+            // Run scope, not agent output — keeps the rendered report and the schema the agent
+            // was given in agreement.
+            exploit,
+            ...(existing.report_meta.model !== undefined && { model: String(existing.report_meta.model) }),
+          };
+        }
+      } catch {
+        logger.warn('Failed to read report_meta from report.json, using defaults');
+      }
+    }
+
+    const reportData: ReportData = {
+      report_meta: reportMeta,
+      findings,
+      ...(input.failedClasses && input.failedClasses.length > 0 && { not_assessed: input.failedClasses }),
+    };
+
+    await atomicWrite(reportJsonPath, JSON.stringify(reportData, null, 2));
+    logger.info(`Wrote ${REPORT_JSON_FILENAME} with ${findings.length} finding(s)`);
+
+    await atomicWrite(path.join(deliverablesPath, ASSEMBLED_REPORT_FILENAME), renderReport(reportData));
+    logger.info(`Wrote ${ASSEMBLED_REPORT_FILENAME} from structured data`);
+
+    await writeSarifIfEnabled(input, exploit, reportData, deliverablesPath, logger);
+  };
+
+  return runAgentActivity('report', input, collector.tools, writeDeliverable);
 }
 
 /**

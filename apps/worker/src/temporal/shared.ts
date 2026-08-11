@@ -2,7 +2,7 @@ import { defineQuery } from '@temporalio/workflow';
 
 export type { AgentMetrics } from '../types/metrics.js';
 
-import type { DistributedConfig, PipelineConfig, VulnClass } from '../types/config.js';
+import type { DistributedConfig, VulnClass } from '../types/config.js';
 import type { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 
@@ -12,7 +12,6 @@ export interface PipelineInput {
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
-  pipelineConfig?: PipelineConfig;
   workflowId?: string; // Used for audit correlation
   sessionId?: string; // Workspace directory name (distinct from workflowId for named workspaces)
   resumeFromWorkspace?: string; // Workspace name to resume from

@@ -8,11 +8,13 @@ import { getConfigFile } from '../home.js';
 // === Types ===
 
 export interface ShannonConfig {
-  core?: { adaptive_thinking?: boolean };
+  core?: { model?: string; base_url?: string };
   anthropic?: { api_key?: string; oauth_token?: string };
-  custom_base_url?: { base_url?: string; auth_token?: string };
-  bedrock?: { use?: boolean; region?: string; token?: string };
-  models?: { small?: string; medium?: string; large?: string };
+  openai?: { api_key?: string; format?: string };
+  xai?: { api_key?: string };
+  bedrock?: { region?: string; token?: string };
+  /** Generic credential for any provider Shannon does not curate. Maps to SHANNON_AI_API_KEY. */
+  provider?: { api_key?: string };
 }
 
 // === File Operations ===

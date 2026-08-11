@@ -21,8 +21,6 @@ import { ErrorCode } from '../types/errors.js';
  */
 const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
   AuthenticationError: ErrorCode.AUTH_FAILED,
-  BillingError: ErrorCode.BILLING_ERROR,
-  RateLimitError: ErrorCode.API_RATE_LIMITED,
   ConfigurationError: ErrorCode.CONFIG_VALIDATION_FAILED,
   OutputValidationError: ErrorCode.OUTPUT_VALIDATION_FAILED,
   AgentExecutionError: ErrorCode.AGENT_EXECUTION_FAILED,
@@ -44,13 +42,10 @@ export function classifyErrorCode(error: unknown): ErrorCode | undefined {
 
 /** Maps Temporal error type strings to actionable remediation hints. */
 const REMEDIATION_HINTS: Record<string, string> = {
-  AuthenticationError: 'Verify ANTHROPIC_API_KEY or CLAUDE_CODE_OAUTH_TOKEN in .env is valid and not expired.',
+  AuthenticationError: "Verify the selected provider's API key is valid and not expired.",
   ConfigurationError: 'Check your CONFIG file path and contents.',
-  BillingError: 'Check your Anthropic billing dashboard. Add credits or wait for spending cap reset.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
-  PermissionError: 'Check file and network permissions.',
-  ExecutionLimitError: 'Agent exceeded maximum turns or budget. Review prompt complexity.',
 };
 
 /**

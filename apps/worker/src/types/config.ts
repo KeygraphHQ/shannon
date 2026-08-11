@@ -11,7 +11,7 @@
 export type RuleType = 'url_path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter' | 'code_path';
 
 export interface Rule {
-  description: string;
+  description?: string;
   type: RuleType;
   value: string;
 }
@@ -32,6 +32,8 @@ export interface ReportConfig {
   min_severity?: Severity;
   min_confidence?: Confidence;
   guidance?: string;
+  /** Emit report.sarif alongside the markdown report. Ignored when exploit is false. */
+  sarif?: 'true' | 'false';
 }
 
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
@@ -65,7 +67,6 @@ export interface Authentication {
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
-  pipeline?: PipelineConfig;
   description?: string;
   vuln_classes?: VulnClass[];
   exploit?: 'true' | 'false';
@@ -73,12 +74,8 @@ export interface Config {
   rules_of_engagement?: string;
 }
 
-export type RetryPreset = 'default' | 'subscription';
-
-export interface PipelineConfig {
-  retry_preset?: RetryPreset;
-  max_concurrent_pipelines?: number;
-}
+/** Report config after coercion. The YAML form of `sarif` is a string (see ReportConfig). */
+export type DistributedReportConfig = Omit<ReportConfig, 'sarif'> & { sarif: boolean };
 
 export interface DistributedConfig {
   avoid: Rule[];
@@ -87,7 +84,7 @@ export interface DistributedConfig {
   description: string;
   vuln_classes: VulnClass[];
   exploit: boolean;
-  report: ReportConfig;
+  report: DistributedReportConfig;
   rules_of_engagement: string;
 }
 

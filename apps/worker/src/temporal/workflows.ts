@@ -17,7 +17,7 @@
  *
  * Features:
  * - Queryable state via getProgress
- * - Automatic retry with backoff for transient/billing errors
+ * - Automatic retry with backoff for transient errors
  * - Non-retryable classification for permanent errors
  * - Audit correlation via workflowId
  * - Graceful failure handling: pipelines continue if one fails
@@ -64,21 +64,21 @@ function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boole
   return expected;
 }
 
-// Retry configuration for production (long intervals for billing recovery)
+// Retry configuration for production (long intervals so a rate-limit window can clear)
 const PRODUCTION_RETRY = {
   initialInterval: '5 minutes',
   maximumInterval: '30 minutes',
   backoffCoefficient: 2,
   maximumAttempts: 50,
+  // Belt-and-braces: activities already throw non-retryable ApplicationFailures for
+  // these. Only types that are always permanent belong here — GitError and
+  // AgentExecutionError carry a per-error verdict and must not be listed.
   nonRetryableErrorTypes: [
     'AuthenticationError',
-    'PermissionError',
-    'InvalidRequestError',
-    'RequestTooLargeError',
     'ConfigurationError',
     'InvalidTargetError',
-    'ExecutionLimitError',
     'AuthLoginFailedError',
+    'PermanentError',
   ],
 };
 
@@ -103,22 +103,6 @@ const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
   heartbeatTimeout: '30 minutes', // Extended for sub-agent execution in testing
   retry: TESTING_RETRY,
-});
-
-// Retry configuration for subscription plans (5h+ rolling rate limit windows)
-const SUBSCRIPTION_RETRY = {
-  initialInterval: '5 minutes',
-  maximumInterval: '6 hours',
-  backoffCoefficient: 2,
-  maximumAttempts: 100,
-  nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
-};
-
-// Activity proxy for subscription plan recovery (extended timeouts)
-const subscriptionActs = proxyActivities<typeof activities>({
-  startToCloseTimeout: '8 hours',
-  heartbeatTimeout: '2 hours',
-  retry: SUBSCRIPTION_RETRY,
 });
 
 // Retry configuration for preflight validation (short timeout, few retries)
@@ -167,6 +151,9 @@ function computeSummary(state: PipelineState): PipelineSummary {
   };
 }
 
+/** One pipeline per vulnerability class, all five in flight together. */
+const MAX_CONCURRENT_PIPELINES = 5;
+
 const MAX_PIPELINE_ERROR_MESSAGE_LENGTH = 2000;
 
 function truncatePipelineErrorMessage(message: string): string {
@@ -200,14 +187,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
   const { workflowId } = workflowInfo();
 
-  // Select activity proxy based on mode: testing (fast), subscription (extended), or default
-  function selectActivityProxy(pipelineInput: PipelineInput) {
-    if (pipelineInput.pipelineTestingMode) return testActs;
-    if (pipelineInput.pipelineConfig?.retry_preset === 'subscription') return subscriptionActs;
-    return acts;
-  }
-
-  const a = selectActivityProxy(input);
+  const a = input.pipelineTestingMode ? testActs : acts;
 
   const state: PipelineState = {
     status: 'running',
@@ -611,8 +591,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       }
     }
 
-    const maxConcurrent = input.pipelineConfig?.max_concurrent_pipelines ?? 5;
-
     const pipelineConfigs = buildPipelineConfigs();
     const pipelineThunks: Array<() => Promise<VulnExploitPipelineResult>> = [];
     let alreadyCompletedPipelineCount = 0;
@@ -632,8 +610,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       }
     }
 
-    const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, maxConcurrent);
+    const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
     aggregatePipelineResults(pipelineResults, alreadyCompletedPipelineCount);
+
+    // Surface the not-assessed classes to the report stage so a failed class renders as
+    // "analysis did not complete" rather than the absence assertion "no findings".
+    if (state.failedPipelines.length > 0) {
+      activityInput.failedClasses = state.failedPipelines.map((f) => f.vulnType);
+    }
 
     state.currentPhase = 'exploitation';
     state.currentAgent = null;
@@ -649,7 +633,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       await a.assembleReportActivity(activityInput, exploit);
 
       // Then run the report agent to add executive summary and clean up
-      state.agentMetrics.report = await a.runReportAgent(activityInput);
+      state.agentMetrics.report = await a.runReportAgent(activityInput, exploit);
       state.completedAgents.push('report');
       if (input.checkpointsEnabled) {
         await a.saveCheckpoint(activityInput, 'report', 'reporting', state);
