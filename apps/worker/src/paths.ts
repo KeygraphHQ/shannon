@@ -9,6 +9,9 @@ const WORKER_ROOT = path.resolve(import.meta.dirname, '..');
 export const PROMPTS_DIR = path.join(WORKER_ROOT, 'prompts');
 export const CONFIGS_DIR = path.join(WORKER_ROOT, 'configs');
 
+/** Bundled Typst template that renders report.json into the PDF report. */
+export const TYPST_TEMPLATE = path.join(WORKER_ROOT, 'templates', 'typst', 'report.typ');
+
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');
 
@@ -28,8 +31,11 @@ export const INTERNAL_DIR = '.shannon';
 /** Filename of the assembled report inside the deliverables dir (internal, source of the surfaced copy) */
 export const ASSEMBLED_REPORT_FILENAME = 'comprehensive_security_assessment_report.md';
 
-/** Filename of the human-facing final report surfaced at the run directory root */
-export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
+/** Filename of the compiled PDF report inside the deliverables dir (internal, source of the surfaced copy) */
+export const ASSEMBLED_REPORT_PDF_FILENAME = 'comprehensive_security_assessment_report.pdf';
+
+/** Filename of the human-facing PDF report surfaced at the run directory root */
+export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
 
 /** Structured findings the report agent emits; the markdown report is rendered from it. */
 export const REPORT_JSON_FILENAME = 'report.json';

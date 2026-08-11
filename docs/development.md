@@ -136,7 +136,7 @@ Output structure — the run directory's top level holds only the final report; 
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- Security-Assessment-Report.md   # the final report (the deliverable)
+|-- Security-Assessment-Report.pdf  # the final report (the deliverable)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
     |-- agents/                     # per-agent logs

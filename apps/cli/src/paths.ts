@@ -23,10 +23,10 @@ export interface MountPair {
 export const INTERNAL_DIR = '.shannon';
 
 /**
- * Filename of the human-facing final report surfaced at the run directory root.
- * Must match FINAL_REPORT_FILENAME in the worker package.
+ * Filename of the human-facing PDF report surfaced at the run directory root.
+ * Must match FINAL_REPORT_PDF_FILENAME in the worker package.
  */
-export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
+export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
 
 /**
  * Resolve a run-directory file (e.g. session.json, workflow.log), preferring the

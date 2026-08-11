@@ -35,7 +35,12 @@ import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
 import { parseConfig } from '../config-parser.js';
-import { ASSEMBLED_REPORT_FILENAME, deliverablesDir, FINAL_REPORT_FILENAME, resolveSessionJsonPath } from '../paths.js';
+import {
+  ASSEMBLED_REPORT_PDF_FILENAME,
+  deliverablesDir,
+  FINAL_REPORT_PDF_FILENAME,
+  resolveSessionJsonPath,
+} from '../paths.js';
 import type { VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as activities from './activities.js';
@@ -389,9 +394,9 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
   }
 
   // Surface the report under its human-facing name alongside the raw deliverables
-  const assembledReport = path.join(outputDir, ASSEMBLED_REPORT_FILENAME);
-  if (fs.existsSync(assembledReport)) {
-    fs.copyFileSync(assembledReport, path.join(outputPath, FINAL_REPORT_FILENAME));
+  const assembledPdf = path.join(outputDir, ASSEMBLED_REPORT_PDF_FILENAME);
+  if (fs.existsSync(assembledPdf)) {
+    fs.copyFileSync(assembledPdf, path.join(outputPath, FINAL_REPORT_PDF_FILENAME));
   }
 
   console.log(`Copied ${files.length} deliverable(s) to ${outputPath}`);

@@ -154,7 +154,7 @@ function buildMessageMarkdown(finding: AddFindingInput): string {
   parts.push('', '**Remediation**', '', finding.remediation);
   // Exploitation steps and proof of impact are deliberately absent: SARIF has no structural home
   // for them, and flattening them into prose would imply this file carries the evidence.
-  parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.md`');
+  parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.pdf`');
   return parts.join('\n');
 }
 
