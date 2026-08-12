@@ -52,6 +52,8 @@ RUN apk update && apk add --no-cache \
     curl \
     ca-certificates \
     shadow \
+    # Typst tarball decompression
+    xz \
     # Language runtimes (minimal)
     nodejs-22 \
     npm \
@@ -72,6 +74,22 @@ RUN apk update && apk add --no-cache \
     mesa-gbm \
     # Font rendering
     fontconfig
+
+# Install Typst (report PDF compilation)
+ARG TYPST_VERSION=0.14.2
+RUN case "$(uname -m)" in \
+      x86_64) TYPST_ARCH=x86_64-unknown-linux-musl ;; \
+      aarch64) TYPST_ARCH=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported arch $(uname -m)" && exit 1 ;; \
+    esac && \
+    mkdir -p /tmp/typst-dl /usr/local/bin && cd /tmp/typst-dl && \
+    curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz" -o typst.tar.xz && \
+    xz -d typst.tar.xz && \
+    tar -xf typst.tar && \
+    mv "typst-${TYPST_ARCH}/typst" /usr/local/bin/typst && \
+    chmod +x /usr/local/bin/typst && \
+    cd / && rm -rf /tmp/typst-dl && \
+    typst --version
 
 # Create non-root user
 RUN addgroup -g 1001 pentest && \

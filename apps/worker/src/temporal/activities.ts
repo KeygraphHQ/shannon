@@ -27,11 +27,13 @@ import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import {
   ASSEMBLED_REPORT_FILENAME,
+  ASSEMBLED_REPORT_PDF_FILENAME,
   DEFAULT_DELIVERABLES_SUBDIR,
   deliverablesDir,
   REPORT_JSON_FILENAME,
   resolveSessionJsonPath,
   SARIF_FILENAME,
+  TYPST_TEMPLATE,
 } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
@@ -477,6 +479,30 @@ async function writeSarifIfEnabled(
   }
 }
 
+/**
+ * Compile the PDF report from the assembled report data.
+ *
+ * Failures are logged and swallowed — the PDF is a secondary artifact and must not fail a run
+ * whose report is already written.
+ */
+async function writePdfReport(
+  reportData: ReportData,
+  deliverablesPath: string,
+  logger: ReturnType<typeof createActivityLogger>,
+): Promise<void> {
+  try {
+    const { renderReportPdf } = await import('../services/pdf-renderer.js');
+    await renderReportPdf({
+      reportData,
+      templatePath: TYPST_TEMPLATE,
+      outputPath: path.join(deliverablesPath, ASSEMBLED_REPORT_PDF_FILENAME),
+    });
+    logger.info(`Wrote ${ASSEMBLED_REPORT_PDF_FILENAME}`);
+  } catch (error) {
+    logger.warn(`Failed to write ${ASSEMBLED_REPORT_PDF_FILENAME}: ${(error as Error).message}`);
+  }
+}
+
 export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
   const { createFindingCollector } = await import('../collectors/finding-collector.js');
   const { renderReport } = await import('../services/report-renderer.js');
@@ -532,6 +558,7 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
     await atomicWrite(path.join(deliverablesPath, ASSEMBLED_REPORT_FILENAME), renderReport(reportData));
     logger.info(`Wrote ${ASSEMBLED_REPORT_FILENAME} from structured data`);
 
+    await writePdfReport(reportData, deliverablesPath, logger);
     await writeSarifIfEnabled(input, exploit, reportData, deliverablesPath, logger);
   };
 

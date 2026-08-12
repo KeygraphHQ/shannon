@@ -401,7 +401,7 @@ Output structure — the run directory's top level holds only the final report; 
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- Security-Assessment-Report.md   # the final report (the deliverable)
+|-- Security-Assessment-Report.pdf  # the final report (the deliverable)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
     |-- agents/                     # per-agent logs
@@ -532,7 +532,7 @@ A finding carries one rating or the other, never both: an exploited finding is r
 
 ### SARIF Output
 
-Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.md` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
+Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.pdf` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
 
 ```yaml
 exploit: "true"
@@ -861,7 +861,7 @@ Shannon uses workspaces to store scan state, logs, prompts, and deliverables. Wo
 - Use `-w <name>` to give a run a custom name.
 - To resume a run, pass the same workspace name with `-w`.
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
-- The final report is surfaced at the workspace root as `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
+- The final report is surfaced at the workspace root as `Security-Assessment-Report.pdf`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]
 > The URL must match the original workspace URL when resuming. Shannon rejects mismatched URLs to prevent cross-target contamination.

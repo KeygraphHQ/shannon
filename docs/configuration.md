@@ -115,7 +115,7 @@ A finding carries one rating or the other, never both: an exploited finding is r
 
 ### SARIF Output
 
-Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.md` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
+Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.pdf` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
 
 ```yaml
 exploit: "true"

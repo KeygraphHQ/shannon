@@ -13,7 +13,7 @@ import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validat
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
-import { FINAL_REPORT_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
+import { FINAL_REPORT_PDF_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
 import { stdoutIsTerminal } from '../tty.js';
 
@@ -249,7 +249,7 @@ function printInfo(
   workspacesDir: string,
 ): void {
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
-  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_FILENAME);
+  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
 
   console.log('  Scan started — it runs in the background, so you can close this terminal.');
   console.log('');
