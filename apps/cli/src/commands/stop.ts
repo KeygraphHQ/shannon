@@ -3,10 +3,12 @@
  */
 
 import * as p from '@clack/prompts';
-import { stopInfra, stopWorkers } from '../docker.js';
+import { ensureDocker, stopInfra, stopWorkers } from '../docker.js';
 import { requireInteractive } from '../tty.js';
 
 export async function stop(clean: boolean, yes: boolean): Promise<void> {
+  ensureDocker();
+
   if (clean && !yes) {
     requireInteractive('stop --clean', 'Re-run with --yes to skip this confirmation.');
     const confirmed = await p.confirm({

@@ -8,7 +8,7 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
-import { ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
+import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
@@ -72,7 +72,8 @@ export async function start(args: StartArgs): Promise<void> {
   fs.mkdirSync(workspacesDir, { recursive: true });
   fs.chmodSync(workspacesDir, 0o777);
 
-  // 5. Ensure image (auto-build in dev, pull in npx) and start infra
+  // 5. Ensure Docker is available, then the image (auto-build in dev, pull in npx) and infra
+  ensureDocker();
   ensureImage(args.version);
   await ensureInfra();
 

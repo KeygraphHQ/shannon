@@ -67,6 +67,21 @@ function runOutput(cmd: string, args: string[]): string {
 }
 
 /**
+ * Verify Docker is installed and its daemon is running, exiting otherwise.
+ * `docker info` succeeds only when both are true. Call this before any command
+ * that shells out to Docker.
+ */
+export function ensureDocker(): void {
+  try {
+    execFileSync('docker', ['info'], { stdio: 'pipe' });
+  } catch {
+    console.error('ERROR: Docker must be installed and running. Start Docker and try again.');
+    console.error('Install Docker: https://docs.docker.com/get-docker/');
+    process.exit(1);
+  }
+}
+
+/**
  * Check if Temporal is running and healthy.
  */
 export function isTemporalReady(): boolean {

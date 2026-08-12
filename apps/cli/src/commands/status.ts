@@ -2,9 +2,11 @@
  * `shannon status` command — show running scans and Temporal health.
  */
 
-import { isTemporalReady, listRunningWorkers } from '../docker.js';
+import { ensureDocker, isTemporalReady, listRunningWorkers } from '../docker.js';
 
 export function status(): void {
+  ensureDocker();
+
   // 1. Temporal health
   const temporalUp = isTemporalReady();
   console.log(`Temporal: ${temporalUp ? 'running' : 'not running'}`);
