@@ -21,6 +21,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const NPX_IMAGE_REPO = 'keygraph/shannon';
 const DEV_IMAGE = 'shannon-worker';
 
+/** Docker label stamped on each worker container, mapping it back to its workspace so a single scan can be stopped by name. */
+const WORKSPACE_LABEL = 'shannon.workspace';
+
 export function getWorkerImage(version: string): string {
   return getMode() === 'local' ? DEV_IMAGE : `${NPX_IMAGE_REPO}:${version}`;
 }
@@ -285,6 +288,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   }
   args.push('--name', opts.containerName, '--network', 'shannon-net');
 
+  // Tag with the workspace so `stop <workspace>` can target this scan's container
+  args.push('--label', `${WORKSPACE_LABEL}=${opts.workspace}`);
+
   // Add host flag for Linux
   args.push(...addHostFlag());
 
@@ -360,6 +366,64 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 }
 
 /**
+ * Stop the worker container(s) for a single scan, matched by its workspace label.
+ * Returns true if any were running. Only scans started with a labeled worker are
+ * matchable, so this finds runs from this version onward.
+ */
+export function stopScanContainer(workspace: string): boolean {
+  const output = runOutput('docker', ['ps', '-q', '--filter', `label=${WORKSPACE_LABEL}=${workspace}`]);
+  const ids = output.split('\n').filter(Boolean);
+  if (ids.length === 0) return false;
+
+  // stdio 'pipe' swallows the container IDs `docker stop` echoes.
+  execFileSync('docker', ['stop', ...ids], { stdio: 'pipe' });
+  return true;
+}
+
+/**
+ * Terminate a Temporal workflow so a stopped scan doesn't linger as a running
+ * workflow with no worker. Best-effort: returns false if Temporal is unreachable
+ * or the workflow already closed. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function terminateWorkflow(workflowId: string, reason: string): boolean {
+  return runQuiet('docker', [
+    'exec',
+    'shannon-temporal',
+    'temporal',
+    'workflow',
+    'terminate',
+    '--workflow-id',
+    workflowId,
+    '--reason',
+    reason,
+    '--address',
+    'localhost:7233',
+  ]);
+}
+
+/**
+ * Terminate every running pentest workflow in one batch, so `stop --all` doesn't
+ * leave workflows running with no worker. Best-effort: returns false if Temporal
+ * is unreachable. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function terminateAllWorkflows(reason: string): boolean {
+  return runQuiet('docker', [
+    'exec',
+    'shannon-temporal',
+    'temporal',
+    'workflow',
+    'terminate',
+    '--query',
+    "ExecutionStatus='Running' AND WorkflowType='pentestPipelineWorkflow'",
+    '--reason',
+    reason,
+    '--address',
+    'localhost:7233',
+    '--yes',
+  ]);
+}
+
+/**
  * Stop all running shannon-worker-* containers.
  */
 export function stopWorkers(): void {
@@ -368,7 +432,8 @@ export function stopWorkers(): void {
 
   const ids = workers.split('\n').filter(Boolean);
   console.log('Stopping running scans...');
-  execFileSync('docker', ['stop', ...ids], { stdio: 'inherit' });
+  // stdio 'pipe' swallows the container IDs `docker stop` echoes.
+  execFileSync('docker', ['stop', ...ids], { stdio: 'pipe' });
 }
 
 /**

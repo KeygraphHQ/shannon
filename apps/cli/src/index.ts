@@ -53,7 +53,8 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop [--clean] [--yes]                       Stop all running scans
+  ${prefix} stop <workspace> [--yes]                     Stop one scan
+  ${prefix} stop --all [--clean] [--yes]                 Stop all scans (--clean also removes Temporal data)
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Show a scan's live log
   ${prefix} status                                       Show running scans${
@@ -79,7 +80,8 @@ Examples:
   ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
   ${prefix} logs q1-audit
-  ${prefix} stop --clean
+  ${prefix} stop q1-audit
+  ${prefix} stop --all --clean
 ${
   mode === 'local'
     ? `
@@ -193,9 +195,16 @@ switch (command) {
     await start({ ...parsed, version: getVersion() });
     break;
   }
-  case 'stop':
-    stop(args.includes('--clean'), args.includes('--yes') || args.includes('-y'));
+  case 'stop': {
+    const workspace = args.slice(1).find((arg) => !arg.startsWith('-'));
+    stop({
+      all: args.includes('--all'),
+      clean: args.includes('--clean'),
+      yes: args.includes('--yes') || args.includes('-y'),
+      ...(workspace && { workspace }),
+    });
     break;
+  }
   case 'logs': {
     const workspaceId = args[1];
     if (!workspaceId) {
