@@ -207,7 +207,7 @@ switch (command) {
     break;
   }
   case 'workspaces':
-    workspaces(getVersion());
+    workspaces();
     break;
   case 'status':
     status();
