@@ -79,16 +79,18 @@ open http://localhost:8233
 Stop Shannon:
 
 ```bash
-npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
-npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
+npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon uninstall          # remove ~/.shannon/ and all data (confirms first; add --yes/-y to skip)
 ```
 
 Source-build equivalents:
 
 ```bash
-./shannon stop
-./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
+./shannon stop <workspace>               # stop one scan (confirms first; add --yes/-y to skip)
+./shannon stop --all                     # stop all scans (Temporal stays up)
+./shannon reset                          # stop everything and wipe all Temporal data (add --yes/-y to skip)
 ```
 
 Usage examples:

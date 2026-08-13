@@ -11,6 +11,7 @@
 
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
+import { reset } from './commands/reset.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
@@ -54,7 +55,8 @@ Usage:${
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
   ${prefix} stop <workspace> [--yes]                     Stop one scan
-  ${prefix} stop --all [--clean] [--yes]                 Stop all scans (--clean also removes Temporal data)
+  ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
+  ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
   ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Show a scan's live log
   ${prefix} status                                       Show running scans${
@@ -81,7 +83,7 @@ Examples:
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
   ${prefix} logs q1-audit
   ${prefix} stop q1-audit
-  ${prefix} stop --all --clean
+  ${prefix} reset
 ${
   mode === 'local'
     ? `
@@ -199,10 +201,20 @@ switch (command) {
     const workspace = args.slice(1).find((arg) => !arg.startsWith('-'));
     stop({
       all: args.includes('--all'),
-      clean: args.includes('--clean'),
       yes: args.includes('--yes') || args.includes('-y'),
       ...(workspace && { workspace }),
     });
+    break;
+  }
+  case 'reset': {
+    // reset is all-or-nothing; a stray name likely means the user wanted `stop <name>`.
+    const stray = args.slice(1).find((arg) => !arg.startsWith('-'));
+    if (stray) {
+      console.error(`ERROR: reset takes no workspace argument. It stops everything and wipes all Temporal data.`);
+      console.error(`To stop a single scan, use: stop ${stray}`);
+      process.exit(1);
+    }
+    reset({ yes: args.includes('--yes') || args.includes('-y') });
     break;
   }
   case 'logs': {

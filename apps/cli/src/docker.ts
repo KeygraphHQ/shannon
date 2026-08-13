@@ -424,16 +424,17 @@ export function terminateAllWorkflows(reason: string): boolean {
 }
 
 /**
- * Stop all running shannon-worker-* containers.
+ * Stop all running shannon-worker-* containers. Returns the number stopped.
  */
-export function stopWorkers(): void {
+export function stopWorkers(): number {
   const workers = runOutput('docker', ['ps', '-q', '--filter', 'name=shannon-worker-']);
-  if (!workers) return;
+  if (!workers) return 0;
 
   const ids = workers.split('\n').filter(Boolean);
   console.log('Stopping running scans...');
   // stdio 'pipe' swallows the container IDs `docker stop` echoes.
   execFileSync('docker', ['stop', ...ids], { stdio: 'pipe' });
+  return ids.length;
 }
 
 /**

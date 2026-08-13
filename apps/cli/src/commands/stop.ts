@@ -1,5 +1,6 @@
 /**
  * `shannon stop` command — stop one scan by workspace, or every scan with --all.
+ * Never touches infra or data; to wipe Temporal state entirely, use `shannon reset`.
  */
 
 import fs from 'node:fs';
@@ -8,7 +9,6 @@ import * as p from '@clack/prompts';
 import {
   ensureDocker,
   isTemporalReady,
-  stopInfra,
   stopScanContainer,
   stopWorkers,
   terminateAllWorkflows,
@@ -20,7 +20,6 @@ import { requireInteractive } from '../tty.js';
 
 export interface StopOptions {
   all: boolean;
-  clean: boolean;
   yes: boolean;
   workspace?: string;
 }
@@ -28,17 +27,6 @@ export interface StopOptions {
 function fail(message: string): never {
   console.error(`ERROR: ${message}`);
   process.exit(1);
-}
-
-/** The confirmation shown for a given stop target. */
-function confirmationMessage(opts: StopOptions): string {
-  if (opts.workspace) {
-    return `Stop the scan "${opts.workspace}"?`;
-  }
-  if (opts.clean) {
-    return 'This will stop all running scans and remove all Temporal data. Continue?';
-  }
-  return 'This will stop all running scans. Continue?';
 }
 
 /** Latest workflow ID recorded for a workspace: last resume attempt, else the original. */
@@ -82,21 +70,19 @@ function stopSingleScan(workspace: string): void {
 export async function stop(opts: StopOptions): Promise<void> {
   ensureDocker();
 
-  // 1. Validate the target: exactly one of <workspace> or --all, and --clean is --all-only.
+  // 1. Validate the target: exactly one of <workspace> or --all.
   if (opts.all && opts.workspace) {
     fail('Pass a workspace name or --all, not both.');
   }
   if (!opts.all && !opts.workspace) {
     fail('Specify which scan to stop: `stop <workspace>`, or `stop --all` to stop every scan.');
   }
-  if (opts.clean && !opts.all) {
-    fail('--clean applies to --all only. Use `stop --all --clean` to remove everything.');
-  }
 
   // 2. Confirm, unless --yes was passed.
   if (!opts.yes) {
+    const message = opts.workspace ? `Stop the scan "${opts.workspace}"?` : 'This will stop all running scans. Continue?';
     requireInteractive('stop', 'Re-run with --yes to skip this confirmation.');
-    const confirmed = await p.confirm({ message: confirmationMessage(opts) });
+    const confirmed = await p.confirm({ message });
     if (p.isCancel(confirmed) || !confirmed) {
       p.cancel('Aborted.');
       process.exit(0);
@@ -109,16 +95,13 @@ export async function stop(opts: StopOptions): Promise<void> {
     return;
   }
 
-  // --all kills the scans but leaves Temporal running; only --clean tears infra down and wipes its data.
-  stopWorkers();
-
-  if (opts.clean) {
-    stopInfra(true);
-    return;
-  }
+  // --all kills the scans but leaves Temporal running.
+  const stopped = stopWorkers();
 
   // Terminate the now-orphaned workflows so they don't linger as running with no worker.
   if (isTemporalReady()) {
     terminateAllWorkflows('Stopped via shannon stop --all');
   }
+
+  console.log(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}.` : 'No running scans to stop.');
 }
