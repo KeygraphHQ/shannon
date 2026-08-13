@@ -296,10 +296,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
 
   if (isTerminal(input.temporalStatus) && input.state?.summary) {
     const wall = formatDuration(input.state.summary.totalDurationMs);
-    return [
-      `  Total cost   ${formatCost(input.state.summary.totalCostUsd).padEnd(10)}${paint('(sum of agents)', COLORS.dim, opts.color)}`,
-      `  Time Taken   ${wall}`,
-    ];
+    return [`  Total cost   ${formatCost(input.state.summary.totalCostUsd)}`, `  Time Taken   ${wall}`];
   }
 
   if (isTerminal(input.temporalStatus)) {
