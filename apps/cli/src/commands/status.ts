@@ -1,5 +1,5 @@
 /**
- * `shannon progress <workspace>` — one scan's live progress from Temporal.
+ * `shannon status <workspace>` — one scan's live progress from Temporal.
  *
  * While the scan runs, polls Temporal and redraws the phase/agent tree on a
  * terminal (a pipe or a finished scan gets a single frame). When the scan reaches
@@ -122,7 +122,7 @@ async function watch(workspace: string): Promise<never> {
   }
 }
 
-export async function progress(workspace: string): Promise<void> {
+export async function status(workspace: string): Promise<void> {
   // WorkflowId == workspace name for a first run. (Resumed scans spawn a new workflow id — not yet resolved here.)
   let desc: ScanDescription | null;
   try {

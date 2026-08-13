@@ -16,7 +16,18 @@ const NAMESPACE = 'default';
 export interface RunningAgent {
   readonly agent: string;
   readonly attempt: number;
+  readonly startedAt?: number;
   readonly lastFailure?: string;
+}
+
+/** Convert a proto ITimestamp (seconds is a Long) to epoch millis. */
+function timestampMs(
+  ts: { seconds?: { toString(): string } | number | null; nanos?: number | null } | null,
+): number | undefined {
+  const seconds = ts?.seconds;
+  if (seconds == null) return undefined;
+  const secNum = typeof seconds === 'number' ? seconds : Number(seconds.toString());
+  return secNum * 1000 + (ts?.nanos ?? 0) / 1e6;
 }
 
 export interface ScanDescription {
@@ -53,9 +64,11 @@ export async function describeScan(workflowId: string): Promise<ScanDescription 
       const agent = ACTIVITY_TO_AGENT[pending.activityType?.name ?? ''];
       if (!agent) continue;
       const lastFailure = pending.lastFailure?.message;
+      const startedAt = timestampMs(pending.scheduledTime ?? pending.lastStartedTime ?? null);
       runningAgents.push({
         agent,
         attempt: pending.attempt ?? 1,
+        ...(startedAt !== undefined ? { startedAt } : {}),
         ...(lastFailure ? { lastFailure } : {}),
       });
     }

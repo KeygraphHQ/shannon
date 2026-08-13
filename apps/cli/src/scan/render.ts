@@ -188,6 +188,7 @@ function agentMeta(
   }
   if (state === 'running') {
     const parts = ['running'];
+    if (runner?.startedAt !== undefined) parts.push(formatDuration(opts.now - runner.startedAt));
     if (runner && runner.attempt > 1) parts.push(`retry ${runner.attempt}`);
     return paint(parts.join(' · '), COLORS.cyan, opts.color);
   }
@@ -199,7 +200,7 @@ function agentMeta(
   return paint('queued', COLORS.dim, opts.color);
 }
 
-function phaseMeta(states: readonly RunState[], parallel: boolean, opts: RenderOptions): string {
+function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolean, opts: RenderOptions): string {
   if (states.every((s) => s === 'pending')) return paint('pending', COLORS.dim, opts.color);
   if (states.every((s) => s === 'skipped')) return paint('skipped', COLORS.dim, opts.color);
   if (states.some((s) => s === 'failed') && !states.some((s) => s === 'running')) {
@@ -208,7 +209,7 @@ function phaseMeta(states: readonly RunState[], parallel: boolean, opts: RenderO
   if (!parallel) return '';
   const done = states.filter((s) => s === 'completed').length;
   const allDone = states.every((s) => s === 'completed' || s === 'skipped');
-  return paint(`${done}/${states.length} done`, allDone ? COLORS.green : COLORS.dim, opts.color);
+  return paint(`${done}/${inPlay} done`, allDone ? COLORS.green : COLORS.dim, opts.color);
 }
 
 /** Render the full progress frame as one string (no trailing newline). */
@@ -220,24 +221,29 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
   const terminal = isTerminal(input.temporalStatus);
   const metaFor = (name: string, state: RunState): string =>
     agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
+  // Only agents that have actually entered play are shown; pending/skipped ones stay hidden.
+  const inPlay = (s: RunState): boolean => s === 'running' || s === 'completed' || s === 'failed';
 
   for (const phase of PIPELINE) {
     const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet, terminal));
+    const playing = states.filter(inPlay).length;
     const phaseRunState: RunState = phaseGlyphState(states);
 
-    // Parallel phases get a "k/N done" summary and expand their agents; a single-agent
-    // phase just carries that agent's own duration/cost on the phase line.
+    // A single-agent phase carries that agent's own duration/cost on the phase line once it
+    // starts; a parallel phase gets a "k/N done" summary over the agents in play.
     const first = phase.agents[0];
+    const firstState = states[0];
     const phaseMetaStr =
-      phase.parallel || !first || !states[0] ? phaseMeta(states, phase.parallel, opts) : metaFor(first.name, states[0]);
+      !phase.parallel && first && firstState && inPlay(firstState)
+        ? metaFor(first.name, firstState)
+        : phaseMeta(states, playing, phase.parallel, opts);
     lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${phaseMetaStr}`);
 
-    // Don't expand a phase that hasn't started or was skipped wholesale.
-    if (!phase.parallel || phaseRunState === 'pending' || phaseRunState === 'skipped') continue;
+    if (!phase.parallel) continue;
     for (let i = 0; i < phase.agents.length; i++) {
       const agent = phase.agents[i];
       const state = states[i];
-      if (!agent || !state) continue;
+      if (!agent || !state || !inPlay(state)) continue;
       lines.push(`       ${glyph(state, opts)} ${agent.label.padEnd(18)}${metaFor(agent.name, state)}`);
     }
   }

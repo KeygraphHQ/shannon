@@ -61,7 +61,7 @@ npx @keygraph/shannon setup
 
 # Monitor
 ./shannon logs <workspace>            # Show a scan's live log
-./shannon progress <workspace>        # Live phase/agent progress of one scan, read from Temporal (redraws, then exits)
+./shannon status <workspace>          # Live phase/agent progress of one scan, read from Temporal (redraws, then exits)
 # Dashboard: http://localhost:8233
 
 # Stop
@@ -97,11 +97,11 @@ apps/worker/     — @shannon/worker (private, Temporal worker + pipeline logic)
 ```
 
 ### CLI Package (`apps/cli/`)
-Published as `@keygraph/shannon` on npm. Contains only Docker orchestration logic — no Temporal SDK, business logic, or prompts. Bundled with tsdown for single-file ESM output.
+Published as `@keygraph/shannon` on npm. Contains Docker orchestration logic plus a read-only `@temporalio/client` reader (for `status`); no worker/pipeline business logic or prompts. Bundled with tsdown for single-file ESM output (deps stay external).
 
-- `apps/cli/src/index.ts` — CLI dispatcher (`setup`, `start`, `stop`, `reset`, `logs`, `progress`, `build`, `uninstall`, `version`)
-- `apps/cli/src/temporal-client.ts` — `@temporalio/client` reader for `progress`: connects to the frontend on `127.0.0.1:7233` (published by compose), `describeScan` (status + `pendingActivities` → running agents), `queryProgress` (live `getProgress` query → `PipelineState`), `getTerminalOutcome` (workflow `result()`). No worker of its own; scans are visible only within Temporal's ~24h retention (namespace default, unset in compose)
-- `apps/cli/src/scan/` — `progress` rendering: `pipeline.ts` (static phase/agent plan + `run*Agent` activity-type→agent map + mirrored `PipelineState`/`AgentMetrics` types; keep in sync with the worker), `render.ts` (one renderer for both the live query state and the terminal result)
+- `apps/cli/src/index.ts` — CLI dispatcher (`setup`, `start`, `stop`, `reset`, `logs`, `status`, `build`, `uninstall`, `version`)
+- `apps/cli/src/temporal-client.ts` — `@temporalio/client` reader for `status`: connects to the frontend on `127.0.0.1:7233` (published by compose), `describeScan` (status + `pendingActivities` → running agents), `queryProgress` (live `getProgress` query → `PipelineState`), `getTerminalOutcome` (workflow `result()`). No worker of its own; scans are visible only within Temporal's ~24h retention (namespace default, unset in compose)
+- `apps/cli/src/scan/` — `status` rendering: `pipeline.ts` (static phase/agent plan + `run*Agent` activity-type→agent map + mirrored `PipelineState`/`AgentMetrics` types; keep in sync with the worker), `render.ts` (one renderer for both the live query state and the terminal result)
 - `apps/cli/src/mode.ts` — Auto-detection: local mode if `SHANNON_LOCAL=1` env var is set
 - `apps/cli/src/docker.ts` — Compose lifecycle, image pull/build, ephemeral `docker run` worker spawning
 - `apps/cli/src/home.ts` — State directory management (`~/.shannon/` for npx, `./` for local)
