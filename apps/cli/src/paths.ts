@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { fail } from './errors.js';
 import { isLocal } from './mode.js';
 
 export interface MountPair {
@@ -59,24 +60,23 @@ export function resolveRepo(repoArg: string): MountPair {
     if (fs.existsSync(barePath)) {
       hostPath = barePath;
     } else {
-      console.error(`ERROR: Repository not found at ./repos/${repoArg}`);
-      console.error('');
-      console.error('Place your target repository under the ./repos/ directory,');
-      console.error('or pass an absolute/relative path: -r /path/to/repo');
-      process.exit(1);
+      fail(
+        `Repository not found at ./repos/${repoArg}`,
+        '',
+        'Place your target repository under the ./repos/ directory,',
+        'or pass an absolute/relative path: -r /path/to/repo',
+      );
     }
   } else {
     hostPath = path.resolve(repoArg);
   }
 
   if (!fs.existsSync(hostPath)) {
-    console.error(`ERROR: Repository not found: ${hostPath}`);
-    process.exit(1);
+    fail(`Repository not found: ${hostPath}`);
   }
 
   if (!fs.statSync(hostPath).isDirectory()) {
-    console.error(`ERROR: Not a directory: ${hostPath}`);
-    process.exit(1);
+    fail(`Not a directory: ${hostPath}`);
   }
 
   const basename = path.basename(hostPath);
@@ -93,13 +93,11 @@ export function resolveConfig(configArg: string): MountPair {
   const hostPath = path.resolve(configArg);
 
   if (!fs.existsSync(hostPath)) {
-    console.error(`ERROR: Config file not found: ${hostPath}`);
-    process.exit(1);
+    fail(`Config file not found: ${hostPath}`);
   }
 
   if (!fs.statSync(hostPath).isFile()) {
-    console.error(`ERROR: Not a file: ${hostPath}`);
-    process.exit(1);
+    fail(`Not a file: ${hostPath}`);
   }
 
   const basename = path.basename(hostPath);

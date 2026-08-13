@@ -19,6 +19,7 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
+import { crash, fail } from './errors.js';
 import { isHelpableCommand, printCommandHelp } from './help.js';
 import { getMode } from './mode.js';
 import { getVersion, getVersionLine } from './version.js';
@@ -127,16 +128,16 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   const url = values.url ?? '';
   const repo = values.repo ?? '';
   if (!url || !repo) {
-    console.error('ERROR: --url and --repo are required');
-    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`);
-    process.exit(1);
+    fail(
+      '--url and --repo are required',
+      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`,
+    );
   }
 
   try {
     new URL(url);
   } catch {
-    console.error(`ERROR: invalid --url: ${url}`);
-    process.exit(1);
+    fail(`invalid --url: ${url}`);
   }
 
   return {
@@ -202,9 +203,10 @@ async function main(): Promise<void> {
       const { positionals } = parseArgs(rest, { maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
-        console.error('ERROR: Workspace ID is required');
-        console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`);
-        process.exit(1);
+        fail(
+          'Workspace ID is required',
+          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`,
+        );
       }
       logs(workspaceId);
       break;
@@ -219,8 +221,7 @@ async function main(): Promise<void> {
       break;
     case 'setup':
       if (getMode() === 'local') {
-        console.error('ERROR: setup is only available in npx mode. In local mode, use .env');
-        process.exit(1);
+        fail('setup is only available in npx mode. In local mode, use .env');
       }
       parseArgs(rest, {});
       await setup();
@@ -232,8 +233,7 @@ async function main(): Promise<void> {
     }
     case 'uninstall': {
       if (getMode() === 'local') {
-        console.error('ERROR: uninstall is only available in npx mode.');
-        process.exit(1);
+        fail('uninstall is only available in npx mode.');
       }
       const { flags } = parseArgs(rest, { booleans: { yes: YES_FLAGS } });
       await uninstall(!!flags.yes);
@@ -253,10 +253,7 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   if (err instanceof ArgError) {
-    console.error(`ERROR: ${err.message}`);
-    console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
-    process.exit(1);
+    fail(err.message, `Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
   }
-  console.error(err);
-  process.exit(1);
+  crash(err);
 });

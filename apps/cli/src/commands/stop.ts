@@ -19,6 +19,7 @@ import {
   terminateWorkflow,
   WORKER_FILTER,
 } from '../docker.js';
+import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
 
@@ -26,11 +27,6 @@ export interface StopOptions {
   all: boolean;
   yes: boolean;
   workspace?: string;
-}
-
-function fail(message: string): never {
-  console.error(`ERROR: ${message}`);
-  process.exit(1);
 }
 
 /** Latest workflow ID recorded for a workspace: last resume attempt, else the original. */

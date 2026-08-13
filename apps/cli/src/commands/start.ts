@@ -12,6 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import * as p from '@clack/prompts';
 import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
+import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
@@ -60,8 +61,7 @@ export async function start(args: StartArgs): Promise<void> {
   // 2. Validate credentials
   const creds = validateCredentials();
   if (!creds.valid) {
-    console.error(`ERROR: ${creds.error}`);
-    process.exit(1);
+    fail(creds.error ?? 'Invalid credentials');
   }
 
   // 3. Resolve paths

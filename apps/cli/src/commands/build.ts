@@ -4,14 +4,16 @@
  */
 
 import { buildImage, canBuildImage, ensureDocker } from '../docker.js';
+import { fail } from '../errors.js';
 
 export function build(noCache: boolean, version: string): void {
   ensureDocker();
 
   if (!canBuildImage()) {
-    console.error('ERROR: Build is only available when running from the Shannon repository');
-    console.error('  (Dockerfile not found in current directory)');
-    process.exit(1);
+    fail(
+      'Build is only available when running from the Shannon repository',
+      '  (Dockerfile not found in current directory)',
+    );
   }
 
   buildImage(noCache, version);

@@ -8,6 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { watch } from 'chokidar';
+import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
 
@@ -49,14 +50,15 @@ function resolveLogFile(workspaceId: string): string {
     if (fs.existsSync(namedPath)) return namedPath;
   }
 
-  console.error(`ERROR: No scan found named: ${workspaceId}`);
-  console.error('');
-  console.error('Possible causes:');
-  console.error("  - The scan hasn't started yet");
-  console.error('  - The workspace name is incorrect');
-  console.error('');
-  console.error('Check the dashboard at http://localhost:8233 for scan details');
-  process.exit(1);
+  fail(
+    `No scan found named: ${workspaceId}`,
+    '',
+    'Possible causes:',
+    "  - The scan hasn't started yet",
+    '  - The workspace name is incorrect',
+    '',
+    'Check the dashboard at http://localhost:8233 for scan details',
+  );
 }
 
 export function logs(workspaceId: string): void {

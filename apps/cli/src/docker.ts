@@ -14,6 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
+import { fail } from './errors.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
 import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
@@ -100,9 +101,10 @@ export function ensureDocker(): void {
   try {
     execFileSync('docker', ['info'], { stdio: 'pipe' });
   } catch {
-    console.error('ERROR: Docker must be installed and running. Start Docker and try again.');
-    console.error('Install Docker: https://docs.docker.com/get-docker/');
-    process.exit(1);
+    fail(
+      'Docker must be installed and running. Start Docker and try again.',
+      'Install Docker: https://docs.docker.com/get-docker/',
+    );
   }
 }
 
@@ -175,10 +177,11 @@ export function ensureImage(version: string): void {
     try {
       execFileSync('docker', ['pull', image], { stdio: 'inherit' });
     } catch {
-      console.error(`\nERROR: Failed to pull ${image}`);
-      console.error('The image may not be available for your platform yet.');
-      console.error('Check https://hub.docker.com/r/keygraph/shannon for available tags.');
-      process.exit(1);
+      fail(
+        `Failed to pull ${image}`,
+        'The image may not be available for your platform yet.',
+        'Check https://hub.docker.com/r/keygraph/shannon for available tags.',
+      );
     }
     pruneOldImages(version);
   }
@@ -462,8 +465,7 @@ export async function stopInfra(clean: boolean): Promise<void> {
   const label = clean ? 'Removing Temporal data and volumes' : 'Stopping Temporal';
   const step = await runStep(label, 'docker', args);
   if (!step.ok) {
-    console.error(`ERROR: ${label} failed. See the output above.`);
-    process.exit(1);
+    fail(`${label} failed. See the output above.`);
   }
 }
 
