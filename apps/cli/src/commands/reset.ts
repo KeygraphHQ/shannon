@@ -3,6 +3,7 @@
  * returning the machine to a clean slate. The destructive counterpart to `stop`.
  */
 
+import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
 import { ensureDocker, stopInfra, stopWorkers } from '../docker.js';
 
@@ -19,7 +20,11 @@ export async function reset(opts: ResetOptions): Promise<void> {
     opts.yes,
   );
 
-  stopWorkers();
-  stopInfra(true);
-  console.log('Reset complete. All scans stopped and Temporal data removed.');
+  const spinner = p.spinner();
+  spinner.start('Stopping scans');
+  const stopped = await stopWorkers();
+  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No scans running');
+
+  await stopInfra(true);
+  console.log('Reset complete.');
 }

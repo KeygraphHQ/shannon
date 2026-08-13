@@ -33,8 +33,11 @@ export async function uninstall(yes: boolean): Promise<void> {
   );
 
   // Stop any running containers first
-  stopWorkers();
-  stopInfra(false);
+  const spinner = p.spinner();
+  spinner.start('Stopping scans');
+  const stopped = await stopWorkers();
+  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No scans running');
+  await stopInfra(false);
 
   fs.rmSync(SHANNON_HOME, { recursive: true, force: true });
 

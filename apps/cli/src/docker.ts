@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
+import { runStep } from './ui.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -69,6 +70,15 @@ function runOutput(cmd: string, args: string[]): string {
   }
 }
 
+/** Run a command asynchronously, resolving true on success. Never rejects. */
+function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: 'ignore' });
+    child.on('close', (code) => resolve(code === 0));
+    child.on('error', () => resolve(false));
+  });
+}
+
 /**
  * Verify Docker is installed and its daemon is running, exiting otherwise.
  * `docker info` succeeds only when both are true. Call this before any command
@@ -110,8 +120,11 @@ export async function ensureInfra(): Promise<void> {
   }
 
   const composeFile = getComposeFile();
-  console.log('Starting Shannon infrastructure...');
-  execFileSync('docker', ['compose', '-f', composeFile, 'up', '-d'], { stdio: 'inherit' });
+  const step = await runStep('Starting Temporal', 'docker', ['compose', '-f', composeFile, 'up', '-d']);
+  if (!step.ok) {
+    console.error('ERROR: Could not start Temporal. See the output above.');
+    process.exit(1);
+  }
 
   console.log('Waiting for Temporal to be ready...');
   for (let i = 0; i < 30; i++) {
@@ -370,14 +383,22 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
  * Returns true if any were running. Only scans started with a labeled worker are
  * matchable, so this finds runs from this version onward.
  */
-export function stopScanContainer(workspace: string): boolean {
+export async function stopScanContainer(workspace: string): Promise<boolean> {
   const output = runOutput('docker', ['ps', '-q', '--filter', `label=${WORKSPACE_LABEL}=${workspace}`]);
   const ids = output.split('\n').filter(Boolean);
   if (ids.length === 0) return false;
 
-  // stdio 'pipe' swallows the container IDs `docker stop` echoes.
-  execFileSync('docker', ['stop', ...ids], { stdio: 'pipe' });
+  await stopContainers(ids);
   return true;
+}
+
+/**
+ * Stop containers by ID, tolerating any that vanished between being listed and
+ * stopped (a `--rm` worker exiting is success, not an error). Async so a spinner
+ * can animate during docker's graceful-shutdown wait.
+ */
+function stopContainers(ids: string[]): Promise<boolean[]> {
+  return Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
 }
 
 /**
@@ -426,25 +447,28 @@ export function terminateAllWorkflows(reason: string): boolean {
 /**
  * Stop all running shannon-worker-* containers. Returns the number stopped.
  */
-export function stopWorkers(): number {
+export async function stopWorkers(): Promise<number> {
   const workers = runOutput('docker', ['ps', '-q', '--filter', 'name=shannon-worker-']);
   if (!workers) return 0;
 
   const ids = workers.split('\n').filter(Boolean);
-  console.log('Stopping running scans...');
-  // stdio 'pipe' swallows the container IDs `docker stop` echoes.
-  execFileSync('docker', ['stop', ...ids], { stdio: 'pipe' });
+  await stopContainers(ids);
   return ids.length;
 }
 
 /**
- * Tear down the compose stack.
+ * Tear down the compose stack. When `clean` is set, volumes are removed too.
  */
-export function stopInfra(clean: boolean): void {
+export async function stopInfra(clean: boolean): Promise<void> {
   const composeFile = getComposeFile();
   const args = ['compose', '-f', composeFile, 'down'];
   if (clean) args.push('-v');
-  execFileSync('docker', args, { stdio: 'inherit' });
+  const label = clean ? 'Removing Temporal data and volumes' : 'Stopping Temporal';
+  const step = await runStep(label, 'docker', args);
+  if (!step.ok) {
+    console.error(`ERROR: ${label} failed. See the output above.`);
+    process.exit(1);
+  }
 }
 
 /**

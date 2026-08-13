@@ -5,6 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
 import {
   ensureDocker,
@@ -44,26 +45,30 @@ function resolveWorkflowId(workspace: string): string | undefined {
  * Stop a single scan: kill its worker container and terminate its Temporal
  * workflow so it doesn't linger as a running workflow with no worker.
  */
-function stopSingleScan(workspace: string): void {
-  const stoppedContainer = stopScanContainer(workspace);
+async function stopSingleScan(workspace: string): Promise<void> {
   const workflowId = resolveWorkflowId(workspace);
+  const spinner = p.spinner();
+  spinner.start(`Stopping scan ${workspace}`);
 
-  // Nothing carried this workspace — neither a labeled container nor a recorded workflow.
-  if (!stoppedContainer && !workflowId) {
-    fail(`No scan found for workspace: ${workspace}\nList running scans with: docker ps --filter name=shannon-worker-`);
-  }
-
-  console.log(`Stopping scan: ${workspace}`);
-
+  const stoppedContainer = await stopScanContainer(workspace);
   let terminatedWorkflow = false;
   if (workflowId && isTemporalReady()) {
     terminatedWorkflow = terminateWorkflow(workflowId, `Stopped via shannon stop ${workspace}`);
   }
 
+  // Nothing carried this workspace — neither a labeled container nor a recorded workflow.
+  if (!stoppedContainer && !workflowId) {
+    spinner.error(`No scan found for workspace: ${workspace}`);
+    console.error('List running scans with: docker ps --filter name=shannon-worker-');
+    process.exit(1);
+  }
+
   const done: string[] = [];
   if (stoppedContainer) done.push('container stopped');
   if (terminatedWorkflow) done.push('workflow terminated');
-  console.log(done.length > 0 ? `  Done (${done.join(', ')}).` : '  Nothing was running for this workspace.');
+  spinner.stop(
+    done.length > 0 ? `Stopped scan ${workspace} (${done.join(', ')})` : `Nothing was running for ${workspace}`,
+  );
 }
 
 export async function stop(opts: StopOptions): Promise<void> {
@@ -83,17 +88,19 @@ export async function stop(opts: StopOptions): Promise<void> {
 
   // 3. Execute.
   if (opts.workspace) {
-    stopSingleScan(opts.workspace);
+    await stopSingleScan(opts.workspace);
     return;
   }
 
   // --all kills the scans but leaves Temporal running.
-  const stopped = stopWorkers();
+  const spinner = p.spinner();
+  spinner.start('Stopping all scans');
+  const stopped = await stopWorkers();
 
   // Terminate the now-orphaned workflows so they don't linger as running with no worker.
   if (isTemporalReady()) {
     terminateAllWorkflows('Stopped via shannon stop --all');
   }
 
-  console.log(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}.` : 'No running scans to stop.');
+  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No running scans to stop');
 }
