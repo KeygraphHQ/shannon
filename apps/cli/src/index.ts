@@ -132,6 +132,13 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     process.exit(1);
   }
 
+  try {
+    new URL(url);
+  } catch {
+    console.error(`ERROR: invalid --url: ${url}`);
+    process.exit(1);
+  }
+
   return {
     url,
     repo,
