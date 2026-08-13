@@ -62,11 +62,6 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     description: 'Show running scans and Temporal health.',
     options: [JSON_OPTION, PLAIN_OPTION],
   },
-  workspaces: {
-    usage: ['workspaces [--json | --plain]'],
-    description: 'List all workspaces, most recent first.',
-    options: [JSON_OPTION, PLAIN_OPTION],
-  },
   build: {
     usage: ['build [--no-cache]'],
     description: 'Build the worker Docker image (local mode only).',

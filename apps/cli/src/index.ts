@@ -18,7 +18,6 @@ import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
-import { workspaces } from './commands/workspaces.js';
 import { crash, fail } from './errors.js';
 import { JSON_FLAG, PLAIN_FLAG, resolveFormat } from './format.js';
 import { isHelpableCommand, printCommandHelp } from './help.js';
@@ -61,7 +60,6 @@ Usage:${
   ${prefix} stop <workspace> [--yes]                     Stop one scan
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
   ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
-  ${prefix} workspaces                                   List all workspaces
   ${prefix} logs <workspace>                             Show a scan's live log
   ${prefix} status                                       Show running scans${
     mode === 'local'
@@ -155,7 +153,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 // === Main Dispatch ===
 
 async function main(): Promise<void> {
-  // A reader that closes early (e.g. `shannon workspaces --plain | head`) makes writes
+  // A reader that closes early (e.g. `shannon status --plain | head`) makes writes
   // to stdout raise EPIPE. That's normal for a piped CLI, not a crash — exit quietly
   // instead of letting Node dump an unhandled-error stack trace.
   process.stdout.on('error', (err: NodeJS.ErrnoException) => {
@@ -218,11 +216,6 @@ async function main(): Promise<void> {
         );
       }
       logs(workspaceId);
-      break;
-    }
-    case 'workspaces': {
-      const { flags } = parseArgs(rest, { booleans: { json: JSON_FLAG, plain: PLAIN_FLAG } });
-      workspaces(resolveFormat(!!flags.json, !!flags.plain));
       break;
     }
     case 'status': {
