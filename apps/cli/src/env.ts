@@ -87,8 +87,9 @@ export function loadEnv(): void {
 }
 
 /**
- * Build `-e KEY=VALUE` flags for docker run. Forwards the common vars plus only
- * the selected provider's credentials.
+ * Build `-e` flags for docker run. Forwards the common vars plus only the
+ * selected provider's credentials, passed by name (`-e KEY`) so secret values
+ * stay out of the `docker run` argv; docker inherits them from this process's env.
  */
 export function buildEnvFlags(): string[] {
   const flags: string[] = ['-e', 'TEMPORAL_ADDRESS=shannon-temporal:7233'];
@@ -97,9 +98,8 @@ export function buildEnvFlags(): string[] {
   const providerVars = typeof spec === 'string' ? [] : providerForwardVars(spec.providerId);
 
   for (const key of [...COMMON_FORWARD_VARS, ...providerVars]) {
-    const value = process.env[key];
-    if (value) {
-      flags.push('-e', `${key}=${value}`);
+    if (process.env[key]) {
+      flags.push('-e', key);
     }
   }
 
