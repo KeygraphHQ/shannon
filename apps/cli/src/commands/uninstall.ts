@@ -6,8 +6,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
+import { confirmOrExit } from '../confirm.js';
 import { stopInfra, stopWorkers } from '../docker.js';
-import { requireInteractive } from '../tty.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
@@ -26,16 +26,11 @@ export async function uninstall(yes: boolean): Promise<void> {
     return;
   }
 
-  if (interactive) {
-    requireInteractive('uninstall', 'Re-run with --yes to skip this confirmation.');
-    const confirmed = await p.confirm({
-      message: 'This will permanently remove all past scan data, saved configurations, and API keys. Continue?',
-    });
-    if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Aborted.');
-      process.exit(0);
-    }
-  }
+  await confirmOrExit(
+    'uninstall',
+    'This will permanently remove all past scan data, saved configurations, and API keys. Continue?',
+    yes,
+  );
 
   // Stop any running containers first
   stopWorkers();

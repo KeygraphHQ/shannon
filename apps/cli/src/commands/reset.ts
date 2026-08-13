@@ -3,9 +3,8 @@
  * returning the machine to a clean slate. The destructive counterpart to `stop`.
  */
 
-import * as p from '@clack/prompts';
+import { confirmOrExit } from '../confirm.js';
 import { ensureDocker, stopInfra, stopWorkers } from '../docker.js';
-import { requireInteractive } from '../tty.js';
 
 export interface ResetOptions {
   yes: boolean;
@@ -14,16 +13,11 @@ export interface ResetOptions {
 export async function reset(opts: ResetOptions): Promise<void> {
   ensureDocker();
 
-  if (!opts.yes) {
-    requireInteractive('reset', 'Re-run with --yes to skip this confirmation.');
-    const confirmed = await p.confirm({
-      message: 'This will stop all running scans and permanently remove all Temporal data and volumes. Continue?',
-    });
-    if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Aborted.');
-      process.exit(0);
-    }
-  }
+  await confirmOrExit(
+    'reset',
+    'This will stop all running scans and permanently remove all Temporal data and volumes. Continue?',
+    opts.yes,
+  );
 
   stopWorkers();
   stopInfra(true);

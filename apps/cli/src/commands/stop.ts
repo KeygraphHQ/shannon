@@ -5,7 +5,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import * as p from '@clack/prompts';
+import { confirmOrExit } from '../confirm.js';
 import {
   ensureDocker,
   isTemporalReady,
@@ -16,7 +16,6 @@ import {
 } from '../docker.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
-import { requireInteractive } from '../tty.js';
 
 export interface StopOptions {
   all: boolean;
@@ -79,15 +78,8 @@ export async function stop(opts: StopOptions): Promise<void> {
   }
 
   // 2. Confirm, unless --yes was passed.
-  if (!opts.yes) {
-    const message = opts.workspace ? `Stop the scan "${opts.workspace}"?` : 'This will stop all running scans. Continue?';
-    requireInteractive('stop', 'Re-run with --yes to skip this confirmation.');
-    const confirmed = await p.confirm({ message });
-    if (p.isCancel(confirmed) || !confirmed) {
-      p.cancel('Aborted.');
-      process.exit(0);
-    }
-  }
+  const message = opts.workspace ? `Stop the scan "${opts.workspace}"?` : 'This will stop all running scans. Continue?';
+  await confirmOrExit('stop', message, opts.yes);
 
   // 3. Execute.
   if (opts.workspace) {

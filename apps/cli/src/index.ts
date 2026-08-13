@@ -9,6 +9,7 @@
  * in the current working directory.
  */
 
+import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { reset } from './commands/reset.js';
@@ -106,67 +107,22 @@ interface ParsedStartArgs {
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
-  let url = '';
-  let repo = '';
-  let config: string | undefined;
-  let workspace: string | undefined;
-  let output: string | undefined;
-  let pipelineTesting = false;
-  let debug = false;
+  const { flags, values } = parseArgs(argv, {
+    values: {
+      url: ['-u', '--url'],
+      repo: ['-r', '--repo'],
+      config: ['-c', '--config'],
+      output: ['-o', '--output'],
+      workspace: ['-w', '--workspace'],
+    },
+    booleans: {
+      pipelineTesting: ['--pipeline-testing'],
+      debug: ['--debug'],
+    },
+  });
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = argv[i + 1];
-
-    switch (arg) {
-      case '-u':
-      case '--url':
-        if (next && !next.startsWith('-')) {
-          url = next;
-          i++;
-        }
-        break;
-      case '-r':
-      case '--repo':
-        if (next && !next.startsWith('-')) {
-          repo = next;
-          i++;
-        }
-        break;
-      case '-c':
-      case '--config':
-        if (next && !next.startsWith('-')) {
-          config = next;
-          i++;
-        }
-        break;
-      case '-w':
-      case '--workspace':
-        if (next && !next.startsWith('-')) {
-          workspace = next;
-          i++;
-        }
-        break;
-      case '-o':
-      case '--output':
-        if (next && !next.startsWith('-')) {
-          output = next;
-          i++;
-        }
-        break;
-      case '--pipeline-testing':
-        pipelineTesting = true;
-        break;
-      case '--debug':
-        debug = true;
-        break;
-      default:
-        console.error(`Unknown option: ${arg}`);
-        console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
-        process.exit(1);
-    }
-  }
-
+  const url = values.url ?? '';
+  const repo = values.repo ?? '';
   if (!url || !repo) {
     console.error('ERROR: --url and --repo are required');
     console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`);
@@ -176,93 +132,111 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   return {
     url,
     repo,
-    pipelineTesting,
-    debug,
-    ...(config && { config }),
-    ...(workspace && { workspace }),
-    ...(output && { output }),
+    pipelineTesting: !!flags.pipelineTesting,
+    debug: !!flags.debug,
+    ...(values.config && { config: values.config }),
+    ...(values.workspace && { workspace: values.workspace }),
+    ...(values.output && { output: values.output }),
   };
 }
 
 // === Main Dispatch ===
 
-blockSudo();
+async function main(): Promise<void> {
+  blockSudo();
 
-const args = process.argv.slice(2);
-const command = args[0];
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const rest = args.slice(1);
 
-switch (command) {
-  case 'start': {
-    const parsed = parseStartArgs(args.slice(1));
-    await start({ ...parsed, version: getVersion() });
-    break;
-  }
-  case 'stop': {
-    const workspace = args.slice(1).find((arg) => !arg.startsWith('-'));
-    stop({
-      all: args.includes('--all'),
-      yes: args.includes('--yes') || args.includes('-y'),
-      ...(workspace && { workspace }),
-    });
-    break;
-  }
-  case 'reset': {
-    // reset is all-or-nothing; a stray name likely means the user wanted `stop <name>`.
-    const stray = args.slice(1).find((arg) => !arg.startsWith('-'));
-    if (stray) {
-      console.error(`ERROR: reset takes no workspace argument. It stops everything and wipes all Temporal data.`);
-      console.error(`To stop a single scan, use: stop ${stray}`);
-      process.exit(1);
+  switch (command) {
+    case 'start': {
+      const parsed = parseStartArgs(rest);
+      await start({ ...parsed, version: getVersion() });
+      break;
     }
-    reset({ yes: args.includes('--yes') || args.includes('-y') });
-    break;
+    case 'stop': {
+      const { flags, positionals } = parseArgs(rest, {
+        booleans: { all: ['--all'], yes: YES_FLAGS },
+        maxPositionals: 1,
+      });
+      await stop({ all: !!flags.all, yes: !!flags.yes, ...(positionals[0] && { workspace: positionals[0] }) });
+      break;
+    }
+    case 'reset': {
+      // reset is all-or-nothing; a stray name likely means the user wanted `stop <name>`.
+      const { flags } = parseArgs(rest, {
+        booleans: { yes: YES_FLAGS },
+        positionalHint: 'reset takes no workspace argument. To stop one scan, use: stop <name>',
+      });
+      await reset({ yes: !!flags.yes });
+      break;
+    }
+    case 'logs': {
+      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
+      const workspaceId = positionals[0];
+      if (!workspaceId) {
+        console.error('ERROR: Workspace ID is required');
+        console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`);
+        process.exit(1);
+      }
+      logs(workspaceId);
+      break;
+    }
+    case 'workspaces':
+      parseArgs(rest, {});
+      workspaces();
+      break;
+    case 'status':
+      parseArgs(rest, {});
+      status();
+      break;
+    case 'setup':
+      if (getMode() === 'local') {
+        console.error('ERROR: setup is only available in npx mode. In local mode, use .env');
+        process.exit(1);
+      }
+      parseArgs(rest, {});
+      await setup();
+      break;
+    case 'build': {
+      const { flags } = parseArgs(rest, { booleans: { noCache: ['--no-cache'] } });
+      build(!!flags.noCache, getVersion());
+      break;
+    }
+    case 'uninstall': {
+      if (getMode() === 'local') {
+        console.error('ERROR: uninstall is only available in npx mode.');
+        process.exit(1);
+      }
+      const { flags } = parseArgs(rest, { booleans: { yes: YES_FLAGS } });
+      await uninstall(!!flags.yes);
+      break;
+    }
+    case 'version':
+    case '--version':
+    case '-v':
+      console.log(getVersionLine());
+      break;
+    case 'help':
+    case '--help':
+    case '-h':
+    case undefined:
+      showHelp();
+      break;
+    default:
+      console.error(`Unknown command: ${command}`);
+      showHelp();
+      process.exit(1);
   }
-  case 'logs': {
-    const workspaceId = args[1];
-    if (!workspaceId) {
-      console.error('ERROR: Workspace ID is required');
-      console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`);
-      process.exit(1);
-    }
-    logs(workspaceId);
-    break;
-  }
-  case 'workspaces':
-    workspaces();
-    break;
-  case 'status':
-    status();
-    break;
-  case 'setup':
-    if (getMode() === 'local') {
-      console.error('ERROR: setup is only available in npx mode. In local mode, use .env');
-      process.exit(1);
-    }
-    setup();
-    break;
-  case 'build':
-    build(args.includes('--no-cache'), getVersion());
-    break;
-  case 'uninstall':
-    if (getMode() === 'local') {
-      console.error('ERROR: uninstall is only available in npx mode.');
-      process.exit(1);
-    }
-    uninstall(args.includes('--yes') || args.includes('-y'));
-    break;
-  case 'version':
-  case '--version':
-  case '-v':
-    console.log(getVersionLine());
-    break;
-  case 'help':
-  case '--help':
-  case '-h':
-  case undefined:
-    showHelp();
-    break;
-  default:
-    console.error(`Unknown command: ${command}`);
-    showHelp();
-    process.exit(1);
 }
+
+main().catch((err) => {
+  if (err instanceof ArgError) {
+    console.error(`ERROR: ${err.message}`);
+    console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
+    process.exit(1);
+  }
+  console.error(err);
+  process.exit(1);
+});
