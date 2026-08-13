@@ -8,6 +8,8 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
+import * as p from '@clack/prompts';
 import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { getWorkspacesDir, initHome } from '../home.js';
@@ -15,7 +17,6 @@ import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
 import { FINAL_REPORT_PDF_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
 import { displaySplash } from '../splash.js';
-import { stdoutIsTerminal } from '../tty.js';
 
 export interface StartArgs {
   url: string;
@@ -67,15 +68,22 @@ export async function start(args: StartArgs): Promise<void> {
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
 
+  // Inputs are valid — show the splash before the Docker/Temporal setup work.
+  displaySplash(isLocal() ? undefined : args.version);
+
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
   const workspacesDir = getWorkspacesDir();
   fs.mkdirSync(workspacesDir, { recursive: true });
   fs.chmodSync(workspacesDir, 0o777);
 
-  // 5. Ensure Docker is available, then the image (auto-build in dev, pull in npx) and infra
+  // 5. Ensure Docker and the worker image are available (pull/build prints its own progress).
   ensureDocker();
   ensureImage(args.version);
-  await ensureInfra();
+
+  // One spinner spans the whole launch: bringing up Temporal and registering the worker.
+  const spinner = p.spinner();
+  spinner.start('Starting scan');
+  await ensureInfra(spinner);
 
   // 6. Generate unique task queue and container name
   const suffix = randomSuffix();
@@ -118,10 +126,7 @@ export async function start(args: StartArgs): Promise<void> {
   // 11. Resolve prompts directory (local mode only)
   const promptsDir = isLocal() ? path.resolve('apps/worker/prompts') : undefined;
 
-  // 12. Display splash screen
-  displaySplash(isLocal() ? undefined : args.version);
-
-  // 13. Spawn worker container
+  // 12. Spawn worker container
   const proc = spawnWorker({
     version: args.version,
     url: args.url,
@@ -139,16 +144,14 @@ export async function start(args: StartArgs): Promise<void> {
     ...(shouldUsePiAuth() && { piAuthHostPath: resolveHostPiAuthPath() }),
   });
 
-  // 14. Bail if `docker run -d` itself fails (mount error, image missing, etc.)
+  // Bail if `docker run -d` itself fails (mount error, image missing, etc.)
   const dockerExitCode = await new Promise<number>((resolve) => {
     proc.once('exit', (code) => resolve(code ?? 1));
-    proc.once('error', (err) => {
-      console.error(`Failed to start the scan: ${err.message}`);
-      resolve(1);
-    });
+    proc.once('error', () => resolve(1));
   });
 
   if (dockerExitCode !== 0) {
+    spinner.error('Could not start the scan');
     process.exit(1);
   }
 
@@ -165,54 +168,14 @@ export async function start(args: StartArgs): Promise<void> {
     }
   }
 
-  // Poll for workflow to register in session.json. Off-TTY, skip the dots and
-  // clear-line escape so redirected logs stay clean.
-  const animate = stdoutIsTerminal();
-  process.stdout.write('Waiting for the scan to start...');
-  let workflowId = '';
   let started = false;
-  let attempts = 0;
-  const pollInterval = setInterval(() => {
-    attempts++;
-    if (attempts > 60) {
-      clearInterval(pollInterval);
-      process.stdout.write('\n');
-      console.error('Timed out waiting for the scan to start');
-      process.exit(1);
-    }
 
-    try {
-      const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
-      const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
-
-      // Fresh: session.json appears with originalWorkflowId. Resume: new resumeAttempts entry.
-      const ready = isResume ? resumeAttempts.length > initialResumeCount : !!session.session?.originalWorkflowId;
-
-      if (ready) {
-        clearInterval(pollInterval);
-        started = true;
-
-        // Latest workflow ID: last resume attempt, or originalWorkflowId for fresh scans
-        workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
-
-        // Clear the waiting line, or just break it off-TTY
-        process.stdout.write(animate ? '\r\x1b[K' : '\n');
-        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
-        return;
-      }
-    } catch {
-      // File doesn't exist yet
-    }
-    if (animate) process.stdout.write('.');
-  }, 2000);
-
-  // Stop the worker container only if it hasn't started yet
+  // Stop the worker only if the scan hasn't registered yet (e.g. Ctrl-C mid-startup).
   let cleaned = false;
   const cleanup = (): void => {
     if (cleaned || started) return;
     cleaned = true;
-    clearInterval(pollInterval);
-    console.log('\nStopping scan...');
+    spinner.stop('Stopping scan');
     try {
       execFileSync('docker', ['stop', containerName], { stdio: 'pipe' });
     } catch {
@@ -222,7 +185,6 @@ export async function start(args: StartArgs): Promise<void> {
       printDebugHint(containerName);
     }
   };
-
   process.on('SIGINT', () => {
     cleanup();
     process.exit(0);
@@ -232,6 +194,32 @@ export async function start(args: StartArgs): Promise<void> {
     process.exit(0);
   });
   process.on('exit', cleanup);
+
+  // Poll for the workflow to register in session.json; the spinner resolves once it does.
+  spinner.message('Waiting for the scan to start');
+  for (let attempts = 0; attempts < 60; attempts++) {
+    try {
+      const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
+      const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
+
+      // Fresh: session.json appears with originalWorkflowId. Resume: new resumeAttempts entry.
+      const ready = isResume ? resumeAttempts.length > initialResumeCount : !!session.session?.originalWorkflowId;
+
+      if (ready) {
+        started = true;
+        const workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
+        spinner.stop(`Scan started — ${workspace}`);
+        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
+        return;
+      }
+    } catch {
+      // File doesn't exist yet
+    }
+    await sleep(2000);
+  }
+
+  spinner.error('Timed out waiting for the scan to start');
+  process.exit(1);
 }
 
 function printDebugHint(containerName: string): void {
@@ -252,7 +240,7 @@ function printInfo(
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
 
-  console.log('  Scan started — it runs in the background, so you can close this terminal.');
+  console.log('  It runs in the background — you can close this terminal.');
   console.log('');
   console.log(`  Target:     ${args.url}`);
   console.log(`  Repository: ${repoPath}`);

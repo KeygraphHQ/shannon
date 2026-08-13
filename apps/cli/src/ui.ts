@@ -1,10 +1,10 @@
 /**
  * Terminal status output for long-running steps.
  *
- * Runs a command with its output captured rather than inherited, so raw docker
+ * Commands are run with their output captured rather than inherited, so raw docker
  * plumbing never floods the terminal. Progress is shown with a `@clack/prompts`
- * spinner, which renders its own start/stop/error states. On failure the captured
- * output is printed so the error stays visible instead of being swallowed.
+ * spinner. On failure the captured output is printed so the error stays visible
+ * instead of being swallowed.
  */
 
 import { spawn } from 'node:child_process';
@@ -16,36 +16,45 @@ export interface StepResult {
 }
 
 /**
- * Run a command as a labeled step, capturing stdout and stderr. Returns the exit
- * result and the captured output; the caller decides what to do on failure.
+ * Run a command capturing stdout and stderr. Resolves the exit result and combined
+ * output; never rejects. Callers that want a spinner wrap this in one themselves.
+ */
+export function spawnCaptured(cmd: string, args: string[]): Promise<StepResult> {
+  return new Promise((resolve) => {
+    let output = '';
+    const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout?.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.stderr?.on('data', (chunk) => {
+      output += chunk.toString();
+    });
+    child.on('close', (code) => resolve({ ok: code === 0, output }));
+    child.on('error', () => resolve({ ok: false, output }));
+  });
+}
+
+/** Print captured command output to stderr, so a failure is never swallowed. */
+export function surfaceOutput(output: string): void {
+  const trimmed = output.trim();
+  if (trimmed) process.stderr.write(`${trimmed}\n`);
+}
+
+/**
+ * Run a command as a labeled step, with a spinner over it. On failure the captured
+ * output is surfaced. Returns the exit result and captured output.
  */
 export async function runStep(label: string, cmd: string, args: string[]): Promise<StepResult> {
-  let captured = '';
-
-  const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-  child.stdout?.on('data', (chunk) => {
-    captured += chunk.toString();
-  });
-  child.stderr?.on('data', (chunk) => {
-    captured += chunk.toString();
-  });
-
   const spinner = p.spinner();
   spinner.start(label);
 
-  const code = await new Promise<number>((resolve) => {
-    child.on('close', (exitCode) => resolve(exitCode ?? 1));
-    child.on('error', () => resolve(1));
-  });
-
-  const ok = code === 0;
-  if (ok) {
+  const result = await spawnCaptured(cmd, args);
+  if (result.ok) {
     spinner.stop(label);
   } else {
     spinner.error(label);
-    const trimmed = captured.trim();
-    if (trimmed) process.stderr.write(`${trimmed}\n`);
+    surfaceOutput(result.output);
   }
 
-  return { ok, output: captured };
+  return result;
 }

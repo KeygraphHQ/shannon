@@ -12,10 +12,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
-import { runStep } from './ui.js';
+import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -116,27 +117,30 @@ export function isTemporalReady(): boolean {
 /**
  * Ensure Temporal is running via compose.
  */
-export async function ensureInfra(): Promise<void> {
+export async function ensureInfra(spinner: SpinnerResult): Promise<void> {
   if (isTemporalReady()) {
     return;
   }
 
+  // Drive the caller's spinner — the whole "start" flow is one spinner, not several.
+  spinner.message('Starting Temporal');
   const composeFile = getComposeFile();
-  const step = await runStep('Starting Temporal', 'docker', ['compose', '-f', composeFile, 'up', '-d']);
-  if (!step.ok) {
-    console.error('ERROR: Could not start Temporal. See the output above.');
+  const result = await spawnCaptured('docker', ['compose', '-f', composeFile, 'up', '-d']);
+  if (!result.ok) {
+    spinner.error('Could not start Temporal');
+    surfaceOutput(result.output);
     process.exit(1);
   }
 
-  console.log('Waiting for Temporal to be ready...');
+  spinner.message('Waiting for Temporal to be ready');
   for (let i = 0; i < 30; i++) {
     if (isTemporalReady()) {
-      console.log('Temporal is ready!');
       return;
     }
     await sleep(2000);
   }
-  console.error('Timeout waiting for Temporal');
+
+  spinner.error('Temporal did not become ready in time');
   process.exit(1);
 }
 
