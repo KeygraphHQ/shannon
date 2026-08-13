@@ -16,7 +16,9 @@ import { stdoutIsTerminal, supportsColor } from '../tty.js';
 
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
-const POLL_MS = 1500;
+/** Redraw cadence for the spinner animation; data is refreshed on the slower poll. */
+const RENDER_MS = 120;
+const POLL_MS = 1200;
 
 /** Terminal = anything other than an open, running execution. */
 function isTerminalStatus(status: string): boolean {
@@ -67,18 +69,26 @@ function printFrame(input: RenderInput): void {
     color: supportsColor(),
     unicode: stdoutIsTerminal(),
     live: false,
+    frame: 0,
   });
   process.stdout.write(`${frame}\n`);
 }
 
-/** Poll Temporal and redraw until the scan reaches a terminal state, then print the final frame and exit. */
+/**
+ * Poll Temporal and redraw until the scan reaches a terminal state, then print the
+ * final frame and exit. A fast ticker animates the running spinner off the cached
+ * snapshot; the network poll refreshes that snapshot on a slower cadence.
+ */
 async function watch(workspace: string): Promise<never> {
   let prevLines = 0;
+  let frame = 0;
+  let cached: RenderInput | null = null;
+
   const draw = (input: RenderInput, live: boolean): void => {
-    const frame = renderScan(input, { now: Date.now(), color: supportsColor(), unicode: true, live });
+    const out = renderScan(input, { now: Date.now(), color: supportsColor(), unicode: true, live, frame });
     if (prevLines > 0) process.stdout.write(`\x1b[${prevLines}A\x1b[0J`);
-    process.stdout.write(`${frame}\n`);
-    prevLines = frame.split('\n').length;
+    process.stdout.write(`${out}\n`);
+    prevLines = out.split('\n').length;
   };
 
   process.on('exit', () => process.stdout.write(SHOW_CURSOR));
@@ -88,17 +98,26 @@ async function watch(workspace: string): Promise<never> {
   });
   process.stdout.write(HIDE_CURSOR);
 
+  const ticker = setInterval(() => {
+    frame++;
+    if (cached) draw(cached, true);
+  }, RENDER_MS);
+
   for (;;) {
     const desc = await describeScan(workspace);
-    if (!desc) fail(`Scan "${workspace}" is no longer in Temporal.`);
+    if (!desc) {
+      clearInterval(ticker);
+      fail(`Scan "${workspace}" is no longer in Temporal.`);
+    }
 
     if (isTerminalStatus(desc.status)) {
+      clearInterval(ticker);
       const input = await buildTerminalInput(workspace, desc);
       draw(input, false);
       process.exit(exitCodeFor(input));
     }
 
-    draw(await buildRunningInput(workspace, desc), true);
+    cached = await buildRunningInput(workspace, desc);
     await sleep(POLL_MS);
   }
 }

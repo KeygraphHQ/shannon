@@ -30,6 +30,8 @@ export interface RenderOptions {
   readonly unicode: boolean;
   /** True for the live view (adds a watch footer); false for the final/one-shot frame. */
   readonly live: boolean;
+  /** Animation tick — advances the running-agent spinner. Ignored for static frames. */
+  readonly frame: number;
 }
 
 type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -144,7 +146,14 @@ const STATE_COLOR: Record<RunState, string> = {
   skipped: COLORS.dim,
 };
 
+/** Braille spinner frames for running agents — the clack loader style. */
+const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
+
 function glyph(state: RunState, opts: RenderOptions): string {
+  if (state === 'running' && opts.unicode) {
+    const spin = SPINNER_FRAMES[opts.frame % SPINNER_FRAMES.length] ?? SPINNER_FRAMES[0];
+    return paint(spin, STATE_COLOR.running, opts.color);
+  }
   const symbol = opts.unicode ? GLYPH_UNICODE[state] : GLYPH_ASCII[state];
   return paint(symbol, STATE_COLOR[state], opts.color);
 }
