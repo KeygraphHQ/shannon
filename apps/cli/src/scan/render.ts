@@ -1,0 +1,264 @@
+/**
+ * Renders a scan's Temporal state into the terminal progress tree.
+ *
+ * The same PipelineState drives both the live view (from the getProgress query) and
+ * the final view (from the workflow result); the running-agents overlay (from
+ * pendingActivities) supplies the in-flight set and retry counts the state lacks.
+ * Colors and Unicode glyphs are gated by the caller so the frame degrades off a TTY.
+ */
+
+import { isLocal } from '../mode.js';
+import type { RunningAgent } from '../temporal-client.js';
+import { agentClass, PIPELINE, type PipelineState } from './pipeline.js';
+
+export interface RenderInput {
+  readonly workspace: string;
+  /** Temporal WorkflowExecutionStatusName: RUNNING | COMPLETED | FAILED | CANCELLED | TERMINATED | … */
+  readonly temporalStatus: string;
+  /** Progress (live) or result (terminal). Null when unavailable, e.g. a hard failure with no result. */
+  readonly state: PipelineState | null;
+  readonly running: readonly RunningAgent[];
+  readonly startedAt?: number;
+  readonly endedAt?: number;
+  /** Failure text when a failed scan has no readable state. */
+  readonly failureMessage?: string;
+}
+
+export interface RenderOptions {
+  readonly now: number;
+  readonly color: boolean;
+  readonly unicode: boolean;
+  /** True for the live view (adds a watch footer); false for the final/one-shot frame. */
+  readonly live: boolean;
+}
+
+type RunState = 'pending' | 'running' | 'completed' | 'failed';
+
+const RESET = '\x1b[0m';
+const COLORS = {
+  green: '\x1b[32m',
+  red: '\x1b[31m',
+  cyan: '\x1b[36m',
+  yellow: '\x1b[33m',
+  dim: '\x1b[90m',
+  bold: '\x1b[1m',
+} as const;
+
+function paint(text: string, code: string, color: boolean): string {
+  return color ? `${code}${text}${RESET}` : text;
+}
+
+// === Formatting ===
+
+function formatDuration(ms: number): string {
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const secs = seconds % 60;
+
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  if (minutes > 0) return `${minutes}m ${secs}s`;
+  return `${secs}s`;
+}
+
+function formatCost(usd: number): string {
+  return `$${usd.toFixed(2)}`;
+}
+
+function truncate(text: string, max: number): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
+}
+
+function commandPrefix(): string {
+  return isLocal() ? './shannon' : 'npx @keygraph/shannon';
+}
+
+// === Derivation ===
+
+function isTerminal(status: string): boolean {
+  return status !== 'RUNNING' && status !== 'UNSPECIFIED';
+}
+
+/** Resolve one agent's state from the completed set, the live running set, and the failure lists. */
+function agentState(name: string, state: PipelineState | null, running: Set<string>): RunState {
+  if (state?.completedAgents.includes(name)) return 'completed';
+  if (running.has(name)) return 'running';
+  if (state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)))) {
+    return 'failed';
+  }
+  return 'pending';
+}
+
+function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
+  const failed = state?.failedPipelines.find((f) => f.vulnType === agentClass(name));
+  return (
+    failed?.error ??
+    byAgent.get(name)?.lastFailure ??
+    (state?.failedAgent === name ? (state.error ?? undefined) : undefined)
+  );
+}
+
+function scanElapsedMs(input: RenderInput, now: number): number | undefined {
+  if (isTerminal(input.temporalStatus)) {
+    if (input.state?.summary) return input.state.summary.totalDurationMs;
+    if (input.endedAt !== undefined && input.startedAt !== undefined) return input.endedAt - input.startedAt;
+    return undefined;
+  }
+  return input.startedAt !== undefined ? now - input.startedAt : undefined;
+}
+
+function totalCostUsd(state: PipelineState | null): number | undefined {
+  if (state?.summary) return state.summary.totalCostUsd;
+  if (!state) return undefined;
+  const values = Object.values(state.agentMetrics).map((m) => m.costUsd ?? 0);
+  return values.length > 0 ? values.reduce((a, b) => a + b, 0) : undefined;
+}
+
+// === Glyphs & status ===
+
+const GLYPH_UNICODE: Record<RunState, string> = { pending: '○', running: '⟳', completed: '✓', failed: '✗' };
+const GLYPH_ASCII: Record<RunState, string> = { pending: '.', running: '>', completed: '+', failed: 'x' };
+const STATE_COLOR: Record<RunState, string> = {
+  pending: COLORS.dim,
+  running: COLORS.cyan,
+  completed: COLORS.green,
+  failed: COLORS.red,
+};
+
+function glyph(state: RunState, opts: RenderOptions): string {
+  const symbol = opts.unicode ? GLYPH_UNICODE[state] : GLYPH_ASCII[state];
+  return paint(symbol, STATE_COLOR[state], opts.color);
+}
+
+/** Badge text + color for the scan as a whole, preferring the workflow's own status when known. */
+function statusBadge(input: RenderInput, opts: RenderOptions): string {
+  const workflowStatus = input.state?.status;
+  if (!isTerminal(input.temporalStatus)) return paint('running', COLORS.cyan, opts.color);
+  if (workflowStatus === 'partial') return paint('partial', COLORS.yellow, opts.color);
+  if (input.temporalStatus === 'COMPLETED') return paint('completed', COLORS.green, opts.color);
+  if (input.temporalStatus === 'TERMINATED') return paint('stopped', COLORS.yellow, opts.color);
+  if (input.temporalStatus === 'CANCELLED' || input.temporalStatus === 'CANCELED') {
+    return paint('cancelled', COLORS.yellow, opts.color);
+  }
+  if (input.temporalStatus === 'TIMED_OUT') return paint('timed out', COLORS.red, opts.color);
+  return paint('FAILED', COLORS.red, opts.color);
+}
+
+// === Line builders ===
+
+function agentMeta(
+  state: RunState,
+  metrics: { durationMs: number; costUsd: number | null } | undefined,
+  runner: RunningAgent | undefined,
+  error: string | undefined,
+  opts: RenderOptions,
+): string {
+  if (state === 'completed') {
+    const cost = metrics?.costUsd != null ? ` · ${formatCost(metrics.costUsd)}` : '';
+    const duration = metrics?.durationMs != null ? formatDuration(metrics.durationMs) : 'done';
+    return paint(`${duration}${cost}`, COLORS.dim, opts.color);
+  }
+  if (state === 'running') {
+    const parts = ['running'];
+    if (runner && runner.attempt > 1) parts.push(`retry ${runner.attempt}`);
+    return paint(parts.join(' · '), COLORS.cyan, opts.color);
+  }
+  if (state === 'failed') {
+    const detail = error ? ` · ${truncate(error, 46)}` : '';
+    return paint(`failed${detail}`, COLORS.red, opts.color);
+  }
+  return paint('queued', COLORS.dim, opts.color);
+}
+
+function phaseMeta(states: readonly RunState[], parallel: boolean, opts: RenderOptions): string {
+  if (states.every((s) => s === 'pending')) return paint('pending', COLORS.dim, opts.color);
+  if (states.some((s) => s === 'failed') && !states.some((s) => s === 'running')) {
+    return paint('failed', COLORS.red, opts.color);
+  }
+  if (!parallel) return '';
+  const done = states.filter((s) => s === 'completed').length;
+  const allDone = done === states.length;
+  return paint(`${done}/${states.length} done`, allDone ? COLORS.green : COLORS.dim, opts.color);
+}
+
+/** Render the full progress frame as one string (no trailing newline). */
+export function renderScan(input: RenderInput, opts: RenderOptions): string {
+  const byAgent = new Map(input.running.map((r) => [r.agent, r]));
+  const runningSet = new Set(input.running.map((r) => r.agent));
+  const lines: string[] = ['', ...headerLines(input, opts), ''];
+
+  const metaFor = (name: string, state: RunState): string =>
+    agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
+
+  for (const phase of PIPELINE) {
+    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet));
+    const phaseRunState: RunState = phaseGlyphState(states);
+
+    // Parallel phases get a "k/N done" summary and expand their agents; a single-agent
+    // phase just carries that agent's own duration/cost on the phase line.
+    const first = phase.agents[0];
+    const phaseMetaStr =
+      phase.parallel || !first || !states[0] ? phaseMeta(states, phase.parallel, opts) : metaFor(first.name, states[0]);
+    lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${phaseMetaStr}`);
+
+    if (!phase.parallel || phaseRunState === 'pending') continue;
+    for (let i = 0; i < phase.agents.length; i++) {
+      const agent = phase.agents[i];
+      const state = states[i];
+      if (!agent || !state) continue;
+      lines.push(`       ${glyph(state, opts)} ${agent.label.padEnd(18)}${metaFor(agent.name, state)}`);
+    }
+  }
+
+  lines.push('', ...footerLines(input, opts));
+  return lines.join('\n');
+}
+
+/** Collapse a phase's agent states into a single glyph state for the phase line. */
+function phaseGlyphState(states: readonly RunState[]): RunState {
+  if (states.some((s) => s === 'running')) return 'running';
+  if (states.every((s) => s === 'completed')) return 'completed';
+  if (states.some((s) => s === 'failed')) return 'failed';
+  if (states.some((s) => s === 'completed')) return 'running';
+  return 'pending';
+}
+
+function headerLines(input: RenderInput, opts: RenderOptions): string[] {
+  const elapsedMs = scanElapsedMs(input, opts.now);
+  const cost = totalCostUsd(input.state);
+  const meta = [
+    statusBadge(input, opts),
+    elapsedMs !== undefined ? formatDuration(elapsedMs) : '—',
+    cost !== undefined ? formatCost(cost) : '$0.00',
+  ].join(' · ');
+  return [`  ${paint('Scan:', COLORS.bold, opts.color)} ${input.workspace.padEnd(22)} ${meta}`];
+}
+
+function footerLines(input: RenderInput, opts: RenderOptions): string[] {
+  const prefix = commandPrefix();
+
+  if (isTerminal(input.temporalStatus) && input.state?.summary) {
+    const wall = formatDuration(input.state.summary.totalDurationMs);
+    return [
+      `  Total cost   ${formatCost(input.state.summary.totalCostUsd).padEnd(10)}${paint('(sum of agents)', COLORS.dim, opts.color)}`,
+      `  Wall-clock   ${wall.padEnd(10)}${paint('(agents run in parallel — not the sum)', COLORS.dim, opts.color)}`,
+    ];
+  }
+
+  if (isTerminal(input.temporalStatus)) {
+    const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
+    return [
+      paint(
+        `  ${input.temporalStatus === 'TERMINATED' ? 'Stopped' : 'Ended'} — ${truncate(reason, 70)}`,
+        COLORS.dim,
+        opts.color,
+      ),
+      `  Logs:  ${prefix} logs ${input.workspace}`,
+    ];
+  }
+
+  const lines = [paint(`  Live from Temporal. Full logs: ${prefix} logs ${input.workspace}`, COLORS.dim, opts.color)];
+  if (opts.live) lines.push(paint('  Ctrl-C to stop watching — the scan keeps running.', COLORS.dim, opts.color));
+  return lines;
+}

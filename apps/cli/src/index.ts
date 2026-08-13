@@ -12,6 +12,7 @@
 import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
+import { progress } from './commands/progress.js';
 import { reset } from './commands/reset.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
@@ -58,7 +59,8 @@ Usage:${
   ${prefix} stop <workspace> [--yes]                     Stop one scan
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
   ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
-  ${prefix} logs <workspace>                             Show a scan's live log${
+  ${prefix} logs <workspace>                             Show a scan's live log
+  ${prefix} progress <workspace>                         Live phase/agent progress of one scan${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
@@ -213,6 +215,18 @@ async function main(): Promise<void> {
         );
       }
       logs(workspaceId);
+      break;
+    }
+    case 'progress': {
+      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
+      const workspaceId = positionals[0];
+      if (!workspaceId) {
+        fail(
+          'Workspace is required',
+          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} progress <workspace>`,
+        );
+      }
+      await progress(workspaceId);
       break;
     }
     case 'setup':

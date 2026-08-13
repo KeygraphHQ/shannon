@@ -26,6 +26,9 @@ importers:
       '@clack/prompts':
         specifier: ^1.1.0
         version: 1.1.0
+      '@temporalio/client':
+        specifier: ^1.11.0
+        version: 1.15.0
       chokidar:
         specifier: ^5.0.0
         version: 5.0.0

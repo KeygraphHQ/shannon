@@ -55,6 +55,12 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     description: "Tail a scan's live log until it completes.",
     examples: ['logs q1-audit'],
   },
+  progress: {
+    usage: ['progress <workspace>'],
+    description:
+      "Show one scan's phase-by-phase progress, read live from Temporal. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished.",
+    examples: ['progress q1-audit'],
+  },
   build: {
     usage: ['build [--no-cache]'],
     description: 'Build the worker Docker image (local mode only).',
