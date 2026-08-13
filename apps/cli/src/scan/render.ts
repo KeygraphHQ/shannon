@@ -38,9 +38,8 @@ type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 const RESET = '\x1b[0m';
 const COLORS = {
-  green: '\x1b[32m',
   red: '\x1b[31m',
-  // Shannon brand gold (matches the splash logo) — used for the running/active state.
+  // Shannon brand gold (matches the splash logo) — the running and completed accent.
   gold: '\x1b[38;2;244;197;66m',
   yellow: '\x1b[33m',
   dim: '\x1b[90m',
@@ -151,7 +150,7 @@ const GLYPH_ASCII: Record<RunState, string> = {
 const STATE_COLOR: Record<RunState, string> = {
   pending: COLORS.dim,
   running: COLORS.gold,
-  completed: COLORS.green,
+  completed: COLORS.gold,
   failed: COLORS.red,
   skipped: COLORS.dim,
 };
@@ -173,7 +172,7 @@ function statusBadge(input: RenderInput, opts: RenderOptions): string {
   const workflowStatus = input.state?.status;
   if (!isTerminal(input.temporalStatus)) return paint('running', COLORS.gold, opts.color);
   if (workflowStatus === 'partial') return paint('partial', COLORS.yellow, opts.color);
-  if (input.temporalStatus === 'COMPLETED') return paint('completed', COLORS.green, opts.color);
+  if (input.temporalStatus === 'COMPLETED') return paint('completed', COLORS.gold, opts.color);
   if (input.temporalStatus === 'TERMINATED') return paint('stopped', COLORS.yellow, opts.color);
   if (input.temporalStatus === 'CANCELLED' || input.temporalStatus === 'CANCELED') {
     return paint('cancelled', COLORS.yellow, opts.color);
@@ -219,7 +218,7 @@ function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolea
   if (!parallel) return '';
   const done = states.filter((s) => s === 'completed').length;
   const allDone = states.every((s) => s === 'completed' || s === 'skipped');
-  return paint(`${done}/${inPlay} done`, allDone ? COLORS.green : COLORS.dim, opts.color);
+  return paint(`${done}/${inPlay} done`, allDone ? COLORS.gold : COLORS.dim, opts.color);
 }
 
 /** Render the full progress frame as one string (no trailing newline). */
