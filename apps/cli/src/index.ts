@@ -19,6 +19,7 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
+import { isHelpableCommand, printCommandHelp } from './help.js';
 import { getMode } from './mode.js';
 import { getVersion, getVersionLine } from './version.js';
 
@@ -85,6 +86,8 @@ Examples:
   ${prefix} logs q1-audit
   ${prefix} stop q1-audit
   ${prefix} reset
+
+Run '${prefix} <command> --help' for help on a specific command.
 ${
   mode === 'local'
     ? `
@@ -148,6 +151,22 @@ async function main(): Promise<void> {
   const args = process.argv.slice(2);
   const command = args[0];
   const rest = args.slice(1);
+
+  if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
+    const topic = rest[0];
+    if (topic && isHelpableCommand(topic)) {
+      printCommandHelp(topic);
+    } else {
+      showHelp();
+    }
+    return;
+  }
+
+  // Reachable from any invocation: `-h`/`--help` anywhere wins over the rest of the line.
+  if (isHelpableCommand(command) && (rest.includes('-h') || rest.includes('--help'))) {
+    printCommandHelp(command);
+    return;
+  }
 
   switch (command) {
     case 'start': {
@@ -217,12 +236,6 @@ async function main(): Promise<void> {
     case '--version':
     case '-v':
       console.log(getVersionLine());
-      break;
-    case 'help':
-    case '--help':
-    case '-h':
-    case undefined:
-      showHelp();
       break;
     default:
       console.error(`Unknown command: ${command}`);
