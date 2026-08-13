@@ -15,11 +15,9 @@ import { logs } from './commands/logs.js';
 import { reset } from './commands/reset.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
-import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { crash, fail } from './errors.js';
-import { JSON_FLAG, PLAIN_FLAG, resolveFormat } from './format.js';
 import { isHelpableCommand, printCommandHelp } from './help.js';
 import { getMode } from './mode.js';
 import { getVersion, getVersionLine } from './version.js';
@@ -60,8 +58,7 @@ Usage:${
   ${prefix} stop <workspace> [--yes]                     Stop one scan
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
   ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
-  ${prefix} logs <workspace>                             Show a scan's live log
-  ${prefix} status                                       Show running scans${
+  ${prefix} logs <workspace>                             Show a scan's live log${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
@@ -153,7 +150,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 // === Main Dispatch ===
 
 async function main(): Promise<void> {
-  // A reader that closes early (e.g. `shannon status --plain | head`) makes writes
+  // A reader that closes early (e.g. `shannon logs my-scan | head`) makes writes
   // to stdout raise EPIPE. That's normal for a piped CLI, not a crash — exit quietly
   // instead of letting Node dump an unhandled-error stack trace.
   process.stdout.on('error', (err: NodeJS.ErrnoException) => {
@@ -216,11 +213,6 @@ async function main(): Promise<void> {
         );
       }
       logs(workspaceId);
-      break;
-    }
-    case 'status': {
-      const { flags } = parseArgs(rest, { booleans: { json: JSON_FLAG, plain: PLAIN_FLAG } });
-      status(resolveFormat(!!flags.json, !!flags.plain));
       break;
     }
     case 'setup':
