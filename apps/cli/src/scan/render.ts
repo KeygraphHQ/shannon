@@ -32,7 +32,7 @@ export interface RenderOptions {
   readonly live: boolean;
 }
 
-type RunState = 'pending' | 'running' | 'completed' | 'failed';
+type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 const RESET = '\x1b[0m';
 const COLORS = {
@@ -80,14 +80,19 @@ function isTerminal(status: string): boolean {
   return status !== 'RUNNING' && status !== 'UNSPECIFIED';
 }
 
-/** Resolve one agent's state from the completed set, the live running set, and the failure lists. */
-function agentState(name: string, state: PipelineState | null, running: Set<string>): RunState {
-  if (state?.completedAgents.includes(name)) return 'completed';
+/**
+ * Resolve one agent's state. "Ran" is signalled by a metrics entry, not by
+ * completedAgents — the workflow lists conditionally-skipped agents (e.g. exploit
+ * agents when there is nothing to exploit) as completed but records no metrics for
+ * them, so once the scan is terminal a metric-less agent is skipped, not done.
+ */
+function agentState(name: string, state: PipelineState | null, running: Set<string>, terminal: boolean): RunState {
   if (running.has(name)) return 'running';
   if (state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)))) {
     return 'failed';
   }
-  return 'pending';
+  if (state?.agentMetrics[name]) return 'completed';
+  return terminal ? 'skipped' : 'pending';
 }
 
 function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
@@ -117,13 +122,26 @@ function totalCostUsd(state: PipelineState | null): number | undefined {
 
 // === Glyphs & status ===
 
-const GLYPH_UNICODE: Record<RunState, string> = { pending: '○', running: '⟳', completed: '✓', failed: '✗' };
-const GLYPH_ASCII: Record<RunState, string> = { pending: '.', running: '>', completed: '+', failed: 'x' };
+const GLYPH_UNICODE: Record<RunState, string> = {
+  pending: '○',
+  running: '⟳',
+  completed: '✓',
+  failed: '✗',
+  skipped: '·',
+};
+const GLYPH_ASCII: Record<RunState, string> = {
+  pending: '.',
+  running: '>',
+  completed: '+',
+  failed: 'x',
+  skipped: '-',
+};
 const STATE_COLOR: Record<RunState, string> = {
   pending: COLORS.dim,
   running: COLORS.cyan,
   completed: COLORS.green,
   failed: COLORS.red,
+  skipped: COLORS.dim,
 };
 
 function glyph(state: RunState, opts: RenderOptions): string {
@@ -168,17 +186,19 @@ function agentMeta(
     const detail = error ? ` · ${truncate(error, 46)}` : '';
     return paint(`failed${detail}`, COLORS.red, opts.color);
   }
+  if (state === 'skipped') return paint('skipped', COLORS.dim, opts.color);
   return paint('queued', COLORS.dim, opts.color);
 }
 
 function phaseMeta(states: readonly RunState[], parallel: boolean, opts: RenderOptions): string {
   if (states.every((s) => s === 'pending')) return paint('pending', COLORS.dim, opts.color);
+  if (states.every((s) => s === 'skipped')) return paint('skipped', COLORS.dim, opts.color);
   if (states.some((s) => s === 'failed') && !states.some((s) => s === 'running')) {
     return paint('failed', COLORS.red, opts.color);
   }
   if (!parallel) return '';
   const done = states.filter((s) => s === 'completed').length;
-  const allDone = done === states.length;
+  const allDone = states.every((s) => s === 'completed' || s === 'skipped');
   return paint(`${done}/${states.length} done`, allDone ? COLORS.green : COLORS.dim, opts.color);
 }
 
@@ -188,11 +208,12 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
   const runningSet = new Set(input.running.map((r) => r.agent));
   const lines: string[] = ['', ...headerLines(input, opts), ''];
 
+  const terminal = isTerminal(input.temporalStatus);
   const metaFor = (name: string, state: RunState): string =>
     agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
 
   for (const phase of PIPELINE) {
-    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet));
+    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet, terminal));
     const phaseRunState: RunState = phaseGlyphState(states);
 
     // Parallel phases get a "k/N done" summary and expand their agents; a single-agent
@@ -202,7 +223,8 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
       phase.parallel || !first || !states[0] ? phaseMeta(states, phase.parallel, opts) : metaFor(first.name, states[0]);
     lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${phaseMetaStr}`);
 
-    if (!phase.parallel || phaseRunState === 'pending') continue;
+    // Don't expand a phase that hasn't started or was skipped wholesale.
+    if (!phase.parallel || phaseRunState === 'pending' || phaseRunState === 'skipped') continue;
     for (let i = 0; i < phase.agents.length; i++) {
       const agent = phase.agents[i];
       const state = states[i];
@@ -218,8 +240,9 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
 /** Collapse a phase's agent states into a single glyph state for the phase line. */
 function phaseGlyphState(states: readonly RunState[]): RunState {
   if (states.some((s) => s === 'running')) return 'running';
-  if (states.every((s) => s === 'completed')) return 'completed';
   if (states.some((s) => s === 'failed')) return 'failed';
+  if (states.every((s) => s === 'skipped')) return 'skipped';
+  if (states.every((s) => s === 'completed' || s === 'skipped')) return 'completed';
   if (states.some((s) => s === 'completed')) return 'running';
   return 'pending';
 }
