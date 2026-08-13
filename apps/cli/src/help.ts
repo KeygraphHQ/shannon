@@ -20,6 +20,8 @@ const YES_OPTION: readonly [string, string] = [
   'Skip the confirmation prompt (required for non-interactive use)',
 ];
 const HELP_OPTION: readonly [string, string] = ['-h, --help', 'Show this help'];
+const JSON_OPTION: readonly [string, string] = ['--json', 'Output as JSON'];
+const PLAIN_OPTION: readonly [string, string] = ['--plain', 'Output as tab-separated lines (for grep/awk)'];
 
 const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
   start: {
@@ -56,12 +58,14 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     examples: ['logs q1-audit'],
   },
   status: {
-    usage: ['status'],
+    usage: ['status [--json | --plain]'],
     description: 'Show running scans and Temporal health.',
+    options: [JSON_OPTION, PLAIN_OPTION],
   },
   workspaces: {
-    usage: ['workspaces'],
+    usage: ['workspaces [--json | --plain]'],
     description: 'List all workspaces, most recent first.',
+    options: [JSON_OPTION, PLAIN_OPTION],
   },
   build: {
     usage: ['build [--no-cache]'],

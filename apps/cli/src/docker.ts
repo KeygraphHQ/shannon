@@ -484,7 +484,7 @@ function pruneOldImages(currentVersion: string): void {
 }
 
 /**
- * List running worker containers.
+ * List running worker containers as an aligned table for human output.
  */
 export function listRunningWorkers(): string {
   return runOutput('docker', [
@@ -494,4 +494,32 @@ export function listRunningWorkers(): string {
     '--format',
     'table {{.Names}}\t{{.Status}}\t{{.RunningFor}}',
   ]);
+}
+
+export interface RunningWorker {
+  name: string;
+  status: string;
+  runningFor: string;
+}
+
+/**
+ * List running worker containers as structured rows for `--json`/`--plain`.
+ * Uses a tab-delimited (not `table`) format so there is no header row to strip.
+ */
+export function listRunningWorkerRows(): RunningWorker[] {
+  const output = runOutput('docker', [
+    'ps',
+    '--filter',
+    'name=shannon-worker-',
+    '--format',
+    '{{.Names}}\t{{.Status}}\t{{.RunningFor}}',
+  ]);
+
+  return output
+    .split('\n')
+    .filter(Boolean)
+    .map((line) => {
+      const [name, status, runningFor] = line.split('\t');
+      return { name: name ?? '', status: status ?? '', runningFor: runningFor ?? '' };
+    });
 }

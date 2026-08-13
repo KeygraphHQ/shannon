@@ -20,6 +20,7 @@ import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { workspaces } from './commands/workspaces.js';
 import { crash, fail } from './errors.js';
+import { JSON_FLAG, PLAIN_FLAG, resolveFormat } from './format.js';
 import { isHelpableCommand, printCommandHelp } from './help.js';
 import { getMode } from './mode.js';
 import { getVersion, getVersionLine } from './version.js';
@@ -154,6 +155,14 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 // === Main Dispatch ===
 
 async function main(): Promise<void> {
+  // A reader that closes early (e.g. `shannon workspaces --plain | head`) makes writes
+  // to stdout raise EPIPE. That's normal for a piped CLI, not a crash — exit quietly
+  // instead of letting Node dump an unhandled-error stack trace.
+  process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') process.exit(0);
+    throw err;
+  });
+
   blockSudo();
 
   const args = process.argv.slice(2);
@@ -211,14 +220,16 @@ async function main(): Promise<void> {
       logs(workspaceId);
       break;
     }
-    case 'workspaces':
-      parseArgs(rest, {});
-      workspaces();
+    case 'workspaces': {
+      const { flags } = parseArgs(rest, { booleans: { json: JSON_FLAG, plain: PLAIN_FLAG } });
+      workspaces(resolveFormat(!!flags.json, !!flags.plain));
       break;
-    case 'status':
-      parseArgs(rest, {});
-      status();
+    }
+    case 'status': {
+      const { flags } = parseArgs(rest, { booleans: { json: JSON_FLAG, plain: PLAIN_FLAG } });
+      status(resolveFormat(!!flags.json, !!flags.plain));
       break;
+    }
     case 'setup':
       if (getMode() === 'local') {
         fail('setup is only available in npx mode. In local mode, use .env');

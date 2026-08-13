@@ -2,16 +2,36 @@
  * `shannon status` command — show running scans and Temporal health.
  */
 
-import { ensureDocker, isTemporalReady, listRunningWorkers } from '../docker.js';
+import { ensureDocker, isTemporalReady, listRunningWorkerRows, listRunningWorkers } from '../docker.js';
+import type { OutputFormat } from '../format.js';
 
-export function status(): void {
+const DASHBOARD_URL = 'http://localhost:8233';
+
+export function status(format: OutputFormat = 'human'): void {
   ensureDocker();
 
-  // 1. Temporal health
   const temporalUp = isTemporalReady();
+
+  if (format === 'json') {
+    const payload = {
+      temporal: { running: temporalUp, ...(temporalUp && { dashboard: DASHBOARD_URL }) },
+      scans: listRunningWorkerRows(),
+    };
+    process.stdout.write(`${JSON.stringify(payload, null, 2)}\n`);
+    return;
+  }
+
+  if (format === 'plain') {
+    for (const worker of listRunningWorkerRows()) {
+      process.stdout.write(`${worker.name}\t${worker.status}\t${worker.runningFor}\n`);
+    }
+    return;
+  }
+
+  // 1. Temporal health
   console.log(`Temporal: ${temporalUp ? 'running' : 'not running'}`);
   if (temporalUp) {
-    console.log('  Dashboard: http://localhost:8233');
+    console.log(`  Dashboard: ${DASHBOARD_URL}`);
   }
   console.log('');
 
