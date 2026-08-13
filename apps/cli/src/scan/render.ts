@@ -298,7 +298,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
     const wall = formatDuration(input.state.summary.totalDurationMs);
     return [
       `  Total cost   ${formatCost(input.state.summary.totalCostUsd).padEnd(10)}${paint('(sum of agents)', COLORS.dim, opts.color)}`,
-      `  Wall-clock   ${wall.padEnd(10)}${paint('(agents run in parallel — not the sum)', COLORS.dim, opts.color)}`,
+      `  Time Taken   ${wall}`,
     ];
   }
 
