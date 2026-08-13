@@ -8,12 +8,16 @@ import path from 'node:path';
 import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
 import {
+  anyRunningScanWorkflow,
   ensureDocker,
   isTemporalReady,
-  stopScanContainer,
-  stopWorkers,
+  isWorkflowRunning,
+  runningContainers,
+  scanFilter,
+  stopContainers,
   terminateAllWorkflows,
   terminateWorkflow,
+  WORKER_FILTER,
 } from '../docker.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
@@ -42,33 +46,43 @@ function resolveWorkflowId(workspace: string): string | undefined {
 }
 
 /**
- * Stop a single scan: kill its worker container and terminate its Temporal
- * workflow so it doesn't linger as a running workflow with no worker.
+ * Stop a single scan. Terminating the workflow both clears Temporal's record and
+ * brings the container down (the worker waits on the workflow result), so that runs
+ * first; `docker stop` is the fallback for the pre-registration window and an
+ * unreachable Temporal. The stop is then verified rather than assumed.
  */
 async function stopSingleScan(workspace: string): Promise<void> {
   const workflowId = resolveWorkflowId(workspace);
+  const filter = scanFilter(workspace);
+
+  // Nothing carried this workspace — no labeled container and no recorded workflow.
+  if (runningContainers(filter).length === 0 && !workflowId) {
+    fail(`No scan found for workspace: ${workspace}\nList running scans with: docker ps --filter name=shannon-worker-`);
+  }
+
   const spinner = p.spinner();
   spinner.start(`Stopping scan ${workspace}`);
 
-  const stoppedContainer = await stopScanContainer(workspace);
-  let terminatedWorkflow = false;
-  if (workflowId && isTemporalReady()) {
-    terminatedWorkflow = terminateWorkflow(workflowId, `Stopped via shannon stop ${workspace}`);
+  const temporalUp = isTemporalReady();
+  if (workflowId && temporalUp) {
+    terminateWorkflow(workflowId, `Stopped via shannon stop ${workspace}`);
   }
+  await stopContainers(runningContainers(filter));
 
-  // Nothing carried this workspace — neither a labeled container nor a recorded workflow.
-  if (!stoppedContainer && !workflowId) {
-    spinner.error(`No scan found for workspace: ${workspace}`);
-    console.error('List running scans with: docker ps --filter name=shannon-worker-');
+  // Verify the container is actually gone, rather than trusting the stop worked.
+  const stillRunning = runningContainers(filter);
+  if (stillRunning.length > 0) {
+    spinner.error(`Scan ${workspace} may still be running`);
+    console.error(`${stillRunning.length} container(s) did not stop. Retry: ./shannon stop ${workspace}`);
     process.exit(1);
   }
 
-  const done: string[] = [];
-  if (stoppedContainer) done.push('container stopped');
-  if (terminatedWorkflow) done.push('workflow terminated');
-  spinner.stop(
-    done.length > 0 ? `Stopped scan ${workspace} (${done.join(', ')})` : `Nothing was running for ${workspace}`,
-  );
+  spinner.stop(`Stopped scan ${workspace}`);
+
+  // The container is down; warn if Temporal still tracks the workflow as running.
+  if (workflowId && temporalUp && isWorkflowRunning(workflowId)) {
+    console.error(`WARNING: scan ${workspace} stopped, but its workflow is still Running in Temporal.`);
+  }
 }
 
 export async function stop(opts: StopOptions): Promise<void> {
@@ -92,15 +106,32 @@ export async function stop(opts: StopOptions): Promise<void> {
     return;
   }
 
-  // --all kills the scans but leaves Temporal running.
+  // --all leaves Temporal running. Terminate first (clears state + brings containers
+  // down), then stop any container still standing, then verify.
   const spinner = p.spinner();
   spinner.start('Stopping all scans');
-  const stopped = await stopWorkers();
 
-  // Terminate the now-orphaned workflows so they don't linger as running with no worker.
-  if (isTemporalReady()) {
+  const temporalUp = isTemporalReady();
+  const initial = runningContainers(WORKER_FILTER);
+  if (temporalUp) {
     terminateAllWorkflows('Stopped via shannon stop --all');
   }
+  await stopContainers(runningContainers(WORKER_FILTER));
 
-  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No running scans to stop');
+  const stillRunning = runningContainers(WORKER_FILTER);
+  if (stillRunning.length > 0) {
+    spinner.error(`Stopped ${initial.length - stillRunning.length} of ${initial.length} scans`);
+    console.error(`${stillRunning.length} container(s) did not stop. Retry: ./shannon stop --all`);
+    process.exit(1);
+  }
+
+  spinner.stop(
+    initial.length > 0
+      ? `Stopped ${initial.length} scan${initial.length === 1 ? '' : 's'}`
+      : 'No running scans to stop',
+  );
+
+  if (temporalUp && anyRunningScanWorkflow()) {
+    console.error('WARNING: some scan workflows are still Running in Temporal — check http://localhost:8233');
+  }
 }

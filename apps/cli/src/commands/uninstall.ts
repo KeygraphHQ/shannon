@@ -7,7 +7,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
-import { stopInfra, stopWorkers } from '../docker.js';
+import { runningContainers, stopContainers, stopInfra, WORKER_FILTER } from '../docker.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
@@ -35,8 +35,11 @@ export async function uninstall(yes: boolean): Promise<void> {
   // Stop any running containers first
   const spinner = p.spinner();
   spinner.start('Stopping scans');
-  const stopped = await stopWorkers();
-  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No scans running');
+  const running = runningContainers(WORKER_FILTER);
+  await stopContainers(running);
+  spinner.stop(
+    running.length > 0 ? `Stopped ${running.length} scan${running.length === 1 ? '' : 's'}` : 'No scans running',
+  );
   await stopInfra(false);
 
   fs.rmSync(SHANNON_HOME, { recursive: true, force: true });

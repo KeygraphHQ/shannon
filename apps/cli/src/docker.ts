@@ -79,6 +79,17 @@ function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
   });
 }
 
+const TEMPORAL_CONTAINER = 'shannon-temporal';
+const TEMPORAL_ADDRESS = 'localhost:7233';
+
+/** Query matching every running pentest scan workflow. */
+const RUNNING_SCAN_QUERY = "ExecutionStatus = 'Running' AND WorkflowType = 'pentestPipelineWorkflow'";
+
+/** Build `docker exec` args for a `temporal` CLI command run inside the Temporal container. */
+function temporalCmd(...args: string[]): string[] {
+  return ['exec', TEMPORAL_CONTAINER, 'temporal', ...args, '--address', TEMPORAL_ADDRESS];
+}
+
 /**
  * Verify Docker is installed and its daemon is running, exiting otherwise.
  * `docker info` succeeds only when both are true. Call this before any command
@@ -98,16 +109,7 @@ export function ensureDocker(): void {
  * Check if Temporal is running and healthy.
  */
 export function isTemporalReady(): boolean {
-  const output = runOutput('docker', [
-    'exec',
-    'shannon-temporal',
-    'temporal',
-    'operator',
-    'cluster',
-    'health',
-    '--address',
-    'localhost:7233',
-  ]);
+  const output = runOutput('docker', temporalCmd('operator', 'cluster', 'health'));
   return output.includes('SERVING');
 }
 
@@ -378,18 +380,22 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   });
 }
 
-/**
- * Stop the worker container(s) for a single scan, matched by its workspace label.
- * Returns true if any were running. Only scans started with a labeled worker are
- * matchable, so this finds runs from this version onward.
- */
-export async function stopScanContainer(workspace: string): Promise<boolean> {
-  const output = runOutput('docker', ['ps', '-q', '--filter', `label=${WORKSPACE_LABEL}=${workspace}`]);
-  const ids = output.split('\n').filter(Boolean);
-  if (ids.length === 0) return false;
+/** `docker ps --filter` args matching every running worker container. */
+export const WORKER_FILTER: readonly string[] = ['--filter', 'name=shannon-worker-'];
 
-  await stopContainers(ids);
-  return true;
+/** `docker ps --filter` args matching one scan's worker container(s), by workspace label. */
+export function scanFilter(workspace: string): readonly string[] {
+  return ['--filter', `label=${WORKSPACE_LABEL}=${workspace}`];
+}
+
+/**
+ * IDs of running containers matching the filter. Re-querying this after a stop is
+ * the authoritative check for whether containers actually stopped — `docker stop`'s
+ * exit code can't distinguish "already gone" from "failed to stop".
+ */
+export function runningContainers(filter: readonly string[]): string[] {
+  const output = runOutput('docker', ['ps', '-q', ...filter]);
+  return output.split('\n').filter(Boolean);
 }
 
 /**
@@ -397,8 +403,8 @@ export async function stopScanContainer(workspace: string): Promise<boolean> {
  * stopped (a `--rm` worker exiting is success, not an error). Async so a spinner
  * can animate during docker's graceful-shutdown wait.
  */
-function stopContainers(ids: string[]): Promise<boolean[]> {
-  return Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
+export async function stopContainers(ids: string[]): Promise<void> {
+  await Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
 }
 
 /**
@@ -407,19 +413,7 @@ function stopContainers(ids: string[]): Promise<boolean[]> {
  * or the workflow already closed. Requires Temporal to be up (guard with isTemporalReady).
  */
 export function terminateWorkflow(workflowId: string, reason: string): boolean {
-  return runQuiet('docker', [
-    'exec',
-    'shannon-temporal',
-    'temporal',
-    'workflow',
-    'terminate',
-    '--workflow-id',
-    workflowId,
-    '--reason',
-    reason,
-    '--address',
-    'localhost:7233',
-  ]);
+  return runQuiet('docker', temporalCmd('workflow', 'terminate', '--workflow-id', workflowId, '--reason', reason));
 }
 
 /**
@@ -428,32 +422,30 @@ export function terminateWorkflow(workflowId: string, reason: string): boolean {
  * is unreachable. Requires Temporal to be up (guard with isTemporalReady).
  */
 export function terminateAllWorkflows(reason: string): boolean {
-  return runQuiet('docker', [
-    'exec',
-    'shannon-temporal',
-    'temporal',
-    'workflow',
-    'terminate',
-    '--query',
-    "ExecutionStatus='Running' AND WorkflowType='pentestPipelineWorkflow'",
-    '--reason',
-    reason,
-    '--address',
-    'localhost:7233',
-    '--yes',
-  ]);
+  return runQuiet(
+    'docker',
+    temporalCmd('workflow', 'terminate', '--query', RUNNING_SCAN_QUERY, '--reason', reason, '--yes'),
+  );
 }
 
 /**
- * Stop all running shannon-worker-* containers. Returns the number stopped.
+ * Whether a specific workflow is still in the Running state. Re-querying this after
+ * a terminate verifies it actually took effect, rather than trusting the terminate
+ * command's exit code. Requires Temporal to be up (guard with isTemporalReady).
  */
-export async function stopWorkers(): Promise<number> {
-  const workers = runOutput('docker', ['ps', '-q', '--filter', 'name=shannon-worker-']);
-  if (!workers) return 0;
+export function isWorkflowRunning(workflowId: string): boolean {
+  const query = `WorkflowId = '${workflowId}' AND ExecutionStatus = 'Running'`;
+  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', query));
+  return output.includes(workflowId);
+}
 
-  const ids = workers.split('\n').filter(Boolean);
-  await stopContainers(ids);
-  return ids.length;
+/**
+ * Whether any pentest scan workflow is still Running — the `stop --all` counterpart
+ * to isWorkflowRunning. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function anyRunningScanWorkflow(): boolean {
+  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', RUNNING_SCAN_QUERY));
+  return output.includes('pentestPipelineWorkflow');
 }
 
 /**

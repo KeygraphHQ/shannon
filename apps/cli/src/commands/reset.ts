@@ -5,7 +5,7 @@
 
 import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
-import { ensureDocker, stopInfra, stopWorkers } from '../docker.js';
+import { ensureDocker, runningContainers, stopContainers, stopInfra, WORKER_FILTER } from '../docker.js';
 
 export interface ResetOptions {
   yes: boolean;
@@ -22,8 +22,11 @@ export async function reset(opts: ResetOptions): Promise<void> {
 
   const spinner = p.spinner();
   spinner.start('Stopping scans');
-  const stopped = await stopWorkers();
-  spinner.stop(stopped > 0 ? `Stopped ${stopped} scan${stopped === 1 ? '' : 's'}` : 'No scans running');
+  const running = runningContainers(WORKER_FILTER);
+  await stopContainers(running);
+  spinner.stop(
+    running.length > 0 ? `Stopped ${running.length} scan${running.length === 1 ? '' : 's'}` : 'No scans running',
+  );
 
   await stopInfra(true);
   console.log('Reset complete.');
