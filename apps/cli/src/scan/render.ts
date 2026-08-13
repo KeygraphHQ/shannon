@@ -82,19 +82,28 @@ function isTerminal(status: string): boolean {
   return status !== 'RUNNING' && status !== 'UNSPECIFIED';
 }
 
+function isFailedAgent(name: string, state: PipelineState | null): boolean {
+  return !!state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)));
+}
+
+/** An agent has entered play once it is running, has metrics, or has failed. */
+function isAgentActive(name: string, state: PipelineState | null, running: Set<string>): boolean {
+  return running.has(name) || !!state?.agentMetrics[name] || isFailedAgent(name, state);
+}
+
 /**
  * Resolve one agent's state. "Ran" is signalled by a metrics entry, not by
  * completedAgents — the workflow lists conditionally-skipped agents (e.g. exploit
  * agents when there is nothing to exploit) as completed but records no metrics for
- * them, so once the scan is terminal a metric-less agent is skipped, not done.
+ * them. `resolved` is true once we've moved past this agent's phase (the scan is
+ * terminal, or a later phase is already active), at which point a metric-less,
+ * non-running agent is skipped rather than still pending.
  */
-function agentState(name: string, state: PipelineState | null, running: Set<string>, terminal: boolean): RunState {
+function agentState(name: string, state: PipelineState | null, running: Set<string>, resolved: boolean): RunState {
   if (running.has(name)) return 'running';
-  if (state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)))) {
-    return 'failed';
-  }
+  if (isFailedAgent(name, state)) return 'failed';
   if (state?.agentMetrics[name]) return 'completed';
-  return terminal ? 'skipped' : 'pending';
+  return resolved ? 'skipped' : 'pending';
 }
 
 function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
@@ -224,8 +233,17 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
   // Only agents that have actually entered play are shown; pending/skipped ones stay hidden.
   const inPlay = (s: RunState): boolean => s === 'running' || s === 'completed' || s === 'failed';
 
-  for (const phase of PIPELINE) {
-    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet, terminal));
+  // The pipeline is sequential across phases: the last phase with any active agent is
+  // the frontier. Earlier phases with nothing active were skipped (e.g. exploitation
+  // when no class had anything to exploit), not still pending.
+  let frontier = -1;
+  PIPELINE.forEach((phase, idx) => {
+    if (phase.agents.some((a) => isAgentActive(a.name, input.state, runningSet))) frontier = idx;
+  });
+
+  for (const [phaseIdx, phase] of PIPELINE.entries()) {
+    const resolved = terminal || phaseIdx < frontier;
+    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet, resolved));
     const playing = states.filter(inPlay).length;
     const phaseRunState: RunState = phaseGlyphState(states);
 
