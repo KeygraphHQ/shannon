@@ -252,6 +252,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
+    // 0. Register the resume's workflow id in session.json before validation can fail, so the CLI
+    // can resolve and follow it instead of polling for an entry that never lands.
+    await a.registerResumeAttempt(activityInput, input.terminatedWorkflows || []);
+
     // 1. Load resume state (validates workspace, cross-checks deliverables)
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
@@ -283,10 +287,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       return state;
     }
 
-    // 4. Record this resume attempt in session.json and workflow.log
+    // 4. Write the resume header to workflow.log (the session.json entry was recorded in step 0)
     await a.recordResumeAttempt(
       activityInput,
-      input.terminatedWorkflows || [],
       resumeState.checkpointHash,
       resumeState.originalWorkflowId,
       resumeState.completedAgents,
@@ -486,7 +489,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Authentication Validation ===
     state.currentPhase = 'auth-validation';
     state.currentAgent = 'validate-authentication';
-    await authValidationActs.runAuthenticationValidation(activityInput);
+    const authMetrics = await authValidationActs.runAuthenticationValidation(activityInput);
+    // Null when no login ran (no-auth scan); left absent so status renders it skipped, not completed.
+    if (authMetrics) {
+      state.agentMetrics['validate-authentication'] = authMetrics;
+    }
     state.currentAgent = null;
     log.info('Authentication validation passed');
 

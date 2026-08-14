@@ -23,6 +23,7 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
+import type { AgentMetrics } from '../types/metrics.js';
 import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
 import { loadPrompt } from './prompt-manager.js';
@@ -97,7 +98,9 @@ export interface ValidateAuthInput {
   readonly cancellationSignal?: AbortSignal;
 }
 
-export async function validateAuthentication(input: ValidateAuthInput): Promise<Result<void, PentestError>> {
+export async function validateAuthentication(
+  input: ValidateAuthInput,
+): Promise<Result<AgentMetrics | null, PentestError>> {
   const {
     distributedConfig,
     repoPath,
@@ -113,7 +116,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
 
   const authentication = distributedConfig.authentication;
   if (!authentication) {
-    return ok(undefined);
+    return ok(null);
   }
 
   logger.info('Validating authentication credentials with live browser...', {
@@ -160,9 +163,10 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     }
   }
 
+  const durationMs = Date.now() - startTime;
   const endResult: AgentEndResult = {
     attemptNumber,
-    duration_ms: Date.now() - startTime,
+    duration_ms: durationMs,
     cost_usd: result.cost || 0,
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
@@ -170,7 +174,21 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   };
   await auditSession.endAgent(AGENT_NAME, endResult);
 
-  return classification;
+  if (!classification.ok) {
+    return err(classification.error);
+  }
+
+  const metrics: AgentMetrics = {
+    durationMs,
+    inputTokens: result.inputTokens ?? null,
+    outputTokens: result.outputTokens ?? null,
+    cacheReadTokens: result.cacheReadTokens ?? null,
+    cacheWriteTokens: result.cacheWriteTokens ?? null,
+    costUsd: result.cost ?? null,
+    numTurns: result.turns ?? null,
+    ...(result.model !== undefined && { model: result.model }),
+  };
+  return ok(metrics);
 }
 
 async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {

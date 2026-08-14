@@ -637,7 +637,7 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
  * block; otherwise surfaces a classified failure (failurePoint +
  * failureDetail in ApplicationFailure.details) on credential rejection.
  */
-export async function runAuthenticationValidation(input: ActivityInput): Promise<void> {
+export async function runAuthenticationValidation(input: ActivityInput): Promise<AgentMetrics | null> {
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -655,13 +655,13 @@ export async function runAuthenticationValidation(input: ActivityInput): Promise
     if (isErr(configResult)) {
       // runPreflightValidation already validated parsing, so this is unexpected.
       logger.warn(`runAuthenticationValidation: config load failed unexpectedly: ${configResult.error.message}`);
-      return;
+      return null;
     }
 
     const distributedConfig = configResult.value;
     if (!distributedConfig?.authentication) {
       logger.info('No authentication configured — skipping credential validation');
-      return;
+      return null;
     }
 
     const auditSession = new AuditSession(sessionMetadata);
@@ -700,6 +700,8 @@ export async function runAuthenticationValidation(input: ActivityInput): Promise
       truncateStackTrace(failure);
       throw failure;
     }
+
+    return result.value;
   } catch (error) {
     if (error instanceof ApplicationFailure) {
       throw error;
@@ -1138,9 +1140,19 @@ export async function restoreGitCheckpoint(
 /**
  * Record a resume attempt in session.json and write resume header to workflow.log.
  */
+/**
+ * Register this resume's workflow id in session.json before loadResumeState (which can throw),
+ * so the CLI can resolve and follow the resume even when validation fails instead of timing out.
+ */
+export async function registerResumeAttempt(input: ActivityInput, terminatedWorkflows: string[]): Promise<void> {
+  const sessionMetadata = buildSessionMetadata(input);
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+  await auditSession.addResumeAttempt(input.workflowId, terminatedWorkflows);
+}
+
 export async function recordResumeAttempt(
   input: ActivityInput,
-  terminatedWorkflows: string[],
   checkpointHash: string,
   previousWorkflowId: string,
   completedAgents: string[],
@@ -1149,10 +1161,7 @@ export async function recordResumeAttempt(
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();
 
-  // Update session.json with resume attempt
-  await auditSession.addResumeAttempt(input.workflowId, terminatedWorkflows, checkpointHash);
-
-  // Write resume header to workflow.log
+  // session.json entry already added by registerResumeAttempt; here we only write the workflow.log header.
   await auditSession.logResumeHeader({
     previousWorkflowId,
     newWorkflowId: input.workflowId,
