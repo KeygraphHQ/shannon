@@ -96,6 +96,21 @@ export async function queryProgress(workflowId: string): Promise<PipelineState |
   }
 }
 
+/**
+ * Deepest message in a Temporal failure's cause chain — the real reason nested under generic
+ * wrappers (WorkflowFailedError → ActivityFailure → ApplicationFailure). Covers failed, cancelled,
+ * and terminated alike. Mirrors the SDK's `rootCause` (only exported from @temporalio/common).
+ */
+function rootFailureMessage(err: WorkflowFailedError): string {
+  let message = err.message;
+  let cause: unknown = err.cause;
+  while (cause instanceof Error && cause.message) {
+    message = cause.message;
+    cause = cause.cause;
+  }
+  return message;
+}
+
 /** Final state of a closed scan: success carries the full PipelineState, failure carries the message. */
 export async function getTerminalOutcome(workflowId: string): Promise<TerminalOutcome> {
   const client = await getClient();
@@ -104,7 +119,7 @@ export async function getTerminalOutcome(workflowId: string): Promise<TerminalOu
     return { kind: 'success', state };
   } catch (err) {
     if (err instanceof WorkflowFailedError) {
-      return { kind: 'failed', message: err.cause?.message ?? err.message };
+      return { kind: 'failed', message: rootFailureMessage(err) };
     }
     throw err;
   }

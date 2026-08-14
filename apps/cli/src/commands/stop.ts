@@ -3,8 +3,6 @@
  * Never touches infra or data; to wipe Temporal state entirely, use `shannon reset`.
  */
 
-import fs from 'node:fs';
-import path from 'node:path';
 import * as p from '@clack/prompts';
 import { confirmOrExit } from '../confirm.js';
 import {
@@ -20,25 +18,12 @@ import {
   WORKER_FILTER,
 } from '../docker.js';
 import { fail } from '../errors.js';
-import { getWorkspacesDir } from '../home.js';
-import { resolveRunFile } from '../paths.js';
+import { resolveWorkflowId } from '../session.js';
 
 export interface StopOptions {
   all: boolean;
   yes: boolean;
   workspace?: string;
-}
-
-/** Latest workflow ID recorded for a workspace: last resume attempt, else the original. */
-function resolveWorkflowId(workspace: string): string | undefined {
-  const sessionPath = resolveRunFile(path.join(getWorkspacesDir(), workspace), 'session.json');
-  try {
-    const session = JSON.parse(fs.readFileSync(sessionPath, 'utf-8'));
-    const resumeAttempts: { workflowId?: string }[] = session.session?.resumeAttempts ?? [];
-    return resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? undefined;
-  } catch {
-    return undefined;
-  }
 }
 
 /**
