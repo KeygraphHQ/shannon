@@ -77,7 +77,7 @@ Usage:${
       : `
   ${prefix} uninstall [--yes]                            Remove ~/.shannon/ and all data`
   }
-  ${prefix} version                                      Show version
+  ${prefix} version [--json]                             Show version
   ${prefix} help                                         Show this help
 
 Options for 'start':
@@ -261,9 +261,15 @@ async function main(): Promise<void> {
     }
     case 'version':
     case '--version':
-    case '-v':
-      console.log(getVersionLine());
+    case '-v': {
+      const { flags } = parseArgs(rest, { booleans: { json: ['--json'] } });
+      if (flags.json) {
+        console.log(JSON.stringify({ version: getVersion(), mode: getMode() }, null, 2));
+      } else {
+        console.log(getVersionLine());
+      }
       break;
+    }
     default: {
       const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
       const suggestion = closestMatch(command, availableCommands());

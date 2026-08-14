@@ -88,8 +88,10 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     options: [YES_OPTION],
   },
   version: {
-    usage: ['version'],
-    description: 'Show the version.',
+    usage: ['version [--json]'],
+    description: 'Show the version. With --json, prints the version and mode as a machine-readable object.',
+    options: [['--json', 'Output the version and mode as JSON']],
+    examples: ['version', 'version --json'],
   },
 };
 
