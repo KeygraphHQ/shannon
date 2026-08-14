@@ -26,8 +26,16 @@ export interface PhaseSpec {
   readonly agents: readonly AgentSpec[];
 }
 
-/** The five pipeline phases in execution order, each with its agents. */
+/** The pipeline phases in execution order, each with its agents. */
 export const PIPELINE: readonly PhaseSpec[] = [
+  {
+    // Preflight login check. Only authenticated scans record metrics here; a non-auth scan
+    // records none, so it renders as skipped — like Exploitation when nothing is exploitable.
+    key: 'auth-validation',
+    label: 'Authentication',
+    parallel: false,
+    agents: [{ name: 'validate-authentication', label: 'auth', activityType: 'runAuthenticationValidation' }],
+  },
   {
     key: 'pre-recon',
     label: 'Pre-Recon',

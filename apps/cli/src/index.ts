@@ -68,7 +68,7 @@ Usage:${
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
   ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
   ${prefix} logs <workspace>                             Show a scan's live log
-  ${prefix} status <workspace>                           Live phase/agent progress of one scan
+  ${prefix} status <workspace> [--json]                  Live phase/agent progress of one scan
   ${prefix} scans [--json]                                List completed scans and their reports${
     mode === 'local'
       ? `
@@ -222,15 +222,15 @@ async function main(): Promise<void> {
       break;
     }
     case 'status': {
-      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
+      const { flags, positionals } = parseArgs(rest, { booleans: { json: ['--json'] }, maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
         fail(
           'Workspace is required',
-          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} status <workspace>`,
+          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} status <workspace> [--json]`,
         );
       }
-      await status(workspaceId);
+      await status(workspaceId, { json: !!flags.json });
       break;
     }
     case 'scans': {

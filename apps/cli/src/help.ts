@@ -61,10 +61,11 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     examples: ['logs q1-audit'],
   },
   status: {
-    usage: ['status <workspace>'],
+    usage: ['status <workspace> [--json]'],
     description:
-      "Show one scan's phase-by-phase progress, read live from Temporal. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished.",
-    examples: ['status q1-audit'],
+      "Show one scan's phase-by-phase progress, read live from Temporal. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished. With --json, prints a single machine-readable snapshot and exits.",
+    options: [['--json', 'Output a point-in-time snapshot as JSON, then exit']],
+    examples: ['status q1-audit', 'status q1-audit --json'],
   },
   scans: {
     usage: ['scans [--json]'],

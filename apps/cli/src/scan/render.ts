@@ -10,10 +10,21 @@
 import { BOLD, DIM, GOLD, paint, RED, YELLOW } from '../colors.js';
 import { isLocal } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
-import { agentClass, PIPELINE, type PipelineState } from './pipeline.js';
+import {
+  agentError,
+  deriveAgentStates,
+  isTerminal,
+  phaseGlyphState,
+  type RunState,
+  scanElapsedMs,
+  totalCostUsd,
+} from './derive.js';
+import { PIPELINE, type PipelineState } from './pipeline.js';
 
 export interface RenderInput {
   readonly workspace: string;
+  /** Temporal workflow id backing this scan (differs from workspace on a resume); used for the dashboard link. */
+  readonly workflowId?: string;
   /** Temporal WorkflowExecutionStatusName: RUNNING | COMPLETED | FAILED | CANCELLED | TERMINATED | … */
   readonly temporalStatus: string;
   /** Progress (live) or result (terminal). Null when unavailable, e.g. a hard failure with no result. */
@@ -34,8 +45,6 @@ export interface RenderOptions {
   /** Animation tick — advances the running-agent spinner. Ignored for static frames. */
   readonly frame: number;
 }
-
-type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 const COLORS = {
   red: RED,
@@ -71,59 +80,10 @@ function commandPrefix(): string {
   return isLocal() ? './shannon' : 'npx @keygraph/shannon';
 }
 
-// === Derivation ===
-
-function isTerminal(status: string): boolean {
-  return status !== 'RUNNING' && status !== 'UNSPECIFIED';
-}
-
-function isFailedAgent(name: string, state: PipelineState | null): boolean {
-  return !!state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)));
-}
-
-/** An agent has entered play once it is running, has metrics, or has failed. */
-function isAgentActive(name: string, state: PipelineState | null, running: Set<string>): boolean {
-  return running.has(name) || !!state?.agentMetrics[name] || isFailedAgent(name, state);
-}
-
-/**
- * Resolve one agent's state. "Ran" is signalled by a metrics entry, not by
- * completedAgents — the workflow lists conditionally-skipped agents (e.g. exploit
- * agents when there is nothing to exploit) as completed but records no metrics for
- * them. `resolved` is true once we've moved past this agent's phase (the scan is
- * terminal, or a later phase is already active), at which point a metric-less,
- * non-running agent is skipped rather than still pending.
- */
-function agentState(name: string, state: PipelineState | null, running: Set<string>, resolved: boolean): RunState {
-  if (running.has(name)) return 'running';
-  if (isFailedAgent(name, state)) return 'failed';
-  if (state?.agentMetrics[name]) return 'completed';
-  return resolved ? 'skipped' : 'pending';
-}
-
-function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
-  const failed = state?.failedPipelines.find((f) => f.vulnType === agentClass(name));
-  return (
-    failed?.error ??
-    byAgent.get(name)?.lastFailure ??
-    (state?.failedAgent === name ? (state.error ?? undefined) : undefined)
-  );
-}
-
-function scanElapsedMs(input: RenderInput, now: number): number | undefined {
-  if (isTerminal(input.temporalStatus)) {
-    if (input.state?.summary) return input.state.summary.totalDurationMs;
-    if (input.endedAt !== undefined && input.startedAt !== undefined) return input.endedAt - input.startedAt;
-    return undefined;
-  }
-  return input.startedAt !== undefined ? now - input.startedAt : undefined;
-}
-
-function totalCostUsd(state: PipelineState | null): number | undefined {
-  if (state?.summary) return state.summary.totalCostUsd;
-  if (!state) return undefined;
-  const values = Object.values(state.agentMetrics).map((m) => m.costUsd ?? 0);
-  return values.length > 0 ? values.reduce((a, b) => a + b, 0) : undefined;
+/** Temporal Web UI, published by compose on 8233; deep-links to the workflow when its id is known. */
+function temporalDashboardUrl(workflowId: string | undefined): string {
+  const base = 'http://localhost:8233';
+  return workflowId ? `${base}/namespaces/default/workflows/${workflowId}` : base;
 }
 
 // === Glyphs & status ===
@@ -219,26 +179,16 @@ function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolea
 /** Render the full progress frame as one string (no trailing newline). */
 export function renderScan(input: RenderInput, opts: RenderOptions): string {
   const byAgent = new Map(input.running.map((r) => [r.agent, r]));
-  const runningSet = new Set(input.running.map((r) => r.agent));
+  const stateMap = deriveAgentStates(input);
   const lines: string[] = ['', ...headerLines(input, opts), ''];
 
-  const terminal = isTerminal(input.temporalStatus);
   const metaFor = (name: string, state: RunState): string =>
     agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
   // Only agents that have actually entered play are shown; pending/skipped ones stay hidden.
   const inPlay = (s: RunState): boolean => s === 'running' || s === 'completed' || s === 'failed';
 
-  // The pipeline is sequential across phases: the last phase with any active agent is
-  // the frontier. Earlier phases with nothing active were skipped (e.g. exploitation
-  // when no class had anything to exploit), not still pending.
-  let frontier = -1;
-  PIPELINE.forEach((phase, idx) => {
-    if (phase.agents.some((a) => isAgentActive(a.name, input.state, runningSet))) frontier = idx;
-  });
-
-  for (const [phaseIdx, phase] of PIPELINE.entries()) {
-    const resolved = terminal || phaseIdx < frontier;
-    const states = phase.agents.map((a) => agentState(a.name, input.state, runningSet, resolved));
+  for (const phase of PIPELINE) {
+    const states = phase.agents.map((a) => stateMap.get(a.name) ?? 'pending');
     const playing = states.filter(inPlay).length;
     const phaseRunState: RunState = phaseGlyphState(states);
 
@@ -265,16 +215,6 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
   return lines.join('\n');
 }
 
-/** Collapse a phase's agent states into a single glyph state for the phase line. */
-function phaseGlyphState(states: readonly RunState[]): RunState {
-  if (states.some((s) => s === 'running')) return 'running';
-  if (states.some((s) => s === 'failed')) return 'failed';
-  if (states.every((s) => s === 'skipped')) return 'skipped';
-  if (states.every((s) => s === 'completed' || s === 'skipped')) return 'completed';
-  if (states.some((s) => s === 'completed')) return 'running';
-  return 'pending';
-}
-
 function headerLines(input: RenderInput, opts: RenderOptions): string[] {
   const elapsedMs = scanElapsedMs(input, opts.now);
   const cost = totalCostUsd(input.state);
@@ -298,15 +238,19 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
     const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
     return [
       paint(
-        `  ${input.temporalStatus === 'TERMINATED' ? 'Stopped' : 'Ended'} — ${truncate(reason, 70)}`,
+        `  ${input.temporalStatus === 'TERMINATED' ? 'Stopped' : 'Ended'} — ${truncate(reason, 240)}`,
         COLORS.dim,
         opts.color,
       ),
-      `  Logs:  ${prefix} logs ${input.workspace}`,
+      `  Logs:       ${prefix} logs ${input.workspace}`,
+      paint(`  Dashboard:  ${temporalDashboardUrl(input.workflowId)}`, COLORS.dim, opts.color),
     ];
   }
 
-  const lines = [paint(`  Live from Temporal. Full logs: ${prefix} logs ${input.workspace}`, COLORS.dim, opts.color)];
+  const lines = [
+    paint(`  Live from Temporal. Full logs: ${prefix} logs ${input.workspace}`, COLORS.dim, opts.color),
+    paint(`  Dashboard:  ${temporalDashboardUrl(input.workflowId)}`, COLORS.dim, opts.color),
+  ];
   if (opts.live) lines.push(paint('  Ctrl-C to stop watching — the scan keeps running.', COLORS.dim, opts.color));
   return lines;
 }
