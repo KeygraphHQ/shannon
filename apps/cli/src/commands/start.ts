@@ -214,9 +214,8 @@ export async function start(args: StartArgs): Promise<void> {
 
       if (ready) {
         started = true;
-        const workflowId = resumeAttempts.at(-1)?.workflowId ?? session.session?.originalWorkflowId ?? '';
         spinner.stop(`Scan started — ${workspace}`);
-        printInfo(args, workspace, workflowId, repo.hostPath, workspacesDir);
+        printInfo(args, workspace, repo.hostPath, workspacesDir);
         return;
       }
     } catch {
@@ -237,14 +236,9 @@ function printPreservedContainerHint(containerName: string): void {
   console.log('');
 }
 
-function printInfo(
-  args: StartArgs,
-  workspace: string,
-  workflowId: string,
-  repoPath: string,
-  workspacesDir: string,
-): void {
+function printInfo(args: StartArgs, workspace: string, repoPath: string, workspacesDir: string): void {
   const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
+  const statusCmd = isLocal() ? `./shannon status ${workspace}` : `npx @keygraph/shannon status ${workspace}`;
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
 
   console.log('  It runs in the background — you can close this terminal.');
@@ -267,11 +261,7 @@ function printInfo(
   console.log('');
   console.log('  Watch scan progress:');
   console.log(`    Live logs:  ${logsCmd}`);
-  if (workflowId) {
-    console.log(`    Dashboard:  http://localhost:8233/namespaces/default/workflows/${workflowId}`);
-  } else {
-    console.log('    Dashboard:  http://localhost:8233');
-  }
+  console.log(`    Status:     ${statusCmd}`);
   console.log('');
   console.log('  Report (when the scan finishes):');
   console.log(`    ${reportPath}`);
