@@ -9,6 +9,7 @@ import {
   ASSEMBLED_REPORT_FILENAME,
   ASSEMBLED_REPORT_PDF_FILENAME,
   deliverablesDir,
+  FINAL_REPORT_MD_FILENAME,
   FINAL_REPORT_PDF_FILENAME,
   resolveSessionJsonPath,
   SARIF_FILENAME,
@@ -175,8 +176,8 @@ export async function injectModelIntoReport(
 /**
  * Surface the run's deliverables at the run directory's top level, so a customer opening the run
  * folder sees the report without digging through internals. Sources stay in the deliverables dir
- * (git-checkpointed, used by resume). The PDF is the customer-facing report surfaced here; the
- * markdown remains in the deliverables dir but is not surfaced.
+ * (git-checkpointed, used by resume). Both the PDF and the markdown report are surfaced here as the
+ * customer-facing copies.
  *
  * The SARIF log is surfaced beside it when present, since a CI step consuming it needs a stable
  * path and cannot be expected to reach into the internals directory. It is absent whenever the
@@ -197,6 +198,15 @@ export async function copyReportToRunRoot(
     logger.info(`Surfaced PDF report at ${destination}`);
   } else {
     logger.warn(`PDF report not found, skipping ${FINAL_REPORT_PDF_FILENAME}`);
+  }
+
+  const markdownSource = path.join(dir, ASSEMBLED_REPORT_FILENAME);
+  if (await fs.pathExists(markdownSource)) {
+    const destination = path.join(runDir, FINAL_REPORT_MD_FILENAME);
+    await fs.copy(markdownSource, destination, { overwrite: true });
+    logger.info(`Surfaced markdown report at ${destination}`);
+  } else {
+    logger.warn(`Markdown report not found, skipping ${FINAL_REPORT_MD_FILENAME}`);
   }
 
   const sarifSource = path.join(dir, SARIF_FILENAME);
