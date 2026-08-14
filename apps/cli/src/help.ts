@@ -32,7 +32,7 @@ export const START_OPTIONS: readonly (readonly [string, string])[] = [
   ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
   ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
   ['--pipeline-testing', 'Use minimal prompts for fast testing'],
-  ['--debug', 'Preserve the worker container after exit for log inspection'],
+  ['--keep-container', 'Preserve the worker container after exit for log inspection'],
 ];
 
 const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {

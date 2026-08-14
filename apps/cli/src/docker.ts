@@ -295,17 +295,17 @@ export interface WorkerOptions {
   outputDir?: string;
   workspace: string;
   pipelineTesting?: boolean;
-  debug?: boolean;
+  keepContainer?: boolean;
   piAuthHostPath?: string;
 }
 
 /**
  * Spawn the worker container in detached mode and return the process.
- * When `opts.debug` is true, omits `--rm` so the container persists for log inspection.
+ * When `opts.keepContainer` is true, omits `--rm` so the container persists for log inspection.
  */
 export function spawnWorker(opts: WorkerOptions): ChildProcess {
   const args = ['run', '-d'];
-  if (!opts.debug) {
+  if (!opts.keepContainer) {
     args.push('--rm');
   }
   args.push('--name', opts.containerName, '--network', 'shannon-net');

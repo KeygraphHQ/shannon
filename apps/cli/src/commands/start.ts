@@ -33,7 +33,7 @@ export interface StartArgs {
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
-  debug: boolean;
+  keepContainer: boolean;
   version: string;
 }
 
@@ -147,7 +147,7 @@ export async function start(args: StartArgs): Promise<void> {
     ...(outputDir && { outputDir }),
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
-    ...(args.debug && { debug: true }),
+    ...(args.keepContainer && { keepContainer: true }),
     ...(shouldUsePiAuth() && { piAuthHostPath: resolveHostPiAuthPath() }),
   });
 
@@ -188,8 +188,8 @@ export async function start(args: StartArgs): Promise<void> {
     } catch {
       // Container may have already exited
     }
-    if (args.debug) {
-      printDebugHint(containerName);
+    if (args.keepContainer) {
+      printPreservedContainerHint(containerName);
     }
   };
   process.on('SIGINT', () => {
@@ -229,7 +229,7 @@ export async function start(args: StartArgs): Promise<void> {
   process.exit(1);
 }
 
-function printDebugHint(containerName: string): void {
+function printPreservedContainerHint(containerName: string): void {
   console.log('');
   console.log(`  Worker container preserved: ${containerName}`);
   console.log(`    Inspect logs: docker logs ${containerName}`);
