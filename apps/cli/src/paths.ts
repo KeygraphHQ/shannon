@@ -5,8 +5,23 @@
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fail } from './errors.js';
+
+/**
+ * Expand a leading `~` or `~/` to the home directory. The shell skips this in the
+ * `--flag=~/x` form (the tilde is not at the word start), so it must be done here.
+ */
+export function expandHome(inputPath: string): string {
+  if (inputPath === '~') {
+    return os.homedir();
+  }
+  if (inputPath.startsWith('~/')) {
+    return path.join(os.homedir(), inputPath.slice(2));
+  }
+  return inputPath;
+}
 
 export interface MountPair {
   hostPath: string;
@@ -50,7 +65,7 @@ export function resolveRunFile(runDir: string, filename: string): string {
  * filesystem path, absolute or relative to CWD.
  */
 export function resolveRepo(repoArg: string): MountPair {
-  const hostPath = path.resolve(repoArg);
+  const hostPath = path.resolve(expandHome(repoArg));
 
   if (!fs.existsSync(hostPath)) {
     fail(`Repository not found: ${hostPath}`);
@@ -71,7 +86,7 @@ export function resolveRepo(repoArg: string): MountPair {
  * Resolve --config to absolute path and container mount.
  */
 export function resolveConfig(configArg: string): MountPair {
-  const hostPath = path.resolve(configArg);
+  const hostPath = path.resolve(expandHome(configArg));
 
   if (!fs.existsSync(hostPath)) {
     fail(`Config file not found: ${hostPath}`);

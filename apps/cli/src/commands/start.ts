@@ -16,7 +16,14 @@ import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
-import { FINAL_REPORT_PDF_FILENAME, INTERNAL_DIR, resolveConfig, resolveRepo, resolveRunFile } from '../paths.js';
+import {
+  expandHome,
+  FINAL_REPORT_PDF_FILENAME,
+  INTERNAL_DIR,
+  resolveConfig,
+  resolveRepo,
+  resolveRunFile,
+} from '../paths.js';
 import { displaySplash } from '../splash.js';
 
 export interface StartArgs {
@@ -118,7 +125,7 @@ export async function start(args: StartArgs): Promise<void> {
   fs.mkdirSync(path.join(repo.hostPath, '.playwright'), { recursive: true });
 
   // 10. Resolve output directory
-  const outputDir = args.output ? path.resolve(args.output) : undefined;
+  const outputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
   if (outputDir) {
     fs.mkdirSync(outputDir, { recursive: true });
   }

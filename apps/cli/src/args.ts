@@ -59,17 +59,28 @@ export function parseArgs(argv: readonly string[], schema: ArgSchema): ParsedArg
       continue;
     }
 
-    const booleanKey = booleanByToken.get(arg);
+    const equalsIndex = arg.startsWith('--') ? arg.indexOf('=') : -1;
+    const token = equalsIndex === -1 ? arg : arg.slice(0, equalsIndex);
+    const inlineValue = equalsIndex === -1 ? undefined : arg.slice(equalsIndex + 1);
+
+    const booleanKey = booleanByToken.get(token);
     if (booleanKey !== undefined) {
+      if (inlineValue !== undefined) {
+        throw new ArgError(`Flag ${token} does not take a value`);
+      }
       flags[booleanKey] = true;
       continue;
     }
 
-    const valueKey = valueByToken.get(arg);
+    const valueKey = valueByToken.get(token);
     if (valueKey !== undefined) {
+      if (inlineValue !== undefined) {
+        values[valueKey] = inlineValue;
+        continue;
+      }
       const next = argv[i + 1];
       if (next === undefined || next.startsWith('-')) {
-        throw new ArgError(`Option ${arg} requires a value`);
+        throw new ArgError(`Option ${token} requires a value`);
       }
       values[valueKey] = next;
       i++;
@@ -77,9 +88,9 @@ export function parseArgs(argv: readonly string[], schema: ArgSchema): ParsedArg
     }
 
     if (arg.startsWith('-')) {
-      const suggestion = closestMatch(arg, [...booleanByToken.keys(), ...valueByToken.keys()]);
+      const suggestion = closestMatch(token, [...booleanByToken.keys(), ...valueByToken.keys()]);
       const hint = suggestion ? `\nDid you mean '${suggestion}'?` : '';
-      throw new ArgError(`Unknown option: ${arg}${hint}`);
+      throw new ArgError(`Unknown option: ${token}${hint}`);
     }
 
     positionals.push(arg);
