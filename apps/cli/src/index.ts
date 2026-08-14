@@ -98,6 +98,7 @@ State directory: ./workspaces/`
 State directory: ~/.shannon/`
 }
 Monitor scans at http://localhost:8233
+Docs & source: https://github.com/KeygraphHQ/shannon
 `);
 }
 
