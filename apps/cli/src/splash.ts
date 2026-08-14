@@ -3,16 +3,17 @@
  * Color escapes are gated on terminal support; the Unicode art is always kept.
  */
 
+import * as c from './colors.js';
 import { supportsColor } from './tty.js';
 
 export function displaySplash(version?: string): void {
   const color = supportsColor();
-  const GOLD = color ? '\x1b[38;2;244;197;66m' : '';
-  const CYAN = color ? '\x1b[36;1m' : '';
-  const WHITE = color ? '\x1b[1;37m' : '';
-  const GRAY = color ? '\x1b[0;37m' : '';
-  const YELLOW = color ? '\x1b[1;33m' : '';
-  const RESET = color ? '\x1b[0m' : '';
+  const GOLD = c.gate(c.GOLD, color);
+  const CYAN = c.gate(c.CYAN, color);
+  const WHITE = c.gate(c.WHITE, color);
+  const GRAY = c.gate(c.GRAY, color);
+  const YELLOW = c.gate(c.BOLD_YELLOW, color);
+  const RESET = c.gate(c.RESET, color);
 
   const B = `${CYAN}\u2551${RESET}`;
   const S67 = ' '.repeat(67);

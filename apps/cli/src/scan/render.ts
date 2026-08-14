@@ -7,6 +7,7 @@
  * Colors and Unicode glyphs are gated by the caller so the frame degrades off a TTY.
  */
 
+import { BOLD, DIM, GOLD, paint, RED, YELLOW } from '../colors.js';
 import { isLocal } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
 import { agentClass, PIPELINE, type PipelineState } from './pipeline.js';
@@ -36,19 +37,13 @@ export interface RenderOptions {
 
 type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
-const RESET = '\x1b[0m';
 const COLORS = {
-  red: '\x1b[31m',
-  // Shannon brand gold (matches the splash logo) — the running and completed accent.
-  gold: '\x1b[38;2;244;197;66m',
-  yellow: '\x1b[33m',
-  dim: '\x1b[90m',
-  bold: '\x1b[1m',
+  red: RED,
+  gold: GOLD,
+  yellow: YELLOW,
+  dim: DIM,
+  bold: BOLD,
 } as const;
-
-function paint(text: string, code: string, color: boolean): string {
-  return color ? `${code}${text}${RESET}` : text;
-}
 
 // === Formatting ===
 
