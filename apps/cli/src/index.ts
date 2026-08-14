@@ -30,18 +30,19 @@ function blockSudo(): void {
   const isRoot = process.geteuid?.() === 0;
   if (!isSudo && !isRoot) return;
 
+  const linuxHints =
+    process.platform === 'linux'
+      ? ['Configure Docker to run without sudo first:', 'https://docs.docker.com/engine/install/linux-postinstall']
+      : [];
+
   if (isSudo) {
-    console.error('ERROR: Shannon must not be run with sudo.');
-    console.error('Re-run this command as your normal user.');
-  } else {
-    console.error('ERROR: Shannon must not be run as the root user.');
-    console.error('Switch to a regular user account and re-run this command.');
+    fail('Shannon must not be run with sudo.', 'Re-run this command as your normal user.', ...linuxHints);
   }
-  if (process.platform === 'linux') {
-    console.error('Configure Docker to run without sudo first:');
-    console.error('https://docs.docker.com/engine/install/linux-postinstall');
-  }
-  process.exit(1);
+  fail(
+    'Shannon must not be run as the root user.',
+    'Switch to a regular user account and re-run this command.',
+    ...linuxHints,
+  );
 }
 
 /** Render `start`'s flags for the global help, from the same source as `start --help`. */
@@ -266,12 +267,11 @@ async function main(): Promise<void> {
     default: {
       const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
       const suggestion = closestMatch(command, availableCommands());
-      console.error(`Unknown command: ${command}`);
-      if (suggestion) {
-        console.error(`Did you mean '${suggestion}'?`);
-      }
-      console.error(`Run '${prefix} help' to see available commands.`);
-      process.exit(1);
+      const hints = [
+        ...(suggestion ? [`Did you mean '${suggestion}'?`] : []),
+        `Run '${prefix} help' to see available commands.`,
+      ];
+      fail(`Unknown command: ${command}`, ...hints);
     }
   }
 }

@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import { parse as parseTOML } from 'smol-toml';
+import { fail } from '../errors.js';
 import { getConfigFile } from '../home.js';
 import { getMode } from '../mode.js';
 import {
@@ -100,10 +101,9 @@ function loadTOML(): TOMLConfig | null {
     const mode = fs.statSync(configPath).mode;
     if (mode & 0o077) {
       const actual = (mode & 0o777).toString(8).padStart(3, '0');
-      console.error(
-        `\nYour config file is readable by other users on this machine (${actual}). Lock it down: chmod 600 ${configPath}\n`,
+      fail(
+        `Your config file is readable by other users on this machine (${actual}). Lock it down: chmod 600 ${configPath}`,
       );
-      process.exit(1);
     }
   }
 
@@ -112,9 +112,7 @@ function loadTOML(): TOMLConfig | null {
     return parseTOML(content) as TOMLConfig;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`\nFailed to parse ${configPath}: ${message}`);
-    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
-    process.exit(1);
+    fail(`Failed to parse ${configPath}: ${message}`, `Run 'npx @keygraph/shannon setup' to reconfigure.`);
   }
 }
 
@@ -256,12 +254,11 @@ export function resolveConfig(): void {
   // Validate before injecting
   const errors = validateConfig(toml);
   if (errors.length > 0) {
-    console.error('\nInvalid configuration:');
-    for (const err of errors) {
-      console.error(`  - ${err}`);
-    }
-    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
-    process.exit(1);
+    fail(
+      'Invalid configuration:',
+      ...errors.map((err) => `  - ${err}`),
+      `Run 'npx @keygraph/shannon setup' to reconfigure.`,
+    );
   }
 
   for (const mapping of CONFIG_MAP) {

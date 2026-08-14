@@ -22,6 +22,14 @@ export function fail(message: string, ...hints: string[]): never {
   process.exit(1);
 }
 
+/** Report a non-fatal warning on stderr (with optional extra lines) without exiting. */
+export function warn(message: string, ...hints: string[]): void {
+  console.error(`WARNING: ${message}`);
+  for (const hint of hints) {
+    console.error(hint);
+  }
+}
+
 /** Report an unexpected error: brief message, full stack to a log file, plus the issue link. */
 export function crash(error: unknown): never {
   console.error(`ERROR: ${error instanceof Error ? error.message : String(error)}`);

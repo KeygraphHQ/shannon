@@ -17,7 +17,7 @@ import {
   terminateWorkflow,
   WORKER_FILTER,
 } from '../docker.js';
-import { fail } from '../errors.js';
+import { fail, warn } from '../errors.js';
 import { resolveWorkflowId } from '../session.js';
 
 export interface StopOptions {
@@ -69,7 +69,7 @@ async function stopSingleScan(workspace: string, yes: boolean): Promise<void> {
   spinner.stop(`Stopped scan ${workspace}`);
 
   if (workflowId && temporalUp && isWorkflowRunning(workflowId)) {
-    console.error(`WARNING: scan ${workspace} stopped, but its workflow is still Running in Temporal.`);
+    warn(`scan ${workspace} stopped, but its workflow is still Running in Temporal.`);
   }
 }
 
@@ -103,7 +103,7 @@ async function stopAllScans(yes: boolean): Promise<void> {
   spinner.stop(`Stopped ${initial.length} scan${initial.length === 1 ? '' : 's'}`);
 
   if (temporalUp && anyRunningScanWorkflow()) {
-    console.error('WARNING: some scan workflows are still Running in Temporal — check http://localhost:8233');
+    warn('some scan workflows are still Running in Temporal — check http://localhost:8233');
   }
 }
 
