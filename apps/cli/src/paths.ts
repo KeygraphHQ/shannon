@@ -1,14 +1,12 @@
 /**
  * Path resolution for --repo and --config arguments.
  *
- * Local mode supports bare repo names (e.g. "my-repo" → ./repos/my-repo).
- * Both modes resolve relative paths against CWD.
+ * Both --repo and --config are filesystem paths, absolute or relative to CWD.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
 import { fail } from './errors.js';
-import { isLocal } from './mode.js';
 
 export interface MountPair {
   hostPath: string;
@@ -48,28 +46,11 @@ export function resolveRunFile(runDir: string, filename: string): string {
 }
 
 /**
- * Resolve --repo to absolute path and container mount.
- * Dev mode: bare names (no / or . prefix) check ./repos/<name> first.
+ * Resolve --repo to an absolute path and container mount. The argument is a
+ * filesystem path, absolute or relative to CWD.
  */
 export function resolveRepo(repoArg: string): MountPair {
-  let hostPath: string;
-
-  if (isLocal() && !repoArg.startsWith('/') && !repoArg.startsWith('.')) {
-    // Bare name — check ./repos/<name> for backward compatibility
-    const barePath = path.resolve('repos', repoArg);
-    if (fs.existsSync(barePath)) {
-      hostPath = barePath;
-    } else {
-      fail(
-        `Repository not found at ./repos/${repoArg}`,
-        '',
-        'Place your target repository under the ./repos/ directory,',
-        'or pass an absolute/relative path: -r /path/to/repo',
-      );
-    }
-  } else {
-    hostPath = path.resolve(repoArg);
-  }
+  const hostPath = path.resolve(repoArg);
 
   if (!fs.existsSync(hostPath)) {
     fail(`Repository not found: ${hostPath}`);

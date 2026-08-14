@@ -21,21 +21,26 @@ const YES_OPTION: readonly [string, string] = [
 ];
 const HELP_OPTION: readonly [string, string] = ['-h, --help', 'Show this help'];
 
+/**
+ * `start`'s flags, the single source rendered by both the per-command help here
+ * and the global help in index.ts, so the two can never drift.
+ */
+export const START_OPTIONS: readonly (readonly [string, string])[] = [
+  ['-u, --url <url>', 'Target URL (required)'],
+  ['-r, --repo <path>', 'Repository path (required)'],
+  ['-c, --config <path>', 'Configuration file (YAML)'],
+  ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
+  ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
+  ['--pipeline-testing', 'Use minimal prompts for fast testing'],
+  ['--debug', 'Preserve the worker container after exit for log inspection'],
+];
+
 const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
   start: {
     usage: ['start -u <url> -r <path> [options]'],
     description: 'Start a pentest scan.',
-    options: [
-      ['-u, --url <url>', 'Target URL (required)'],
-      ['-r, --repo <path>', 'Repository path or bare name (required)'],
-      ['-c, --config <path>', 'Configuration file (YAML)'],
-      ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
-      ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
-      ['--pipeline-testing', 'Use minimal prompts for fast testing'],
-      ['--debug', 'Preserve the worker container after exit for log inspection'],
-    ],
     examples: [
-      'start -u https://example.com -r my-repo',
+      'start -u https://example.com -r ./my-repo',
       'start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit',
     ],
   },
@@ -110,7 +115,8 @@ export function printCommandHelp(command: string): void {
   if (!help) return;
 
   const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
-  const options = [...(help.options ?? []), HELP_OPTION];
+  const baseOptions = command === 'start' ? START_OPTIONS : (help.options ?? []);
+  const options = [...baseOptions, HELP_OPTION];
   const flagWidth = Math.max(...options.map(([flag]) => flag.length));
 
   const lines: string[] = ['', help.description, '', 'USAGE'];

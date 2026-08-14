@@ -19,7 +19,7 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { crash, fail } from './errors.js';
-import { availableCommands, isHelpableCommand, printCommandHelp } from './help.js';
+import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
 import { getMode } from './mode.js';
 import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
@@ -41,6 +41,12 @@ function blockSudo(): void {
     console.error('https://docs.docker.com/engine/install/linux-postinstall');
   }
   process.exit(1);
+}
+
+/** Render `start`'s flags for the global help, from the same source as `start --help`. */
+function renderStartOptions(): string {
+  const flagWidth = Math.max(...START_OPTIONS.map(([flag]) => flag.length));
+  return START_OPTIONS.map(([flag, desc]) => `  ${flag.padEnd(flagWidth)}  ${desc}`).join('\n');
 }
 
 function showHelp(): void {
@@ -72,16 +78,10 @@ Usage:${
   ${prefix} help                                         Show this help
 
 Options for 'start':
-  -u, --url <url>           Target URL (required)
-  -r, --repo <path>         Repository path${mode === 'local' ? ' or bare name' : ''} (required)
-  -c, --config <path>       Configuration file (YAML)
-  -o, --output <path>       Copy deliverables to this directory after run
-  -w, --workspace <name>    Named workspace (auto-resumes if exists)
-      --pipeline-testing    Use minimal prompts for fast testing
-      --debug               Preserve worker container after exit for log inspection
+${renderStartOptions()}
 
 Examples:
-  ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
+  ${prefix} start -u https://example.com -r ./my-repo
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
   ${prefix} logs q1-audit
   ${prefix} stop q1-audit

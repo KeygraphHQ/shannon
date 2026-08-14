@@ -44,8 +44,8 @@ echo "ANTHROPIC_API_KEY=your-key" > .env
 ./shannon build
 
 # Run
-./shannon start -u <url> -r my-repo
-./shannon start -u <url> -r my-repo -c ./apps/worker/configs/my-config.yaml
+./shannon start -u <url> -r ./my-repo
+./shannon start -u <url> -r ./my-repo -c ./apps/worker/configs/my-config.yaml
 ./shannon start -u <url> -r /any/path/to/repo
 ```
 
@@ -56,8 +56,8 @@ echo "ANTHROPIC_API_KEY=your-key" > .env
 npx @keygraph/shannon setup
 
 # Workspaces & Resume
-./shannon start -u <url> -r my-repo -w my-audit    # New named workspace
-./shannon start -u <url> -r my-repo -w my-audit    # Resume (same command)
+./shannon start -u <url> -r ./my-repo -w my-audit    # New named workspace
+./shannon start -u <url> -r ./my-repo -w my-audit    # Resume (same command)
 
 # Monitor
 ./shannon logs <workspace>            # Show a scan's live log
@@ -110,7 +110,7 @@ Published as `@keygraph/shannon` on npm. Contains Docker orchestration logic plu
 - `apps/cli/src/config/resolver.ts` — Cascading config (npx only): env vars → `~/.shannon/config.toml` (parsed with `smol-toml`)
 - `apps/cli/src/config/writer.ts` — TOML serialization and secure file persistence (0o600)
 - `apps/cli/src/commands/setup.ts` — Interactive TUI wizard (`@clack/prompts`) for provider credential setup (npx only)
-- `apps/cli/src/paths.ts` — Repo/config path resolution (bare name → `./repos/<name>`, or any absolute/relative path)
+- `apps/cli/src/paths.ts` — Repo/config path resolution (any absolute or relative path)
 - `apps/cli/src/version.ts` — Version reporting (npx: `package.json` version; local: `git-<sha>`)
 - `apps/cli/src/tty.ts` — Terminal capability detection: `requireInteractive` guard (fails fast off-TTY instead of hanging on a prompt), `supportsColor` color gating (`NO_COLOR`/`FORCE_COLOR`), and `stdoutIsTerminal` for spinner/cursor output
 - `apps/cli/src/commands/` — Command handlers
@@ -249,7 +249,7 @@ Package managers are configured with a minimum release age (7 days). Requires pn
 
 ## Troubleshooting
 
-- **"Repository not found"** — Pass a bare name (`-r my-repo`) for `./repos/my-repo`, or a path (`-r /path/to/repo`) for any directory
+- **"Repository not found"** — Pass a path to the target repo (`-r /path/to/repo` or `-r ./my-repo`)
 - **"Temporal not ready"** — Wait for health check or `docker compose logs temporal`
 - **Worker not processing** — Check `docker ps --filter "name=shannon-worker-"`
 - **Reset state** — `./shannon reset`
