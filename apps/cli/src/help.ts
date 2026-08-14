@@ -66,6 +66,12 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
       "Show one scan's phase-by-phase progress, read live from Temporal. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished.",
     examples: ['status q1-audit'],
   },
+  scans: {
+    usage: ['scans [--json]'],
+    description: 'List completed scans and where each report lives.',
+    options: [['--json', 'Output the scan list as JSON']],
+    examples: ['scans', 'scans --json'],
+  },
   build: {
     usage: ['build [--no-cache]'],
     description: 'Build the worker Docker image (local mode only).',

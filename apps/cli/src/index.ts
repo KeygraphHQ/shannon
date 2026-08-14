@@ -13,6 +13,7 @@ import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { reset } from './commands/reset.js';
+import { scans } from './commands/scans.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
@@ -67,7 +68,8 @@ Usage:${
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
   ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
   ${prefix} logs <workspace>                             Show a scan's live log
-  ${prefix} status <workspace>                           Live phase/agent progress of one scan${
+  ${prefix} status <workspace>                           Live phase/agent progress of one scan
+  ${prefix} scans [--json]                                List completed scans and their reports${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
@@ -228,6 +230,11 @@ async function main(): Promise<void> {
         );
       }
       await status(workspaceId);
+      break;
+    }
+    case 'scans': {
+      const { flags } = parseArgs(rest, { booleans: { json: ['--json'] } });
+      scans({ json: !!flags.json });
       break;
     }
     case 'setup':
