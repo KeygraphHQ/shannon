@@ -171,8 +171,28 @@ export function validateCredentials(): CredentialValidation {
   // 3. Exactly one provider may be configured. Several complete credentials make
   //    the scan's provider depend on SHANNON_AI_MODEL alone, which is too easy to
   //    misread as "both are in play" and too easy to redirect by editing one line.
-  if (configuredProviders().length > 1) {
-    return { valid: false, error: 'Credentials for more than one provider are set.' };
+  const configured = configuredProviders();
+  if (configured.length > 1) {
+    const setKeys = (id: CuratedProviderId): string[] =>
+      PROVIDER_API_KEY_ENV[id].filter((name) => Boolean(process.env[name]));
+    const list = configured.map((id) => `${id} (${setKeys(id).join(', ')})`).join(' and ');
+    const others = configured.filter((id) => id !== spec.providerId);
+    const extraVars = others.flatMap(setKeys);
+
+    const dropHint =
+      getMode() === 'local'
+        ? 'remove them from .env or unset them in your shell:'
+        : "unset them in your shell, or reconfigure with 'npx @keygraph/shannon setup':";
+
+    const lines = [`Credentials for more than one provider are set: ${list}.`];
+    if (extraVars.length > 0) {
+      lines.push(
+        `Shannon runs one provider per scan, selected by SHANNON_AI_MODEL ("${spec.providerId}:...").`,
+        `Keep ${spec.providerId} and drop the rest — ${dropHint}`,
+        `  unset ${extraVars.join(' ')}`,
+      );
+    }
+    return { valid: false, error: lines.join('\n') };
   }
 
   return { valid: true };
