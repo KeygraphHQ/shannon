@@ -1,12 +1,14 @@
 /**
  * Splash screen display — pure terminal output, no npm dependencies.
- * Color escapes are gated on terminal support; the Unicode art is always kept.
+ * Skipped entirely off-TTY; color escapes are gated on terminal support.
  */
 
 import * as c from './colors.js';
-import { supportsColor } from './tty.js';
+import { stdoutIsTerminal, supportsColor } from './tty.js';
 
 export function displaySplash(version?: string): void {
+  if (!stdoutIsTerminal()) return;
+
   const color = supportsColor();
   const GOLD = c.gate(c.GOLD, color);
   const CYAN = c.gate(c.CYAN, color);

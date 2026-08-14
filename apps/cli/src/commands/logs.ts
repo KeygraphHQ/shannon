@@ -85,7 +85,7 @@ export function logs(workspaceId: string): void {
     }
   }
 
-  console.log(`Tailing scan log: ${logFile}`);
+  console.error(`Tailing scan log: ${logFile}`);
 
   // 1. Output existing content
   if (flush()) {
