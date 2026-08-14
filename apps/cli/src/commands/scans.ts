@@ -4,8 +4,8 @@
  * A scan counts as completed when it produced a report. The report can live in any of a
  * few locations depending on the version that ran it, so `findReport` probes them in order
  * and the first hit is both the completion signal and the link target behind the workspace
- * name. The date, wall-clock duration, and cost come from the run's session.json
- * (createdAt/completedAt/metrics), with the report file's mtime as the date fallback for
+ * name. The date and wall-clock duration come from the run's session.json
+ * (createdAt/completedAt), with the report file's mtime as the date fallback for
  * runs that lack a recorded time.
  *
  * Human-readable by default; `--json` emits the same rows as raw machine values on stdout.
@@ -38,8 +38,6 @@ interface ScanRow {
   readonly finishedMs: number;
   /** Wall-clock duration (completedAt − createdAt) in ms, or null when unknown. */
   readonly durationMs: number | null;
-  /** Total cost in USD, or null when unknown. */
-  readonly costUsd: number | null;
   /** Absolute path to the report file — the link target behind the workspace name. */
   readonly report: string;
 }
@@ -49,7 +47,6 @@ interface JsonRow {
   readonly workspace: string;
   readonly finishedAt: string;
   readonly durationMs: number | null;
-  readonly costUsd: number | null;
   readonly reportPath: string;
 }
 
@@ -93,16 +90,15 @@ function findReport(runDir: string): string | null {
 
 interface SessionData {
   readonly session: { readonly createdAt?: string; readonly completedAt?: string };
-  readonly metrics: { readonly total_cost_usd?: number };
 }
 
 /** Read a run's session.json (dual-read across layouts). Missing or unreadable → empty shape. */
 function readSession(runDir: string): SessionData {
   try {
     const parsed = JSON.parse(fs.readFileSync(resolveRunFile(runDir, 'session.json'), 'utf8'));
-    return { session: parsed?.session ?? {}, metrics: parsed?.metrics ?? {} };
+    return { session: parsed?.session ?? {} };
   } catch {
-    return { session: {}, metrics: {} };
+    return { session: {} };
   }
 }
 
@@ -128,14 +124,13 @@ function collectCompletedScans(workspacesDir: string): ScanRow[] {
       continue;
     }
 
-    const { session, metrics } = readSession(runDir);
+    const { session } = readSession(runDir);
     const completedMs = Date.parse(session.completedAt ?? '');
     const createdMs = Date.parse(session.createdAt ?? '');
     const finishedMs = Number.isNaN(completedMs) ? fs.statSync(reportPath).mtimeMs : completedMs;
     const durationMs = Number.isNaN(completedMs) || Number.isNaN(createdMs) ? null : completedMs - createdMs;
-    const costUsd = typeof metrics.total_cost_usd === 'number' ? metrics.total_cost_usd : null;
 
-    rows.push({ workspace: entry.name, finishedMs, durationMs, costUsd, report: reportPath });
+    rows.push({ workspace: entry.name, finishedMs, durationMs, report: reportPath });
   }
   return rows;
 }
@@ -145,7 +140,6 @@ function toJsonRow(row: ScanRow): JsonRow {
     workspace: row.workspace,
     finishedAt: new Date(row.finishedMs).toISOString(),
     durationMs: row.durationMs,
-    costUsd: row.costUsd,
     reportPath: row.report,
   };
 }
@@ -166,26 +160,23 @@ function printTable(workspacesDir: string, rows: readonly ScanRow[]): void {
   const table = rows.map((row) => ({
     finished: new Date(row.finishedMs).toISOString().slice(0, 10),
     duration: row.durationMs === null ? '—' : formatDuration(row.durationMs),
-    cost: row.costUsd === null ? '—' : `$${row.costUsd.toFixed(2)}`,
     workspace: row.workspace,
     report: row.report,
   }));
 
   const dateWidth = Math.max('FINISHED'.length, 'YYYY-MM-DD'.length);
   const durationWidth = Math.max('DURATION'.length, ...table.map((row) => row.duration.length));
-  const costWidth = Math.max('COST'.length, ...table.map((row) => row.cost.length));
 
   console.log(`\nCompleted scans in ${workspacesDir}:\n`);
-  const header = `${'FINISHED'.padEnd(dateWidth)}  ${'DURATION'.padEnd(durationWidth)}  ${'COST'.padEnd(costWidth)}  WORKSPACE`;
+  const header = `${'FINISHED'.padEnd(dateWidth)}  ${'DURATION'.padEnd(durationWidth)}  WORKSPACE`;
   console.log(paint(header, BOLD, color));
 
   for (const row of table) {
     const finished = row.finished.padEnd(dateWidth);
     const duration = row.duration.padEnd(durationWidth);
-    const cost = row.cost.padEnd(costWidth);
     const name = paint(row.workspace, GOLD, color);
     const workspace = linkable ? hyperlink(name, pathToFileURL(row.report).href) : name;
-    console.log(`${finished}  ${duration}  ${cost}  ${workspace}`);
+    console.log(`${finished}  ${duration}  ${workspace}`);
   }
   console.log('');
 }

@@ -17,7 +17,6 @@ import {
   phaseGlyphState,
   type RunState,
   scanElapsedMs,
-  totalCostUsd,
 } from './derive.js';
 import { PIPELINE, type PipelineState } from './pipeline.js';
 
@@ -65,10 +64,6 @@ function formatDuration(ms: number): string {
   if (hours > 0) return `${hours}h ${minutes}m`;
   if (minutes > 0) return `${minutes}m ${secs}s`;
   return `${secs}s`;
-}
-
-function formatCost(usd: number): string {
-  return `$${usd.toFixed(2)}`;
 }
 
 function truncate(text: string, max: number): string {
@@ -140,15 +135,14 @@ function statusBadge(input: RenderInput, opts: RenderOptions): string {
 
 function agentMeta(
   state: RunState,
-  metrics: { durationMs: number; costUsd: number | null } | undefined,
+  metrics: { durationMs: number } | undefined,
   runner: RunningAgent | undefined,
   error: string | undefined,
   opts: RenderOptions,
 ): string {
   if (state === 'completed') {
-    const cost = metrics?.costUsd != null ? ` · ${formatCost(metrics.costUsd)}` : '';
     const duration = metrics?.durationMs != null ? formatDuration(metrics.durationMs) : 'done';
-    return paint(`${duration}${cost}`, COLORS.dim, opts.color);
+    return paint(duration, COLORS.dim, opts.color);
   }
   if (state === 'running') {
     const parts = ['running'];
@@ -217,12 +211,7 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
 
 function headerLines(input: RenderInput, opts: RenderOptions): string[] {
   const elapsedMs = scanElapsedMs(input, opts.now);
-  const cost = totalCostUsd(input.state);
-  const meta = [
-    statusBadge(input, opts),
-    elapsedMs !== undefined ? formatDuration(elapsedMs) : '—',
-    cost !== undefined ? formatCost(cost) : '$0.00',
-  ].join(' · ');
+  const meta = [statusBadge(input, opts), elapsedMs !== undefined ? formatDuration(elapsedMs) : '—'].join(' · ');
   return [`  ${paint('Scan:', COLORS.bold, opts.color)} ${input.workspace.padEnd(22)} ${meta}`];
 }
 
@@ -231,7 +220,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
 
   if (isTerminal(input.temporalStatus) && input.state?.summary) {
     const wall = formatDuration(input.state.summary.totalDurationMs);
-    return [`  Total cost   ${formatCost(input.state.summary.totalCostUsd)}`, `  Time Taken   ${wall}`];
+    return [`  Time Taken   ${wall}`];
   }
 
   if (isTerminal(input.temporalStatus)) {

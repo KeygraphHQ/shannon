@@ -7,7 +7,7 @@
  */
 
 import type { DerivedPhase } from './derive.js';
-import { derivePipeline, isTerminal, scanElapsedMs, totalCostUsd } from './derive.js';
+import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
 import type { RenderInput } from './render.js';
 
 /** Coarse scan status token, mirroring the human status badge in machine-friendly form. */
@@ -23,8 +23,6 @@ export interface StatusJson {
   readonly temporalStatus: string;
   /** Wall-clock elapsed ms (live for a running scan, final for a closed one), or null when unknown. */
   readonly elapsedMs: number | null;
-  /** Total cost in USD so far, or null when unknown. */
-  readonly costUsd: number | null;
   readonly startedAt?: string;
   readonly endedAt?: string;
   /** Failure text when a failed scan left no readable state. */
@@ -55,7 +53,6 @@ function deriveStatus(input: RenderInput): ScanStatus {
 /** Build the JSON snapshot for a scan at instant `now`. */
 export function toStatusJson(input: RenderInput, now: number): StatusJson {
   const elapsedMs = scanElapsedMs(input, now);
-  const costUsd = totalCostUsd(input.state);
 
   return {
     workspace: input.workspace,
@@ -63,7 +60,6 @@ export function toStatusJson(input: RenderInput, now: number): StatusJson {
     status: deriveStatus(input),
     temporalStatus: input.temporalStatus,
     elapsedMs: elapsedMs ?? null,
-    costUsd: costUsd ?? null,
     ...(input.startedAt !== undefined && { startedAt: new Date(input.startedAt).toISOString() }),
     ...(input.endedAt !== undefined && { endedAt: new Date(input.endedAt).toISOString() }),
     ...(input.failureMessage !== undefined && { failureMessage: input.failureMessage }),

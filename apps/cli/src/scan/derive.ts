@@ -14,13 +14,12 @@ import type { RenderInput } from './render.js';
 export type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
 /** One agent's resolved state plus the raw metrics/timing a consumer needs to present it. Null metrics
- *  mean the value doesn't apply to the current state (e.g. duration/cost only for completed agents). */
+ *  mean the value doesn't apply to the current state (e.g. duration only for completed agents). */
 export interface DerivedAgent {
   readonly name: string;
   readonly label: string;
   readonly state: RunState;
   readonly durationMs: number | null;
-  readonly costUsd: number | null;
   readonly runningElapsedMs: number | null;
   readonly attempt: number | null;
   readonly error?: string;
@@ -82,14 +81,6 @@ export function scanElapsedMs(input: RenderInput, now: number): number | undefin
   return input.startedAt !== undefined ? now - input.startedAt : undefined;
 }
 
-/** Total cost in USD: the summary when present, otherwise the sum of per-agent costs. */
-export function totalCostUsd(state: PipelineState | null): number | undefined {
-  if (state?.summary) return state.summary.totalCostUsd;
-  if (!state) return undefined;
-  const values = Object.values(state.agentMetrics).map((m) => m.costUsd ?? 0);
-  return values.length > 0 ? values.reduce((a, b) => a + b, 0) : undefined;
-}
-
 /** Collapse a phase's agent states into a single state for the phase line. */
 export function phaseGlyphState(states: readonly RunState[]): RunState {
   if (states.some((s) => s === 'running')) return 'running';
@@ -145,7 +136,6 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
         label: a.label,
         state,
         durationMs: state === 'completed' && metrics ? metrics.durationMs : null,
-        costUsd: state === 'completed' ? (metrics?.costUsd ?? null) : null,
         runningElapsedMs: state === 'running' && runner?.startedAt !== undefined ? now - runner.startedAt : null,
         attempt: state === 'running' && runner ? runner.attempt : null,
         ...(error !== undefined && { error }),
