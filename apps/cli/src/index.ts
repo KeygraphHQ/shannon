@@ -19,8 +19,9 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { crash, fail } from './errors.js';
-import { isHelpableCommand, printCommandHelp } from './help.js';
+import { availableCommands, isHelpableCommand, printCommandHelp } from './help.js';
 import { getMode } from './mode.js';
+import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
 
 function blockSudo(): void {
@@ -254,10 +255,16 @@ async function main(): Promise<void> {
     case '-v':
       console.log(getVersionLine());
       break;
-    default:
+    default: {
+      const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
+      const suggestion = closestMatch(command, availableCommands());
       console.error(`Unknown command: ${command}`);
-      showHelp();
+      if (suggestion) {
+        console.error(`Did you mean '${suggestion}'?`);
+      }
+      console.error(`Run '${prefix} help' to see available commands.`);
       process.exit(1);
+    }
   }
 }
 

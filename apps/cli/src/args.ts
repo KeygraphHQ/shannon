@@ -8,6 +8,8 @@
  * unknown flags and stray arguments fail loudly instead of being silently ignored.
  */
 
+import { closestMatch } from './suggest.js';
+
 /** Thrown when argv does not match a command's schema. The dispatcher formats it. */
 export class ArgError extends Error {}
 
@@ -75,7 +77,9 @@ export function parseArgs(argv: readonly string[], schema: ArgSchema): ParsedArg
     }
 
     if (arg.startsWith('-')) {
-      throw new ArgError(`Unknown option: ${arg}`);
+      const suggestion = closestMatch(arg, [...booleanByToken.keys(), ...valueByToken.keys()]);
+      const hint = suggestion ? `\nDid you mean '${suggestion}'?` : '';
+      throw new ArgError(`Unknown option: ${arg}${hint}`);
     }
 
     positionals.push(arg);

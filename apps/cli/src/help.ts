@@ -81,9 +81,27 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
   },
 };
 
+/** Commands that only exist in one mode; everything else is available in both. */
+const MODE_ONLY: Readonly<Record<string, 'local' | 'npx'>> = {
+  build: 'local',
+  setup: 'npx',
+  uninstall: 'npx',
+};
+
 /** Whether a command has its own help page (and so responds to `--help`/`-h`). */
 export function isHelpableCommand(command: string): boolean {
   return command in COMMAND_HELP;
+}
+
+/**
+ * User-facing command names available in the current mode, for "did you mean?"
+ * suggestions. Derived from the same table that backs per-command help, so the
+ * suggestion set can never drift from the commands that actually exist.
+ */
+export function availableCommands(): readonly string[] {
+  const mode = getMode();
+  const commands = Object.keys(COMMAND_HELP).filter((command) => (MODE_ONLY[command] ?? mode) === mode);
+  return [...commands, 'help'];
 }
 
 /** Print the help page for one command. No-op if the command has no page. */
