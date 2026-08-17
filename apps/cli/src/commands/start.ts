@@ -14,7 +14,7 @@ import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } fro
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
-import { commandPrefix, isLocal } from '../mode.js';
+import { isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
 import {
   expandHome,
@@ -25,6 +25,7 @@ import {
   resolveRunFile,
 } from '../paths.js';
 import { displaySplash } from '../splash.js';
+import { stdoutIsTerminal } from '../tty.js';
 
 export interface StartArgs {
   url: string;
@@ -237,17 +238,18 @@ function printPreservedContainerHint(containerName: string): void {
 }
 
 function printInfo(args: StartArgs, workspace: string, repoPath: string, workspacesDir: string): void {
-  const logsCmd = `${commandPrefix()} logs ${workspace}`;
-  const statusCmd = `${commandPrefix()} status ${workspace}`;
-  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
+  const interactive = stdoutIsTerminal();
 
-  console.log('  It runs in the background — you can close this terminal.');
-  console.log('');
+  if (interactive) {
+    console.log('  It runs in the background — you can close this terminal.');
+    console.log('');
+  }
+
   console.log(`  Target:     ${args.url}`);
-  console.log(`  Repository: ${repoPath}`);
+  console.log(`  Repository: ${interactive ? repoPath : path.basename(repoPath)}`);
   console.log(`  Workspace:  ${workspace}`);
   if (args.config) {
-    console.log(`  Config:     ${path.resolve(args.config)}`);
+    console.log(`  Config:     ${interactive ? path.resolve(args.config) : path.basename(args.config)}`);
   }
   if (args.pipelineTesting) {
     console.log('  Mode:       Pipeline Testing');
@@ -258,10 +260,12 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
     console.log(`  Model:      ${spec.providerId}:${spec.modelId}`);
   }
 
-  console.log('');
-  console.log('  Watch scan progress:');
-  console.log(`    Live logs:  ${logsCmd}`);
-  console.log(`    Status:     ${statusCmd}`);
+  if (!interactive) {
+    return;
+  }
+
+  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
+
   console.log('');
   console.log('  Report (when the scan finishes):');
   console.log(`    ${reportPath}`);

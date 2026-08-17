@@ -11,6 +11,7 @@ import { watch } from 'chokidar';
 import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
+import { stdoutIsTerminal } from '../tty.js';
 
 // Match the exact line the worker writes — anchored to prevent false positives from agent output
 const COMPLETION_PATTERN = /^Scan (COMPLETED|FAILED)$/m;
@@ -85,7 +86,7 @@ export function logs(workspaceId: string): void {
     }
   }
 
-  console.error(`Tailing scan log: ${logFile}`);
+  console.error(stdoutIsTerminal() ? `Tailing scan log: ${logFile}` : 'Tailing scan log');
 
   // 1. Output existing content
   if (flush()) {
