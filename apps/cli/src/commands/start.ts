@@ -14,7 +14,7 @@ import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } fro
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
-import { isLocal } from '../mode.js';
+import { commandPrefix, isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
 import {
   expandHome,
@@ -265,7 +265,12 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
   }
 
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
+  const prefix = commandPrefix();
 
+  console.log('');
+  console.log('  Watch scan progress:');
+  console.log(`    Live logs:  ${prefix} logs ${workspace}`);
+  console.log(`    Progress:   ${prefix} status ${workspace}`);
   console.log('');
   console.log('  Report (when the scan finishes):');
   console.log(`    ${reportPath}`);
