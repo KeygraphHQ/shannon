@@ -25,3 +25,19 @@ export async function confirmOrExit(command: string, message: string, yes: boole
     process.exit(0);
   }
 }
+
+/**
+ * Severe-tier confirmation: the user must type `word` exactly to proceed. Unlike
+ * `confirmOrExit` there is no `--yes` bypass. Off a TTY it fails fast; exits 0 if declined.
+ */
+export async function confirmByTyping(command: string, word: string): Promise<void> {
+  requireInteractive(command, `'${command}' cannot be run non-interactively.`);
+  const typed = await p.text({
+    message: `Type ${word} to confirm — this cannot be undone:`,
+    validate: (value) => (value === word ? undefined : `Type ${word} to proceed, or press Ctrl-C to abort.`),
+  });
+  if (p.isCancel(typed) || typed !== word) {
+    p.cancel('Aborted.');
+    process.exit(0);
+  }
+}

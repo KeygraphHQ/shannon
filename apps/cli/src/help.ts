@@ -51,9 +51,8 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     examples: ['stop q1-audit', 'stop --all'],
   },
   reset: {
-    usage: ['reset [--yes]'],
+    usage: ['reset'],
     description: 'Stop everything and permanently remove all Temporal data and volumes.',
-    options: [YES_OPTION],
   },
   logs: {
     usage: ['logs <workspace>'],

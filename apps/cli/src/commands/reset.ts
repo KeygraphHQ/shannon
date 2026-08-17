@@ -4,21 +4,14 @@
  */
 
 import * as p from '@clack/prompts';
-import { confirmOrExit } from '../confirm.js';
+import { confirmByTyping } from '../confirm.js';
 import { ensureDocker, runningContainers, stopContainers, stopInfra, WORKER_FILTER } from '../docker.js';
 
-export interface ResetOptions {
-  yes: boolean;
-}
-
-export async function reset(opts: ResetOptions): Promise<void> {
+export async function reset(): Promise<void> {
   ensureDocker();
 
-  await confirmOrExit(
-    'reset',
-    'This will stop all running scans and permanently remove all Temporal data and volumes. Continue?',
-    opts.yes,
-  );
+  console.log('This will stop all running scans and permanently remove all Temporal data and volumes.');
+  await confirmByTyping('reset', 'confirm');
 
   const spinner = p.spinner();
   spinner.start('Stopping scans');

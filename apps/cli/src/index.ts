@@ -67,7 +67,7 @@ Usage:${
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
   ${prefix} stop <workspace> [--yes]                     Stop one scan
   ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
-  ${prefix} reset [--yes]                                 Stop everything and wipe all Temporal data
+  ${prefix} reset                                        Stop everything and wipe all Temporal data
   ${prefix} logs <workspace>                             Show a scan's live log
   ${prefix} status <workspace> [--json]                  Live phase/agent progress of one scan
   ${prefix} scans [--json]                                List completed scans and their reports${
@@ -200,11 +200,10 @@ async function main(): Promise<void> {
     }
     case 'reset': {
       // reset is all-or-nothing; a stray name likely means the user wanted `stop <name>`.
-      const { flags } = parseArgs(rest, {
-        booleans: { yes: YES_FLAGS },
+      parseArgs(rest, {
         positionalHint: 'reset takes no workspace argument. To stop one scan, use: stop <name>',
       });
-      await reset({ yes: !!flags.yes });
+      await reset();
       break;
     }
     case 'logs': {
