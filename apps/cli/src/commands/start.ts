@@ -14,7 +14,7 @@ import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } fro
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
-import { isLocal } from '../mode.js';
+import { commandPrefix, isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
 import {
   expandHome,
@@ -237,8 +237,8 @@ function printPreservedContainerHint(containerName: string): void {
 }
 
 function printInfo(args: StartArgs, workspace: string, repoPath: string, workspacesDir: string): void {
-  const logsCmd = isLocal() ? `./shannon logs ${workspace}` : `npx @keygraph/shannon logs ${workspace}`;
-  const statusCmd = isLocal() ? `./shannon status ${workspace}` : `npx @keygraph/shannon status ${workspace}`;
+  const logsCmd = `${commandPrefix()} logs ${workspace}`;
+  const statusCmd = `${commandPrefix()} status ${workspace}`;
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
 
   console.log('  It runs in the background — you can close this terminal.');

@@ -18,6 +18,7 @@ import {
   WORKER_FILTER,
 } from '../docker.js';
 import { fail, warn } from '../errors.js';
+import { commandPrefix } from '../mode.js';
 import { resolveWorkflowId } from '../session.js';
 
 export interface StopOptions {
@@ -62,7 +63,7 @@ async function stopSingleScan(workspace: string, yes: boolean): Promise<void> {
   const stillRunning = runningContainers(filter);
   if (stillRunning.length > 0) {
     spinner.error(`Scan ${workspace} may still be running`);
-    console.error(`${stillRunning.length} container(s) did not stop. Retry: ./shannon stop ${workspace}`);
+    console.error(`${stillRunning.length} container(s) did not stop. Retry: ${commandPrefix()} stop ${workspace}`);
     process.exit(1);
   }
 
@@ -96,7 +97,7 @@ async function stopAllScans(yes: boolean): Promise<void> {
   const stillRunning = runningContainers(WORKER_FILTER);
   if (stillRunning.length > 0) {
     spinner.error(`Stopped ${initial.length - stillRunning.length} of ${initial.length} scans`);
-    console.error(`${stillRunning.length} container(s) did not stop. Retry: ./shannon stop --all`);
+    console.error(`${stillRunning.length} container(s) did not stop. Retry: ${commandPrefix()} stop --all`);
     process.exit(1);
   }
 

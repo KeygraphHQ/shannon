@@ -21,7 +21,7 @@ import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
 import { crash, fail } from './errors.js';
 import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
-import { getMode } from './mode.js';
+import { commandPrefix, getMode } from './mode.js';
 import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
 
@@ -53,7 +53,7 @@ function renderStartOptions(): string {
 
 function showHelp(): void {
   const mode = getMode();
-  const prefix = mode === 'local' ? './shannon' : 'npx @keygraph/shannon';
+  const prefix = commandPrefix();
 
   console.log(`
 Shannon - AI Penetration Testing Framework
@@ -131,10 +131,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   const url = values.url ?? '';
   const repo = values.repo ?? '';
   if (!url || !repo) {
-    fail(
-      '--url and --repo are required',
-      `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`,
-    );
+    fail('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
   try {
@@ -214,10 +211,7 @@ async function main(): Promise<void> {
       const { positionals } = parseArgs(rest, { maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
-        fail(
-          'Workspace ID is required',
-          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`,
-        );
+        fail('Workspace ID is required', `Usage: ${commandPrefix()} logs <workspace>`);
       }
       logs(workspaceId);
       break;
@@ -226,10 +220,7 @@ async function main(): Promise<void> {
       const { flags, positionals } = parseArgs(rest, { booleans: { json: ['--json'] }, maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
-        fail(
-          'Workspace is required',
-          `Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} status <workspace> [--json]`,
-        );
+        fail('Workspace is required', `Usage: ${commandPrefix()} status <workspace> [--json]`);
       }
       await status(workspaceId, { json: !!flags.json });
       break;
@@ -271,7 +262,7 @@ async function main(): Promise<void> {
       break;
     }
     default: {
-      const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
+      const prefix = commandPrefix();
       const suggestion = closestMatch(command, availableCommands());
       const hints = [
         ...(suggestion ? [`Did you mean '${suggestion}'?`] : []),
@@ -284,7 +275,7 @@ async function main(): Promise<void> {
 
 main().catch((err) => {
   if (err instanceof ArgError) {
-    fail(err.message, `Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
+    fail(err.message, `Run "${commandPrefix()} help" for usage`);
   }
   crash(err);
 });

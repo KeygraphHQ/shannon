@@ -19,7 +19,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { BOLD, GOLD, paint } from '../colors.js';
 import { getWorkspacesDir } from '../home.js';
-import { getMode } from '../mode.js';
+import { commandPrefix } from '../mode.js';
 import { FINAL_REPORT_PDF_FILENAME, INTERNAL_DIR, resolveRunFile } from '../paths.js';
 import { stdoutIsTerminal, supportsColor } from '../tty.js';
 
@@ -147,7 +147,7 @@ function toJsonRow(row: ScanRow): JsonRow {
 /** Print the completed scans as an aligned table with the workspace name linked to its report. */
 function printTable(workspacesDir: string, rows: readonly ScanRow[]): void {
   if (rows.length === 0) {
-    const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
+    const prefix = commandPrefix();
     console.log(`No completed scans yet. Run '${prefix} start -u <url> -r <path>' to begin.`);
     return;
   }

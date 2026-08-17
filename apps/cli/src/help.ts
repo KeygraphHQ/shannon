@@ -6,7 +6,7 @@
  * flags without scanning the global help. The global help lives in index.ts.
  */
 
-import { getMode } from './mode.js';
+import { commandPrefix, getMode } from './mode.js';
 
 interface CommandHelp {
   readonly usage: readonly string[];
@@ -123,7 +123,7 @@ export function printCommandHelp(command: string): void {
   const help = COMMAND_HELP[command];
   if (!help) return;
 
-  const prefix = getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
+  const prefix = commandPrefix();
   const baseOptions = command === 'start' ? START_OPTIONS : (help.options ?? []);
   const options = [...baseOptions, HELP_OPTION];
   const flagWidth = Math.max(...options.map(([flag]) => flag.length));

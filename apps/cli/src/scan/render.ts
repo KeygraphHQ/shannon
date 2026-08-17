@@ -8,16 +8,9 @@
  */
 
 import { BOLD, DIM, GOLD, paint, RED, YELLOW } from '../colors.js';
-import { isLocal } from '../mode.js';
+import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
-import {
-  agentError,
-  deriveAgentStates,
-  isTerminal,
-  phaseGlyphState,
-  type RunState,
-  scanElapsedMs,
-} from './derive.js';
+import { agentError, deriveAgentStates, isTerminal, phaseGlyphState, type RunState, scanElapsedMs } from './derive.js';
 import { PIPELINE, type PipelineState } from './pipeline.js';
 
 export interface RenderInput {
@@ -69,10 +62,6 @@ function formatDuration(ms: number): string {
 function truncate(text: string, max: number): string {
   const flat = text.replace(/\s+/g, ' ').trim();
   return flat.length <= max ? flat : `${flat.slice(0, max - 1)}…`;
-}
-
-function commandPrefix(): string {
-  return isLocal() ? './shannon' : 'npx @keygraph/shannon';
 }
 
 /** Temporal Web UI, published by compose on 8233; deep-links to the workflow when its id is known. */
