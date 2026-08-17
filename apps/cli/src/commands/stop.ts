@@ -17,7 +17,7 @@ import {
   terminateWorkflow,
   WORKER_FILTER,
 } from '../docker.js';
-import { fail, warn } from '../errors.js';
+import { fail, failUsage, warn } from '../errors.js';
 import { commandPrefix } from '../mode.js';
 import { resolveWorkflowId } from '../session.js';
 
@@ -113,10 +113,10 @@ export async function stop(opts: StopOptions): Promise<void> {
 
   // Validate the target: exactly one of <workspace> or --all.
   if (opts.all && opts.workspace) {
-    fail('Pass a workspace name or --all, not both.');
+    failUsage('Pass a workspace name or --all, not both.');
   }
   if (!opts.all && !opts.workspace) {
-    fail('Specify which scan to stop: `stop <workspace>`, or `stop --all` to stop every scan.');
+    failUsage('Specify which scan to stop: `stop <workspace>`, or `stop --all` to stop every scan.');
   }
 
   if (opts.workspace) {

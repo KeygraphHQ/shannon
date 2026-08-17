@@ -3,6 +3,9 @@
  *
  * `fail` — an expected, user-fixable error (bad input, missing prerequisite):
  * a clean message on stderr and a non-zero exit, never a stack trace.
+ * `failUsage` — a malformed invocation (unknown command, bad or missing
+ * arguments): the same clean message, but a distinct exit code so callers can
+ * tell a usage mistake from an operational failure.
  * `crash` — an unexpected error (a bug): a brief message, the full stack written
  * to a log file for a bug report, and a pointer to the issue tracker.
  */
@@ -20,6 +23,15 @@ export function fail(message: string, ...hints: string[]): never {
     console.error(hint);
   }
   process.exit(1);
+}
+
+/** Report a usage/argument error (with optional extra lines) and exit 2. */
+export function failUsage(message: string, ...hints: string[]): never {
+  console.error(`ERROR: ${message}`);
+  for (const hint of hints) {
+    console.error(hint);
+  }
+  process.exit(2);
 }
 
 /** Report a non-fatal warning on stderr (with optional extra lines) without exiting. */

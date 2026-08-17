@@ -19,7 +19,7 @@ import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { uninstall } from './commands/uninstall.js';
-import { crash, fail } from './errors.js';
+import { crash, fail, failUsage } from './errors.js';
 import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
 import { commandPrefix, getMode } from './mode.js';
 import { closestMatch } from './suggest.js';
@@ -131,13 +131,13 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   const url = values.url ?? '';
   const repo = values.repo ?? '';
   if (!url || !repo) {
-    fail('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
+    failUsage('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
   try {
     new URL(url);
   } catch {
-    fail(`invalid --url: ${url}`);
+    failUsage(`invalid --url: ${url}`);
   }
 
   return {
@@ -210,7 +210,7 @@ async function main(): Promise<void> {
       const { positionals } = parseArgs(rest, { maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
-        fail('Workspace ID is required', `Usage: ${commandPrefix()} logs <workspace>`);
+        failUsage('Workspace ID is required', `Usage: ${commandPrefix()} logs <workspace>`);
       }
       logs(workspaceId);
       break;
@@ -219,7 +219,7 @@ async function main(): Promise<void> {
       const { flags, positionals } = parseArgs(rest, { booleans: { json: ['--json'] }, maxPositionals: 1 });
       const workspaceId = positionals[0];
       if (!workspaceId) {
-        fail('Workspace is required', `Usage: ${commandPrefix()} status <workspace> [--json]`);
+        failUsage('Workspace is required', `Usage: ${commandPrefix()} status <workspace> [--json]`);
       }
       await status(workspaceId, { json: !!flags.json });
       break;
@@ -267,14 +267,14 @@ async function main(): Promise<void> {
         ...(suggestion ? [`Did you mean '${suggestion}'?`] : []),
         `Run '${prefix} help' to see available commands.`,
       ];
-      fail(`Unknown command: ${command}`, ...hints);
+      failUsage(`Unknown command: ${command}`, ...hints);
     }
   }
 }
 
 main().catch((err) => {
   if (err instanceof ArgError) {
-    fail(err.message, `Run "${commandPrefix()} help" for usage`);
+    failUsage(err.message, `Run "${commandPrefix()} help" for usage`);
   }
   crash(err);
 });
