@@ -18,7 +18,6 @@ import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
-import { uninstall } from './commands/uninstall.js';
 import { crash, fail, failUsage } from './errors.js';
 import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
 import { commandPrefix, getMode } from './mode.js';
@@ -74,8 +73,7 @@ Usage:${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
-      : `
-  ${prefix} uninstall [--yes]                            Remove ~/.shannon/ and all data`
+      : ''
   }
   ${prefix} version [--json]                             Show version
   ${prefix} help                                         Show this help
@@ -242,14 +240,6 @@ async function main(): Promise<void> {
     case 'build': {
       const { flags } = parseArgs(rest, { booleans: { noCache: ['--no-cache'] } });
       build(!!flags.noCache, getVersion());
-      break;
-    }
-    case 'uninstall': {
-      if (getMode() === 'local') {
-        fail('uninstall is only available in npx mode.');
-      }
-      const { flags } = parseArgs(rest, { booleans: { yes: YES_FLAGS } });
-      await uninstall(!!flags.yes);
       break;
     }
     case 'version':

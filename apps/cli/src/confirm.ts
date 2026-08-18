@@ -1,9 +1,9 @@
 /**
  * Shared confirmation prompt for destructive or batch commands.
  *
- * `stop`, `reset`, and `uninstall` all gate their action behind the same
- * "confirm unless --yes" flow. Centralizing it here keeps the behavior identical
- * across commands and impossible to change in only one place by accident.
+ * `stop` and `reset` gate their action behind the same "confirm unless --yes"
+ * flow. Centralizing it here keeps the behavior identical across commands and
+ * impossible to change in only one place by accident.
  */
 
 import * as p from '@clack/prompts';

@@ -74,7 +74,6 @@ npx @keygraph/shannon setup
 
 # Image management
 ./shannon build [--no-cache]          # Local mode: build worker image
-npx @keygraph/shannon uninstall             # npx mode: remove ~/.shannon/ (confirms first; --yes/-y to skip)
 
 # Build TypeScript (development)
 pnpm run build                       # Build all packages via Turborepo
@@ -85,7 +84,7 @@ pnpm biome:fix                       # Auto-fix lint, format, and import sorting
 
 **Monorepo tooling:** pnpm workspaces, Turborepo for task orchestration, Biome for linting/formatting. TypeScript compiler options shared via `tsconfig.base.json` at the root. All packages extend it, overriding only `rootDir` and `outDir`. Shared devDependencies (`typescript`, `@types/node`, `turbo`, `@biomejs/biome`) are hoisted to the root workspace.
 
-**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--keep-container` (preserve worker container after exit for log inspection), `--yes`/`-y` (skip the confirmation prompt on `stop`/`reset`/`uninstall`; required for non-interactive use)
+**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--keep-container` (preserve worker container after exit for log inspection), `--yes`/`-y` (skip the confirmation prompt on `stop`/`reset`; required for non-interactive use)
 
 ## Architecture
 
@@ -99,7 +98,7 @@ apps/worker/     — @shannon/worker (private, Temporal worker + pipeline logic)
 ### CLI Package (`apps/cli/`)
 Published as `@keygraph/shannon` on npm. Contains Docker orchestration logic plus a read-only `@temporalio/client` reader (for `status`); no worker/pipeline business logic or prompts. Bundled with tsdown for single-file ESM output (deps stay external).
 
-- `apps/cli/src/index.ts` — CLI dispatcher (`setup`, `start`, `stop`, `reset`, `logs`, `status`, `build`, `uninstall`, `version`)
+- `apps/cli/src/index.ts` — CLI dispatcher (`setup`, `start`, `stop`, `reset`, `logs`, `status`, `build`, `version`)
 - `apps/cli/src/temporal-client.ts` — `@temporalio/client` reader for `status`: connects to the frontend on `127.0.0.1:7233` (published by compose), `describeScan` (status + `pendingActivities` → running agents), `queryProgress` (live `getProgress` query → `PipelineState`), `getTerminalOutcome` (workflow `result()`). No worker of its own; scans are visible only within Temporal's ~24h retention (namespace default, unset in compose)
 - `apps/cli/src/scan/` — `status` rendering: `pipeline.ts` (static phase/agent plan + `run*Agent` activity-type→agent map + mirrored `PipelineState`/`AgentMetrics` types; keep in sync with the worker), `render.ts` (one renderer for both the live query state and the terminal result)
 - `apps/cli/src/mode.ts` — Auto-detection: local mode if `SHANNON_LOCAL=1` env var is set

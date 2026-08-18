@@ -83,11 +83,6 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     usage: ['setup'],
     description: 'Configure provider credentials interactively (npx mode only).',
   },
-  uninstall: {
-    usage: ['uninstall [--yes]'],
-    description: 'Remove ~/.shannon/ and all data (npx mode only).',
-    options: [YES_OPTION],
-  },
   version: {
     usage: ['version [--json]'],
     description: 'Show the version. With --json, prints the version and mode as a machine-readable object.',
@@ -100,7 +95,6 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
 const MODE_ONLY: Readonly<Record<string, 'local' | 'npx'>> = {
   build: 'local',
   setup: 'npx',
-  uninstall: 'npx',
 };
 
 /** Whether a command has its own help page (and so responds to `--help`/`-h`). */
