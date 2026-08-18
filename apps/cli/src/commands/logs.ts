@@ -8,8 +8,10 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { watch } from 'chokidar';
+import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
+import { stdoutIsTerminal } from '../tty.js';
 
 // Match the exact line the worker writes — anchored to prevent false positives from agent output
 const COMPLETION_PATTERN = /^Scan (COMPLETED|FAILED)$/m;
@@ -28,7 +30,7 @@ function readRange(filePath: string, start: number, end: number): string {
 }
 
 /** Resolve a workspace ID to its workflow.log path, or exit with an error. */
-function resolveLogFile(workspaceId: string): string {
+export function resolveLogFile(workspaceId: string): string {
   const workspacesDir = getWorkspacesDir();
 
   // 1. Direct match
@@ -49,59 +51,71 @@ function resolveLogFile(workspaceId: string): string {
     if (fs.existsSync(namedPath)) return namedPath;
   }
 
-  console.error(`ERROR: No scan found named: ${workspaceId}`);
-  console.error('');
-  console.error('Possible causes:');
-  console.error("  - The scan hasn't started yet");
-  console.error('  - The workspace name is incorrect');
-  console.error('');
-  console.error('Check the dashboard at http://localhost:8233 for scan details');
-  process.exit(1);
+  fail(
+    `No scan found named: ${workspaceId}`,
+    '',
+    'Possible causes:',
+    "  - The scan hasn't started yet",
+    '  - The workspace name is incorrect',
+    '',
+    'Check the dashboard at http://localhost:8233 for scan details',
+  );
+}
+
+/**
+ * Tail a scan's log until it reports completion, resolving when the completion marker appears
+ * (or the file is gone, or Ctrl-C stops it). Never exits the process, so the caller decides what
+ * happens next: plain `logs` exits 0; `start --follow` reads the workflow outcome first.
+ */
+export function tailUntilComplete(logFile: string): Promise<void> {
+  return new Promise((resolve) => {
+    let position = 0;
+
+    /**
+     * Output any new content appended since the last read.
+     * Returns true when the workflow completion marker is detected.
+     */
+    function flush(): boolean {
+      try {
+        const { size } = fs.statSync(logFile);
+        if (size <= position) return false;
+
+        const data = readRange(logFile, position, size);
+        process.stdout.write(data);
+        position = size;
+
+        return COMPLETION_PATTERN.test(data);
+      } catch {
+        // File deleted or unreadable — treat as done
+        return true;
+      }
+    }
+
+    // 1. Output existing content
+    if (flush()) {
+      resolve();
+      return;
+    }
+
+    // 2. Watch for appended content via chokidar
+    const watcher = watch(logFile, { persistent: true });
+
+    const stop = (): void => {
+      watcher.close().finally(() => resolve());
+      // Safety net — resolve anyway if watcher.close() stalls
+      setTimeout(() => resolve(), 1000).unref();
+    };
+
+    watcher.on('change', () => {
+      if (flush()) stop();
+    });
+
+    process.on('SIGINT', stop);
+  });
 }
 
 export function logs(workspaceId: string): void {
   const logFile = resolveLogFile(workspaceId);
-  let position = 0;
-
-  /**
-   * Output any new content appended since the last read.
-   * Returns true when the workflow completion marker is detected.
-   */
-  function flush(): boolean {
-    try {
-      const { size } = fs.statSync(logFile);
-      if (size <= position) return false;
-
-      const data = readRange(logFile, position, size);
-      process.stdout.write(data);
-      position = size;
-
-      return COMPLETION_PATTERN.test(data);
-    } catch {
-      // File deleted or unreadable — treat as done
-      return true;
-    }
-  }
-
-  console.log(`Tailing scan log: ${logFile}`);
-
-  // 1. Output existing content
-  if (flush()) {
-    process.exit(0);
-  }
-
-  // 2. Watch for appended content via chokidar
-  const watcher = watch(logFile, { persistent: true });
-
-  const shutdown = (): void => {
-    watcher.close().finally(() => process.exit(0));
-    // Safety net — force exit if watcher.close() stalls
-    setTimeout(() => process.exit(0), 1000).unref();
-  };
-
-  watcher.on('change', () => {
-    if (flush()) shutdown();
-  });
-
-  process.on('SIGINT', shutdown);
+  console.error(stdoutIsTerminal() ? `Tailing scan log: ${logFile}` : 'Tailing scan log');
+  tailUntilComplete(logFile).finally(() => process.exit(0));
 }

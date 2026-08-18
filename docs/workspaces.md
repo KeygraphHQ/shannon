@@ -11,7 +11,7 @@ Shannon uses workspaces to store scan state, logs, prompts, and deliverables. Wo
 - Use `-w <name>` to give a run a custom name.
 - To resume a run, pass the same workspace name with `-w`.
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
-- The final report is surfaced at the workspace root as `Security-Assessment-Report.pdf`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
+- The final report is surfaced at the workspace root as `Security-Assessment-Report.pdf` and `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]
 > The URL must match the original workspace URL when resuming. Shannon rejects mismatched URLs to prevent cross-target contamination.
@@ -36,10 +36,10 @@ Resume an auto-named workspace:
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
 ```
 
-List all workspaces:
+List completed scans:
 
 ```bash
-npx @keygraph/shannon workspaces
+npx @keygraph/shannon scans
 ```
 
 Source-build equivalents:
@@ -47,5 +47,5 @@ Source-build equivalents:
 ```bash
 ./shannon start -u https://example.com -r /path/to/repo -w my-audit
 ./shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
-./shannon workspaces
+./shannon scans
 ```

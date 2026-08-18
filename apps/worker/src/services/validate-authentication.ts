@@ -23,6 +23,7 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
+import type { AgentMetrics } from '../types/metrics.js';
 import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
 import { loadPrompt } from './prompt-manager.js';
@@ -97,7 +98,9 @@ export interface ValidateAuthInput {
   readonly cancellationSignal?: AbortSignal;
 }
 
-export async function validateAuthentication(input: ValidateAuthInput): Promise<Result<void, PentestError>> {
+export async function validateAuthentication(
+  input: ValidateAuthInput,
+): Promise<Result<AgentMetrics | null, PentestError>> {
   const {
     distributedConfig,
     repoPath,
@@ -113,7 +116,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
 
   const authentication = distributedConfig.authentication;
   if (!authentication) {
-    return ok(undefined);
+    return ok(null);
   }
 
   logger.info('Validating authentication credentials with live browser...', {
@@ -160,9 +163,10 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     }
   }
 
+  const durationMs = Date.now() - startTime;
   const endResult: AgentEndResult = {
     attemptNumber,
-    duration_ms: Date.now() - startTime,
+    duration_ms: durationMs,
     cost_usd: result.cost || 0,
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
@@ -170,7 +174,21 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
   };
   await auditSession.endAgent(AGENT_NAME, endResult);
 
-  return classification;
+  if (!classification.ok) {
+    return err(classification.error);
+  }
+
+  const metrics: AgentMetrics = {
+    durationMs,
+    inputTokens: result.inputTokens ?? null,
+    outputTokens: result.outputTokens ?? null,
+    cacheReadTokens: result.cacheReadTokens ?? null,
+    cacheWriteTokens: result.cacheWriteTokens ?? null,
+    costUsd: result.cost ?? null,
+    numTurns: result.turns ?? null,
+    ...(result.model !== undefined && { model: result.model }),
+  };
+  return ok(metrics);
 }
 
 async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
@@ -205,28 +223,32 @@ async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): 
     );
   }
 
-  const cookieCount = countStorageEntries(parsed, 'cookies');
-  const originCount = countStorageEntries(parsed, 'origins');
-  if (cookieCount === 0 && originCount === 0) {
+  const cookies = storageEntries(parsed, 'cookies');
+  const origins = storageEntries(parsed, 'origins');
+  if (!cookies || !origins) {
     return err(
       new PentestError(
-        `Preflight saved an authenticated session to ${stateFile}, but it contains no cookies or origins — the browser was not actually logged in.`,
+        `Preflight saved an authenticated session to ${stateFile}, but it is not a storage state — cookies and origins arrays are missing.`,
         'validation',
         true,
-        { stateFile, cookieCount, originCount },
+        { stateFile, hasCookies: !!cookies, hasOrigins: !!origins },
         ErrorCode.AGENT_EXECUTION_FAILED,
       ),
     );
   }
 
-  logger.info('Preflight authenticated session saved', { stateFile, cookieCount, originCount });
+  logger.info('Preflight authenticated session saved', {
+    stateFile,
+    cookieCount: cookies.length,
+    originCount: origins.length,
+  });
   return ok(undefined);
 }
 
-function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): number {
-  if (typeof parsed !== 'object' || parsed === null) return 0;
+function storageEntries(parsed: unknown, key: 'cookies' | 'origins'): unknown[] | null {
+  if (typeof parsed !== 'object' || parsed === null) return null;
   const value = (parsed as Record<string, unknown>)[key];
-  return Array.isArray(value) ? value.length : 0;
+  return Array.isArray(value) ? value : null;
 }
 
 function classifyResult(

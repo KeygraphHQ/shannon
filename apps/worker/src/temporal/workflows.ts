@@ -24,6 +24,7 @@
  */
 
 import {
+  ActivityCancellationType,
   ApplicationFailure,
   CancellationScope,
   isCancellation,
@@ -96,6 +97,8 @@ const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
   heartbeatTimeout: '60 minutes', // Extended for nested pi task execution
   retry: PRODUCTION_RETRY,
+  // Cancel promptly instead of waiting out startToCloseTimeout; the agent aborts on the signal.
+  cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
 
 // Activity proxy with testing retry configuration (fast)
@@ -103,6 +106,7 @@ const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
   heartbeatTimeout: '30 minutes', // Extended for sub-agent execution in testing
   retry: TESTING_RETRY,
+  cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
 
 // Retry configuration for preflight validation (short timeout, few retries)
@@ -119,6 +123,7 @@ const preflightActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 minutes',
   heartbeatTimeout: '2 minutes',
   retry: PREFLIGHT_RETRY,
+  cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
 
 // Credential rejection is not retryable; transient provider errors get 3 attempts.
@@ -135,6 +140,7 @@ const authValidationActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '10 minutes',
   heartbeatTimeout: '10 minutes',
   retry: AUTH_VALIDATION_RETRY,
+  cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
 
 /**
@@ -246,6 +252,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   let resumeState: ResumeState | null = null;
 
   if (input.resumeFromWorkspace) {
+    // 0. Register the resume's workflow id in session.json before validation can fail, so the CLI
+    // can resolve and follow it instead of polling for an entry that never lands.
+    await a.registerResumeAttempt(activityInput, input.terminatedWorkflows || []);
+
     // 1. Load resume state (validates workspace, cross-checks deliverables)
     resumeState = await a.loadResumeState(
       input.resumeFromWorkspace,
@@ -277,10 +287,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       return state;
     }
 
-    // 4. Record this resume attempt in session.json and workflow.log
+    // 4. Write the resume header to workflow.log (the session.json entry was recorded in step 0)
     await a.recordResumeAttempt(
       activityInput,
-      input.terminatedWorkflows || [],
       resumeState.checkpointHash,
       resumeState.originalWorkflowId,
       resumeState.completedAgents,
@@ -480,7 +489,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // === Authentication Validation ===
     state.currentPhase = 'auth-validation';
     state.currentAgent = 'validate-authentication';
-    await authValidationActs.runAuthenticationValidation(activityInput);
+    const authMetrics = await authValidationActs.runAuthenticationValidation(activityInput);
+    // Null when no login ran (no-auth scan); left absent so status renders it skipped, not completed.
+    if (authMetrics) {
+      state.agentMetrics['validate-authentication'] = authMetrics;
+    }
     state.currentAgent = null;
     log.info('Authentication validation passed');
 

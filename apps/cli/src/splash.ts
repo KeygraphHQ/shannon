@@ -5,50 +5,73 @@
 
 import { supportsColor } from './tty.js';
 
+/** SHANNON wordmark. Block glyphs take the row fill; box-drawing strokes take the deeper edge shade. */
+const SHANNON = [
+  '███████╗██╗  ██╗ █████╗ ███╗   ██╗███╗   ██╗ ██████╗ ███╗   ██╗',
+  '██╔════╝██║  ██║██╔══██╗████╗  ██║████╗  ██║██╔═══██╗████╗  ██║',
+  '███████╗███████║███████║██╔██╗ ██║██╔██╗ ██║██║   ██║██╔██╗ ██║',
+  '╚════██║██╔══██║██╔══██║██║╚██╗██║██║╚██╗██║██║   ██║██║╚██╗██║',
+  '███████║██║  ██║██║  ██║██║ ╚████║██║ ╚████║╚██████╔╝██║ ╚████║',
+  '╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝  ╚═══╝╚═╝  ╚═══╝ ╚═════╝ ╚═╝  ╚═══╝',
+];
+
+/**
+ * Sunset ramp, yellow at the top row down to burnt orange at the base.
+ * Wordmark row i is filled with stop i and edged with stop i + 1, so the
+ * box-drawing strokes read as a shadow one shade deeper than their row.
+ * `xterm` is the 256-color approximation for terminals without 24-bit color.
+ */
+const SUNSET: ReadonlyArray<{ rgb: readonly [number, number, number]; xterm: number }> = [
+  { rgb: [247, 203, 45], xterm: 220 },
+  { rgb: [246, 182, 38], xterm: 220 },
+  { rgb: [245, 160, 32], xterm: 214 },
+  { rgb: [242, 141, 28], xterm: 214 },
+  { rgb: [238, 121, 24], xterm: 208 },
+  { rgb: [231, 100, 21], xterm: 208 },
+  { rgb: [222, 82, 19], xterm: 202 },
+];
+
 export function displaySplash(version?: string): void {
   const color = supportsColor();
-  const GOLD = color ? '\x1b[38;2;244;197;66m' : '';
-  const CYAN = color ? '\x1b[36;1m' : '';
-  const WHITE = color ? '\x1b[1;37m' : '';
-  const GRAY = color ? '\x1b[0;37m' : '';
-  const YELLOW = color ? '\x1b[1;33m' : '';
+  const truecolor = color && /truecolor|24bit/i.test(process.env.COLORTERM ?? '');
   const RESET = color ? '\x1b[0m' : '';
+  const WHITE = color ? '\x1b[1;97m' : '';
+  const GRAY = color ? '\x1b[0;37m' : '';
+  const DIM = color ? '\x1b[90m' : '';
 
-  const B = `${CYAN}\u2551${RESET}`;
-  const S67 = ' '.repeat(67);
-  const HR = '\u2550'.repeat(67);
+  const ramp = SUNSET.map(({ rgb: [r, g, b], xterm }) => {
+    if (!color) return '';
+    return truecolor ? `\x1b[38;2;${r};${g};${b}m` : `\x1b[38;5;${xterm}m`;
+  });
+
+  /** Color one wordmark row, emitting an escape only where the run changes. Spaces stay unpainted. */
+  const paint = (row: string, fill: string, edge: string): string => {
+    if (!color) return row;
+    let out = '';
+    let open = '';
+    for (const ch of row) {
+      const want = ch === ' ' ? '' : ch === '█' ? fill : edge;
+      if (want !== open) {
+        if (open) out += RESET;
+        out += want;
+        open = want;
+      }
+      out += ch;
+    }
+    return open ? out + RESET : out;
+  };
 
   const lines = [
     '',
-    `  ${CYAN}\u2554${HR}\u2557${RESET}`,
-    `  ${B}${S67}${B}`,
-    `  ${B}  ${GOLD}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2557  \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2557   \u2588\u2588\u2557\u2588\u2588\u2588\u2557   \u2588\u2588\u2557 \u2588\u2588\u2588\u2588\u2588\u2588\u2557 \u2588\u2588\u2588\u2557   \u2588\u2588\u2557${RESET}  ${B}`,
-    `  ${B}  ${GOLD}\u2588\u2588\u2554\u2550\u2550\u2550\u2550\u255D\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2550\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2557  \u2588\u2588\u2551${RESET}  ${B}`,
-    `  ${B}  ${GOLD}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2557\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2554\u2588\u2588\u2557 \u2588\u2588\u2551${RESET}  ${B}`,
-    `  ${B}  ${GOLD}\u255A\u2550\u2550\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2554\u2550\u2550\u2588\u2588\u2551\u2588\u2588\u2551\u255A\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2551\u255A\u2588\u2588\u2557\u2588\u2588\u2551\u2588\u2588\u2551   \u2588\u2588\u2551\u2588\u2588\u2551\u255A\u2588\u2588\u2557\u2588\u2588\u2551${RESET}  ${B}`,
-    `  ${B}  ${GOLD}\u2588\u2588\u2588\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551  \u2588\u2588\u2551\u2588\u2588\u2551 \u255A\u2588\u2588\u2588\u2588\u2551\u2588\u2588\u2551 \u255A\u2588\u2588\u2588\u2588\u2551\u255A\u2588\u2588\u2588\u2588\u2588\u2588\u2554\u255D\u2588\u2588\u2551 \u255A\u2588\u2588\u2588\u2588\u2551${RESET}  ${B}`,
-    `  ${B}  ${GOLD}\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u2550\u2550\u255D\u255A\u2550\u255D  \u255A\u2550\u2550\u2550\u255D \u255A\u2550\u2550\u2550\u2550\u2550\u255D \u255A\u2550\u255D  \u255A\u2550\u2550\u2550\u255D${RESET}  ${B}`,
-    `  ${B}${S67}${B}`,
-    `  ${B}              ${CYAN}\u2554\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2557${RESET}               ${B}`,
-    `  ${B}              ${CYAN}\u2551${RESET}  ${WHITE}AI Penetration Testing Framework${RESET}  ${CYAN}\u2551${RESET}               ${B}`,
-    `  ${B}              ${CYAN}\u255A\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u255D${RESET}               ${B}`,
-    `  ${B}${S67}${B}`,
-  ];
-
-  if (version) {
-    const verStr = `v${version}`;
-    const verPadLeft = Math.floor((67 - verStr.length) / 2);
-    const verPadRight = 67 - verStr.length - verPadLeft;
-    lines.push(`  ${B}${' '.repeat(verPadLeft)}${GRAY}${verStr}${RESET}${' '.repeat(verPadRight)}${B}`);
-  }
-
-  lines.push(
-    `  ${B}${S67}${B}`,
-    `  ${B}                    ${YELLOW}\uD83D\uDD10 DEFENSIVE SECURITY ONLY \uD83D\uDD10${RESET}                  ${B}`,
-    `  ${B}${S67}${B}`,
-    `  ${CYAN}\u255A${HR}\u255D${RESET}`,
+    `  ${WHITE}Keygraph${RESET}${version ? `  ${DIM}v${version}${RESET}` : ''}`,
     '',
-  );
+    ...SHANNON.map((row, i) => `  ${paint(row, ramp[i] ?? '', ramp[i + 1] ?? '')}`),
+    '',
+    `  ${WHITE}AI Pentester for Web Apps and APIs${RESET}`,
+    '',
+    `  ${GRAY}-Authorized Security Testing Only-${RESET}`,
+    '',
+  ];
 
   console.log(lines.join('\n'));
 }

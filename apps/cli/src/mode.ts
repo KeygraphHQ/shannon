@@ -24,6 +24,11 @@ export function isLocal(): boolean {
   return getMode() === 'local';
 }
 
+/** The invocation prefix for the current mode, so help and hints point at a runnable command. */
+export function commandPrefix(): string {
+  return getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon';
+}
+
 export function isDevMode(): boolean {
   return process.env.SHANNON_DEV === '1';
 }

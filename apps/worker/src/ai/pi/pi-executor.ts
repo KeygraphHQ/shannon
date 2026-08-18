@@ -290,6 +290,14 @@ export async function runPiPrompt(
   // Declared out here so the catch can bill spend accrued before a failure.
   let session: AgentSession | undefined;
 
+  // Abort the in-flight agent when the Temporal activity is cancelled (UI/CLI cancel).
+  // Without this the top-level session runs to startToCloseTimeout despite the cancel.
+  const onCancellation = (): void => {
+    void session?.abort().catch(() => {
+      // Best-effort — the session is torn down regardless once the prompt unwinds.
+    });
+  };
+
   progress.start();
 
   try {
@@ -306,6 +314,13 @@ export async function runPiPrompt(
       settingsManager: SettingsManager.inMemory({ retry: PI_RETRY_SETTINGS, compaction: { enabled: true } }),
       resourceLoader,
     }));
+
+    // Wire activity cancellation to the session now that it exists.
+    if (cancellationSignal?.aborted) {
+      onCancellation();
+    } else {
+      cancellationSignal?.addEventListener('abort', onCancellation, { once: true });
+    }
 
     // 5. Map pi events to audit logging + progress + error capture.
     session.subscribe((event: AgentSessionEvent) => {
@@ -414,5 +429,7 @@ export async function runPiPrompt(
       cacheWriteTokens: usage.cacheWriteTokens,
       retryable: isRetryableFailure(err),
     };
+  } finally {
+    cancellationSignal?.removeEventListener('abort', onCancellation);
   }
 }

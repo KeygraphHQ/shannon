@@ -9,15 +9,19 @@
  * in the current working directory.
  */
 
+import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
+import { reset } from './commands/reset.js';
+import { scans } from './commands/scans.js';
 import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
-import { uninstall } from './commands/uninstall.js';
-import { workspaces } from './commands/workspaces.js';
-import { getMode } from './mode.js';
+import { crash, fail, failUsage } from './errors.js';
+import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
+import { commandPrefix, getMode } from './mode.js';
+import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
 
 function blockSudo(): void {
@@ -25,23 +29,30 @@ function blockSudo(): void {
   const isRoot = process.geteuid?.() === 0;
   if (!isSudo && !isRoot) return;
 
+  const linuxHints =
+    process.platform === 'linux'
+      ? ['Configure Docker to run without sudo first:', 'https://docs.docker.com/engine/install/linux-postinstall']
+      : [];
+
   if (isSudo) {
-    console.error('ERROR: Shannon must not be run with sudo.');
-    console.error('Re-run this command as your normal user.');
-  } else {
-    console.error('ERROR: Shannon must not be run as the root user.');
-    console.error('Switch to a regular user account and re-run this command.');
+    fail('Shannon must not be run with sudo.', 'Re-run this command as your normal user.', ...linuxHints);
   }
-  if (process.platform === 'linux') {
-    console.error('Configure Docker to run without sudo first:');
-    console.error('https://docs.docker.com/engine/install/linux-postinstall');
-  }
-  process.exit(1);
+  fail(
+    'Shannon must not be run as the root user.',
+    'Switch to a regular user account and re-run this command.',
+    ...linuxHints,
+  );
+}
+
+/** Render `start`'s flags for the global help, from the same source as `start --help`. */
+function renderStartOptions(): string {
+  const flagWidth = Math.max(...START_OPTIONS.map(([flag]) => flag.length));
+  return START_OPTIONS.map(([flag, desc]) => `  ${flag.padEnd(flagWidth)}  ${desc}`).join('\n');
 }
 
 function showHelp(): void {
   const mode = getMode();
-  const prefix = mode === 'local' ? './shannon' : 'npx @keygraph/shannon';
+  const prefix = commandPrefix();
 
   console.log(`
 Shannon - AI Penetration Testing Framework
@@ -53,33 +64,31 @@ Usage:${
   ${prefix} setup                                       Configure credentials`
   }
   ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop [--clean] [--yes]                       Stop all running scans
-  ${prefix} workspaces                                   List all workspaces
+  ${prefix} stop <workspace> [--yes]                     Stop one scan
+  ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
+  ${prefix} reset                                        Stop everything and wipe all Temporal data
   ${prefix} logs <workspace>                             Show a scan's live log
-  ${prefix} status                                       Show running scans${
+  ${prefix} status <workspace> [--json]                  Live phase/agent progress of one scan
+  ${prefix} scans [--json]                                List completed scans and their reports${
     mode === 'local'
       ? `
   ${prefix} build [--no-cache]                           Build worker image`
-      : `
-  ${prefix} uninstall [--yes]                            Remove ~/.shannon/ and all data`
+      : ''
   }
-  ${prefix} version                                      Show version
+  ${prefix} version [--json]                             Show version
   ${prefix} help                                         Show this help
 
 Options for 'start':
-  -u, --url <url>           Target URL (required)
-  -r, --repo <path>         Repository path${mode === 'local' ? ' or bare name' : ''} (required)
-  -c, --config <path>       Configuration file (YAML)
-  -o, --output <path>       Copy deliverables to this directory after run
-  -w, --workspace <name>    Named workspace (auto-resumes if exists)
-      --pipeline-testing    Use minimal prompts for fast testing
-      --debug               Preserve worker container after exit for log inspection
+${renderStartOptions()}
 
 Examples:
-  ${prefix} start -u https://example.com -r ${mode === 'local' ? 'my-repo' : './my-repo'}
+  ${prefix} start -u https://example.com -r ./my-repo
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
   ${prefix} logs q1-audit
-  ${prefix} stop --clean
+  ${prefix} stop q1-audit
+  ${prefix} reset
+
+Run '${prefix} <command> --help' for help on a specific command.
 ${
   mode === 'local'
     ? `
@@ -88,6 +97,7 @@ State directory: ./workspaces/`
 State directory: ~/.shannon/`
 }
 Monitor scans at http://localhost:8233
+Docs & source: https://github.com/KeygraphHQ/shannon
 `);
 }
 
@@ -98,150 +108,166 @@ interface ParsedStartArgs {
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
-  debug: boolean;
+  keepContainer: boolean;
+  follow: boolean;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
-  let url = '';
-  let repo = '';
-  let config: string | undefined;
-  let workspace: string | undefined;
-  let output: string | undefined;
-  let pipelineTesting = false;
-  let debug = false;
+  const { flags, values } = parseArgs(argv, {
+    values: {
+      url: ['-u', '--url'],
+      repo: ['-r', '--repo'],
+      config: ['-c', '--config'],
+      output: ['-o', '--output'],
+      workspace: ['-w', '--workspace'],
+    },
+    booleans: {
+      pipelineTesting: ['--pipeline-testing'],
+      keepContainer: ['--keep-container'],
+      follow: ['-f', '--follow'],
+    },
+  });
 
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    const next = argv[i + 1];
-
-    switch (arg) {
-      case '-u':
-      case '--url':
-        if (next && !next.startsWith('-')) {
-          url = next;
-          i++;
-        }
-        break;
-      case '-r':
-      case '--repo':
-        if (next && !next.startsWith('-')) {
-          repo = next;
-          i++;
-        }
-        break;
-      case '-c':
-      case '--config':
-        if (next && !next.startsWith('-')) {
-          config = next;
-          i++;
-        }
-        break;
-      case '-w':
-      case '--workspace':
-        if (next && !next.startsWith('-')) {
-          workspace = next;
-          i++;
-        }
-        break;
-      case '-o':
-      case '--output':
-        if (next && !next.startsWith('-')) {
-          output = next;
-          i++;
-        }
-        break;
-      case '--pipeline-testing':
-        pipelineTesting = true;
-        break;
-      case '--debug':
-        debug = true;
-        break;
-      default:
-        console.error(`Unknown option: ${arg}`);
-        console.error(`Run "${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} help" for usage`);
-        process.exit(1);
-    }
+  const url = values.url ?? '';
+  const repo = values.repo ?? '';
+  if (!url || !repo) {
+    failUsage('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
-  if (!url || !repo) {
-    console.error('ERROR: --url and --repo are required');
-    console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} start -u <url> -r <path>`);
-    process.exit(1);
+  try {
+    new URL(url);
+  } catch {
+    failUsage(`invalid --url: ${url}`);
   }
 
   return {
     url,
     repo,
-    pipelineTesting,
-    debug,
-    ...(config && { config }),
-    ...(workspace && { workspace }),
-    ...(output && { output }),
+    pipelineTesting: !!flags.pipelineTesting,
+    keepContainer: !!flags.keepContainer,
+    follow: !!flags.follow,
+    ...(values.config && { config: values.config }),
+    ...(values.workspace && { workspace: values.workspace }),
+    ...(values.output && { output: values.output }),
   };
 }
 
 // === Main Dispatch ===
 
-blockSudo();
+async function main(): Promise<void> {
+  // A reader that closes early (e.g. `shannon logs my-scan | head`) makes writes
+  // to stdout raise EPIPE. That's normal for a piped CLI, not a crash — exit quietly
+  // instead of letting Node dump an unhandled-error stack trace.
+  process.stdout.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EPIPE') process.exit(0);
+    throw err;
+  });
 
-const args = process.argv.slice(2);
-const command = args[0];
+  blockSudo();
 
-switch (command) {
-  case 'start': {
-    const parsed = parseStartArgs(args.slice(1));
-    await start({ ...parsed, version: getVersion() });
-    break;
+  const args = process.argv.slice(2);
+  const command = args[0];
+  const rest = args.slice(1);
+
+  if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
+    const topic = rest[0];
+    if (topic && isHelpableCommand(topic)) {
+      printCommandHelp(topic);
+    } else {
+      showHelp();
+    }
+    return;
   }
-  case 'stop':
-    stop(args.includes('--clean'), args.includes('--yes') || args.includes('-y'));
-    break;
-  case 'logs': {
-    const workspaceId = args[1];
-    if (!workspaceId) {
-      console.error('ERROR: Workspace ID is required');
-      console.error(`Usage: ${getMode() === 'local' ? './shannon' : 'npx @keygraph/shannon'} logs <workspace>`);
-      process.exit(1);
-    }
-    logs(workspaceId);
-    break;
+
+  // Reachable from any invocation: `-h`/`--help` anywhere wins over the rest of the line.
+  if (isHelpableCommand(command) && (rest.includes('-h') || rest.includes('--help'))) {
+    printCommandHelp(command);
+    return;
   }
-  case 'workspaces':
-    workspaces(getVersion());
-    break;
-  case 'status':
-    status();
-    break;
-  case 'setup':
-    if (getMode() === 'local') {
-      console.error('ERROR: setup is only available in npx mode. In local mode, use .env');
-      process.exit(1);
+
+  switch (command) {
+    case 'start': {
+      const parsed = parseStartArgs(rest);
+      await start({ ...parsed, version: getVersion() });
+      break;
     }
-    setup();
-    break;
-  case 'build':
-    build(args.includes('--no-cache'), getVersion());
-    break;
-  case 'uninstall':
-    if (getMode() === 'local') {
-      console.error('ERROR: uninstall is only available in npx mode.');
-      process.exit(1);
+    case 'stop': {
+      const { flags, positionals } = parseArgs(rest, {
+        booleans: { all: ['--all'], yes: YES_FLAGS },
+        maxPositionals: 1,
+      });
+      await stop({ all: !!flags.all, yes: !!flags.yes, ...(positionals[0] && { workspace: positionals[0] }) });
+      break;
     }
-    uninstall(args.includes('--yes') || args.includes('-y'));
-    break;
-  case 'version':
-  case '--version':
-  case '-v':
-    console.log(getVersionLine());
-    break;
-  case 'help':
-  case '--help':
-  case '-h':
-  case undefined:
-    showHelp();
-    break;
-  default:
-    console.error(`Unknown command: ${command}`);
-    showHelp();
-    process.exit(1);
+    case 'reset': {
+      // reset is all-or-nothing; a stray name likely means the user wanted `stop <name>`.
+      parseArgs(rest, {
+        positionalHint: 'reset takes no workspace argument. To stop one scan, use: stop <name>',
+      });
+      await reset();
+      break;
+    }
+    case 'logs': {
+      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
+      const workspaceId = positionals[0];
+      if (!workspaceId) {
+        failUsage('Workspace ID is required', `Usage: ${commandPrefix()} logs <workspace>`);
+      }
+      logs(workspaceId);
+      break;
+    }
+    case 'status': {
+      const { flags, positionals } = parseArgs(rest, { booleans: { json: ['--json'] }, maxPositionals: 1 });
+      const workspaceId = positionals[0];
+      if (!workspaceId) {
+        failUsage('Workspace is required', `Usage: ${commandPrefix()} status <workspace> [--json]`);
+      }
+      await status(workspaceId, { json: !!flags.json });
+      break;
+    }
+    case 'scans': {
+      const { flags } = parseArgs(rest, { booleans: { json: ['--json'] } });
+      scans({ json: !!flags.json });
+      break;
+    }
+    case 'setup':
+      if (getMode() === 'local') {
+        fail('setup is only available in npx mode. In local mode, use .env');
+      }
+      parseArgs(rest, {});
+      await setup();
+      break;
+    case 'build': {
+      const { flags } = parseArgs(rest, { booleans: { noCache: ['--no-cache'] } });
+      build(!!flags.noCache, getVersion());
+      break;
+    }
+    case 'version':
+    case '--version':
+    case '-v': {
+      const { flags } = parseArgs(rest, { booleans: { json: ['--json'] } });
+      if (flags.json) {
+        console.log(JSON.stringify({ version: getVersion(), mode: getMode() }, null, 2));
+      } else {
+        console.log(getVersionLine());
+      }
+      break;
+    }
+    default: {
+      const prefix = commandPrefix();
+      const suggestion = closestMatch(command, availableCommands());
+      const hints = [
+        ...(suggestion ? [`Did you mean '${suggestion}'?`] : []),
+        `Run '${prefix} help' to see available commands.`,
+      ];
+      failUsage(`Unknown command: ${command}`, ...hints);
+    }
+  }
 }
+
+main().catch((err) => {
+  if (err instanceof ArgError) {
+    failUsage(err.message, `Run "${commandPrefix()} help" for usage`);
+  }
+  crash(err);
+});

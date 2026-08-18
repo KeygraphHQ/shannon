@@ -37,6 +37,9 @@ export const ASSEMBLED_REPORT_PDF_FILENAME = 'comprehensive_security_assessment_
 /** Filename of the human-facing PDF report surfaced at the run directory root */
 export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
 
+/** Filename of the human-facing markdown report surfaced at the run directory root, alongside the PDF */
+export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
+
 /** Structured findings the report agent emits; the markdown report is rendered from it. */
 export const REPORT_JSON_FILENAME = 'report.json';
 

@@ -12,14 +12,20 @@ import os from 'node:os';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
+import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
+import { fail } from './errors.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
+import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const NPX_IMAGE_REPO = 'keygraph/shannon';
 const DEV_IMAGE = 'shannon-worker';
+
+/** Docker label stamped on each worker container, mapping it back to its workspace so a single scan can be stopped by name. */
+const WORKSPACE_LABEL = 'shannon.workspace';
 
 export function getWorkerImage(version: string): string {
   return getMode() === 'local' ? DEV_IMAGE : `${NPX_IMAGE_REPO}:${version}`;
@@ -66,44 +72,77 @@ function runOutput(cmd: string, args: string[]): string {
   }
 }
 
+/** Run a command asynchronously, resolving true on success. Never rejects. */
+function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
+  return new Promise((resolve) => {
+    const child = spawn(cmd, args, { stdio: 'ignore' });
+    child.on('close', (code) => resolve(code === 0));
+    child.on('error', () => resolve(false));
+  });
+}
+
+const TEMPORAL_CONTAINER = 'shannon-temporal';
+const TEMPORAL_ADDRESS = 'localhost:7233';
+
+/** Query matching every running pentest scan workflow. */
+const RUNNING_SCAN_QUERY = "ExecutionStatus = 'Running' AND WorkflowType = 'pentestPipelineWorkflow'";
+
+/** Build `docker exec` args for a `temporal` CLI command run inside the Temporal container. */
+function temporalCmd(...args: string[]): string[] {
+  return ['exec', TEMPORAL_CONTAINER, 'temporal', ...args, '--address', TEMPORAL_ADDRESS];
+}
+
+/**
+ * Verify Docker is installed and its daemon is running, exiting otherwise.
+ * `docker info` succeeds only when both are true. Call this before any command
+ * that shells out to Docker.
+ */
+export function ensureDocker(): void {
+  try {
+    execFileSync('docker', ['info'], { stdio: 'pipe' });
+  } catch {
+    fail(
+      'Docker must be installed and running. Start Docker and try again.',
+      'Install Docker: https://docs.docker.com/get-docker/',
+    );
+  }
+}
+
 /**
  * Check if Temporal is running and healthy.
  */
 export function isTemporalReady(): boolean {
-  const output = runOutput('docker', [
-    'exec',
-    'shannon-temporal',
-    'temporal',
-    'operator',
-    'cluster',
-    'health',
-    '--address',
-    'localhost:7233',
-  ]);
+  const output = runOutput('docker', temporalCmd('operator', 'cluster', 'health'));
   return output.includes('SERVING');
 }
 
 /**
  * Ensure Temporal is running via compose.
  */
-export async function ensureInfra(): Promise<void> {
+export async function ensureInfra(spinner: SpinnerResult): Promise<void> {
   if (isTemporalReady()) {
     return;
   }
 
+  // Drive the caller's spinner — the whole "start" flow is one spinner, not several.
+  spinner.message('Starting Temporal');
   const composeFile = getComposeFile();
-  console.log('Starting Shannon infrastructure...');
-  execFileSync('docker', ['compose', '-f', composeFile, 'up', '-d'], { stdio: 'inherit' });
+  const result = await spawnCaptured('docker', ['compose', '-f', composeFile, 'up', '-d']);
+  if (!result.ok) {
+    spinner.error('Could not start Temporal');
+    surfaceOutput(result.output);
+    process.exit(1);
+  }
 
-  console.log('Waiting for Temporal to be ready...');
+  spinner.message('Waiting for Temporal to be ready');
   for (let i = 0; i < 30; i++) {
     if (isTemporalReady()) {
-      console.log('Temporal is ready!');
       return;
     }
     await sleep(2000);
   }
-  console.error('Timeout waiting for Temporal');
+
+  spinner.error('Temporal did not become ready in time');
   process.exit(1);
 }
 
@@ -138,10 +177,11 @@ export function ensureImage(version: string): void {
     try {
       execFileSync('docker', ['pull', image], { stdio: 'inherit' });
     } catch {
-      console.error(`\nERROR: Failed to pull ${image}`);
-      console.error('The image may not be available for your platform yet.');
-      console.error('Check https://hub.docker.com/r/keygraph/shannon for available tags.');
-      process.exit(1);
+      fail(
+        `Failed to pull ${image}`,
+        'The image may not be available for your platform yet.',
+        'Check https://hub.docker.com/r/keygraph/shannon for available tags.',
+      );
     }
     pruneOldImages(version);
   }
@@ -255,20 +295,23 @@ export interface WorkerOptions {
   outputDir?: string;
   workspace: string;
   pipelineTesting?: boolean;
-  debug?: boolean;
+  keepContainer?: boolean;
   piAuthHostPath?: string;
 }
 
 /**
  * Spawn the worker container in detached mode and return the process.
- * When `opts.debug` is true, omits `--rm` so the container persists for log inspection.
+ * When `opts.keepContainer` is true, omits `--rm` so the container persists for log inspection.
  */
 export function spawnWorker(opts: WorkerOptions): ChildProcess {
   const args = ['run', '-d'];
-  if (!opts.debug) {
+  if (!opts.keepContainer) {
     args.push('--rm');
   }
   args.push('--name', opts.containerName, '--network', 'shannon-net');
+
+  // Tag with the workspace so `stop <workspace>` can target this scan's container
+  args.push('--label', `${WORKSPACE_LABEL}=${opts.workspace}`);
 
   // Add host flag for Linux
   args.push(...addHostFlag());
@@ -344,26 +387,86 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   });
 }
 
-/**
- * Stop all running shannon-worker-* containers.
- */
-export function stopWorkers(): void {
-  const workers = runOutput('docker', ['ps', '-q', '--filter', 'name=shannon-worker-']);
-  if (!workers) return;
+/** `docker ps --filter` args matching every running worker container. */
+export const WORKER_FILTER: readonly string[] = ['--filter', 'name=shannon-worker-'];
 
-  const ids = workers.split('\n').filter(Boolean);
-  console.log('Stopping running scans...');
-  execFileSync('docker', ['stop', ...ids], { stdio: 'inherit' });
+/** `docker ps --filter` args matching one scan's worker container(s), by workspace label. */
+export function scanFilter(workspace: string): readonly string[] {
+  return ['--filter', `label=${WORKSPACE_LABEL}=${workspace}`];
 }
 
 /**
- * Tear down the compose stack.
+ * IDs of running containers matching the filter. Re-querying this after a stop is
+ * the authoritative check for whether containers actually stopped — `docker stop`'s
+ * exit code can't distinguish "already gone" from "failed to stop".
  */
-export function stopInfra(clean: boolean): void {
+export function runningContainers(filter: readonly string[]): string[] {
+  const output = runOutput('docker', ['ps', '-q', ...filter]);
+  return output.split('\n').filter(Boolean);
+}
+
+/**
+ * Stop containers by ID, tolerating any that vanished between being listed and
+ * stopped (a `--rm` worker exiting is success, not an error). Async so a spinner
+ * can animate during docker's graceful-shutdown wait.
+ */
+export async function stopContainers(ids: string[]): Promise<void> {
+  await Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
+}
+
+/**
+ * Terminate a Temporal workflow so a stopped scan doesn't linger as a running
+ * workflow with no worker. Best-effort: returns false if Temporal is unreachable
+ * or the workflow already closed. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function terminateWorkflow(workflowId: string, reason: string): boolean {
+  return runQuiet('docker', temporalCmd('workflow', 'terminate', '--workflow-id', workflowId, '--reason', reason));
+}
+
+/**
+ * Terminate every running pentest workflow in one batch, so `stop --all` doesn't
+ * leave workflows running with no worker. Best-effort: returns false if Temporal
+ * is unreachable. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function terminateAllWorkflows(reason: string): boolean {
+  return runQuiet(
+    'docker',
+    temporalCmd('workflow', 'terminate', '--query', RUNNING_SCAN_QUERY, '--reason', reason, '--yes'),
+  );
+}
+
+/**
+ * Whether a specific workflow is still in the Running state. Re-querying this after
+ * a terminate verifies it actually took effect, rather than trusting the terminate
+ * command's exit code. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function isWorkflowRunning(workflowId: string): boolean {
+  const query = `WorkflowId = '${workflowId}' AND ExecutionStatus = 'Running'`;
+  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', query));
+  return output.includes(workflowId);
+}
+
+/**
+ * Whether any pentest scan workflow is still Running — the `stop --all` counterpart
+ * to isWorkflowRunning. Requires Temporal to be up (guard with isTemporalReady).
+ */
+export function anyRunningScanWorkflow(): boolean {
+  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', RUNNING_SCAN_QUERY));
+  return output.includes('pentestPipelineWorkflow');
+}
+
+/**
+ * Tear down the compose stack. When `clean` is set, volumes are removed too.
+ */
+export async function stopInfra(clean: boolean): Promise<void> {
   const composeFile = getComposeFile();
   const args = ['compose', '-f', composeFile, 'down'];
   if (clean) args.push('-v');
-  execFileSync('docker', args, { stdio: 'inherit' });
+  const label = clean ? 'Removing Temporal data and volumes' : 'Stopping Temporal';
+  const step = await runStep(label, 'docker', args);
+  if (!step.ok) {
+    fail(`${label} failed. See the output above.`);
+  }
 }
 
 /**
@@ -378,17 +481,4 @@ function pruneOldImages(currentVersion: string): void {
   for (const tag of stale) {
     runQuiet('docker', ['rmi', `${NPX_IMAGE_REPO}:${tag}`]);
   }
-}
-
-/**
- * List running worker containers.
- */
-export function listRunningWorkers(): string {
-  return runOutput('docker', [
-    'ps',
-    '--filter',
-    'name=shannon-worker-',
-    '--format',
-    'table {{.Names}}\t{{.Status}}\t{{.RunningFor}}',
-  ]);
 }

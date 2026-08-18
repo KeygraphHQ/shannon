@@ -58,7 +58,8 @@ Monitor progress:
 
 ```bash
 npx @keygraph/shannon logs <workspace>
-npx @keygraph/shannon status
+npx @keygraph/shannon status <workspace>
+npx @keygraph/shannon scans
 npx @keygraph/shannon version
 ```
 
@@ -66,7 +67,8 @@ Source-build equivalents:
 
 ```bash
 ./shannon logs <workspace>
-./shannon status
+./shannon status <workspace>
+./shannon scans
 ./shannon version
 ```
 
@@ -79,16 +81,17 @@ open http://localhost:8233
 Stop Shannon:
 
 ```bash
-npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
-npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
+npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Source-build equivalents:
 
 ```bash
-./shannon stop
-./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
+./shannon stop <workspace>               # stop one scan (confirms first; add --yes/-y to skip)
+./shannon stop --all                     # stop all scans (Temporal stays up)
+./shannon reset                          # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Usage examples:
@@ -106,8 +109,11 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -o ./my-repo
 # Named workspace.
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 
-# List all workspaces.
-npx @keygraph/shannon workspaces
+# Stream the log until the scan finishes, then exit on its outcome (useful in CI).
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
+
+# List completed scans.
+npx @keygraph/shannon scans
 ```
 
 Source-build examples:
@@ -117,7 +123,8 @@ Source-build examples:
 ./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
 ./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
 ./shannon start -u https://example.com -r /path/to/repo -w q1-audit
-./shannon workspaces
+./shannon start -u https://example.com -r /path/to/repo --follow
+./shannon scans
 
 # Rebuild the worker image.
 ./shannon build --no-cache
@@ -132,11 +139,12 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
+Output structure — the run directory's top level holds the final report, in PDF and Markdown; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- Security-Assessment-Report.pdf  # the final report (the deliverable)
+|-- Security-Assessment-Report.pdf  # the final report (PDF)
+|-- Security-Assessment-Report.md   # the final report (Markdown)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
     |-- agents/                     # per-agent logs

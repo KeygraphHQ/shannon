@@ -1,13 +1,27 @@
 /**
  * Path resolution for --repo and --config arguments.
  *
- * Local mode supports bare repo names (e.g. "my-repo" → ./repos/my-repo).
- * Both modes resolve relative paths against CWD.
+ * Both --repo and --config are filesystem paths, absolute or relative to CWD.
  */
 
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
-import { isLocal } from './mode.js';
+import { fail } from './errors.js';
+
+/**
+ * Expand a leading `~` or `~/` to the home directory. The shell skips this in the
+ * `--flag=~/x` form (the tilde is not at the word start), so it must be done here.
+ */
+export function expandHome(inputPath: string): string {
+  if (inputPath === '~') {
+    return os.homedir();
+  }
+  if (inputPath.startsWith('~/')) {
+    return path.join(os.homedir(), inputPath.slice(2));
+  }
+  return inputPath;
+}
 
 export interface MountPair {
   hostPath: string;
@@ -47,36 +61,18 @@ export function resolveRunFile(runDir: string, filename: string): string {
 }
 
 /**
- * Resolve --repo to absolute path and container mount.
- * Dev mode: bare names (no / or . prefix) check ./repos/<name> first.
+ * Resolve --repo to an absolute path and container mount. The argument is a
+ * filesystem path, absolute or relative to CWD.
  */
 export function resolveRepo(repoArg: string): MountPair {
-  let hostPath: string;
-
-  if (isLocal() && !repoArg.startsWith('/') && !repoArg.startsWith('.')) {
-    // Bare name — check ./repos/<name> for backward compatibility
-    const barePath = path.resolve('repos', repoArg);
-    if (fs.existsSync(barePath)) {
-      hostPath = barePath;
-    } else {
-      console.error(`ERROR: Repository not found at ./repos/${repoArg}`);
-      console.error('');
-      console.error('Place your target repository under the ./repos/ directory,');
-      console.error('or pass an absolute/relative path: -r /path/to/repo');
-      process.exit(1);
-    }
-  } else {
-    hostPath = path.resolve(repoArg);
-  }
+  const hostPath = path.resolve(expandHome(repoArg));
 
   if (!fs.existsSync(hostPath)) {
-    console.error(`ERROR: Repository not found: ${hostPath}`);
-    process.exit(1);
+    fail(`Repository not found: ${hostPath}`);
   }
 
   if (!fs.statSync(hostPath).isDirectory()) {
-    console.error(`ERROR: Not a directory: ${hostPath}`);
-    process.exit(1);
+    fail(`Not a directory: ${hostPath}`);
   }
 
   const basename = path.basename(hostPath);
@@ -90,16 +86,14 @@ export function resolveRepo(repoArg: string): MountPair {
  * Resolve --config to absolute path and container mount.
  */
 export function resolveConfig(configArg: string): MountPair {
-  const hostPath = path.resolve(configArg);
+  const hostPath = path.resolve(expandHome(configArg));
 
   if (!fs.existsSync(hostPath)) {
-    console.error(`ERROR: Config file not found: ${hostPath}`);
-    process.exit(1);
+    fail(`Config file not found: ${hostPath}`);
   }
 
   if (!fs.statSync(hostPath).isFile()) {
-    console.error(`ERROR: Not a file: ${hostPath}`);
-    process.exit(1);
+    fail(`Not a file: ${hostPath}`);
   }
 
   const basename = path.basename(hostPath);
