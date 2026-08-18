@@ -194,7 +194,7 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
     }
   }
 
-  lines.push('', ...footerLines(input, opts));
+  lines.push(...footerLines(input, opts));
   return lines.join('\n');
 }
 
@@ -204,31 +204,45 @@ function headerLines(input: RenderInput, opts: RenderOptions): string[] {
   return [`  ${paint('Scan:', COLORS.bold, opts.color)} ${input.workspace.padEnd(22)} ${meta}`];
 }
 
+/** Aligned label column for the footer's Logs / Temporal rows. */
+const FOOTER_LABEL_WIDTH = 12;
+
+/** A thin rule that sets the footer apart from the phase list above it. */
+function footerDivider(opts: RenderOptions): string {
+  return paint(`  ${(opts.unicode ? '─' : '-').repeat(60)}`, COLORS.dim, opts.color);
+}
+
+/** One footer row: an accent-colored label in a fixed column, then its value in the default color. */
+function footerRow(label: string, value: string, opts: RenderOptions): string {
+  return `  ${paint(label.padEnd(FOOTER_LABEL_WIDTH), COLORS.gold, opts.color)}${value}`;
+}
+
 function footerLines(input: RenderInput, opts: RenderOptions): string[] {
   const prefix = commandPrefix();
 
   if (isTerminal(input.temporalStatus) && input.state?.summary) {
     const wall = formatDuration(input.state.summary.totalDurationMs);
-    return [`  Time Taken   ${wall}`];
+    return ['', `  Time Taken   ${wall}`];
   }
+
+  const logsValue = `${prefix} logs ${input.workspace}`;
+  const temporalValue = temporalDashboardUrl(input.workflowId);
 
   if (isTerminal(input.temporalStatus)) {
     const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
     return [
+      footerDivider(opts),
       paint(
         `  ${input.temporalStatus === 'TERMINATED' ? 'Stopped' : 'Ended'} — ${truncate(reason, 240)}`,
         COLORS.dim,
         opts.color,
       ),
-      `  Logs:       ${prefix} logs ${input.workspace}`,
-      paint(`  Dashboard:  ${temporalDashboardUrl(input.workflowId)}`, COLORS.dim, opts.color),
+      footerRow('Logs', logsValue, opts),
+      footerRow('Temporal', temporalValue, opts),
     ];
   }
 
-  const lines = [
-    paint(`  Live from Temporal. Full logs: ${prefix} logs ${input.workspace}`, COLORS.dim, opts.color),
-    paint(`  Dashboard:  ${temporalDashboardUrl(input.workflowId)}`, COLORS.dim, opts.color),
-  ];
-  if (opts.live) lines.push(paint('  Ctrl-C to stop watching — the scan keeps running.', COLORS.dim, opts.color));
+  const lines = [footerDivider(opts), footerRow('Logs', logsValue, opts), footerRow('Temporal', temporalValue, opts)];
+  if (opts.live) lines.push('', paint('  Ctrl-C stops watching — the scan keeps running.', COLORS.dim, opts.color));
   return lines;
 }
