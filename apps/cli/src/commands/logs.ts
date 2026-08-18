@@ -30,7 +30,7 @@ function readRange(filePath: string, start: number, end: number): string {
 }
 
 /** Resolve a workspace ID to its workflow.log path, or exit with an error. */
-function resolveLogFile(workspaceId: string): string {
+export function resolveLogFile(workspaceId: string): string {
   const workspacesDir = getWorkspacesDir();
 
   // 1. Direct match
@@ -62,49 +62,60 @@ function resolveLogFile(workspaceId: string): string {
   );
 }
 
+/**
+ * Tail a scan's log until it reports completion, resolving when the completion marker appears
+ * (or the file is gone, or Ctrl-C stops it). Never exits the process, so the caller decides what
+ * happens next: plain `logs` exits 0; `start --follow` reads the workflow outcome first.
+ */
+export function tailUntilComplete(logFile: string): Promise<void> {
+  return new Promise((resolve) => {
+    let position = 0;
+
+    /**
+     * Output any new content appended since the last read.
+     * Returns true when the workflow completion marker is detected.
+     */
+    function flush(): boolean {
+      try {
+        const { size } = fs.statSync(logFile);
+        if (size <= position) return false;
+
+        const data = readRange(logFile, position, size);
+        process.stdout.write(data);
+        position = size;
+
+        return COMPLETION_PATTERN.test(data);
+      } catch {
+        // File deleted or unreadable — treat as done
+        return true;
+      }
+    }
+
+    // 1. Output existing content
+    if (flush()) {
+      resolve();
+      return;
+    }
+
+    // 2. Watch for appended content via chokidar
+    const watcher = watch(logFile, { persistent: true });
+
+    const stop = (): void => {
+      watcher.close().finally(() => resolve());
+      // Safety net — resolve anyway if watcher.close() stalls
+      setTimeout(() => resolve(), 1000).unref();
+    };
+
+    watcher.on('change', () => {
+      if (flush()) stop();
+    });
+
+    process.on('SIGINT', stop);
+  });
+}
+
 export function logs(workspaceId: string): void {
   const logFile = resolveLogFile(workspaceId);
-  let position = 0;
-
-  /**
-   * Output any new content appended since the last read.
-   * Returns true when the workflow completion marker is detected.
-   */
-  function flush(): boolean {
-    try {
-      const { size } = fs.statSync(logFile);
-      if (size <= position) return false;
-
-      const data = readRange(logFile, position, size);
-      process.stdout.write(data);
-      position = size;
-
-      return COMPLETION_PATTERN.test(data);
-    } catch {
-      // File deleted or unreadable — treat as done
-      return true;
-    }
-  }
-
   console.error(stdoutIsTerminal() ? `Tailing scan log: ${logFile}` : 'Tailing scan log');
-
-  // 1. Output existing content
-  if (flush()) {
-    process.exit(0);
-  }
-
-  // 2. Watch for appended content via chokidar
-  const watcher = watch(logFile, { persistent: true });
-
-  const shutdown = (): void => {
-    watcher.close().finally(() => process.exit(0));
-    // Safety net — force exit if watcher.close() stalls
-    setTimeout(() => process.exit(0), 1000).unref();
-  };
-
-  watcher.on('change', () => {
-    if (flush()) shutdown();
-  });
-
-  process.on('SIGINT', shutdown);
+  tailUntilComplete(logFile).finally(() => process.exit(0));
 }

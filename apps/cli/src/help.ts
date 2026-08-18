@@ -31,6 +31,7 @@ export const START_OPTIONS: readonly (readonly [string, string])[] = [
   ['-c, --config <path>', 'Configuration file (YAML)'],
   ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
   ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
+  ['-f, --follow', 'Stream the scan log until it finishes'],
   ['--pipeline-testing', 'Use minimal prompts for fast testing'],
   ['--keep-container', 'Preserve the worker container after exit for log inspection'],
 ];
@@ -42,6 +43,7 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     examples: [
       'start -u https://example.com -r ./my-repo',
       'start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit',
+      'start -u https://example.com -r ./my-repo --follow',
     ],
   },
   stop: {

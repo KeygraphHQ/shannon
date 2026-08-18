@@ -24,8 +24,11 @@ import {
   resolveRepo,
   resolveRunFile,
 } from '../paths.js';
+import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
+import { getTerminalOutcome } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
+import { tailUntilComplete } from './logs.js';
 
 export interface StartArgs {
   url: string;
@@ -35,6 +38,7 @@ export interface StartArgs {
   output?: string;
   pipelineTesting: boolean;
   keepContainer: boolean;
+  follow: boolean;
   version: string;
 }
 
@@ -217,6 +221,9 @@ export async function start(args: StartArgs): Promise<void> {
         started = true;
         spinner.stop(`Scan started — ${workspace}`);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
+        if (args.follow) {
+          await followScan(workspace, workspacesDir);
+        }
         return;
       }
     } catch {
@@ -227,6 +234,38 @@ export async function start(args: StartArgs): Promise<void> {
 
   spinner.error('Timed out waiting for the scan to start');
   process.exit(1);
+}
+
+/**
+ * Follow a just-started scan (for `--follow`, aimed at CI): stream its log to completion, then
+ * exit on the workflow outcome — 0 if the assessment ran, 1 if the scan failed. That tracks
+ * whether the pipeline ran, not whether vulnerabilities were found.
+ */
+async function followScan(workspace: string, workspacesDir: string): Promise<never> {
+  const logFile = resolveRunFile(path.join(workspacesDir, workspace), 'workflow.log');
+
+  // The worker creates workflow.log as it starts; wait briefly so the first read doesn't
+  // mistake a not-yet-created file for an already-finished scan.
+  for (let attempts = 0; attempts < 30 && !fs.existsSync(logFile); attempts++) {
+    await sleep(1000);
+  }
+
+  if (stdoutIsTerminal()) {
+    console.error('\n  Following scan log (Ctrl-C to stop watching):\n');
+  }
+  await tailUntilComplete(logFile);
+
+  const workflowId = resolveWorkflowId(workspace);
+  if (!workflowId) {
+    fail('Scan finished but its workflow id could not be resolved from session.json.');
+  }
+
+  try {
+    const outcome = await getTerminalOutcome(workflowId);
+    process.exit(outcome.kind === 'success' ? 0 : 1);
+  } catch {
+    fail('Could not reach Temporal at 127.0.0.1:7233 to read the scan outcome.');
+  }
 }
 
 function printPreservedContainerHint(containerName: string): void {
@@ -240,7 +279,7 @@ function printPreservedContainerHint(containerName: string): void {
 function printInfo(args: StartArgs, workspace: string, repoPath: string, workspacesDir: string): void {
   const interactive = stdoutIsTerminal();
 
-  if (interactive) {
+  if (interactive && !args.follow) {
     console.log('  It runs in the background — you can close this terminal.');
     console.log('');
   }
@@ -265,12 +304,17 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
   }
 
   const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
-  const prefix = commandPrefix();
 
-  console.log('');
-  console.log('  Watch scan progress:');
-  console.log(`    Live logs:  ${prefix} logs ${workspace}`);
-  console.log(`    Progress:   ${prefix} status ${workspace}`);
+  // When following, the scan log streams inline next, so the "run these to watch it" hints
+  // would only contradict that.
+  if (!args.follow) {
+    const prefix = commandPrefix();
+    console.log('');
+    console.log('  Watch scan progress:');
+    console.log(`    Live logs:  ${prefix} logs ${workspace}`);
+    console.log(`    Progress:   ${prefix} status ${workspace}`);
+  }
+
   console.log('');
   console.log('  Report (when the scan finishes):');
   console.log(`    ${reportPath}`);

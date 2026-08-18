@@ -111,6 +111,7 @@ interface ParsedStartArgs {
   output?: string;
   pipelineTesting: boolean;
   keepContainer: boolean;
+  follow: boolean;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
@@ -125,6 +126,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     booleans: {
       pipelineTesting: ['--pipeline-testing'],
       keepContainer: ['--keep-container'],
+      follow: ['-f', '--follow'],
     },
   });
 
@@ -145,6 +147,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     repo,
     pipelineTesting: !!flags.pipelineTesting,
     keepContainer: !!flags.keepContainer,
+    follow: !!flags.follow,
     ...(values.config && { config: values.config }),
     ...(values.workspace && { workspace: values.workspace }),
     ...(values.output && { output: values.output }),
