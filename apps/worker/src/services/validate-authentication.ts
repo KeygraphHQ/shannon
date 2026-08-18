@@ -223,28 +223,32 @@ async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): 
     );
   }
 
-  const cookieCount = countStorageEntries(parsed, 'cookies');
-  const originCount = countStorageEntries(parsed, 'origins');
-  if (cookieCount === 0 && originCount === 0) {
+  const cookies = storageEntries(parsed, 'cookies');
+  const origins = storageEntries(parsed, 'origins');
+  if (!cookies || !origins) {
     return err(
       new PentestError(
-        `Preflight saved an authenticated session to ${stateFile}, but it contains no cookies or origins — the browser was not actually logged in.`,
+        `Preflight saved an authenticated session to ${stateFile}, but it is not a storage state — cookies and origins arrays are missing.`,
         'validation',
         true,
-        { stateFile, cookieCount, originCount },
+        { stateFile, hasCookies: !!cookies, hasOrigins: !!origins },
         ErrorCode.AGENT_EXECUTION_FAILED,
       ),
     );
   }
 
-  logger.info('Preflight authenticated session saved', { stateFile, cookieCount, originCount });
+  logger.info('Preflight authenticated session saved', {
+    stateFile,
+    cookieCount: cookies.length,
+    originCount: origins.length,
+  });
   return ok(undefined);
 }
 
-function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): number {
-  if (typeof parsed !== 'object' || parsed === null) return 0;
+function storageEntries(parsed: unknown, key: 'cookies' | 'origins'): unknown[] | null {
+  if (typeof parsed !== 'object' || parsed === null) return null;
   const value = (parsed as Record<string, unknown>)[key];
-  return Array.isArray(value) ? value.length : 0;
+  return Array.isArray(value) ? value : null;
 }
 
 function classifyResult(
