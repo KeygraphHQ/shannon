@@ -83,7 +83,7 @@ Stop Shannon:
 ```bash
 npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
 npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
-npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Source-build equivalents:
@@ -91,7 +91,7 @@ Source-build equivalents:
 ```bash
 ./shannon stop <workspace>               # stop one scan (confirms first; add --yes/-y to skip)
 ./shannon stop --all                     # stop all scans (Temporal stays up)
-./shannon reset                          # stop everything and wipe all Temporal data (add --yes/-y to skip)
+./shannon reset                          # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Usage examples:
