@@ -67,7 +67,7 @@ npx @keygraph/shannon setup
 # Stop
 ./shannon stop <workspace>            # Stop one scan (confirms first; --yes/-y to skip)
 ./shannon stop --all                  # Stop all running scans (Temporal stays up; confirms first)
-./shannon reset                       # Stop everything and wipe all Temporal data + volumes (confirms first; --yes/-y to skip)
+./shannon reset                       # Stop everything and wipe all Temporal data + volumes (type 'confirm' to proceed; cannot be skipped)
 
 # Version
 ./shannon version                     # npx: package version; local: git SHA
@@ -84,7 +84,7 @@ pnpm biome:fix                       # Auto-fix lint, format, and import sorting
 
 **Monorepo tooling:** pnpm workspaces, Turborepo for task orchestration, Biome for linting/formatting. TypeScript compiler options shared via `tsconfig.base.json` at the root. All packages extend it, overriding only `rootDir` and `outDir`. Shared devDependencies (`typescript`, `@types/node`, `turbo`, `@biomejs/biome`) are hoisted to the root workspace.
 
-**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--keep-container` (preserve worker container after exit for log inspection), `--yes`/`-y` (skip the confirmation prompt on `stop`/`reset`; required for non-interactive use)
+**Options:** `-c <file>` (YAML config), `-o <path>` (output directory), `-w <name>` (named workspace; auto-resumes if exists), `--pipeline-testing` (minimal prompts, 10s retries), `--keep-container` (preserve worker container after exit for log inspection), `--yes`/`-y` (skip the confirmation prompt on `stop`; required for non-interactive use; `reset` requires a typed `confirm` and cannot be skipped)
 
 ## Architecture
 
