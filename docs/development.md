@@ -58,7 +58,8 @@ Monitor progress:
 
 ```bash
 npx @keygraph/shannon logs <workspace>
-npx @keygraph/shannon status
+npx @keygraph/shannon status <workspace>
+npx @keygraph/shannon scans
 npx @keygraph/shannon version
 ```
 
@@ -66,7 +67,8 @@ Source-build equivalents:
 
 ```bash
 ./shannon logs <workspace>
-./shannon status
+./shannon status <workspace>
+./shannon scans
 ./shannon version
 ```
 
@@ -82,7 +84,6 @@ Stop Shannon:
 npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
 npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
 npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (confirms first; add --yes/-y to skip)
-npx @keygraph/shannon uninstall          # remove ~/.shannon/ and all data (confirms first; add --yes/-y to skip)
 ```
 
 Source-build equivalents:
@@ -108,8 +109,11 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -o ./my-repo
 # Named workspace.
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 
-# List all workspaces.
-npx @keygraph/shannon workspaces
+# Stream the log until the scan finishes, then exit on its outcome (useful in CI).
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
+
+# List completed scans.
+npx @keygraph/shannon scans
 ```
 
 Source-build examples:
@@ -119,7 +123,8 @@ Source-build examples:
 ./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
 ./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
 ./shannon start -u https://example.com -r /path/to/repo -w q1-audit
-./shannon workspaces
+./shannon start -u https://example.com -r /path/to/repo --follow
+./shannon scans
 
 # Rebuild the worker image.
 ./shannon build --no-cache
