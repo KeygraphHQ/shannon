@@ -10,11 +10,14 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from '../errors.js';
+import { isLocal } from '../mode.js';
 import { type RenderInput, renderScan } from '../scan/render.js';
 import { toStatusJson } from '../scan/status-json.js';
 import { resolveWorkflowId } from '../session.js';
+import { displaySplash } from '../splash.js';
 import { describeScan, getTerminalOutcome, queryProgress, type ScanDescription } from '../temporal-client.js';
 import { stdoutIsTerminal, supportsColor } from '../tty.js';
+import { getVersion } from '../version.js';
 
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
@@ -175,6 +178,11 @@ export async function status(workspace: string, opts: { readonly json: boolean }
     const input = await snapshot(workspace, workflowId, desc);
     process.stdout.write(`${JSON.stringify(toStatusJson(input, Date.now()), null, 2)}\n`);
     process.exit(exitCodeFor(input));
+  }
+
+  // Human-facing views open with the splash; skip it off a real terminal so piped output stays clean.
+  if (stdoutIsTerminal()) {
+    displaySplash(isLocal() ? undefined : getVersion());
   }
 
   // A finished scan, or output that isn't a live terminal, gets a single frame.
