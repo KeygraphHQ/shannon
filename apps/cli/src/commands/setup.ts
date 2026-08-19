@@ -11,7 +11,9 @@ import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
 import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider, type OpenAiFormat } from '../model-spec.js';
+import { displaySplash } from '../splash.js';
 import { requireInteractive } from '../tty.js';
+import { getVersion } from '../version.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
@@ -63,7 +65,8 @@ function modelIdPlaceholder(provider: string): string | undefined {
 
 export async function setup(): Promise<void> {
   requireInteractive('setup', 'For non-interactive use, export credentials as env vars (e.g. ANTHROPIC_API_KEY).');
-  p.intro('Shannon Setup');
+  displaySplash(getVersion());
+  p.intro('Setup');
 
   // 1. Select provider. "Custom Base URL" is a route, not a provider — it asks
   //    which API dialect the gateway speaks and configures that provider. "Other
