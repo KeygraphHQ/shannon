@@ -20,7 +20,8 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { crash, fail, failUsage } from './errors.js';
 import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
-import { commandPrefix, getMode } from './mode.js';
+import { commandPrefix, getMode, isLocal } from './mode.js';
+import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
 
@@ -50,13 +51,13 @@ function renderStartOptions(): string {
   return START_OPTIONS.map(([flag, desc]) => `  ${flag.padEnd(flagWidth)}  ${desc}`).join('\n');
 }
 
-function showHelp(): void {
+function showHelp(withSplash: boolean): void {
   const mode = getMode();
   const prefix = commandPrefix();
 
-  console.log(`
-Shannon - AI Penetration Testing Framework
+  const header = withSplash ? '' : '\nShannon - AI Penetration Testing Framework\n';
 
+  console.log(`${header}
 Usage:${
     mode === 'local'
       ? ''
@@ -89,14 +90,7 @@ Examples:
   ${prefix} reset
 
 Run '${prefix} <command> --help' for help on a specific command.
-${
-  mode === 'local'
-    ? `
-State directory: ./workspaces/`
-    : `
-State directory: ~/.shannon/`
-}
-Monitor scans at http://localhost:8233
+
 Docs & source: https://github.com/KeygraphHQ/shannon
 `);
 }
@@ -174,7 +168,9 @@ async function main(): Promise<void> {
     if (topic && isHelpableCommand(topic)) {
       printCommandHelp(topic);
     } else {
-      showHelp();
+      const bare = command === undefined;
+      if (bare) displaySplash(isLocal() ? undefined : getVersion());
+      showHelp(bare);
     }
     return;
   }
