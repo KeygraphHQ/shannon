@@ -20,7 +20,7 @@ import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { crash, fail, failUsage } from './errors.js';
 import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
-import { commandPrefix, getMode, isLocal } from './mode.js';
+import { commandPrefix, getMode, isLocal, type Mode } from './mode.js';
 import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
 import { getVersion, getVersionLine } from './version.js';
@@ -51,6 +51,29 @@ function renderStartOptions(): string {
   return START_OPTIONS.map(([flag, desc]) => `  ${flag.padEnd(flagWidth)}  ${desc}`).join('\n');
 }
 
+/**
+ * Render the command list with the description column aligned. Padding is computed from the
+ * widest command, so it lines up regardless of the prefix (`npx @keygraph/shannon` vs `./shannon`).
+ */
+function renderUsage(prefix: string, mode: Mode): string {
+  const rows: ReadonlyArray<readonly [string, string]> = [
+    ...(mode === 'local' ? [] : [[`${prefix} setup`, 'Configure credentials'] as const]),
+    [`${prefix} start --url <url> --repo <path> [options]`, 'Start a pentest scan'],
+    [`${prefix} stop <workspace> [--yes]`, 'Stop one scan'],
+    [`${prefix} stop --all [--yes]`, 'Stop all scans (Temporal stays up)'],
+    [`${prefix} reset`, 'Stop everything and wipe all Temporal data'],
+    [`${prefix} logs <workspace>`, "Show a scan's live log"],
+    [`${prefix} status <workspace> [--json]`, 'Live phase/agent progress of one scan'],
+    [`${prefix} scans [--json]`, 'List completed scans and their reports'],
+    ...(mode === 'local' ? [[`${prefix} build [--no-cache]`, 'Build worker image'] as const] : []),
+    [`${prefix} version [--json]`, 'Show version'],
+    [`${prefix} help`, 'Show this help'],
+  ];
+
+  const commandWidth = Math.max(...rows.map(([command]) => command.length));
+  return rows.map(([command, desc]) => `  ${command.padEnd(commandWidth)}   ${desc}`).join('\n');
+}
+
 function showHelp(withSplash: boolean): void {
   const mode = getMode();
   const prefix = commandPrefix();
@@ -58,26 +81,8 @@ function showHelp(withSplash: boolean): void {
   const header = withSplash ? '' : '\nShannon - AI Penetration Testing Framework\n';
 
   console.log(`${header}
-Usage:${
-    mode === 'local'
-      ? ''
-      : `
-  ${prefix} setup                                       Configure credentials`
-  }
-  ${prefix} start --url <url> --repo <path> [options]   Start a pentest scan
-  ${prefix} stop <workspace> [--yes]                     Stop one scan
-  ${prefix} stop --all [--yes]                            Stop all scans (Temporal stays up)
-  ${prefix} reset                                        Stop everything and wipe all Temporal data
-  ${prefix} logs <workspace>                             Show a scan's live log
-  ${prefix} status <workspace> [--json]                  Live phase/agent progress of one scan
-  ${prefix} scans [--json]                                List completed scans and their reports${
-    mode === 'local'
-      ? `
-  ${prefix} build [--no-cache]                           Build worker image`
-      : ''
-  }
-  ${prefix} version [--json]                             Show version
-  ${prefix} help                                         Show this help
+Usage:
+${renderUsage(prefix, mode)}
 
 Options for 'start':
 ${renderStartOptions()}
