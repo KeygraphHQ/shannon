@@ -6,7 +6,7 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 
 ## Start Here
 
-- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph platform positioning, safety notes, licensing, and support links.
+- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph platform positioning, common questions, safety notes, licensing, and support links.
 - [Full Combined Context](llms-full.txt): README and documentation combined into one file for agents that need maximum local context.
 
 ## Shannon

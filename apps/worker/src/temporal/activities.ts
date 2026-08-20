@@ -452,9 +452,11 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 /**
  * Write report.sarif when the run is exploitative and the operator asked for it.
  *
- * Skipped entirely for analysis-only runs: those findings carry no severity, so every
- * `result.level` would be invented. Failures are logged and swallowed — the SARIF log is a
- * secondary artifact and must not fail a run whose report is already written.
+ * Skipped entirely for analysis-only runs. The original reason was that those findings carried
+ * no severity, so every `result.level` would have been invented; since severity is recorded in
+ * both modes an analysis run could now populate `level`, but it would report an assessed
+ * severity as a measured one, so the gate stays. Failures are logged and swallowed — the SARIF
+ * log is a secondary artifact and must not fail a run whose report is already written.
  */
 async function writeSarifIfEnabled(
   input: ActivityInput,
