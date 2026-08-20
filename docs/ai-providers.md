@@ -25,7 +25,7 @@ Shannon forwards only the selected provider's credential into the scan container
 
 ### Any other provider
 
-Shannon accepts any provider and model present in the Pi harness catalogue. Browse them at [pi.dev/models](https://pi.dev/models). These are technically supported but not recommended. Claude models are best-supported (see the note below).
+Shannon accepts any provider and model present in the Pi harness catalogue. Browse them at [pi.dev/models](https://pi.dev/models).
 
 ```bash
 export SHANNON_AI_API_KEY=your-api-key                 # the provider's API key
@@ -37,7 +37,7 @@ This path covers providers whose credential is a single API key. Providers that 
 `npx @keygraph/shannon setup` exposes this as the **Other provider** option.
 
 > [!IMPORTANT]
-> Claude models are the best-supported option. Shannon's evaluations, internal testing, and agent harness are tuned for Claude. Other models are permitted and validated against the harness catalogue, but may not follow Shannon's instructions or tool-use constraints as reliably. Use them at your own risk.
+> Models are validated against the harness catalogue, but capability varies. A model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests. Evaluate the model you choose against your own targets before depending on its results.
 
 ## Cyber safeguards (do this before your first scan)
 

@@ -106,12 +106,12 @@ rules:
 
 | Key | Effect |
 | --- | --- |
-| `min_severity` | Drops findings rated below this severity. Applies only when `exploit` is `"true"`. |
+| `min_severity` | Drops findings rated below this severity. Applies in both exploitative and analysis-only runs. |
 | `min_confidence` | Drops findings rated below this confidence. Applies only when `exploit` is `"false"`. |
 | `guidance` | Free-text instruction to the report agent, such as which topics to exclude. |
 | `sarif` | Emits a SARIF 2.1.0 log alongside the Markdown report. Requires `exploit: "true"`. |
 
-A finding carries one rating or the other, never both: an exploited finding is rated by severity, an analysis-only finding by confidence. Setting the threshold that does not apply to the run is ignored, and Shannon logs a warning naming the one to use instead.
+Every finding carries a severity, but it does not mean the same thing in each mode: an exploitative run measures severity from what the exploit demonstrated, while an analysis-only run assesses it from the class of flaw and the impact it would have. An analysis-only finding carries a confidence rating alongside its severity, since nothing was proven. Setting `min_confidence` on an exploitative run is ignored, and Shannon logs a warning naming the threshold to use instead.
 
 ### SARIF Output
 
@@ -125,7 +125,7 @@ report:
 
 Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
 
-The log is written only for exploitative runs. An analysis-only run rates findings by confidence and produces no severity, so there is nothing to populate `level` with; `sarif` is ignored when `exploit` is `"false"`.
+The log is written only for exploitative runs. `sarif` is ignored when `exploit` is `"false"`.
 
 Supported rule types include `url_path`, `subdomain`, `domain`, `method`, `header`, `parameter`, and `code_path`.
 
