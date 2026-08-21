@@ -81,7 +81,10 @@ export async function start(args: StartArgs): Promise<void> {
   const config = args.config ? resolveConfig(args.config) : undefined;
 
   // Inputs are valid — show the splash before the Docker/Temporal setup work.
-  displaySplash(isLocal() ? undefined : args.version);
+  // Skip it off a real terminal (e.g. CI) so piped/logged output stays clean.
+  if (stdoutIsTerminal()) {
+    displaySplash(isLocal() ? undefined : args.version);
+  }
 
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
   const workspacesDir = getWorkspacesDir();
