@@ -6,10 +6,14 @@
  * string into readable output for the CLI's own surfaces.
  */
 
-/** Split the failure string into trimmed, non-empty segments. */
+/**
+ * Split the failure string into trimmed, non-empty lines. Segments are delimited by '|', and a
+ * segment's own embedded newlines (e.g. a multi-line validation message) become their own lines so
+ * each aligns with the rest of the block.
+ */
 export function parseFailureSegments(message: string): string[] {
   return message
-    .split('|')
+    .split(/[|\n]/)
     .map((segment) => segment.trim())
     .filter((segment) => segment.length > 0);
 }
