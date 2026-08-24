@@ -11,6 +11,7 @@ import { BOLD, DIM, GOLD, paint, RED, YELLOW } from '../colors.js';
 import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
 import { agentError, deriveAgentStates, isTerminal, phaseGlyphState, type RunState, scanElapsedMs } from './derive.js';
+import { inlineFailureReason } from './failure.js';
 import { PIPELINE, type PipelineState } from './pipeline.js';
 
 export interface RenderInput {
@@ -229,7 +230,8 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
   const temporalValue = temporalDashboardUrl(input.workflowId);
 
   if (isTerminal(input.temporalStatus)) {
-    const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
+    const rawReason = input.failureMessage ?? input.state?.error;
+    const reason = rawReason ? inlineFailureReason(rawReason) : 'no result recorded';
     return [
       footerDivider(opts),
       paint(

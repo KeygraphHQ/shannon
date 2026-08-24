@@ -41,7 +41,6 @@ import type { ActivityInput } from './activities.js';
 import {
   type AgentMetrics,
   getProgress,
-  PipelineExecutionError,
   type PipelineInput,
   type PipelineProgress,
   type PipelineState,
@@ -718,9 +717,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       });
     }
 
-    // Carry the populated state so a consumer can report real spend instead of a zeroed
-    // failed state. The original error rides as `cause` for classification/reporting.
-    throw new PipelineExecutionError(state.error ?? 'Pipeline failed', state, { cause: error });
+    // Terminate the workflow in Temporal's FAILED state. WARNING: this must be an
+    // ApplicationFailure — any other thrown type becomes an unhandled workflow-task failure
+    // that Temporal retries indefinitely, leaving the run stuck in RUNNING.
+    throw ApplicationFailure.nonRetryable(state.error ?? 'Pipeline failed', 'PipelineExecutionError');
   }
 }
 

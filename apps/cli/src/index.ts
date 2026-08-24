@@ -23,6 +23,7 @@ import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS }
 import { commandPrefix, getMode, isLocal, type Mode } from './mode.js';
 import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
+import { stdoutIsTerminal } from './tty.js';
 import { getVersion, getVersionLine } from './version.js';
 
 function blockSudo(): void {
@@ -174,7 +175,7 @@ async function main(): Promise<void> {
       printCommandHelp(topic);
     } else {
       const bare = command === undefined;
-      if (bare) displaySplash(isLocal() ? undefined : getVersion());
+      if (bare && stdoutIsTerminal()) displaySplash(isLocal() ? undefined : getVersion());
       showHelp(bare);
     }
     return;

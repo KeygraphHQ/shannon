@@ -14,5 +14,4 @@ export type {
   ResumeState,
   VulnExploitPipelineResult,
 } from './shared.js';
-export { PipelineExecutionError } from './shared.js';
 export { pentestPipeline } from './workflows.js';

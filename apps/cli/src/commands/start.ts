@@ -24,6 +24,7 @@ import {
   resolveRepo,
   resolveRunFile,
 } from '../paths.js';
+import { indentFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
 import { getTerminalOutcome } from '../temporal-client.js';
@@ -81,7 +82,10 @@ export async function start(args: StartArgs): Promise<void> {
   const config = args.config ? resolveConfig(args.config) : undefined;
 
   // Inputs are valid — show the splash before the Docker/Temporal setup work.
-  displaySplash(isLocal() ? undefined : args.version);
+  // Skip it off a real terminal (e.g. CI) so piped/logged output stays clean.
+  if (stdoutIsTerminal()) {
+    displaySplash(isLocal() ? undefined : args.version);
+  }
 
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
   const workspacesDir = getWorkspacesDir();
@@ -237,12 +241,14 @@ export async function start(args: StartArgs): Promise<void> {
 }
 
 /**
- * Follow a just-started scan (for `--follow`, aimed at CI): stream its log to completion, then
- * exit on the workflow outcome — 0 if the assessment ran, 1 if the scan failed. That tracks
- * whether the pipeline ran, not whether vulnerabilities were found.
+ * Follow a just-started scan (for `--follow`, aimed at CI): stream its log while Temporal drives
+ * completion, then exit on the workflow outcome — 0 if the assessment ran, 1 if the scan failed.
+ * That tracks whether the pipeline ran, not whether vulnerabilities were found. On failure the
+ * root-cause message is printed so a red CI build says why.
  */
 async function followScan(workspace: string, workspacesDir: string): Promise<never> {
   const logFile = resolveRunFile(path.join(workspacesDir, workspace), 'workflow.log');
+  const workflowId = resolveWorkflowId(workspace);
 
   // The worker creates workflow.log as it starts; wait briefly so the first read doesn't
   // mistake a not-yet-created file for an already-finished scan.
@@ -253,18 +259,38 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
   if (stdoutIsTerminal()) {
     console.error('\n  Following scan log (Ctrl-C to stop watching):\n');
   }
-  await tailUntilComplete(logFile);
 
-  const workflowId = resolveWorkflowId(workspace);
+  let temporalUnreachable = false;
+  const { sawFailure } = await tailUntilComplete(logFile, {
+    ...(workflowId && { workflowId }),
+    onUnreachable: () => {
+      temporalUnreachable = true;
+    },
+  });
+
+  // The tail already printed the diagnostic; reading the outcome would only fail the same way.
+  if (temporalUnreachable) {
+    process.exit(1);
+  }
+
   if (!workflowId) {
     fail('Scan finished but its workflow id could not be resolved from session.json.');
   }
 
   try {
     const outcome = await getTerminalOutcome(workflowId);
-    process.exit(outcome.kind === 'success' ? 0 : 1);
-  } catch {
-    fail('Could not reach Temporal at 127.0.0.1:7233 to read the scan outcome.');
+    if (outcome.kind === 'failed') {
+      // Print the reason only when the streamed log didn't already show the worker's failure
+      // summary — otherwise the worker crashed before writing it, and this is the only report.
+      if (!sawFailure) {
+        console.error(`\nScan failed:\n${indentFailureSegments(outcome.message)}`);
+      }
+      process.exit(1);
+    }
+    process.exit(0);
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    fail('Could not read the scan outcome from Temporal at 127.0.0.1:7233.', `  ${detail}`);
   }
 }
 

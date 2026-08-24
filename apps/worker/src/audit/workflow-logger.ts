@@ -303,13 +303,17 @@ export class WorkflowLogger {
    * Output: "Error:       phase context\n             ErrorType\n             ..."
    */
   private formatErrorBlock(errorString: string): string {
-    const segments = errorString.split('|');
     const label = 'Error:       ';
     const indent = ' '.repeat(label.length);
 
-    const lines = segments.map((segment, i) => (i === 0 ? `${label}${segment.trim()}` : `${indent}${segment.trim()}`));
+    // Segments are delimited by '|'; a segment's own embedded newlines (e.g. a multi-line
+    // validation message) become their own lines so each aligns under the label.
+    const lines = errorString
+      .split(/[|\n]/)
+      .map((segment) => segment.trim())
+      .filter((segment) => segment.length > 0);
 
-    return `${lines.join('\n')}\n`;
+    return `${lines.map((line, i) => (i === 0 ? `${label}${line}` : `${indent}${line}`)).join('\n')}\n`;
   }
 
   /**
@@ -336,17 +340,19 @@ export class WorkflowLogger {
       lines.push(this.formatErrorBlock(summary.error).trimEnd());
     }
 
-    lines.push('');
-    lines.push('Agent Breakdown:');
+    if (summary.completedAgents.length > 0) {
+      lines.push('');
+      lines.push('Agent Breakdown:');
 
-    for (const agentName of summary.completedAgents) {
-      const metrics = summary.agentMetrics[agentName];
-      if (metrics) {
-        const duration = formatDuration(metrics.durationMs);
-        const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
-        lines.push(`  - ${agentName} (${duration}, ${cost})`);
-      } else {
-        lines.push(`  - ${agentName}`);
+      for (const agentName of summary.completedAgents) {
+        const metrics = summary.agentMetrics[agentName];
+        if (metrics) {
+          const duration = formatDuration(metrics.durationMs);
+          const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
+          lines.push(`  - ${agentName} (${duration}, ${cost})`);
+        } else {
+          lines.push(`  - ${agentName}`);
+        }
       }
     }
 
