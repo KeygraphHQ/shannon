@@ -336,17 +336,19 @@ export class WorkflowLogger {
       lines.push(this.formatErrorBlock(summary.error).trimEnd());
     }
 
-    lines.push('');
-    lines.push('Agent Breakdown:');
+    if (summary.completedAgents.length > 0) {
+      lines.push('');
+      lines.push('Agent Breakdown:');
 
-    for (const agentName of summary.completedAgents) {
-      const metrics = summary.agentMetrics[agentName];
-      if (metrics) {
-        const duration = formatDuration(metrics.durationMs);
-        const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
-        lines.push(`  - ${agentName} (${duration}, ${cost})`);
-      } else {
-        lines.push(`  - ${agentName}`);
+      for (const agentName of summary.completedAgents) {
+        const metrics = summary.agentMetrics[agentName];
+        if (metrics) {
+          const duration = formatDuration(metrics.durationMs);
+          const cost = metrics.costUsd !== null ? `$${metrics.costUsd.toFixed(4)}` : 'N/A';
+          lines.push(`  - ${agentName} (${duration}, ${cost})`);
+        } else {
+          lines.push(`  - ${agentName}`);
+        }
       }
     }
 
