@@ -1,20 +1,22 @@
 /**
  * `shannon logs` command — tail a scan's live log.
  *
- * Uses chokidar for reliable cross-platform file watching and
- * bounded synchronous reads to prevent duplicate output.
+ * The log file is streamed for its content; completion is decided by Temporal (the
+ * workflow's status), so a worker that dies mid-run can't leave the tail hanging. Uses
+ * chokidar for reliable cross-platform file watching and bounded synchronous reads to
+ * prevent duplicate output.
  */
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
 import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
 import { resolveRunFile } from '../paths.js';
+import { resolveWorkflowId } from '../session.js';
+import { waitForWorkflowClose } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
-
-// Match the exact line the worker writes — anchored to prevent false positives from agent output
-const COMPLETION_PATTERN = /^Scan (COMPLETED|FAILED)$/m;
 
 /** Read a byte range from a file and return it as a UTF-8 string. */
 function readRange(filePath: string, start: number, end: number): string {
@@ -62,60 +64,101 @@ export function resolveLogFile(workspaceId: string): string {
   );
 }
 
+export interface TailOptions {
+  /** Workflow whose Temporal status decides when the tail stops. Without it, only Ctrl-C ends the tail. */
+  readonly workflowId?: string;
+  /** Called if the tail ends because Temporal became unreachable, with the captured error. */
+  readonly onUnreachable?: (lastError: string) => void;
+}
+
 /**
- * Tail a scan's log until it reports completion, resolving when the completion marker appears
- * (or the file is gone, or Ctrl-C stops it). Never exits the process, so the caller decides what
- * happens next: plain `logs` exits 0; `start --follow` reads the workflow outcome first.
+ * Stream a scan's log to the terminal until the workflow closes (completion comes from Temporal,
+ * or Ctrl-C). A Temporal outage is warned about and, if sustained, ends the tail with a diagnostic.
+ * Never exits the process: plain `logs` exits; `start --follow` reads the workflow outcome first.
  */
-export function tailUntilComplete(logFile: string): Promise<void> {
+export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Promise<void> {
   return new Promise((resolve) => {
     let position = 0;
+    let done = false;
+    const controller = new AbortController();
+    let watcher: ReturnType<typeof watch> | undefined;
 
-    /**
-     * Output any new content appended since the last read.
-     * Returns true when the workflow completion marker is detected.
-     */
-    function flush(): boolean {
+    /** Output any new content appended since the last read. */
+    function flush(): void {
       try {
         const { size } = fs.statSync(logFile);
-        if (size <= position) return false;
-
+        if (size <= position) return;
         const data = readRange(logFile, position, size);
         process.stdout.write(data);
         position = size;
-
-        return COMPLETION_PATTERN.test(data);
       } catch {
-        // File deleted or unreadable — treat as done
-        return true;
+        // File not present yet or transiently unreadable — nothing to flush this round.
       }
     }
 
-    // 1. Output existing content
-    if (flush()) {
-      resolve();
-      return;
+    function finish(): void {
+      if (done) return;
+      done = true;
+      controller.abort();
+      if (watcher) {
+        watcher.close().finally(() => resolve());
+        // Safety net — resolve anyway if watcher.close() stalls.
+        setTimeout(() => resolve(), 1000).unref();
+      } else {
+        resolve();
+      }
     }
 
-    // 2. Watch for appended content via chokidar
-    const watcher = watch(logFile, { persistent: true });
+    // 1. Output existing content, then stream anything appended.
+    flush();
+    watcher = watch(logFile, { persistent: true });
+    watcher.on('change', () => flush());
 
-    const stop = (): void => {
-      watcher.close().finally(() => resolve());
-      // Safety net — resolve anyway if watcher.close() stalls
-      setTimeout(() => resolve(), 1000).unref();
-    };
+    // 2. Ctrl-C stops watching.
+    process.on('SIGINT', finish);
 
-    watcher.on('change', () => {
-      if (flush()) stop();
-    });
-
-    process.on('SIGINT', stop);
+    // 3. Temporal decides completion. Without a workflow id, the tail relies on Ctrl-C alone.
+    if (opts.workflowId) {
+      waitForWorkflowClose(opts.workflowId, {
+        signal: controller.signal,
+        onConnectionTrouble: (lastError) => {
+          if (!done) console.error(`\n⚠ Lost contact with Temporal, retrying… (${lastError})`);
+        },
+        onReconnected: () => {
+          if (!done) console.error('  Reconnected to Temporal.');
+        },
+      })
+        .then(async (end) => {
+          if (done) return;
+          // Flush, let a just-written final summary land, then flush the tail once more.
+          flush();
+          await sleep(750).catch(() => {});
+          flush();
+          if (end.reason === 'unreachable') {
+            console.error('\nScan watch aborted: lost contact with Temporal.');
+            console.error(`  Last error: ${end.lastError}`);
+            console.error('  Temporal may have crashed — check `docker compose logs temporal`.');
+            opts.onUnreachable?.(end.lastError);
+          }
+          finish();
+        })
+        .catch(() => {
+          // waitForWorkflowClose never rejects; guard only against an aborted race.
+        });
+    }
   });
 }
 
 export function logs(workspaceId: string): void {
   const logFile = resolveLogFile(workspaceId);
+  const workflowId = resolveWorkflowId(workspaceId);
   console.error(stdoutIsTerminal() ? `Tailing scan log: ${logFile}` : 'Tailing scan log');
-  tailUntilComplete(logFile).finally(() => process.exit(0));
+
+  let unreachable = false;
+  tailUntilComplete(logFile, {
+    ...(workflowId ? { workflowId } : {}),
+    onUnreachable: () => {
+      unreachable = true;
+    },
+  }).finally(() => process.exit(unreachable ? 1 : 0));
 }

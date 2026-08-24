@@ -7,11 +7,16 @@
  * publishes — so this needs Temporal up, but no worker of its own.
  */
 
+import { setTimeout as sleep } from 'node:timers/promises';
 import { Client, Connection, WorkflowFailedError, WorkflowNotFoundError } from '@temporalio/client';
 import { ACTIVITY_TO_AGENT, type PipelineState } from './scan/pipeline.js';
 
 const ADDRESS = '127.0.0.1:7233';
 const NAMESPACE = 'default';
+
+// WorkflowExecutionStatusName values that mean the scan has closed. RUNNING (and the unused
+// CONTINUED_AS_NEW) are the only non-terminal states.
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['COMPLETED', 'FAILED', 'CANCELLED', 'TERMINATED', 'TIMED_OUT']);
 
 export interface RunningAgent {
   readonly agent: string;
@@ -109,6 +114,75 @@ function rootFailureMessage(err: WorkflowFailedError): string {
     cause = cause.cause;
   }
   return message;
+}
+
+/** How a {@link waitForWorkflowClose} watch ended. */
+export type WatchEnd = { readonly reason: 'closed' } | { readonly reason: 'unreachable'; readonly lastError: string };
+
+export interface WatchOptions {
+  /** Poll interval in ms (default 3000). */
+  readonly pollMs?: number;
+  /** Consecutive connection failures before giving up (default 10 → ~30s at the default interval). */
+  readonly maxConnectFailures?: number;
+  /** Consecutive connection failures before {@link onConnectionTrouble} fires once (default 3). */
+  readonly warnAfterFailures?: number;
+  /** Abort the watch (the caller stopped for another reason, e.g. Ctrl-C). */
+  readonly signal?: AbortSignal;
+  /** Called once when contact is first lost, so a live follower's log isn't silent during the outage. */
+  readonly onConnectionTrouble?: (lastError: string) => void;
+  /** Called once when contact is regained after {@link onConnectionTrouble} fired. */
+  readonly onReconnected?: () => void;
+}
+
+/**
+ * Resolve once the scan is no longer running, using the workflow's Temporal status as the
+ * completion signal. Ends on a terminal status, a not-found workflow (closed past retention), or
+ * maxConnectFailures consecutive unreachable polls (a scan can't progress while its Temporal is
+ * down, so sustained no-contact is a safe stop). Never rejects; connection errors surface via the
+ * callbacks and the returned {@link WatchEnd}.
+ */
+export async function waitForWorkflowClose(workflowId: string, opts: WatchOptions = {}): Promise<WatchEnd> {
+  const pollMs = opts.pollMs ?? 3000;
+  const maxConnectFailures = opts.maxConnectFailures ?? 10;
+  const warnAfterFailures = opts.warnAfterFailures ?? 3;
+  const signal = opts.signal;
+
+  let connectFailures = 0;
+  let lastError = '';
+  let warned = false;
+
+  while (!signal?.aborted) {
+    try {
+      const desc = await describeScan(workflowId);
+      if (desc === null || TERMINAL_STATUSES.has(desc.status)) {
+        return { reason: 'closed' };
+      }
+      // Reachable and still RUNNING — reset the failure streak and note any recovery.
+      if (warned) {
+        warned = false;
+        opts.onReconnected?.();
+      }
+      connectFailures = 0;
+    } catch (err) {
+      connectFailures++;
+      lastError = err instanceof Error ? err.message : String(err);
+      if (!warned && connectFailures >= warnAfterFailures) {
+        warned = true;
+        opts.onConnectionTrouble?.(lastError);
+      }
+      if (connectFailures >= maxConnectFailures) {
+        return { reason: 'unreachable', lastError };
+      }
+    }
+
+    try {
+      await sleep(pollMs, undefined, { signal });
+    } catch {
+      break; // Aborted mid-wait by the caller.
+    }
+  }
+
+  return { reason: 'closed' };
 }
 
 /** Final state of a closed scan: success carries the full PipelineState, failure carries the message. */

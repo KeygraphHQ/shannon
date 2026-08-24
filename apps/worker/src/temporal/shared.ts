@@ -60,21 +60,6 @@ export interface PipelineState {
   summary: PipelineSummary | null;
 }
 
-/**
- * Thrown by pentestPipeline() when the run fails, carrying the fully-populated
- * PipelineState (real agentMetrics, completedAgents, summary) so a consumer can
- * report actual spend instead of synthesizing a zeroed failed state. `cause`
- * preserves the original error for classification and Temporal failure reporting.
- */
-export class PipelineExecutionError extends Error {
-  override name = 'PipelineExecutionError' as const;
-  readonly state: PipelineState;
-  constructor(message: string, state: PipelineState, options?: { cause?: unknown }) {
-    super(message, options);
-    this.state = state;
-  }
-}
-
 // Extended state returned by getProgress query (includes computed fields)
 export interface PipelineProgress extends PipelineState {
   workflowId: string;
