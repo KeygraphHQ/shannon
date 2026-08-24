@@ -261,7 +261,7 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
   }
 
   let temporalUnreachable = false;
-  await tailUntilComplete(logFile, {
+  const { sawFailure } = await tailUntilComplete(logFile, {
     ...(workflowId && { workflowId }),
     onUnreachable: () => {
       temporalUnreachable = true;
@@ -280,7 +280,11 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
   try {
     const outcome = await getTerminalOutcome(workflowId);
     if (outcome.kind === 'failed') {
-      console.error(`\nScan failed:\n${indentFailureSegments(outcome.message)}`);
+      // Print the reason only when the streamed log didn't already show the worker's failure
+      // summary — otherwise the worker crashed before writing it, and this is the only report.
+      if (!sawFailure) {
+        console.error(`\nScan failed:\n${indentFailureSegments(outcome.message)}`);
+      }
       process.exit(1);
     }
     process.exit(0);

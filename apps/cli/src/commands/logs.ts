@@ -71,15 +71,25 @@ export interface TailOptions {
   readonly onUnreachable?: (lastError: string) => void;
 }
 
+/** Outcome of a tail: whether the streamed log already contained the worker's `Scan FAILED` block. */
+export interface TailResult {
+  readonly sawFailure: boolean;
+}
+
+// The worker writes this exact line at the head of its terminal failure summary.
+const FAILURE_MARKER = /^Scan FAILED$/m;
+
 /**
  * Stream a scan's log to the terminal until the workflow closes (completion comes from Temporal,
  * or Ctrl-C). A Temporal outage is warned about and, if sustained, ends the tail with a diagnostic.
  * Never exits the process: plain `logs` exits; `start --follow` reads the workflow outcome first.
+ * Reports whether the log already showed the failure, so a caller need not print it a second time.
  */
-export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Promise<void> {
+export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Promise<TailResult> {
   return new Promise((resolve) => {
     let position = 0;
     let done = false;
+    let sawFailure = false;
     const controller = new AbortController();
     let watcher: ReturnType<typeof watch> | undefined;
 
@@ -91,6 +101,9 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
         const data = readRange(logFile, position, size);
         process.stdout.write(data);
         position = size;
+        if (!sawFailure && FAILURE_MARKER.test(data)) {
+          sawFailure = true;
+        }
       } catch {
         // File not present yet or transiently unreadable — nothing to flush this round.
       }
@@ -101,11 +114,11 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
       done = true;
       controller.abort();
       if (watcher) {
-        watcher.close().finally(() => resolve());
+        watcher.close().finally(() => resolve({ sawFailure }));
         // Safety net — resolve anyway if watcher.close() stalls.
-        setTimeout(() => resolve(), 1000).unref();
+        setTimeout(() => resolve({ sawFailure }), 1000).unref();
       } else {
-        resolve();
+        resolve({ sawFailure });
       }
     }
 
