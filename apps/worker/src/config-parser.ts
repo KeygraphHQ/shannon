@@ -679,7 +679,8 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const exploit = config?.exploit !== undefined ? config.exploit === 'true' : true;
 
   const report = {
-    sarif: config?.report?.sarif === 'true',
+    // Default on; only an explicit "false" opts out.
+    sarif: config?.report?.sarif !== 'false',
     ...(config?.report?.min_severity && { min_severity: config.report.min_severity }),
     ...(config?.report?.min_confidence && { min_confidence: config.report.min_confidence }),
     ...(config?.report?.guidance && { guidance: config.report.guidance.trim() }),

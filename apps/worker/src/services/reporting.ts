@@ -181,7 +181,7 @@ export async function injectModelIntoReport(
  *
  * The SARIF log is surfaced beside it when present, since a CI step consuming it needs a stable
  * path and cannot be expected to reach into the internals directory. It is absent whenever the
- * run was analysis-only or `report.sarif` was not enabled.
+ * run was analysis-only or `report.sarif` was set to false.
  */
 export async function copyReportToRunRoot(
   repoPath: string,

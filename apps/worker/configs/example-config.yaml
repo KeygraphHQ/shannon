@@ -96,8 +96,9 @@ rules:
 # Report filters applied by the report agent when assembling the final report (optional).
 # Example below is illustrative; edit, remove, or add sections as needed.
 # report:
-#   # Emit a SARIF 2.1.0 log (report.sarif) beside the report. Requires exploit: "true".
-#   sarif: "true"
+#   # SARIF 2.1.0 log (report.sarif) beside the report. On by default for exploit runs;
+#   # set "false" to opt out. Ignored when exploit is "false".
+#   sarif: "false"
 #   min_severity: low
 #   min_confidence: low
 #   guidance: |
