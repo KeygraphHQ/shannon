@@ -11,8 +11,10 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { watch } from 'chokidar';
+import { field } from '../chrome.js';
 import { fail } from '../errors.js';
 import { getWorkspacesDir } from '../home.js';
+import { LogRenderer } from '../log-render.js';
 import { resolveRunFile } from '../paths.js';
 import { resolveWorkflowId } from '../session.js';
 import { waitForWorkflowClose } from '../temporal-client.js';
@@ -90,6 +92,9 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
     let position = 0;
     let done = false;
     let sawFailure = false;
+    // Decorates the streamed log for the terminal; a pass-through when colour is off, so
+    // piped/redirected output stays byte-identical and the failure check still sees raw text.
+    const renderer = new LogRenderer();
     const controller = new AbortController();
     let watcher: ReturnType<typeof watch> | undefined;
 
@@ -99,7 +104,7 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
         const { size } = fs.statSync(logFile);
         if (size <= position) return;
         const data = readRange(logFile, position, size);
-        process.stdout.write(data);
+        process.stdout.write(renderer.write(data));
         position = size;
         if (!sawFailure && FAILURE_MARKER.test(data)) {
           sawFailure = true;
@@ -112,6 +117,7 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
     function finish(): void {
       if (done) return;
       done = true;
+      process.stdout.write(renderer.end());
       controller.abort();
       if (watcher) {
         watcher.close().finally(() => resolve({ sawFailure }));
@@ -165,7 +171,7 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
 export function logs(workspaceId: string): void {
   const logFile = resolveLogFile(workspaceId);
   const workflowId = resolveWorkflowId(workspaceId);
-  console.error(stdoutIsTerminal() ? `Tailing scan log: ${logFile}` : 'Tailing scan log');
+  console.error(stdoutIsTerminal() ? field(`Tailing scan log: ${logFile}`) : 'Tailing scan log');
 
   let unreachable = false;
   tailUntilComplete(logFile, {

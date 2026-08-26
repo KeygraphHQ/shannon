@@ -10,6 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import * as p from '@clack/prompts';
+import { field, rule } from '../chrome.js';
 import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail } from '../errors.js';
@@ -298,9 +299,9 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
 
 function printPreservedContainerHint(containerName: string): void {
   console.log('');
-  console.log(`  Worker container preserved: ${containerName}`);
-  console.log(`    Inspect logs: docker logs ${containerName}`);
-  console.log(`    Remove:       docker rm ${containerName}`);
+  console.log(field(`  Worker container preserved: ${containerName}`));
+  console.log(field(`    Inspect logs: docker logs ${containerName}`));
+  console.log(field(`    Remove:       docker rm ${containerName}`));
   console.log('');
 }
 
@@ -312,19 +313,19 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
     console.log('');
   }
 
-  console.log(`  Target:     ${args.url}`);
-  console.log(`  Repository: ${interactive ? repoPath : path.basename(repoPath)}`);
-  console.log(`  Workspace:  ${workspace}`);
+  console.log(field(`  Target:     ${args.url}`));
+  console.log(field(`  Repository: ${interactive ? repoPath : path.basename(repoPath)}`));
+  console.log(field(`  Workspace:  ${workspace}`));
   if (args.config) {
-    console.log(`  Config:     ${interactive ? path.resolve(args.config) : path.basename(args.config)}`);
+    console.log(field(`  Config:     ${interactive ? path.resolve(args.config) : path.basename(args.config)}`));
   }
   if (args.pipelineTesting) {
-    console.log('  Mode:       Pipeline Testing');
+    console.log(field('  Mode:       Pipeline Testing'));
   }
 
   const spec = resolveModelSpec();
   if (typeof spec !== 'string') {
-    console.log(`  Model:      ${spec.providerId}:${spec.modelId}`);
+    console.log(field(`  Model:      ${spec.providerId}:${spec.modelId}`));
   }
 
   if (!interactive) {
@@ -338,13 +339,13 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
   if (!args.follow) {
     const prefix = commandPrefix();
     console.log('');
-    console.log('  Watch scan progress:');
-    console.log(`    Live logs:  ${prefix} logs ${workspace}`);
-    console.log(`    Progress:   ${prefix} status ${workspace}`);
+    console.log(rule('Watch scan progress:'));
+    console.log(field(`    Live logs:  ${prefix} logs ${workspace}`));
+    console.log(field(`    Progress:   ${prefix} status ${workspace}`));
   }
 
   console.log('');
-  console.log('  Report (when the scan finishes):');
+  console.log(rule('Report (when the scan finishes):'));
   console.log(`    ${reportPath}`);
   console.log('');
 }
