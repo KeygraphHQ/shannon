@@ -450,13 +450,14 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
 }
 
 /**
- * Write report.sarif when the run is exploitative and the operator asked for it.
+ * Write report.sarif for exploitative runs unless the operator opted out with report.sarif: false.
  *
- * Skipped entirely for analysis-only runs. The original reason was that those findings carried
- * no severity, so every `result.level` would have been invented; since severity is recorded in
- * both modes an analysis run could now populate `level`, but it would report an assessed
- * severity as a measured one, so the gate stays. Failures are logged and swallowed — the SARIF
- * log is a secondary artifact and must not fail a run whose report is already written.
+ * On by default so a CI step consuming the log always finds one. Skipped for analysis-only runs.
+ * The original reason was that those findings carried no severity, so every `result.level` would
+ * have been invented; since severity is recorded in both modes an analysis run could now populate
+ * `level`, but it would report an assessed severity as a measured one, so the gate stays. Failures
+ * are logged and swallowed — the SARIF log is a secondary artifact and must not fail a run whose
+ * report is already written.
  */
 async function writeSarifIfEnabled(
   input: ActivityInput,
@@ -469,7 +470,8 @@ async function writeSarifIfEnabled(
 
   const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
   const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
-  if (isErr(configResult) || configResult.value?.report?.sarif !== true) return;
+  // Only an explicit false opts out; a missing config keeps the default on.
+  if (isErr(configResult) || configResult.value?.report?.sarif === false) return;
 
   try {
     const { renderSarif } = await import('../services/sarif-renderer.js');

@@ -32,7 +32,10 @@ export interface ReportConfig {
   min_severity?: Severity;
   min_confidence?: Confidence;
   guidance?: string;
-  /** Emit report.sarif alongside the markdown report. Ignored when exploit is false. */
+  /**
+   * Emit report.sarif alongside the markdown report. On by default for exploit runs; set 'false'
+   * to opt out. Ignored when exploit is false.
+   */
   sarif?: 'true' | 'false';
 }
 

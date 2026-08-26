@@ -164,7 +164,7 @@
         "sarif": {
           "type": "string",
           "enum": ["true", "false"],
-          "description": "Emit a SARIF 2.1.0 log (report.sarif) beside the report. Requires exploit=true; ignored otherwise."
+          "description": "Emit a SARIF 2.1.0 log (report.sarif) beside the report. On by default for exploit runs; set \"false\" to opt out. Ignored when exploit=false."
         }
       },
       "additionalProperties": false

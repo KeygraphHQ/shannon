@@ -29,7 +29,7 @@ export function getAgentGitPaths(agentName: AgentName): string[] {
     paths.push(queueFilename);
   }
   // The report agent also emits the structured findings the markdown is rendered from, and the
-  // SARIF log when enabled. Listing the log unconditionally is harmless when it was not written,
+  // SARIF log when produced. Listing the log unconditionally is harmless when it was not written,
   // and keeps a stale one from surviving the rollback of a failed attempt.
   if (agentName === 'report') {
     paths.push(REPORT_JSON_FILENAME);

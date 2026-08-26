@@ -43,7 +43,7 @@ export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
 /** Structured findings the report agent emits; the markdown report is rendered from it. */
 export const REPORT_JSON_FILENAME = 'report.json';
 
-/** SARIF 2.1.0 log, written only for exploit=true runs when report.sarif is enabled. */
+/** SARIF 2.1.0 log, written for exploit=true runs unless report.sarif is set to false. */
 export const SARIF_FILENAME = 'report.sarif';
 
 /**
