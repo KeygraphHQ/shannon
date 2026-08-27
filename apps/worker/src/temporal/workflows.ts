@@ -31,7 +31,12 @@ import type { StageMetrics } from '../ai/reconciliation/stage-contracts.js';
 import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
 import type { CapellaWorkflowInput } from '../ai/sast/capella/temporal/activity-types.js';
 import { CAPELLA_CHILD_WORKFLOW_OPTIONS, capellaWorkflow } from '../ai/sast/capella/temporal/workflow.js';
-import type { CapellaRunResult, SarifRef } from '../ai/sast/types.js';
+import {
+  CAPELLA_PROGRESS_STAGES,
+  CAPELLA_STAGE_LABELS,
+  type CapellaRunResult,
+  type SarifRef,
+} from '../ai/sast/types.js';
 import type { WorkflowPhase } from '../audit/safe-fields.js';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
@@ -59,6 +64,8 @@ import {
 } from './reconcile-activity-types.js';
 import {
   type AgentMetrics,
+  type CapellaStageProgress,
+  capellaStageProgress,
   type DurableStateSummary,
   type FinalizeReportActivityResult,
   getProgress,
@@ -429,6 +436,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }),
   );
 
+  setHandler(capellaStageProgress, (progress: CapellaStageProgress): void => {
+    recordCapellaStage(progress);
+  });
+
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
     repoPath: input.repoPath,
@@ -519,11 +530,6 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     };
   }
 
-  /** A stage an earlier run already settled. It records no span, so it contributes no wall time. */
-  function skipOperation(key: string, label: string): void {
-    state.operationalStages[key] = { key, label, status: 'skipped' };
-  }
-
   async function runOperation<T>(key: string, label: string, operation: () => Promise<T>): Promise<T> {
     const startedAt = startOperation(key, label);
     try {
@@ -534,6 +540,46 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       failOperation(key, label, startedAt);
       throw error;
     }
+  }
+
+  /**
+   * Record one Capella stage transition signalled by the SAST child workflow.
+   *
+   * The payload crosses a workflow boundary, so every field is revalidated here rather
+   * than trusted: only model-backed stages and valid state/timing payloads are accepted.
+   */
+  function recordCapellaStage(progress: unknown): void {
+    if (typeof progress !== 'object' || progress === null) return;
+    const candidate = progress as Record<string, unknown>;
+    const stageValue = candidate.stage;
+    if (typeof stageValue !== 'string') return;
+    const stage = CAPELLA_PROGRESS_STAGES.find((value) => value === stageValue);
+    if (stage === undefined) return;
+    const status = candidate.status;
+    if (status !== 'running' && status !== 'completed' && status !== 'failed') return;
+    const startedAt = candidate.startedAt;
+    if (!Number.isSafeInteger(startedAt) || (startedAt as number) < 0) return;
+
+    const key = `${CAPELLA_OPERATION_KEY}:${stage}`;
+    const label = CAPELLA_STAGE_LABELS[stage];
+    if (status === 'running') {
+      state.operationalStages[key] = { key, label, status: 'running', startedAt: startedAt as number };
+      return;
+    }
+    // Trust the child's own span for duration: the signal may be delivered after the stage
+    // ended, so measuring from the parent's clock here would inflate every stage.
+    const durationMs = candidate.durationMs;
+    if (!Number.isSafeInteger(durationMs) || (durationMs as number) < 0) {
+      return;
+    }
+    state.operationalStages[key] = {
+      key,
+      label,
+      status,
+      startedAt: startedAt as number,
+      durationMs: durationMs as number,
+      ...(status === 'failed' && { error: OPERATION_FAILURE }),
+    };
   }
 
   function addReconciliationMetrics(
@@ -1013,17 +1059,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
    * the class was ever admitted for exploitation, rather than re-deciding admission from scratch.
    */
   async function runMiscellaneousPipeline(effectiveSarif: SarifRef): Promise<void> {
-    const key = 'miscellaneous-pipeline';
-    const label = 'Miscellaneous findings';
+    // This lane records no operational stage of its own. It is a span around work that
+    // already reports itself -- `reconcileClass('miscellaneous')` and the miscellaneous
+    // exploit agent -- so a row here would count both a second time.
+    //
     // An earlier run already settled this class. Re-deciding admission would ask durable state to
     // move backwards, which fails closed and would be recorded as a class failure that never
     // happened; re-running the lane would also repeat work that run already paid for.
     if (miscellaneousLaneIsSettled(miscellaneousOutcome)) {
       if (miscellaneousOutcome === 'completed') markCompleted('miscellaneous-exploit');
-      skipOperation(key, label);
       return;
     }
-    const startedAt = startOperation(key, label);
     let reconciliationCompleted = false;
     try {
       await seedMiscellaneousActs.seedEmptyProducerQueue({ sessionId });
@@ -1045,11 +1091,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       }
       const persisted = await deterministicReportActs.persistMiscellaneousOutcome(activityInput, outcome);
       applyDurableSummary(persisted);
-      completeOperation(key, label, startedAt);
     } catch (error) {
       if (hasCancellationInCauseChain(error)) throw error;
       const message = reconciliationCompleted ? MISCELLANEOUS_PIPELINE_FAILURE : CLASS_RECONCILIATION_FAILURE;
-      failOperation(key, label, startedAt, message);
       if (!reconciliationCompleted) {
         state.failedReconciliations.push({ vulnerabilityClass: 'miscellaneous', error: message });
         addPartialReason({ code: 'class_reconciliation_failed', vulnerabilityClass: 'miscellaneous' });

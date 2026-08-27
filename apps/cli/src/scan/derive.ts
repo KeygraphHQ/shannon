@@ -9,7 +9,9 @@
 
 import type { RunningAgent } from '../temporal-client.js';
 import {
+  AGENTIC_SAST_STAGE_ORDER,
   agentClass,
+  isModelBackedOperation,
   type OperationalStageState,
   operationFamilyKey,
   type PipelineState,
@@ -31,14 +33,31 @@ export interface DerivedAgent {
   readonly attempt: number | null;
   /** The step a running operation row is currently on, merged in from its child activity. */
   readonly detail?: string;
+  /** Reconciliation time for this agent's class, rendered as a trailing `+ duration`.
+   *  Reconciliation is model work that produces this agent's inputs, so it is shown
+   *  attached to the agent it feeds rather than as free-floating background work. */
+  readonly attachedMs?: number;
+  /** This class's findings could not be grouped, so each one became its own task. */
+  readonly ungrouped?: boolean;
   readonly error?: string;
 }
+
+/** How a phase line summarizes itself: its own wall time, or a k/N tally over its children. */
+export type PhaseMetaKind = 'duration' | 'count';
 
 export interface DerivedPhase {
   readonly key: string;
   readonly label: string;
-  readonly parallel: boolean;
+  /** Whether the phase renders its agents as sub-rows. Independent of {@link meta}:
+   *  Agentic SAST lists its stages under a duration, exploitation lists its classes under a tally. */
+  readonly children: boolean;
+  readonly meta: PhaseMetaKind;
   readonly state: RunState;
+  /** The phase's own span, when the worker records one for the phase rather than for a single
+   *  agent inside it (Agentic SAST). The phase line presents this exactly like an agent row. */
+  readonly summary?: DerivedAgent;
+  /** Rendered after the phase's summary, e.g. to mark work that overlaps other phases. */
+  readonly note?: string;
   readonly agents: readonly DerivedAgent[];
 }
 
@@ -205,7 +224,8 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
     return {
       key: phase.key,
       label: phase.label,
-      parallel: phase.parallel,
+      children: phase.parallel,
+      meta: phase.parallel ? ('count' as const) : ('duration' as const),
       state: phaseGlyphState(agents.map((ag) => ag.state)),
       agents,
     };
@@ -248,35 +268,137 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
     };
   });
 
-  // The synthetic phase(s) appear only when there is operational work to show, so a scan
-  // with no recorded operational stages keeps the plain agent tree.
-  if (operationalAgents.length === 0) return agentPhases;
+  // Operational rows are not peers of the agents. Each one is either model work that
+  // belongs to an agent (reconciliation), model work that belongs to the SAST engine
+  // (its stages), or bookkeeping that only earns a row when it is stuck or broken.
+  return assemblePhases(agentPhases, operationalAgents);
+}
 
-  // Agentic SAST is a pluggable analysis engine — a peer to the pentest, not background plumbing —
-  // so it stands in its own phase; reconciliation and report steps remain under "Background work".
-  const engineAgents = operationalAgents.filter((agent) => operationFamilyKey(agent.name) === 'agentic-sast');
-  const backgroundAgents = operationalAgents.filter((agent) => operationFamilyKey(agent.name) !== 'agentic-sast');
+/** Reconciliation wall time per vulnerability class, plus the classes whose grouping degraded. */
+interface ReconciliationView {
+  readonly durationByClass: ReadonlyMap<string, number>;
+  readonly ungroupedClasses: ReadonlySet<string>;
+}
 
-  const syntheticPhases: DerivedPhase[] = [];
-  if (engineAgents.length > 0) {
-    syntheticPhases.push({
-      key: 'analysis-engines',
-      label: 'Analysis Engines',
-      parallel: true,
-      state: phaseGlyphState(engineAgents.map((operation) => operation.state)),
-      agents: engineAgents,
-    });
+function reconciliationView(operations: readonly DerivedAgent[]): ReconciliationView {
+  const durationByClass = new Map<string, number>();
+  const ungroupedClasses = new Set<string>();
+  for (const operation of operations) {
+    if (operationFamilyKey(operation.name) !== 'reconciliation') continue;
+    const [, vulnerabilityClass] = operation.name.split(':');
+    if (vulnerabilityClass === undefined) continue;
+    if (operation.name.endsWith(':fallback')) {
+      ungroupedClasses.add(vulnerabilityClass);
+      continue;
+    }
+    if (operation.durationMs !== null) durationByClass.set(vulnerabilityClass, operation.durationMs);
   }
-  if (backgroundAgents.length > 0) {
-    syntheticPhases.push({
-      key: 'operational-work',
-      label: 'Background work',
-      parallel: true,
-      state: phaseGlyphState(backgroundAgents.map((operation) => operation.state)),
-      agents: backgroundAgents,
-    });
+  return { durationByClass, ungroupedClasses };
+}
+
+/** Attach each class's reconciliation time to the agent row it feeds. */
+function withReconciliation(phase: DerivedPhase, view: ReconciliationView): DerivedPhase {
+  const agents = phase.agents.map((agent): DerivedAgent => {
+    const vulnerabilityClass = agentClass(agent.name);
+    const attachedMs = view.durationByClass.get(vulnerabilityClass);
+    const ungrouped = view.ungroupedClasses.has(vulnerabilityClass);
+    return {
+      ...agent,
+      ...(attachedMs !== undefined && { attachedMs }),
+      ...(ungrouped && { ungrouped }),
+    };
+  });
+  return { ...phase, agents };
+}
+
+/**
+ * Build the Agentic SAST phase from the aggregate span the parent workflow records and the
+ * per-stage rows the SAST child signals up. Scans that predate stage signalling have the
+ * aggregate but no stages, and render as a bare phase line rather than an error.
+ */
+function agenticSastPhase(operations: readonly DerivedAgent[]): DerivedPhase | undefined {
+  const aggregate = operations.find((operation) => operation.name === 'agentic-sast');
+  if (aggregate === undefined) return undefined;
+
+  const byStage = new Map<string, DerivedAgent>();
+  for (const operation of operations) {
+    const [family, stage] = operation.name.split(':');
+    if (family !== 'agentic-sast' || stage === undefined) continue;
+    // The worker's label is the scan log's Title Case form. These rows sit beside the
+    // lowercase class rows below them, so they read in the same register here.
+    byStage.set(stage, { ...operation, label: lowercaseFirst(operation.label) });
   }
-  return [...agentPhases, ...syntheticPhases];
+  // Run order, not insertion order: a resumed or replayed run can persist stages out of order.
+  const stages = AGENTIC_SAST_STAGE_ORDER.map((stage) => byStage.get(stage)).filter(
+    (stage): stage is DerivedAgent => stage !== undefined,
+  );
+
+  return {
+    key: 'agentic-sast',
+    label: 'Agentic SAST',
+    children: stages.length > 0,
+    meta: 'duration',
+    state: aggregate.state,
+    summary: aggregate,
+    // It shares wall time with the pentest phases below it, so the times do not add up
+    // in sequence. Saying so is cheaper than a layout that pretends to be two columns.
+    note: 'concurrent',
+    agents: stages,
+  };
+}
+
+/**
+ * Bookkeeping rows worth showing. A deterministic stage that has completed says nothing —
+ * it can only ever read 0s — but one that is still running, or that failed, is exactly what
+ * an operator needs to see, so those keep a row under the phase they belong to.
+ */
+function troubledReportSteps(operations: readonly DerivedAgent[]): readonly DerivedAgent[] {
+  return operations.filter((operation) => {
+    if (isModelBackedOperation(operation.name)) return false;
+    if (operationFamilyKey(operation.name) !== 'report') return false;
+    return operation.state === 'running' || operation.state === 'failed';
+  });
+}
+
+/**
+ * Fold operational rows into the agent phases. Nothing here becomes a bucket of its own:
+ * every surviving row is either a SAST stage, time attached to an agent, or a report step
+ * that is currently in trouble.
+ */
+function assemblePhases(agentPhases: readonly DerivedPhase[], operations: readonly DerivedAgent[]): DerivedPhase[] {
+  const view = reconciliationView(operations);
+  // Reconciliation produces the exploitation queue, so its time belongs on the exploitation
+  // row it feeds. With exploitation off there is no such row, and it falls back to the
+  // analysis row for the same class so the time is never silently dropped.
+  const attachTo = agentPhases.some((phase) => phase.key === 'exploitation')
+    ? 'exploitation'
+    : 'vulnerability-analysis';
+  const reportSteps = troubledReportSteps(operations);
+
+  const phases = agentPhases.map((phase) => {
+    if (phase.key === attachTo) return withReconciliation(phase, view);
+    if (phase.key === 'reporting' && reportSteps.length > 0) {
+      // The report agent stays on the phase line it already titles; the steps in trouble
+      // become its children, so nothing is listed twice.
+      const summary = phase.agents[0];
+      return {
+        ...phase,
+        children: true,
+        ...(summary !== undefined && { summary }),
+        state: phaseGlyphState([...phase.agents, ...reportSteps].map((row) => row.state)),
+        agents: reportSteps,
+      };
+    }
+    return phase;
+  });
+
+  const sast = agenticSastPhase(operations);
+  if (sast === undefined) return phases;
+
+  // Agentic SAST starts with the scan and runs alongside the pentest, so it reads after
+  // the login check rather than appended past Reporting where it never ran.
+  const afterAuth = phases.findIndex((phase) => phase.key === 'auth-validation') + 1;
+  return [...phases.slice(0, afterAuth), sast, ...phases.slice(afterAuth)];
 }
 
 export { agentError };

@@ -76,7 +76,18 @@ function isProviderFailureCategory(value: unknown): value is string {
 
 const OPERATION_LABELS = new Set([
   'Agentic SAST',
-  'Miscellaneous findings',
+  // Capella stage rows, signalled up from the SAST child workflow. Mirrors
+  // CAPELLA_STAGE_LABELS in apps/worker/src/ai/sast/types.ts, minus the deterministic
+  // export stage, which never becomes a row.
+  'Architecture',
+  'Threat model',
+  'Plan',
+  'Research',
+  'Dedupe',
+  'Review',
+  'Critique',
+  'Confirm',
+  'Calibrate',
   'Reconcile injection',
   'Reconcile xss',
   'Reconcile auth',
@@ -220,7 +231,9 @@ export function safeOperationKey(value: string): string {
     /^(?:agentic-sast|miscellaneous-pipeline|report:(?:initialize|assemble|compact|checkpoint|finalize|finalize-degraded|terminal|surface))$/u.test(
       value,
     ) ||
-    /^(?:reconciliation|report:renumber):(?:injection|xss|auth|authz|ssrf|miscellaneous)$/u.test(value)
+    /^agentic-sast:(?:architecture|threat-model|plan|research|dedupe|review|critic|confirm|calibrate)$/u.test(value) ||
+    /^(?:reconciliation|report:renumber):(?:injection|xss|auth|authz|ssrf|miscellaneous)$/u.test(value) ||
+    /^reconciliation:(?:injection|xss|auth|authz|ssrf|miscellaneous):fallback$/u.test(value)
   ) {
     return value;
   }

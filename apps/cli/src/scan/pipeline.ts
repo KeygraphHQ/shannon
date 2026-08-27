@@ -302,6 +302,35 @@ export function operationFamilyKey(stageKey: string): string {
   return separator === -1 ? stageKey : stageKey.slice(0, separator);
 }
 
+/** The Capella stages that get a progress row, in run order. Mirrors CAPELLA_PROGRESS_STAGES
+ *  in apps/worker/src/ai/sast/types.ts — the deterministic `export` stage is not among them. */
+export const AGENTIC_SAST_STAGE_ORDER: readonly string[] = [
+  'architecture',
+  'threat-model',
+  'plan',
+  'research',
+  'dedupe',
+  'review',
+  'critic',
+  'confirm',
+  'calibrate',
+];
+
+/**
+ * Whether an operational stage represents model work rather than bookkeeping.
+ *
+ * Only the agentic-SAST stages and per-class reconciliation run a model; every other
+ * operational stage is a git commit or a durable-state write that can only ever record
+ * sub-second wall time. The progress tree shows model work, so this is what decides
+ * whether a stage is worth a row at all.
+ */
+export function isModelBackedOperation(stageKey: string): boolean {
+  const family = operationFamilyKey(stageKey);
+  if (family === 'agentic-sast') return true;
+  // A `reconciliation:<class>:fallback` marker records a degradation, not a model span.
+  return family === 'reconciliation' && !stageKey.endsWith(':fallback');
+}
+
 export interface PipelineSummary {
   readonly totalCostUsd: number;
   readonly totalDurationMs: number; // Wall-clock (end - start)

@@ -32,6 +32,30 @@ export function isCapellaStage(value: string): value is CapellaStage {
   return CAPELLA_STAGE_SET.has(value);
 }
 
+/**
+ * The one human-facing name per stage, shared by the scan log and the `shannon status`
+ * progress tree so an operator reads the same word in both places. This module imports
+ * nothing, so the parent workflow can use it inside the Temporal sandbox.
+ */
+export const CAPELLA_STAGE_LABELS: Readonly<Record<CapellaStage, string>> = {
+  architecture: 'Architecture',
+  'threat-model': 'Threat model',
+  plan: 'Plan',
+  research: 'Research',
+  dedupe: 'Dedupe',
+  review: 'Review',
+  critic: 'Critique',
+  confirm: 'Confirm',
+  calibrate: 'Calibrate',
+  export: 'Export',
+};
+
+/**
+ * Export writes artifacts but runs no model, so it is the one stage the progress tree
+ * leaves out: a row that can only ever read 0s tells an operator nothing.
+ */
+export const CAPELLA_PROGRESS_STAGES: readonly CapellaStage[] = CAPELLA_STAGES.filter((stage) => stage !== 'export');
+
 export type CapellaFailurePoint = CapellaStage | 'workflow';
 
 export interface CapellaUsage {

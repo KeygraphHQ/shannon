@@ -1,4 +1,4 @@
-import { defineQuery } from '@temporalio/workflow';
+import { defineQuery, defineSignal } from '@temporalio/workflow';
 
 export type { AgentMetrics } from '../types/metrics.js';
 
@@ -230,3 +230,20 @@ export interface VulnExploitPipelineResult {
 }
 
 export const getProgress = defineQuery<PipelineProgress>('getProgress');
+
+/**
+ * One Capella stage transition, reported by the SAST child workflow to its parent.
+ *
+ * Capella runs as a child workflow, so its activities never appear in the parent's
+ * pending activities and the CLI cannot observe them. This signal is how per-stage
+ * progress reaches the parent's durable `operationalStages`, which is what both the
+ * live `getProgress` query and the terminal result render from.
+ */
+export interface CapellaStageProgress {
+  readonly stage: CapellaStage;
+  readonly status: 'running' | 'completed' | 'failed';
+  readonly startedAt: number;
+  readonly durationMs?: number;
+}
+
+export const capellaStageProgress = defineSignal<[CapellaStageProgress]>('capellaStageProgress');

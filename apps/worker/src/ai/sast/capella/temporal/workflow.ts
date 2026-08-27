@@ -16,17 +16,21 @@ import {
   ActivityCancellationType,
   ApplicationFailure,
   ChildWorkflowCancellationType,
+  getExternalWorkflowHandle,
   isCancellation,
   proxyActivities,
+  workflowInfo,
 } from '@temporalio/workflow';
+import { capellaStageProgress } from '../../../../temporal/shared.js';
 import { isProviderFailureCategory } from '../../../../types/errors.js';
-import type {
-  AgenticSastFallbackReduction,
-  AgenticSastReduction,
-  CapellaRecoveredFailure,
-  CapellaRunResult,
-  CapellaStage,
-  CapellaUsage,
+import {
+  type AgenticSastFallbackReduction,
+  type AgenticSastReduction,
+  CAPELLA_PROGRESS_STAGES,
+  type CapellaRecoveredFailure,
+  type CapellaRunResult,
+  type CapellaStage,
+  type CapellaUsage,
 } from '../../types.js';
 import { capellaSafeFailureMessage } from '../safe-failures.js';
 import { usageAccountingWarning } from '../types.js';
@@ -309,6 +313,7 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
     reductions: [],
   };
   let currentStage: CapellaStage = 'architecture';
+  const stageStartedAt = new Map<CapellaStage, number>();
   let lastGoodFindings:
     | {
         readonly artifact: CapellaFindingActivityInput['findingsArtifact'];
@@ -317,78 +322,112 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
       }
     | undefined;
 
+  // Capella's activities live in this child's history, so the parent cannot observe them.
+  // Each stage boundary is signalled up instead, which is what puts stage rows in
+  // `shannon status`. Export is skipped: it runs no model, so the parent drops it anyway.
+  const parent = workflowInfo().parent;
+  async function signalStage(stage: CapellaStage, status: 'running' | 'completed' | 'failed'): Promise<void> {
+    if (parent === undefined || !CAPELLA_PROGRESS_STAGES.includes(stage)) return;
+    const startedAt = stageStartedAt.get(stage) ?? Date.now();
+    try {
+      await getExternalWorkflowHandle(parent.workflowId, parent.runId).signal(capellaStageProgress, {
+        stage,
+        status,
+        startedAt,
+        ...(status !== 'running' && { durationMs: Date.now() - startedAt }),
+      });
+    } catch {
+      // Progress reporting is cosmetic. A parent that has already closed, or a signal that
+      // cannot be delivered, must never take down a SAST run that is otherwise fine.
+    }
+  }
+
+  /** Opens a stage's span and returns it, so the caller's `currentStage` cursor is a
+   *  visible assignment rather than a hidden write from inside this closure. */
+  async function beginStage(stage: CapellaStage): Promise<CapellaStage> {
+    stageStartedAt.set(stage, Date.now());
+    await signalStage(stage, 'running');
+    return stage;
+  }
+
+  async function endStage<T>(stage: CapellaStage, result: CapellaActivityResult<T>): Promise<void> {
+    acceptStage(accumulator, stage, result);
+    await signalStage(stage, 'completed');
+  }
+
   try {
+    currentStage = await beginStage('architecture');
     const architecture = await architectureActivities.capellaArchitecture(
       baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaArchitecture),
     );
-    acceptStage(accumulator, 'architecture', architecture);
+    await endStage('architecture', architecture);
 
-    currentStage = 'threat-model';
+    currentStage = await beginStage('threat-model');
     const threatModelInput: CapellaThreatModelActivityInput = {
       ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaThreatModel),
       architectureArtifact: architecture.artifact,
     };
     const threatModel = await threatModelActivities.capellaThreatModel(threatModelInput);
-    acceptStage(accumulator, 'threat-model', threatModel);
+    await endStage('threat-model', threatModel);
 
-    currentStage = 'plan';
+    currentStage = await beginStage('plan');
     const planInput: CapellaPlanActivityInput = {
       ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaPlan),
       architectureArtifact: architecture.artifact,
       threatModelArtifact: threatModel.artifact,
     };
     const plan = await planActivities.capellaPlan(planInput);
-    acceptStage(accumulator, 'plan', plan);
+    await endStage('plan', plan);
 
     if (plan.value.investigationCount === 0) {
       // Nothing to research: still run export so the scan always ends with a valid,
       // empty SARIF artifact rather than an absent one.
-      currentStage = 'export';
+      currentStage = await beginStage('export');
       const exported = await exportActivities.capellaExport(exportInput(input));
-      acceptStage(accumulator, 'export', exported);
+      await endStage('export', exported);
       return succeededResult(startedAt, accumulator, exported);
     }
 
-    currentStage = 'research';
+    currentStage = await beginStage('research');
     const researchInput: CapellaResearchActivityInput = {
       ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaResearch),
       architectureArtifact: architecture.artifact,
       planArtifact: plan.artifact,
     };
     const research = await researchActivities.capellaResearch(researchInput);
-    acceptStage(accumulator, 'research', research);
+    await endStage('research', research);
     lastGoodFindings = { artifact: research.artifact, stage: 'research', findingCount: research.value.findingCount };
 
     if (research.value.findingCount === 0) {
-      currentStage = 'export';
+      currentStage = await beginStage('export');
       const exported = await exportActivities.capellaExport(exportInput(input));
-      acceptStage(accumulator, 'export', exported);
+      await endStage('export', exported);
       return succeededResult(startedAt, accumulator, exported);
     }
 
-    currentStage = 'dedupe';
+    currentStage = await beginStage('dedupe');
     const dedupeInput: CapellaFindingActivityInput = {
       ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaDedupe),
       findingsArtifact: research.artifact,
     };
     const dedupe = await dedupeActivities.capellaDedupe(dedupeInput);
-    acceptStage(accumulator, 'dedupe', dedupe);
+    await endStage('dedupe', dedupe);
     lastGoodFindings = { artifact: dedupe.artifact, stage: 'dedupe', findingCount: dedupe.value.findingCount };
 
-    currentStage = 'review';
+    currentStage = await beginStage('review');
     const reviewInput: CapellaFindingActivityInput = {
       ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaReview),
       findingsArtifact: dedupe.artifact,
     };
     const review = await reviewActivities.capellaReview(reviewInput);
-    acceptStage(accumulator, 'review', review);
+    await endStage('review', review);
     lastGoodFindings = { artifact: review.artifact, stage: 'review', findingCount: review.value.findingCount };
 
     let exportArtifact = review.artifact;
     let exportStage: CapellaExportSourceStage = 'review';
     const reviewedSurvivors = review.value.validCount + review.value.provisionalCount;
     if (reviewedSurvivors > 0) {
-      currentStage = 'critic';
+      currentStage = await beginStage('critic');
       const criticInput: CapellaKnowledgeFindingActivityInput = {
         ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaCritic),
         findingsArtifact: review.artifact,
@@ -396,19 +435,19 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
         threatModelArtifact: threatModel.artifact,
       };
       const critic = await criticActivities.capellaCritic(criticInput);
-      acceptStage(accumulator, 'critic', critic);
+      await endStage('critic', critic);
       lastGoodFindings = { artifact: critic.artifact, stage: 'critic', findingCount: critic.value.findingCount };
 
-      currentStage = 'confirm';
+      currentStage = await beginStage('confirm');
       const confirmInput: CapellaFindingActivityInput = {
         ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaConfirm),
         findingsArtifact: critic.artifact,
       };
       const confirm = await confirmActivities.capellaConfirm(confirmInput);
-      acceptStage(accumulator, 'confirm', confirm);
+      await endStage('confirm', confirm);
       lastGoodFindings = { artifact: confirm.artifact, stage: 'confirm', findingCount: confirm.value.findingCount };
 
-      currentStage = 'calibrate';
+      currentStage = await beginStage('calibrate');
       const calibrateInput: CapellaKnowledgeFindingActivityInput = {
         ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaCalibrate),
         findingsArtifact: confirm.artifact,
@@ -416,7 +455,7 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
         threatModelArtifact: threatModel.artifact,
       };
       const calibrate = await calibrateActivities.capellaCalibrate(calibrateInput);
-      acceptStage(accumulator, 'calibrate', calibrate);
+      await endStage('calibrate', calibrate);
       lastGoodFindings = {
         artifact: calibrate.artifact,
         stage: 'calibrate',
@@ -426,9 +465,9 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
       exportStage = 'calibrate';
     }
 
-    currentStage = 'export';
+    currentStage = await beginStage('export');
     const exported = await exportActivities.capellaExport(exportInput(input, exportArtifact, exportStage));
-    acceptStage(accumulator, 'export', exported);
+    await endStage('export', exported);
     return succeededResult(startedAt, accumulator, exported);
   } catch (error) {
     // Cancellation must escape: absorbing it into a failed result would make a
@@ -438,6 +477,7 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
     if (hasCancellationInCauseChain(error)) throw error;
 
     const failedStage = currentStage;
+    await signalStage(failedStage, 'failed');
     const details = acceptFailureDetails(accumulator, error);
     const safeError = capellaSafeFailureMessage(applicationFailure(error)?.type);
     if (failedStage === 'export') {
@@ -464,7 +504,7 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
       const fallbackExport = await exportActivities.capellaExport(
         exportInput(input, lastGoodFindings?.artifact, lastGoodFindings?.stage, fallbackReduction, fallbackFailure),
       );
-      acceptStage(accumulator, 'export', fallbackExport);
+      await endStage('export', fallbackExport);
       const recoveredFailure: CapellaRecoveredFailure = {
         failedStage,
         error: safeError,

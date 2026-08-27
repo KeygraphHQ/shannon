@@ -130,6 +130,13 @@ function statusBadge(input: RenderInput, opts: RenderOptions): string {
 
 // === Line builders ===
 
+/** The parts of a derived row agentMeta reads beyond its state and metrics. */
+interface RowExtras {
+  readonly runningElapsedMs?: number | null;
+  readonly attachedMs?: number;
+  readonly ungrouped?: boolean;
+}
+
 function agentMeta(
   state: RunState,
   metrics: { durationMs: number } | undefined,
@@ -137,15 +144,20 @@ function agentMeta(
   error: string | undefined,
   opts: RenderOptions,
   step?: string,
+  extras?: RowExtras,
 ): string {
   if (state === 'completed') {
     const duration = metrics?.durationMs != null ? formatDuration(metrics.durationMs) : 'done';
-    return paint(duration, COLORS.dim, opts.color);
+    return paint(`${duration}${attachedSuffix(extras)}`, COLORS.dim, opts.color);
   }
   if (state === 'running') {
     const parts = ['running'];
     if (step !== undefined) parts.push(step);
-    if (runner?.startedAt !== undefined) parts.push(formatDuration(opts.now - runner.startedAt));
+    // An operational row carries its own elapsed time: it is derived from the persisted stage
+    // span, and has no pending activity on the parent workflow to read a start time from.
+    const elapsedMs =
+      runner?.startedAt !== undefined ? opts.now - runner.startedAt : (extras?.runningElapsedMs ?? null);
+    if (elapsedMs !== null) parts.push(formatDuration(elapsedMs));
     if (runner && runner.attempt > 1) parts.push(`retry ${runner.attempt}`);
     return paint(parts.join(' · '), COLORS.gold, opts.color);
   }
@@ -155,6 +167,17 @@ function agentMeta(
   }
   if (state === 'skipped') return paint('skipped', COLORS.dim, opts.color);
   return paint('queued', COLORS.dim, opts.color);
+}
+
+/**
+ * Time a reconciliation lane contributed to this agent's class, shown as `+ duration` on the
+ * row it feeds. `ungrouped` marks a class whose findings could not be grouped, so each one
+ * was tested separately and duplicates are expected.
+ */
+function attachedSuffix(extras: RowExtras | undefined): string {
+  if (extras === undefined) return '';
+  const time = extras.attachedMs === undefined ? '' : ` + ${formatDuration(extras.attachedMs)}`;
+  return extras.ungrouped ? `${time} · ungrouped` : time;
 }
 
 function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolean, opts: RenderOptions): string {
@@ -184,20 +207,24 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
     const phaseRunState = phase.state;
     const metaFor = (agent: (typeof phase.agents)[number]): string => {
       const metrics = agent.durationMs === null ? undefined : { durationMs: agent.durationMs };
-      return agentMeta(agent.state, metrics, byAgent.get(agent.name), agent.error, opts, agent.detail);
+      return agentMeta(agent.state, metrics, byAgent.get(agent.name), agent.error, opts, agent.detail, agent);
     };
 
-    // A single-agent phase carries that agent's own duration/cost on the phase line once it
-    // starts; a parallel phase gets a "k/N done" summary over the agents in play.
+    // A phase summarizes itself by wall time or by a "k/N done" tally. A phase with its own
+    // recorded span (Agentic SAST) presents it like any agent row; otherwise a single-agent
+    // phase borrows its one agent's duration once that agent starts.
     const first = phase.agents[0];
     const firstState = states[0];
-    const phaseMetaStr =
-      !phase.parallel && first && firstState && inPlay(firstState)
-        ? metaFor(first)
-        : phaseMeta(states, playing, phase.parallel, opts);
-    lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${phaseMetaStr}`);
+    const borrowed = first && firstState && inPlay(firstState) ? metaFor(first) : undefined;
+    const durationMeta = phase.summary === undefined ? borrowed : metaFor(phase.summary);
+    const summaryMeta =
+      phase.meta === 'duration' && durationMeta !== undefined
+        ? durationMeta
+        : phaseMeta(states, playing, phase.meta === 'count', opts);
+    const note = phase.note === undefined ? '' : paint(` · ${phase.note}`, COLORS.dim, opts.color);
+    lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${summaryMeta}${note}`);
 
-    if (!phase.parallel) continue;
+    if (!phase.children) continue;
     for (let i = 0; i < phase.agents.length; i++) {
       const agent = phase.agents[i];
       const state = states[i];

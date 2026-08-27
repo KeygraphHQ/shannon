@@ -9,7 +9,7 @@
 import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
 import { isCapellaSafeFailureMessage, isCapellaTerminalStageLabel } from '../ai/sast/capella/safe-failures.js';
-import type { CapellaStage } from '../ai/sast/types.js';
+import { CAPELLA_STAGE_LABELS, type CapellaStage } from '../ai/sast/types.js';
 import { type ErrorCode, isProviderFailureCategory } from '../types/errors.js';
 import { isPartialReason, type PartialReasonView, projectPartialReasons } from '../types/run-state.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
@@ -87,19 +87,6 @@ export interface WorkflowSummary {
 }
 
 export type ChildTaskFailureCode = 'CANCELLED' | 'CHILD_TASK_FAILED';
-
-const AGENTIC_SAST_STAGE_LABELS: Readonly<Record<CapellaStage, string>> = {
-  architecture: 'Architecture',
-  'threat-model': 'Threat model',
-  plan: 'Planning',
-  research: 'Audit wave',
-  dedupe: 'Deduplication',
-  review: 'Review',
-  critic: 'Critic',
-  confirm: 'Confirmation',
-  calibrate: 'Calibration',
-  export: 'Export',
-};
 
 function isSafeCount(value: number): boolean {
   return Number.isSafeInteger(value) && value >= 0 && value <= 1_000_000_000;
@@ -361,7 +348,7 @@ export class WorkflowLogger {
     await WorkflowLogger.writeStageStructuralLine(
       workflowLogPath,
       stage,
-      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${AGENTIC_SAST_STAGE_LABELS[stage]}: Starting (attempt ${safeAttempt} of ${safeMaximum})`,
+      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${CAPELLA_STAGE_LABELS[stage]}: Starting (attempt ${safeAttempt} of ${safeMaximum})`,
     );
   }
 
@@ -382,7 +369,7 @@ export class WorkflowLogger {
     await WorkflowLogger.writeStageStructuralLine(
       workflowLogPath,
       stage,
-      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${AGENTIC_SAST_STAGE_LABELS[stage]}: Completed (${details.join(', ')})`,
+      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${CAPELLA_STAGE_LABELS[stage]}: Completed (${details.join(', ')})`,
     );
   }
 
@@ -402,7 +389,7 @@ export class WorkflowLogger {
     await WorkflowLogger.writeStageStructuralLine(
       workflowLogPath,
       stage,
-      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${AGENTIC_SAST_STAGE_LABELS[stage]}: ${outcome} (attempt ${safeAttempt} of ${safeMaximum}, ${safeCode})`,
+      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${CAPELLA_STAGE_LABELS[stage]}: ${outcome} (attempt ${safeAttempt} of ${safeMaximum}, ${safeCode})`,
     );
   }
 
@@ -418,7 +405,7 @@ export class WorkflowLogger {
     await WorkflowLogger.writeStageStructuralLine(
       workflowLogPath,
       stage,
-      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${AGENTIC_SAST_STAGE_LABELS[stage]}: Cancelled (attempt ${safeAttempt} of ${safeMaximum}, CANCELLED)`,
+      `[${new Date().toISOString().replace('T', ' ').slice(0, 19)}] [AGENTIC-SAST] ${CAPELLA_STAGE_LABELS[stage]}: Cancelled (attempt ${safeAttempt} of ${safeMaximum}, CANCELLED)`,
     );
   }
 
