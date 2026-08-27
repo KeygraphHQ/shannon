@@ -46,6 +46,9 @@ export const REPORT_JSON_FILENAME = 'report.json';
 /** SARIF 2.1.0 log, written for exploit=true runs unless report.sarif is set to false. */
 export const SARIF_FILENAME = 'report.sarif';
 
+/** Deterministic receipt for the canonical report finalization commit. */
+export const REPORT_FINALIZATION_MANIFEST_FILENAME = 'report_finalization_manifest.json';
+
 /**
  * Resolve the session.json path for a run directory, preferring the current
  * `.shannon/` location and falling back to the legacy run-root location so
@@ -90,4 +93,6 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT = findRepoRoot();
+
+/** Default root for named scan workspaces; each session's audit directory nests under here. */
 export const WORKSPACES_DIR = path.join(REPO_ROOT, 'workspaces');

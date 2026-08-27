@@ -1,0 +1,11 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are Cross-Site Scripting vulnerabilities.
+
+CRITICAL RULES:
+- Determine vulnerability_type from the source: HTTP request param → Reflected, database read → Stored, client-side only → DOM-based.
+- render_context MUST be inferred from the actual sink code. `innerHTML` → HTML_BODY, `setAttribute('href', ...)` → HTML_ATTRIBUTE, template literal in <script> → JAVASCRIPT_STRING.
+- witness_payload MUST match the render_context. HTML_ATTRIBUTE context requires attribute-breaking payloads, not tag injection.
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+
+SAST FINDINGS:

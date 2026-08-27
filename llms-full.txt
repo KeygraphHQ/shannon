@@ -1,6 +1,6 @@
 # Shannon Full LLM Context
 
-> Combined README and documentation for AI agents and LLMs. Generated from repository Markdown files. For the concise index, see [llms.txt](llms.txt).
+> Combined README and documentation for AI agents and LLMs. This file is a hand-maintained copy of the repository Markdown files, updated by hand whenever those files change. For the concise index, see [llms.txt](llms.txt).
 
 
 ---
@@ -48,6 +48,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 - [Documentation](#documentation)
 - [Safety, Scope, and Limitations](#safety-scope-and-limitations)
 - [License](#license)
+- [Acknowledgements](#acknowledgements)
 - [About Keygraph](#about-keygraph)
 - [Community and Support](#community-and-support)
 - [Common Questions](#common-questions)
@@ -239,6 +240,14 @@ Commercial and enterprise licensing is available for organizations that need dif
 
 For commercial licensing, contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
 
+## Acknowledgements
+
+Thanks to [Pi](https://github.com/earendil-works/pi),
+[Playwright CLI](https://github.com/microsoft/playwright-cli),
+and [Mantis](https://github.com/google/mantis).
+
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licensing and attribution details.
+
 ## About Keygraph
 
 **Keygraph** is the company behind Shannon. It also builds the **Keygraph platform**, the commercial agentic pentesting product that closes the full AppSec lifecycle and runs an enhanced build of Shannon as its pentesting engine.
@@ -266,10 +275,6 @@ Stay connected:
 
 ## Common Questions
 
-### Is Shannon free?
-
-Yes. Shannon Open Source is free and licensed under AGPL-3.0. You run it yourself from the command line. Your only cost is the AI provider credits you supply.
-
 ### Can I self-host Shannon?
 
 Yes. Shannon Open Source runs entirely on your own infrastructure in an ephemeral Docker container. Your source code is mounted read-only and never leaves your environment.
@@ -293,10 +298,6 @@ Technically yes, but it is not recommended. Shannon works with local models serv
 ### Does Shannon actually exploit vulnerabilities, or just scan?
 
 Shannon executes real exploits. It reports a finding only when it has produced a working proof-of-concept, and discards hypotheses it cannot prove. It is a pentester, not a scanner.
-
-### Is Shannon free for startups and nonprofits?
-
-Shannon Open Source is free for everyone. In addition, the Keygraph Community Program gives eligible nonprofits and early-stage startups free access to the commercial Keygraph platform. See [keygraph.io](https://keygraph.io).
 
 <p align="center">
   <b>Built by <a href="https://keygraph.io">Keygraph</a></b>
@@ -365,20 +366,30 @@ The target repository is mounted read-only inside the worker container.
 Monitor progress:
 
 ```bash
-npx @keygraph/shannon logs <workspace>
-npx @keygraph/shannon status <workspace>
+npx @keygraph/shannon logs [<workspace>]     # defaults to the single running scan, else the most recent
+npx @keygraph/shannon status [<workspace>]   # same default target; add --json for a machine-readable snapshot
 npx @keygraph/shannon scans
 npx @keygraph/shannon version
 ```
 
+With no workspace, `logs` and `status` follow the single running scan; when several are running, name one.
+
 Source-build equivalents:
 
 ```bash
-./shannon logs <workspace>
-./shannon status <workspace>
+./shannon logs [<workspace>]                 # the combined live log (unchanged default)
+./shannon logs [<workspace>] --agent <name>  # tail one agent's own log
+./shannon logs [<workspace>] --list-agents   # list the agents with their own log
+./shannon status [<workspace>]
 ./shannon scans
 ./shannon version
 ```
+
+Every scan writes one combined `.shannon/workflow.log` and a per-agent projection of it under
+`.shannon/agents/`: one file per pipeline agent (`recon.log`, `xss-vuln.log`, …) and one per Capella
+stage (`agentic-sast-research.log`, …). Delegated subagents fold into their parent's file, and a
+Capella stage's concurrent sessions share its file with an inline session label. The combined log
+stays canonical; the per-agent files are best-effort projections.
 
 Open the Temporal Web UI for detailed monitoring:
 
@@ -389,7 +400,7 @@ open http://localhost:8233
 Stop Shannon:
 
 ```bash
-npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon stop [<workspace>] # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
 npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
 npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
@@ -397,7 +408,7 @@ npx @keygraph/shannon reset              # stop everything and wipe all Temporal
 Source-build equivalents:
 
 ```bash
-./shannon stop <workspace>               # stop one scan (confirms first; add --yes/-y to skip)
+./shannon stop [<workspace>]             # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
 ./shannon stop --all                     # stop all scans (Temporal stays up)
 ./shannon reset                          # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
@@ -420,7 +431,7 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 # Stream the log until the scan finishes, then exit on its outcome (useful in CI).
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
 
-# List completed scans.
+# List running and completed scans.
 npx @keygraph/shannon scans
 ```
 
@@ -455,7 +466,7 @@ workspaces/{hostname}_{sessionId}/
 |-- Security-Assessment-Report.md   # the final report (Markdown)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
-    |-- agents/                     # per-agent logs
+    |-- agents/                     # per-agent log projections, one file per agent/Capella stage
     |-- prompts/                    # rendered prompts
     |-- scratchpad/                 # screenshots, scripts
     |-- session.json                # resume state
@@ -510,8 +521,11 @@ Source-build equivalent:
 # Describe your target environment.
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment; .env files contain local-only credentials."
 
-# Limit which vulnerability classes run end-to-end.
-# vuln_classes: [injection, xss, auth, authz, ssrf]
+# Every scan runs all five vulnerability classes.
+
+# Agentic static analysis. `enabled` is its only setting.
+# agentic_sast:
+#   enabled: "true"
 
 # Skip the exploitation phase.
 # exploit: "false"
@@ -570,6 +584,25 @@ rules:
 #   sarif: "false"
 ```
 
+## Analysis Scope and Agentic SAST
+
+Every scan runs all five analysis classes: Injection, Cross-Site Scripting, Authentication, Authorization, and
+Server-Side Request Forgery. The class set is fixed and has no configuration selector.
+
+Agentic static analysis is opt-in:
+
+```yaml
+agentic_sast:
+  enabled: "true"
+```
+
+`enabled` is the only setting. Omitting the block, or setting `enabled: "false"`, turns agentic static analysis off;
+`"true"` turns it on. Either way, all five vulnerability classes still run.
+
+Agentic static analysis reads the repository for vulnerabilities before the pentest and passes what it finds into the
+exploitation phase. It adds model time and cost. If it fails, the pentest continues without its findings and the scan
+finishes as "partial".
+
 ## Report Options
 
 | Key | Effect |
@@ -590,7 +623,9 @@ report:
   sarif: "false"
 ```
 
-Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`, and `shannon/miscellaneous` for findings outside those classes) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+
+If the SARIF log cannot be written, the JSON and Markdown reports are still produced and the scan finishes as "partial".
 
 The log is written only for exploitative runs. `sarif` is ignored when `exploit` is `"false"`.
 
@@ -979,7 +1014,7 @@ Resume an auto-named workspace:
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
 ```
 
-List completed scans:
+List running and completed scans:
 
 ```bash
 npx @keygraph/shannon scans
@@ -1047,6 +1082,7 @@ For broader coverage, the Keygraph platform adds black-box and white-box agentic
 ## Cost and Performance
 
 A full test run typically takes roughly 1 to 1.5 hours. LLM API costs vary by model pricing, target complexity, selected provider, and concurrency.
+
 
 ---
 

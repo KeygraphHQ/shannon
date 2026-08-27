@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -36,7 +36,8 @@ export class ProgressIndicator {
       this.interval = null;
     }
 
-    // Clear the spinner line
+    // Clear the spinner line: overwrite with spaces at least as wide as the last frame
+    // written (message plus the spinner glyph and separator), then return the cursor home.
     process.stdout.write(`\r${' '.repeat(this.message.length + 5)}\r`);
     this.isRunning = false;
   }

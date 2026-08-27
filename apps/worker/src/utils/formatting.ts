@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -44,7 +44,10 @@ export function calculatePercentage(part: number, total: number): number {
 }
 
 /**
- * Extract agent type from description string for display purposes
+ * Extract agent type from description string for display purposes.
+ * Matches on literal substrings from agent display names, so it is cosmetic only:
+ * a miss just falls through to the generic 'analysis' label instead of affecting
+ * any pipeline behavior.
  */
 export function extractAgentType(description: string): string {
   if (description.includes('Pre-recon')) {

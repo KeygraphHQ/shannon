@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -14,9 +14,23 @@
  */
 
 import { getQueueFilename } from '../ai/queue-schemas.js';
-import { REPORT_JSON_FILENAME, SARIF_FILENAME } from '../paths.js';
+import { REPORT_JSON_FILENAME } from '../paths.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
+
+// These names must match `sparseExploitCollectorPath` in renumber-core.ts, which derives the
+// same filename from the bare ReconciliationClass at read time. If the two fall out of sync,
+// git scoping silently drops the collector file from an agent's checkpoint/commit/rollback set:
+// the file sits uncommitted in the working tree, or is not restored on rollback, with neither
+// side raising an error.
+const EXPLOIT_COLLECTOR_PATHS: Readonly<Partial<Record<AgentName, string>>> = Object.freeze({
+  'injection-exploit': 'injection_exploit_collector.json',
+  'xss-exploit': 'xss_exploit_collector.json',
+  'auth-exploit': 'auth_exploit_collector.json',
+  'ssrf-exploit': 'ssrf_exploit_collector.json',
+  'authz-exploit': 'authz_exploit_collector.json',
+  'miscellaneous-exploit': 'miscellaneous_exploit_collector.json',
+});
 
 /**
  * Deliverable files an agent writes into the deliverables directory. Used to
@@ -28,12 +42,14 @@ export function getAgentGitPaths(agentName: AgentName): string[] {
   if (queueFilename) {
     paths.push(queueFilename);
   }
-  // The report agent also emits the structured findings the markdown is rendered from, and the
-  // SARIF log when produced. Listing the log unconditionally is harmless when it was not written,
-  // and keeps a stale one from surviving the rollback of a failed attempt.
+  const exploitCollectorPath = EXPLOIT_COLLECTOR_PATHS[agentName];
+  if (exploitCollectorPath !== undefined) {
+    paths.push(exploitCollectorPath);
+  }
+  // The report agent owns only its provisional markdown input and structured JSON. Canonical
+  // Markdown/SARIF ownership transfers to the finalization transaction after report completion.
   if (agentName === 'report') {
     paths.push(REPORT_JSON_FILENAME);
-    paths.push(SARIF_FILENAME);
   }
   return [...new Set(paths)];
 }

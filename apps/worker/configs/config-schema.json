@@ -125,16 +125,18 @@
       },
       "additionalProperties": false
     },
-    "vuln_classes": {
-      "type": "array",
-      "description": "Vulnerability classes to test. When omitted, all five classes run. When set, only listed classes run; their vuln+exploit agents and report sections are included.",
-      "items": {
-        "type": "string",
-        "enum": ["injection", "xss", "auth", "authz", "ssrf"]
+    "agentic_sast": {
+      "type": "object",
+      "description": "Opt in to agentic static analysis, which reads the repository for vulnerabilities before the pentest and feeds what it finds into the exploitation phase. Off by default. It does not change which vulnerability classes run. If agentic static analysis fails, the pentest continues without its findings and the scan finishes as \"partial\".",
+      "properties": {
+        "enabled": {
+          "type": "string",
+          "enum": ["true", "false"],
+          "description": "Set to \"true\" to run agentic static analysis. Defaults to \"false\"."
+        }
       },
-      "minItems": 1,
-      "maxItems": 5,
-      "uniqueItems": true
+      "required": ["enabled"],
+      "additionalProperties": false
     },
     "exploit": {
       "type": "string",
@@ -193,7 +195,7 @@
     { "required": ["rules"] },
     { "required": ["authentication", "rules"] },
     { "required": ["description"] },
-    { "required": ["vuln_classes"] },
+    { "required": ["agentic_sast"] },
     { "required": ["exploit"] },
     { "required": ["report"] },
     { "required": ["rules_of_engagement"] }

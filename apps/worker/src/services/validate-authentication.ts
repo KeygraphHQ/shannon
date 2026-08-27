@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -18,6 +18,7 @@ import { Type } from 'typebox';
 import { runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { CapturedSubmitTool } from '../ai/submit-tool.js';
 import type { AuditSession } from '../audit/index.js';
+import { safeErrorFromUnknown } from '../audit/safe-fields.js';
 import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
@@ -124,6 +125,12 @@ export async function validateAuthentication(
     loginType: authentication.login_type,
   });
 
+  // This is the one place in the pipeline that performs a real login and persists the resulting
+  // browser session (cookies/storage) to disk, so downstream agents can reuse it instead of
+  // logging in again. Remove any file left by a prior attempt first: verifySavedAuthState below
+  // trusts the file's mere presence as proof this run's login succeeded, so a stale leftover
+  // would let a failed attempt look like a success. The file itself is deleted again when the
+  // workflow ends, so an authenticated session never survives between scans.
   const stateFile = authStateFile(auditSession.sessionMetadata);
   await rm(stateFile, { force: true });
 
@@ -136,7 +143,7 @@ export async function validateAuthentication(
     promptDir,
   );
 
-  await auditSession.startAgent(AGENT_NAME, prompt, attemptNumber);
+  await auditSession.startAgent(AGENT_NAME, attemptNumber);
   const startTime = Date.now();
 
   const submitTool = createAuthSubmitTool();
@@ -152,6 +159,7 @@ export async function validateAuthentication(
     deliverablesSubdir,
     cancellationSignal,
     submitTool,
+    attemptNumber,
   );
 
   let classification = classifyResult(result, authentication);
@@ -164,13 +172,19 @@ export async function validateAuthentication(
   }
 
   const durationMs = Date.now() - startTime;
+  const safeError = classification.ok ? undefined : safeErrorFromUnknown(classification.error);
   const endResult: AgentEndResult = {
     attemptNumber,
     duration_ms: durationMs,
     cost_usd: result.cost || 0,
+    ...(result.inputTokens !== undefined && { input_tokens: result.inputTokens }),
+    ...(result.outputTokens !== undefined && { output_tokens: result.outputTokens }),
+    ...(result.cacheReadTokens !== undefined && { cache_read_tokens: result.cacheReadTokens }),
+    ...(result.cacheWriteTokens !== undefined && { cache_write_tokens: result.cacheWriteTokens }),
+    ...(result.turns !== undefined && { turns: result.turns }),
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
-    ...(!classification.ok && { error: classification.error.message }),
+    ...(safeError !== undefined && { error: safeError.message, errorCode: safeError.code }),
   };
   await auditSession.endAgent(AGENT_NAME, endResult);
 

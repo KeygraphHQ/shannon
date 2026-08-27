@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -29,14 +29,59 @@ export function toWorkflowSummary(
     throw new Error('toWorkflowSummary: state.summary must be set before calling');
   }
 
+  // The failure detail is one of the child workflow's fixed safe sentences, so it carries no
+  // provider, prompt, repository, or path content and travels with the stable code.
+  const agenticSastFailure = state.agenticSast.status === 'failed' ? state.agenticSast : undefined;
+  const agenticSastErrorCode = agenticSastFailure?.errorCode;
+  const agenticSastFailureMessage = agenticSastFailure?.error;
+  const agenticSastFailedStage = agenticSastFailure?.failedStageLabel;
+  // Both terminal Capella variants carry a warnings array; a disabled or still-running run has none.
+  const agenticSast = state.agenticSast;
+  const usageAccountingWarnings =
+    agenticSast.status === 'succeeded' || agenticSast.status === 'failed' ? agenticSast.warnings : [];
+  // Carry the terminal disposition so a successful (or reduced-coverage) run is visible in the summary,
+  // not only a failed one. Coverage is meaningful only on success.
+  const agenticSastCoverage = agenticSast.status === 'succeeded' ? agenticSast.coverage : undefined;
+  const endedAtMs = state.startTime + summary.totalDurationMs;
   return {
     status,
+    startedAtMs: state.startTime,
+    endedAtMs,
     totalDurationMs: summary.totalDurationMs,
     totalCostUsd: summary.totalCostUsd,
     completedAgents: state.completedAgents,
+    skippedAgents: state.skippedAgents,
     agentMetrics: Object.fromEntries(
-      Object.entries(state.agentMetrics).map(([name, m]) => [name, { durationMs: m.durationMs, costUsd: m.costUsd }]),
+      Object.entries(state.agentMetrics).map(([name, metrics]) => [
+        name,
+        { durationMs: metrics.durationMs, costUsd: metrics.costUsd },
+      ]),
     ),
-    ...(state.error && { error: state.error }),
+    operationalMetrics: Object.fromEntries(
+      Object.entries(state.operationalMetrics).map(([name, metrics]) => [
+        name,
+        { ...metrics, usageComplete: metrics.usageComplete !== false },
+      ]),
+    ),
+    // The stage wall-clocks the summary reads to report each group's real elapsed time; the priced
+    // metrics carry cost but no faithful duration (reconciliation stages record 0).
+    operationalStages: Object.fromEntries(
+      Object.entries(state.operationalStages).map(([key, stage]) => [
+        key,
+        {
+          ...(stage.startedAt !== undefined && { startedAt: stage.startedAt }),
+          ...(stage.durationMs !== undefined && { durationMs: stage.durationMs }),
+        },
+      ]),
+    ),
+    partialReasons: state.partialReasons,
+    usageAccountingComplete: summary.usageAccountingComplete,
+    usageAccountingWarnings: [...usageAccountingWarnings],
+    agenticSastStatus: agenticSast.status,
+    ...(agenticSastCoverage !== undefined && { agenticSastCoverage }),
+    ...(agenticSastFailedStage !== undefined && { agenticSastFailedStage }),
+    ...(agenticSastFailureMessage !== undefined && { agenticSastFailureMessage }),
+    ...(agenticSastErrorCode !== undefined && { agenticSastErrorCode }),
+    ...(state.errorCode !== undefined && { errorCode: state.errorCode }),
   };
 }

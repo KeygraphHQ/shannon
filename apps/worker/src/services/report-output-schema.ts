@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -16,7 +16,7 @@
 export type TypstSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
 export type TypstStatus = 'Exploited' | 'OutOfScope' | 'BlockedByConstraints' | 'FalsePositive';
 export type TypstConfidence = 'High' | 'Medium' | 'Low';
-export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Injection' | 'SSRF' | 'Other';
+export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Injection' | 'SSRF' | 'Miscellaneous';
 
 export interface CodeBlock {
   readonly language: string;
@@ -50,6 +50,16 @@ export interface Meta {
   readonly tester?: string;
   readonly application?: string;
   readonly classification: string;
+}
+
+export interface ReportLimitation {
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface ReportCoverage {
+  readonly status: 'complete' | 'partial';
+  readonly limitations: readonly ReportLimitation[];
 }
 
 export interface CategoryCount {
@@ -92,7 +102,9 @@ export interface ExploitedByTypeEntry {
 export interface ExploitsReportData {
   readonly mode: 'exploits';
   readonly meta: Meta;
+  readonly executiveSummary: string;
   readonly scope: string;
+  readonly coverage: ReportCoverage;
   readonly exploitedByType: readonly ExploitedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;
@@ -138,7 +150,9 @@ export interface IdentifiedByTypeEntry {
 export interface FindingsReportData {
   readonly mode: 'findings';
   readonly meta: Meta;
+  readonly executiveSummary: string;
   readonly scope: string;
+  readonly coverage: ReportCoverage;
   readonly identifiedByType: readonly IdentifiedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;

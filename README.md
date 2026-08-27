@@ -39,6 +39,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 - [Documentation](#documentation)
 - [Safety, Scope, and Limitations](#safety-scope-and-limitations)
 - [License](#license)
+- [Acknowledgements](#acknowledgements)
 - [About Keygraph](#about-keygraph)
 - [Community and Support](#community-and-support)
 - [Common Questions](#common-questions)
@@ -229,6 +230,14 @@ Shannon Open Source is licensed under the [GNU Affero General Public License v3.
 Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including the Keygraph platform.
 
 For commercial licensing, contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
+
+## Acknowledgements
+
+Thanks to [Pi](https://github.com/earendil-works/pi),
+[Playwright CLI](https://github.com/microsoft/playwright-cli),
+and [Mantis](https://github.com/google/mantis).
+
+See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licensing and attribution details.
 
 ## About Keygraph
 

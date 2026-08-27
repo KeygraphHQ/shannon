@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -9,6 +9,7 @@ import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig, DistributedReportConfig, Rule, VulnClass } from '../types/config.js';
+import { assertFixedAnalysisScope } from '../types/run-state.js';
 import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
 
@@ -37,6 +38,21 @@ const VULN_CLASS_HEADINGS: Record<VulnClass, string> = {
   injection: 'SQL/Command Injection Vulnerabilities',
   ssrf: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
 };
+
+// Inline report scope labels are intentionally separate from section headings. The report
+// needs formal names without the repeated "Vulnerabilities" suffix.
+const VULN_CLASS_SCOPE_LABELS: Readonly<Record<VulnClass, string>> = Object.freeze({
+  injection: 'Injection',
+  xss: 'Cross-Site Scripting (XSS)',
+  auth: 'Authentication',
+  authz: 'Authorization',
+  ssrf: 'Server-Side Request Forgery (SSRF)',
+});
+
+/** Render the fixed workflow-owned vulnerability scope for a reader. */
+export function formatVulnClassScope(classes: readonly VulnClass[]): string {
+  return classes.map((vulnerabilityClass) => VULN_CLASS_SCOPE_LABELS[vulnerabilityClass]).join(', ');
+}
 
 /**
  * Renders the <not_assessed_classes> block. Empty when every class completed.
@@ -138,8 +154,12 @@ function renderReportFilterRules(report: DistributedReportConfig | undefined, ex
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  /** Workflow-owned UTC date for report metadata and prose. */
+  assessmentDate?: string;
   /** Classes whose analysis did not complete, so the report can mark them not assessed. */
   failedClasses?: readonly VulnClass[];
+  /** Explicit workflow-owned analysis scope for prompts that describe tested classes. */
+  analysisClasses?: readonly VulnClass[];
   AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
@@ -150,6 +170,10 @@ interface IncludeReplacement {
 }
 
 // Pure function: Build complete login instructions from config
+//
+// Username, password, TOTP secret, and email-login credentials are substituted directly into
+// the returned string, which only ever lives in process memory on its way into the prompt sent
+// to the model. Nothing in this function writes credentials to a file.
 async function buildLoginInstructions(
   authentication: Authentication,
   logger: ActivityLogger,
@@ -286,6 +310,10 @@ function replaceLiteral(input: string, pattern: RegExp | string, replacement: st
   return input.replace(pattern, () => replacement);
 }
 
+// Deliberately omits password, TOTP secret, and email-login credentials: this block is
+// background context for the agent's prompt header, not the login mechanism itself. The
+// actual secret values are only ever interpolated into {{LOGIN_INSTRUCTIONS}} via
+// buildLoginInstructions, so a secret is never duplicated into this second location.
 function buildAuthContext(config: DistributedConfig | null): string {
   if (!config?.authentication) {
     return 'No authentication configured - unauthenticated testing only';
@@ -332,6 +360,14 @@ async function interpolateVariables(
     let result = template;
     result = replaceLiteral(result, /{{WEB_URL}}/g, variables.webUrl);
     result = replaceLiteral(result, /{{REPO_PATH}}/g, variables.repoPath);
+    if (result.includes('{{ASSESSMENT_DATE}}')) {
+      if (variables.assessmentDate === undefined) {
+        throw new PentestError('Prompt requires a workflow-owned assessment date', 'prompt', false, {
+          placeholder: 'ASSESSMENT_DATE',
+        });
+      }
+      result = replaceLiteral(result, /{{ASSESSMENT_DATE}}/g, variables.assessmentDate);
+    }
     result = replaceLiteral(result, /{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1');
     result = replaceLiteral(result, /{{AUTH_CONTEXT}}/g, buildAuthContext(config));
     result = replaceLiteral(
@@ -380,12 +416,18 @@ async function interpolateVariables(
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
     }
 
-    const vulnClasses = config?.vuln_classes ?? [];
-    result = replaceLiteral(
-      result,
-      /{{VULN_CLASSES_TESTED}}/g,
-      vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
-    );
+    if (result.includes('{{VULN_CLASSES_TESTED}}')) {
+      // Fails closed instead of falling back to a guessed or hardcoded class list: a template
+      // that describes tested classes must receive the workflow's resolved scope explicitly, so
+      // a caller that forgets to pass analysisClasses cannot silently render a stale scope.
+      if (variables.analysisClasses === undefined) {
+        throw new PentestError('Prompt requires an explicit workflow-owned analysis scope', 'prompt', false, {
+          placeholder: 'VULN_CLASSES_TESTED',
+        });
+      }
+      assertFixedAnalysisScope(variables.analysisClasses);
+      result = replaceLiteral(result, /{{VULN_CLASSES_TESTED}}/g, formatVulnClassScope(variables.analysisClasses));
+    }
     result = replaceLiteral(
       result,
       /{{NOT_ASSESSED_CLASSES}}/g,
@@ -443,6 +485,14 @@ async function interpolateVariables(
   }
 }
 
+// Prompt families that drive deterministic, model-only stages with no browser of their own.
+// They share loadPrompt with the browser agents but must never claim a Playwright session.
+const NON_BROWSER_PROMPT_PREFIXES: readonly string[] = Object.freeze(['task-formation-', 'sast-enrichment-']);
+
+function isNonBrowserPrompt(promptName: string): boolean {
+  return NON_BROWSER_PROMPT_PREFIXES.some((prefix) => promptName.startsWith(prefix));
+}
+
 // Resolve promptDir override against SHANNON_WORKER_ROOT so relative paths
 // from callers stay cwd-independent.
 function resolvePromptDir(promptDir: string | undefined): string {
@@ -480,7 +530,9 @@ export async function loadPrompt(
     if (session) {
       enhancedVariables.PLAYWRIGHT_SESSION = session;
       logger.info(`Assigned ${promptName} -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
-    } else {
+    } else if (!isNonBrowserPrompt(promptName)) {
+      // A browser agent missing from the table is a real gap; a non-browser family is not, so it
+      // takes neither the fallback session nor the warning.
       enhancedVariables.PLAYWRIGHT_SESSION = 'agent1';
       logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
     }

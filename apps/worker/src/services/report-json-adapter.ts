@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -17,6 +17,7 @@
  */
 
 import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
+import { orderFindings } from './finding-order.js';
 import type {
   ExploitsReportData,
   FindingsReportData,
@@ -27,6 +28,8 @@ import type {
   TypstStatus,
 } from './report-output-schema.js';
 import type { ReportData } from './report-renderer.js';
+
+const COMPLETE_COVERAGE = { status: 'complete' as const, limitations: [] as const };
 
 // ============================================================================
 // CASING TRANSFORMS
@@ -58,7 +61,7 @@ const VALID_CATEGORIES = new Set<TypstCategory>([
   'XSS',
   'Injection',
   'SSRF',
-  'Other',
+  'Miscellaneous',
 ]);
 
 function toTypstSeverity(s: string): TypstSeverity {
@@ -75,13 +78,16 @@ function toTypstConfidence(s: string): TypstConfidence {
 
 function toTypstCategory(s: string): TypstCategory {
   if (VALID_CATEGORIES.has(s as TypstCategory)) return s as TypstCategory;
-  return 'Other';
+  return 'Miscellaneous';
 }
 
 // ============================================================================
 // STEP / ITEM TRANSFORMS
 // ============================================================================
 
+// StepItem is currently identical on both sides of the adapter boundary, so this is a no-op.
+// It stays as an explicit seam rather than being inlined so a future divergence between the
+// collector's StepItem and the Typst schema's StepItem has a single place to add the conversion.
 function adaptStepItem(item: StepItem): StepItem {
   return item;
 }
@@ -110,6 +116,9 @@ interface CategoryGroup {
   findings: AddFindingInput[];
 }
 
+// Groups in insertion order, so callers must pass findings already ordered by category
+// (orderFindings) for the resulting groups to come out in CATEGORY_ORDER: this function does
+// not re-sort the groups it produces.
 function groupByCategory(findings: readonly AddFindingInput[]): CategoryGroup[] {
   const map = new Map<TypstCategory, AddFindingInput[]>();
   for (const f of findings) {
@@ -140,7 +149,8 @@ function countBySeverity(findings: readonly AddFindingInput[]): Record<TypstSeve
 // ============================================================================
 
 function adaptExploitsMode(data: ReportData): ExploitsReportData {
-  const { report_meta, findings } = data;
+  const { report_meta } = data;
+  const findings = orderFindings(data.findings);
   const groups = groupByCategory(findings);
   const sevCounts = countBySeverity(findings);
 
@@ -159,7 +169,9 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       assessmentDate: report_meta.assessment_date,
       classification: 'CONFIDENTIAL',
     },
+    executiveSummary: report_meta.executive_summary,
     scope: report_meta.scope,
+    coverage: report_meta.coverage ?? COMPLETE_COVERAGE,
     exploitedByType: groups.map((g) => {
       const exploited = g.findings.filter((f) => (f.status ?? 'exploited') === 'exploited');
       if (exploited.length === 0) {
@@ -218,7 +230,8 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
 // ============================================================================
 
 function adaptFindingsMode(data: ReportData): FindingsReportData {
-  const { report_meta, findings } = data;
+  const { report_meta } = data;
+  const findings = orderFindings(data.findings);
   const groups = groupByCategory(findings);
   const sevCounts = countBySeverity(findings);
 
@@ -235,7 +248,9 @@ function adaptFindingsMode(data: ReportData): FindingsReportData {
       assessmentDate: report_meta.assessment_date,
       classification: 'CONFIDENTIAL',
     },
+    executiveSummary: report_meta.executive_summary,
     scope: report_meta.scope,
+    coverage: report_meta.coverage ?? COMPLETE_COVERAGE,
     identifiedByType: groups.map((g) => {
       if (g.findings.length === 0) {
         return {

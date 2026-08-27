@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -6,9 +6,11 @@
 
 import { fs, path } from 'zx';
 
-import type { ExploitationDecision, VulnType } from '../types/agents.js';
+import type { ExploitationDecision } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
 import { err, ok, type Result } from '../types/result.js';
+import { renderSafeMessage } from '../types/run-state.js';
 import { asyncPipe } from '../utils/functional.js';
 import { PentestError } from './error-handling.js';
 
@@ -17,14 +19,15 @@ export type { ExploitationDecision, VulnType } from '../types/agents.js';
 interface VulnTypeConfigItem {
   deliverable: string;
   queue: string;
+  deliverableRequired: boolean;
 }
 
-type VulnTypeConfig = Record<VulnType, VulnTypeConfigItem>;
+type VulnTypeConfig = Record<ReconciliationClass, VulnTypeConfigItem>;
 
-type ErrorMessageResolver = string | ((existence: FileExistence) => string);
+type ErrorMessageResolver = string | ((context: ExistenceContext) => string);
 
 interface ValidationRule {
-  predicate: (existence: FileExistence) => boolean;
+  predicate: (context: ExistenceContext) => boolean;
   errorMessage: ErrorMessageResolver;
   retryable: boolean;
 }
@@ -34,8 +37,14 @@ interface FileExistence {
   queueExists: boolean;
 }
 
+interface ExistenceContext {
+  existence: FileExistence;
+  deliverableRequired: boolean;
+  vulnerabilityClass: ReconciliationClass;
+}
+
 interface PathsBase {
-  vulnType: VulnType;
+  vulnType: ReconciliationClass;
   deliverable: string;
   queue: string;
   sourceDir: string;
@@ -64,67 +73,102 @@ interface QueueValidationResult {
   error: string | null;
 }
 
+// Filesystem faults are retryable by default: a transient I/O blip should not fail the run.
+// The listed codes are the deterministic ones (bad path, wrong type, permissions) that will
+// never resolve on retry, so they classify as non-retryable instead.
+function isRetryableQueueFileSystemError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  const code = (error as NodeJS.ErrnoException).code;
+  return code !== undefined && !['EACCES', 'EINVAL', 'EISDIR', 'ENAMETOOLONG', 'ENOTDIR', 'EPERM'].includes(code);
+}
+
 /**
  * Result type for safe validation - explicit error handling.
  */
-export type SafeValidationResult = Result<ExploitationDecision, PentestError>;
+export type ReconciliationExploitationDecision<T extends ReconciliationClass = ReconciliationClass> = Omit<
+  ExploitationDecision,
+  'vulnType'
+> & {
+  vulnType: T;
+};
+
+export type SafeValidationResult<T extends ReconciliationClass = ReconciliationClass> = Result<
+  ReconciliationExploitationDecision<T>,
+  PentestError
+>;
 
 // Vulnerability type configuration as immutable data
 const VULN_TYPE_CONFIG: VulnTypeConfig = Object.freeze({
   injection: Object.freeze({
     deliverable: 'injection_analysis_deliverable.md',
     queue: 'injection_exploitation_queue.json',
+    deliverableRequired: true,
   }),
   xss: Object.freeze({
     deliverable: 'xss_analysis_deliverable.md',
     queue: 'xss_exploitation_queue.json',
+    deliverableRequired: true,
   }),
   auth: Object.freeze({
     deliverable: 'auth_analysis_deliverable.md',
     queue: 'auth_exploitation_queue.json',
+    deliverableRequired: true,
   }),
   ssrf: Object.freeze({
     deliverable: 'ssrf_analysis_deliverable.md',
     queue: 'ssrf_exploitation_queue.json',
+    deliverableRequired: true,
   }),
   authz: Object.freeze({
     deliverable: 'authz_analysis_deliverable.md',
     queue: 'authz_exploitation_queue.json',
+    deliverableRequired: true,
+  }),
+  miscellaneous: Object.freeze({
+    deliverable: 'miscellaneous_analysis_deliverable.md',
+    queue: 'miscellaneous_exploitation_queue.json',
+    deliverableRequired: false,
   }),
 }) as VulnTypeConfig;
 
 // Pure function to create validation rule
 function createValidationRule(
-  predicate: (existence: FileExistence) => boolean,
+  predicate: (context: ExistenceContext) => boolean,
   errorMessage: ErrorMessageResolver,
   retryable: boolean = true,
 ): ValidationRule {
   return Object.freeze({ predicate, errorMessage, retryable });
 }
 
-// Symmetric deliverable rules: queue and deliverable must exist together (prevents partial analysis from triggering exploitation)
+// A queue is always required. Analysis-backed classes also require their analysis deliverable;
+// the analysis-less `miscellaneous` class deliberately has no such artifact.
 const fileExistenceRules: readonly ValidationRule[] = Object.freeze([
   createValidationRule(
-    ({ deliverableExists, queueExists }) => deliverableExists && queueExists,
+    ({ existence, deliverableRequired }) =>
+      existence.queueExists && (!deliverableRequired || existence.deliverableExists),
     getExistenceErrorMessage,
   ),
 ]);
 
-// Generate appropriate error message based on which files are missing
-function getExistenceErrorMessage(existence: FileExistence): string {
-  const { deliverableExists, queueExists } = existence;
+const NO_RESULTS_MESSAGE =
+  '{Class} analysis did not produce results. Re-running this workspace retries just that class.';
+const PARTIAL_RESULTS_MESSAGE =
+  '{Class} analysis produced only part of its results, so it could not be exploited. Re-running this workspace retries just that class.';
 
-  if (!deliverableExists && !queueExists) {
-    return 'Analysis failed: Neither deliverable nor queue file exists. Both are required.';
-  }
-  if (!queueExists) {
-    return 'Analysis incomplete: Deliverable exists but queue file missing. Both are required.';
-  }
-  return 'Analysis incomplete: Queue exists but deliverable file missing. Both are required.';
+/**
+ * Name the outcome the reader can act on rather than the files behind it: nothing landed at
+ * all, or only some of what the class owes. The analysis-less `miscellaneous` class has no
+ * deliverable, so its queue alone decides which of the two applies.
+ */
+function getExistenceErrorMessage({ existence, deliverableRequired, vulnerabilityClass }: ExistenceContext): string {
+  const { deliverableExists, queueExists } = existence;
+  const nothingProduced = deliverableRequired ? !deliverableExists && !queueExists : !queueExists;
+  const template = nothingProduced ? NO_RESULTS_MESSAGE : PARTIAL_RESULTS_MESSAGE;
+  return renderSafeMessage(template, { vulnerabilityClass });
 }
 
 // Pure function to create file paths
-const createPaths = (vulnType: VulnType, sourceDir: string): PathsBase | PathsWithError => {
+const createPaths = (vulnType: ReconciliationClass, sourceDir: string): PathsBase | PathsWithError => {
   const config = VULN_TYPE_CONFIG[vulnType];
   if (!config) {
     return {
@@ -144,10 +188,23 @@ const createPaths = (vulnType: VulnType, sourceDir: string): PathsBase | PathsWi
 const checkFileExistence = async (paths: PathsBase | PathsWithError): Promise<PathsWithExistence | PathsWithError> => {
   if ('error' in paths) return paths;
 
-  const [deliverableExists, queueExists] = await Promise.all([
-    fs.pathExists(paths.deliverable),
-    fs.pathExists(paths.queue),
-  ]);
+  let deliverableExists: boolean;
+  let queueExists: boolean;
+  try {
+    [deliverableExists, queueExists] = await Promise.all([
+      fs.pathExists(paths.deliverable),
+      fs.pathExists(paths.queue),
+    ]);
+  } catch (error) {
+    return {
+      error: new PentestError(
+        'Queue validation could not inspect the required files.',
+        'filesystem',
+        isRetryableQueueFileSystemError(error),
+        { vulnType: paths.vulnType },
+      ),
+    };
+  }
 
   return Object.freeze({
     ...paths,
@@ -162,23 +219,23 @@ const validateExistenceRules = (
   if ('error' in pathsWithExistence) return pathsWithExistence;
 
   const { existence, vulnType } = pathsWithExistence;
+  const { deliverableRequired } = VULN_TYPE_CONFIG[vulnType];
+  const context: ExistenceContext = { existence, deliverableRequired, vulnerabilityClass: vulnType };
 
   // Find the first rule that fails
-  const failedRule = fileExistenceRules.find((rule) => !rule.predicate(existence));
+  const failedRule = fileExistenceRules.find((rule) => !rule.predicate(context));
 
   if (failedRule) {
     const message =
-      typeof failedRule.errorMessage === 'function' ? failedRule.errorMessage(existence) : failedRule.errorMessage;
+      typeof failedRule.errorMessage === 'function' ? failedRule.errorMessage(context) : failedRule.errorMessage;
 
     return {
       error: new PentestError(
-        `${message} (${vulnType})`,
+        message,
         'validation',
         failedRule.retryable,
         {
           vulnType,
-          deliverablePath: pathsWithExistence.deliverable,
-          queuePath: pathsWithExistence.queue,
           existence,
         },
         ErrorCode.DELIVERABLE_NOT_FOUND,
@@ -204,11 +261,11 @@ const validateQueueStructure = (content: string): QueueValidationResult => {
       data: isValid ? (parsed as QueueData) : null,
       error: null,
     });
-  } catch (parseError) {
+  } catch {
     return Object.freeze({
       valid: false,
       data: null,
-      error: parseError instanceof Error ? parseError.message : String(parseError),
+      error: 'invalid_json',
     });
   }
 };
@@ -234,9 +291,6 @@ const validateQueueContent = async (
           true, // retryable
           {
             vulnType: pathsWithExistence.vulnType,
-            queuePath: pathsWithExistence.queue,
-            originalError: queueValidation.error,
-            queueStructure: queueValidation.data ? Object.keys(queueValidation.data) : [],
           },
         ),
       };
@@ -249,13 +303,11 @@ const validateQueueContent = async (
   } catch (readError) {
     return {
       error: new PentestError(
-        `Failed to read queue file for ${pathsWithExistence.vulnType}: ${readError instanceof Error ? readError.message : String(readError)}`,
+        `Queue file for ${pathsWithExistence.vulnType} could not be read.`,
         'filesystem',
-        false,
+        isRetryableQueueFileSystemError(readError),
         {
           vulnType: pathsWithExistence.vulnType,
-          queuePath: pathsWithExistence.queue,
-          originalError: readError instanceof Error ? readError.message : String(readError),
         },
       ),
     };
@@ -263,7 +315,9 @@ const validateQueueContent = async (
 };
 
 // Final decision: skip if queue says no vulns, proceed if vulns found, error otherwise
-const determineExploitationDecision = (validatedData: PathsWithQueue | PathsWithError): ExploitationDecision => {
+const determineExploitationDecision = (
+  validatedData: PathsWithQueue | PathsWithError,
+): ReconciliationExploitationDecision => {
   if ('error' in validatedData) {
     throw validatedData.error;
   }
@@ -281,11 +335,11 @@ const determineExploitationDecision = (validatedData: PathsWithQueue | PathsWith
 };
 
 // Main functional validation pipeline
-export async function validateQueueAndDeliverable(
-  vulnType: VulnType,
+export async function validateQueueAndDeliverable<T extends ReconciliationClass>(
+  vulnType: T,
   sourceDir: string,
-): Promise<ExploitationDecision> {
-  return asyncPipe<ExploitationDecision>(
+): Promise<ReconciliationExploitationDecision<T>> {
+  return asyncPipe<ReconciliationExploitationDecision<T>>(
     createPaths(vulnType, sourceDir),
     checkFileExistence,
     validateExistenceRules,
@@ -298,11 +352,19 @@ export async function validateQueueAndDeliverable(
  * Safely validate queue and deliverable files.
  * Returns Result<ExploitationDecision, PentestError> for explicit error handling.
  */
-export async function validateQueueSafe(vulnType: VulnType, sourceDir: string): Promise<SafeValidationResult> {
+export async function validateQueueSafe<T extends ReconciliationClass>(
+  vulnType: T,
+  sourceDir: string,
+): Promise<SafeValidationResult<T>> {
   try {
     const result = await validateQueueAndDeliverable(vulnType, sourceDir);
     return ok(result);
   } catch (error) {
-    return err(error as PentestError);
+    if (error instanceof PentestError) return err(error);
+    // Fail closed: an unexpected non-PentestError becomes a non-retryable error rather than
+    // being treated as a passed validation that would let exploitation proceed on bad input.
+    return err(
+      new PentestError('Queue validation failed closed on an internal invariant.', 'unknown', false, { vulnType }),
+    );
   }
 }

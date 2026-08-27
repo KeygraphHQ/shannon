@@ -18,14 +18,21 @@ import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
-import { crash, fail, failUsage } from './errors.js';
-import { availableCommands, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
+import { crash, enableJsonErrors, fail, failUsage, failWith, jsonErrorsEnabled } from './errors.js';
+import { availableCommands, helpTopics, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
 import { commandPrefix, getMode, isLocal, type Mode } from './mode.js';
 import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
 import { stdoutIsTerminal } from './tty.js';
 import { getVersion, getVersionLine } from './version.js';
+import { resolveDefaultWorkspace } from './workspaces.js';
 
+/**
+ * Refuse to run as root or under sudo. The worker container's Linux UID remapping
+ * (docker.ts) stamps bind-mounted files with the invoking user's real uid/gid; under
+ * sudo that uid is 0, so the repo, workspace, and report files would come back
+ * owned by root instead of the person who ran the scan.
+ */
 function blockSudo(): void {
   const isSudo = !!process.env.SUDO_USER;
   const isRoot = process.geteuid?.() === 0;
@@ -37,13 +44,36 @@ function blockSudo(): void {
       : [];
 
   if (isSudo) {
-    fail('Shannon must not be run with sudo.', 'Re-run this command as your normal user.', ...linuxHints);
+    failWith(
+      'CLI_PRECONDITION_FAILED',
+      'Shannon must not be run with sudo.',
+      'Re-run this command as your normal user.',
+      ...linuxHints,
+    );
   }
-  fail(
+  failWith(
+    'CLI_PRECONDITION_FAILED',
     'Shannon must not be run as the root user.',
     'Switch to a regular user account and re-run this command.',
     ...linuxHints,
   );
+}
+
+/** Commands whose `--json` output contract extends to failures. */
+const JSON_CAPABLE_COMMANDS = new Set(['status', 'scans', 'version', '--version', '-v']);
+
+/**
+ * Raw-argv sniff for the JSON error latch, decided before any guard or parse so even
+ * a pre-dispatch failure honors it. Latches on `--json` or a malformed `--json=<value>`
+ * (which still fails as a parse error — inside the envelope). Any other command that
+ * receives `--json` keeps its normal unknown-option behavior.
+ */
+function wantsJsonErrors(argv: readonly string[]): boolean {
+  const command = argv[0];
+  if (command === undefined || !JSON_CAPABLE_COMMANDS.has(command)) {
+    return false;
+  }
+  return argv.slice(1).some((arg) => arg === '--json' || arg.startsWith('--json='));
 }
 
 /** Render `start`'s flags for the global help, from the same source as `start --help`. */
@@ -60,12 +90,16 @@ function renderUsage(prefix: string, mode: Mode): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ...(mode === 'local' ? [] : [[`${prefix} setup`, 'Configure credentials'] as const]),
     [`${prefix} start --url <url> --repo <path> [options]`, 'Start a pentest scan'],
-    [`${prefix} stop <workspace> [--yes]`, 'Stop one scan'],
+    [`${prefix} stop [<workspace>] [--yes]`, 'Stop one scan (default: the single running scan)'],
     [`${prefix} stop --all [--yes]`, 'Stop all scans (Temporal stays up)'],
     [`${prefix} reset`, 'Stop everything and wipe all Temporal data'],
-    [`${prefix} logs <workspace>`, "Show a scan's live log"],
-    [`${prefix} status <workspace> [--json]`, 'Live phase/agent progress of one scan'],
-    [`${prefix} scans [--json]`, 'List completed scans and their reports'],
+    [`${prefix} logs [<workspace>]`, "Show a scan's live log (default: running or most recent)"],
+    [`${prefix} logs [<workspace>] --agent <name>`, "Tail one agent's log; --list-agents to list them"],
+    [
+      `${prefix} status [<workspace>] [--json]`,
+      'Live phase/agent progress of one scan (default: running or most recent)',
+    ],
+    [`${prefix} scans [--json]`, 'List running and completed scans'],
     ...(mode === 'local' ? [[`${prefix} build [--no-cache]`, 'Build worker image'] as const] : []),
     [`${prefix} version [--json]`, 'Show version'],
     [`${prefix} help`, 'Show this help'],
@@ -152,6 +186,32 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   };
 }
 
+/**
+ * Resolve the workspace a viewing command (`logs`, `status`) acts on: the name the user
+ * gave, or an inferred default. An inferred choice is announced on stderr so it is never a
+ * silent guess; when nothing can be inferred, exit with usage guidance.
+ */
+function resolveViewingWorkspace(positional: string | undefined, usage: string): string {
+  if (positional) {
+    return positional;
+  }
+
+  const target = resolveDefaultWorkspace({ allowFinished: true });
+  if (target.kind === 'ok') {
+    // In JSON mode stderr is reserved for the single error envelope, so a successful
+    // inference stays silent — the JSON payload itself names the chosen workspace.
+    if (!jsonErrorsEnabled()) {
+      const which = target.running ? 'running scan' : 'most recent scan';
+      console.error(`No workspace given; using ${which} "${target.workspace}".`);
+    }
+    return target.workspace;
+  }
+  if (target.kind === 'ambiguous') {
+    failUsage('Multiple scans are running — specify which one:', `  ${target.running.join(', ')}`, '', usage);
+  }
+  failUsage('Workspace is required', usage);
+}
+
 // === Main Dispatch ===
 
 async function main(): Promise<void> {
@@ -163,13 +223,17 @@ async function main(): Promise<void> {
     throw err;
   });
 
+  if (wantsJsonErrors(process.argv.slice(2))) {
+    enableJsonErrors();
+  }
+
   blockSudo();
 
   const args = process.argv.slice(2);
   const command = args[0];
   const rest = args.slice(1);
 
-  if (command === undefined || command === 'help' || command === '--help' || command === '-h') {
+  if (command === undefined || command === '--help' || command === '-h') {
     const topic = rest[0];
     if (topic && isHelpableCommand(topic)) {
       printCommandHelp(topic);
@@ -179,6 +243,27 @@ async function main(): Promise<void> {
       showHelp(bare);
     }
     return;
+  }
+
+  // An explicit `help <topic>` names a topic on purpose, so an unknown one is a usage
+  // error — unlike `--help <junk>`, where the junk is ignored and global help wins.
+  if (command === 'help') {
+    const topic = rest[0];
+    // A flag (`help --help`) is a help request, not a topic name.
+    if (topic === undefined || topic === 'help' || topic.startsWith('-')) {
+      showHelp(false);
+      return;
+    }
+    if (isHelpableCommand(topic)) {
+      printCommandHelp(topic);
+      return;
+    }
+    const suggestion = closestMatch(topic, helpTopics());
+    failUsage(
+      `Unknown help topic: ${topic}`,
+      ...(suggestion ? [`Did you mean '${suggestion}'?`] : []),
+      `Run '${commandPrefix()} help' to see available commands.`,
+    );
   }
 
   // Reachable from any invocation: `-h`/`--help` anywhere wins over the rest of the line.
@@ -210,20 +295,25 @@ async function main(): Promise<void> {
       break;
     }
     case 'logs': {
-      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
-      const workspaceId = positionals[0];
-      if (!workspaceId) {
-        failUsage('Workspace ID is required', `Usage: ${commandPrefix()} logs <workspace>`);
-      }
-      logs(workspaceId);
+      const { flags, values, positionals } = parseArgs(rest, {
+        booleans: { listAgents: ['--list-agents'] },
+        values: { agent: ['--agent'] },
+        maxPositionals: 1,
+      });
+      const workspaceId = resolveViewingWorkspace(
+        positionals[0],
+        `Usage: ${commandPrefix()} logs [<workspace>] [--agent <name>] [--list-agents]`,
+      );
+      logs(workspaceId, {
+        ...(values.agent !== undefined && { agent: values.agent }),
+        ...(flags.listAgents && { listAgents: true }),
+      });
       break;
     }
     case 'status': {
       const { flags, positionals } = parseArgs(rest, { booleans: { json: ['--json'] }, maxPositionals: 1 });
-      const workspaceId = positionals[0];
-      if (!workspaceId) {
-        failUsage('Workspace is required', `Usage: ${commandPrefix()} status <workspace> [--json]`);
-      }
+      const usage = `Usage: ${commandPrefix()} status [<workspace>] [--json]`;
+      const workspaceId = resolveViewingWorkspace(positionals[0], usage);
       await status(workspaceId, { json: !!flags.json });
       break;
     }

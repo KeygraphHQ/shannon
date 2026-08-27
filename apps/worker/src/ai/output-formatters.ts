@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -14,6 +14,7 @@
  * a direct mapping.
  */
 
+import type { SafeErrorDetails } from '../audit/safe-fields.js';
 import { AGENTS } from '../session-manager.js';
 import { extractAgentType, formatDuration } from '../utils/formatting.js';
 import type { ExecutionContext } from './types.js';
@@ -27,7 +28,10 @@ interface ToolCallInput {
   [key: string]: unknown;
 }
 
-/** Agent prefix used to attribute output when parallel agents interleave on one stream. */
+// Agent prefix used to attribute output when parallel agents interleave on one stream. Tries the
+// registered agent's exact display name first, then falls back to a keyword match against the raw
+// description, so a caller passing an ad hoc description string still gets a reasonable tag
+// instead of the generic one.
 export function getAgentPrefix(description: string): string {
   const agentPrefixes: Record<string, string> = {
     'injection-vuln': '[Injection]',
@@ -68,7 +72,9 @@ function extractDomain(url: string): string {
   }
 }
 
-/** Format a playwright-cli command (run via the bash tool) into a clean progress indicator. */
+// Browser automation goes through the bash tool as a playwright-cli invocation, not a dedicated
+// tool call, so there is no structured event to read the action from. This parses the command line
+// back into a friendly one-liner instead of showing the raw shell command.
 function formatBrowserAction(command: string): string | null {
   const match = command.match(/playwright-cli\s+(?:-s=\S+\s+)?(\S+)(?:\s+(.*))?/);
   if (!match) return null;
@@ -139,7 +145,9 @@ function formatBrowserAction(command: string): string | null {
   }
 }
 
-/** Summarize a todo_write update into a clean progress indicator. */
+// todo_write replaces the whole list on every call, so there is no single "changed item" to
+// report. Surface the most recently completed item if one exists, otherwise the item now in
+// progress; a list with neither (all pending, or empty) has nothing worth printing.
 function summarizeTodoUpdate(input: ToolCallInput | undefined): string | null {
   if (!input?.todos || !Array.isArray(input.todos)) {
     return null;
@@ -159,6 +167,15 @@ function summarizeTodoUpdate(input: ToolCallInput | undefined): string | null {
   return null;
 }
 
+/**
+ * Classify a phase's console output style from its human-readable description.
+ *
+ * `isParallelExecution` marks the five concurrent vuln/exploit agents, whose output
+ * interleaves on one stream and so needs a per-line agent tag; `useCleanOutput` marks
+ * every phase that gets the friendly spinner-and-summary treatment instead of the
+ * verbose turn-by-turn fallback. Matching is on substrings of `description`, the same
+ * strings the activity layer passes as the human-facing phase label.
+ */
 export function detectExecutionContext(description: string): ExecutionContext {
   const isParallelExecution = description.includes('vuln agent') || description.includes('exploit agent');
 
@@ -236,35 +253,27 @@ export function formatToolCall(
 }
 
 export function formatErrorOutput(
-  error: Error & { code?: string; status?: number },
+  error: SafeErrorDetails,
   context: ExecutionContext,
-  description: string,
   duration: number,
-  sourceDir: string,
+  turns: number,
   isRetryable: boolean,
 ): string[] {
   const lines: string[] = [];
 
   if (context.isParallelExecution) {
-    lines.push(`${getAgentPrefix(description)} Failed (${formatDuration(duration)})`);
+    lines.push(`Agent failed (${formatDuration(duration)})`);
   } else if (context.useCleanOutput) {
     lines.push(`${context.agentType} failed (${formatDuration(duration)})`);
   } else {
-    lines.push(`  pi agent failed: ${description} (${formatDuration(duration)})`);
+    lines.push(`  Agent failed (${formatDuration(duration)})`);
   }
 
-  lines.push(`    Error Type: ${error.constructor.name}`);
+  lines.push(`    Error Code: ${error.code}`);
+  lines.push(`    Category: ${error.category}`);
   lines.push(`    Message: ${error.message}`);
-  lines.push(`    Agent: ${description}`);
-  lines.push(`    Working Directory: ${sourceDir}`);
+  lines.push(`    Turns: ${turns}`);
   lines.push(`    Retryable: ${isRetryable ? 'Yes' : 'No'}`);
-
-  if (error.code) {
-    lines.push(`    Error Code: ${error.code}`);
-  }
-  if (error.status) {
-    lines.push(`    HTTP Status: ${error.status}`);
-  }
 
   return lines;
 }

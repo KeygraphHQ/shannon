@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -43,6 +43,33 @@ export enum ErrorCode {
 }
 
 export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'unknown';
+
+/** Stable, sanitized provider failure passed across model execution boundaries. */
+export const PROVIDER_FAILURE_CATEGORIES = Object.freeze([
+  'rate_limit',
+  'overloaded',
+  'transport',
+  'context_limit',
+  'quota',
+  'authentication',
+  'configuration',
+  'unknown',
+] as const);
+
+export type ProviderFailureCategory = (typeof PROVIDER_FAILURE_CATEGORIES)[number];
+
+export function isProviderFailureCategory(value: unknown): value is ProviderFailureCategory {
+  return typeof value === 'string' && PROVIDER_FAILURE_CATEGORIES.includes(value as ProviderFailureCategory);
+}
+
+export interface ProviderFailure {
+  // The exhaustive set of shapes a model-provider failure can take at this boundary: bad
+  // credentials, bad provider/model configuration, or everything else the agent run raised.
+  readonly type: 'AuthenticationError' | 'ConfigurationError' | 'AgentExecutionError';
+  readonly category: ProviderFailureCategory;
+  readonly retryable: boolean;
+  readonly message: string;
+}
 
 export interface PentestErrorContext {
   [key: string]: unknown;

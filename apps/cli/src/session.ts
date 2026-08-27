@@ -1,11 +1,12 @@
 /**
  * Workspace → Temporal workflow-id resolution.
  *
- * A workspace name is not always its workflow id: a fresh scan's id equals the
- * workspace name, but each resume spawns a new workflow (`<workspace>_resume_<ts>`).
- * The workspace's session.json records the authoritative id — the latest resume
- * attempt, or the original — so commands that query Temporal (status, stop) resolve
- * through here instead of assuming the name is the id.
+ * A workspace name is not always its workflow id: a fresh named workspace gets
+ * `<workspace>_shannon-<timestamp>` as its workflow id (only an auto-named workspace's
+ * directory name equals its original id), and each resume spawns a new workflow
+ * (`<workspace>_resume_<ts>`). The workspace's session.json records the authoritative
+ * id — the latest resume attempt, or the original — so commands that query Temporal
+ * (status, stop) resolve through here instead of assuming the name is the id.
  */
 
 import fs from 'node:fs';

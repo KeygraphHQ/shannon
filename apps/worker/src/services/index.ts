@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -19,7 +19,22 @@ export { ConfigLoaderService } from './config-loader.js';
 export type { ContainerDependencies } from './container.js';
 export { Container, getContainer, getOrCreateContainer, removeContainer, setContainerFactory } from './container.js';
 export { ExploitationCheckerService } from './exploitation-checker.js';
+export type { CommittedReadResult } from './git-manager.js';
+export {
+  blobShaFromHead,
+  classifyHeadReadFailure,
+  commitExactPaths,
+  getGitCommitHash,
+  isAncestor,
+  parsePorcelainZ,
+  pathsChangedInCommit,
+  readCommittedFile,
+  readFileFromHead,
+  restorePathsFromHead,
+  rollbackGitWorkspace,
+  withGitRepoLock,
+} from './git-manager.js';
 export { loadPrompt } from './prompt-manager.js';
 export type { ReportData, ReportMeta } from './report-renderer.js';
 export { renderReport } from './report-renderer.js';
-export { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from './reporting.js';
+export { assembleFinalReport, copyReportToRunRoot } from './reporting.js';

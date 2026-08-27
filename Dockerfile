@@ -109,6 +109,10 @@ COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
 
+# Third-party license and notice material travels with the distributed image
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/shannon/
+COPY LICENSES/ /usr/share/licenses/shannon/LICENSES/
+
 RUN npm install -g --ignore-scripts @playwright/cli@0.1.1
 RUN mkdir -p /tmp/.claude/skills && \
     playwright-cli install --skills && \
