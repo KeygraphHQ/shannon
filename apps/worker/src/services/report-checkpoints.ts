@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -115,6 +115,12 @@ async function checkpointIsReachable(deliverablesPath: string, checkpoint: strin
   return head !== null && (await checkpointIsAncestor(checkpoint, head, deliverablesPath));
 }
 
+/**
+ * Prove one report checkpoint is trustworthy: its report.json parses with meta and findings,
+ * its recorded failed-class set equals the durable `failedClasses` list, and the commit is
+ * still reachable from HEAD. Reachability matters because rollback can rewrite the branch;
+ * a dangling checkpoint would validate content that publication has since discarded.
+ */
 export async function reportCheckpointIsCoherent(
   deliverablesPath: string,
   checkpoint: string,
@@ -139,6 +145,12 @@ export async function reportCheckpointIsCoherent(
 
 export type DraftValidation = 'coherent' | 'invalid-model' | 'invalid-canonical';
 
+/**
+ * Grade a durable draft for resume. `invalid-model` means the model-authored checkpoint itself
+ * cannot be trusted and the report stage must re-run; `invalid-canonical` means the model
+ * checkpoint stands but the canonical rebuild on top of it does not, so only that later work
+ * repeats. A pending draft is vacuously coherent.
+ */
 export async function validateDraftProgress(
   deliverablesPath: string,
   progress: ReportProgress,
@@ -153,13 +165,12 @@ export async function validateDraftProgress(
   if (!(await checkpointIsAncestor(progress.model_checkpoint, progress.canonical_checkpoint, deliverablesPath))) {
     return 'invalid-canonical';
   }
-  return (await reportCheckpointIsCoherent(
+  const canonicalCoherent = await reportCheckpointIsCoherent(
     deliverablesPath,
     progress.canonical_checkpoint,
     progress.renumber_failed_classes,
-  ))
-    ? 'coherent'
-    : 'invalid-canonical';
+  );
+  return canonicalCoherent ? 'coherent' : 'invalid-canonical';
 }
 
 export async function draftProgressIsCoherent(deliverablesPath: string, progress: ReportProgress): Promise<boolean> {
@@ -186,6 +197,9 @@ export async function finalProgressIsCoherent(deliverablesPath: string, progress
   } catch {
     return false;
   }
+  // The durable digest covers the manifest's exact bytes, so the committed file must also be in
+  // canonical serialization; a manifest that parses but is formatted differently is not the one
+  // finalization wrote.
   if (!isReportFinalizationManifest(manifest) || manifestContents !== `${JSON.stringify(manifest, null, 2)}\n`) {
     return false;
   }
@@ -210,6 +224,8 @@ export async function finalProgressIsCoherent(deliverablesPath: string, progress
 
   const sarif = await checkpointFileContents(deliverablesPath, progress.final_checkpoint, SARIF_FILENAME);
   if (manifest.artifacts.sarif.disposition !== 'committed') {
+    // A non-committed disposition also requires the worktree to be clean of SARIF: a stray
+    // uncommitted file would otherwise be surfaced to the customer as though it were finalized.
     return sarif === null && !(await fileExists(path.join(deliverablesPath, SARIF_FILENAME)));
   }
   return sarif !== null && sha256(sarif) === manifest.artifacts.sarif.sha256;

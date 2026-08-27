@@ -51,6 +51,8 @@ export function remapTaskReferences(text: string, oldToNew: ReadonlyMap<string, 
   const oldReferences = [...oldToNew.keys()].sort((first, second) => second.length - first.length);
   if (oldReferences.length === 0) return text;
   const alternation = oldReferences.map(escapeForRegExp).join('|');
+  // Longest-first alternation plus the digit lookahead keep a shorter reference from matching
+  // as a prefix of a longer one (INJ-1 inside INJ-10 would otherwise corrupt the longer ref).
   const referencePattern = new RegExp(`(?:${alternation})(?![0-9])`, 'g');
   return text.replace(referencePattern, (oldReference) => oldToNew.get(oldReference) as string);
 }
@@ -70,6 +72,7 @@ function scrubEntryText(value: unknown, oldToNew: ReadonlyMap<string, string>): 
   return value;
 }
 
+/** Accepts only the exact zero-padded form the pipeline mints (INJ-01, not INJ-1 or INJ-001). */
 export function parseRefNumber(reference: string, vulnerabilityClass: ReconciliationClass): number | null {
   const prefix = REF_PREFIX[vulnerabilityClass];
   const match = new RegExp(`^${escapeForRegExp(prefix)}-(\\d+)$`).exec(reference);
@@ -179,6 +182,8 @@ export function remapSastProvenance(
   const seen = new Set<string>();
   for (const entry of provenance.entries) {
     const nextReference = oldToNew.get(entry.exploit_ref);
+    // Entries with no mapping belong to findings the remap dropped (blocked or filtered out),
+    // so their provenance is dropped with them rather than kept pointing at a dead reference.
     if (nextReference === undefined) continue;
     if (seen.has(nextReference))
       throw new RenumberError('key-set-divergence', false, { checkCode: 'provenance-duplicate' });
@@ -239,6 +244,14 @@ function parseProvenance(value: unknown, vulnerabilityClass: ReconciliationClass
   return value as SastProvenanceFile;
 }
 
+/**
+ * Trust SAST provenance only after proving the whole committed publication around it: the class
+ * manifest is present, every consumer file matches its recorded digest, the queue's references
+ * agree with the manifest lineage in order, the collector references all fall inside that
+ * lineage, and every provenance entry points at a SAST-backed task. Returns undefined when the
+ * class published no provenance file; any other gap is a divergence, since partial trust here
+ * would let a stale or tampered file relabel findings in the customer report.
+ */
 async function loadAndValidateProvenance(
   dir: string,
   vulnerabilityClass: ReconciliationClass,
@@ -336,6 +349,8 @@ export async function computeRenumber(
     ...map.excluded.map((entry) => entry.source_ref),
   ]);
   const sparseProvenance = await loadAndValidateProvenance(dir, vulnerabilityClass, collectorReferences);
+  // The renderer's empty-state banner describes an empty queue, but an empty renumbered set
+  // means every queued finding failed exploitation, so the wording is corrected here.
   const evidenceMarkdown = renderExploitDeliverable(
     vulnerabilityClass,
     map.renumbered,
@@ -392,7 +407,7 @@ export interface RenumberClassResult {
   readonly commit?: ExactOutputCommit;
 }
 
-/** Service boundary used by the later Temporal activity wrapper. */
+/** Service boundary behind the Temporal activity wrapper. Skips when the class has no collector. */
 export async function renumberClassFindings(args: {
   readonly deliverablesDir: string;
   readonly vulnerabilityClass: ReconciliationClass;

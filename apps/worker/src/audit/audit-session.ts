@@ -26,7 +26,11 @@ import {
 } from '../types/run-state.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import { fileExists } from '../utils/file-io.js';
-import { MetricsTracker } from './metrics-tracker.js';
+import {
+  MetricsTracker,
+  type TerminalWorkflowMetricsInput,
+  type TerminalWorkflowMetricTotals,
+} from './metrics-tracker.js';
 import type { LoggableAgentName, WorkflowPhase } from './safe-fields.js';
 import {
   generateSessionJsonPath,
@@ -330,6 +334,22 @@ export class AuditSession {
     try {
       await this.metricsTracker.reload();
       await this.metricsTracker.updateSessionStatus(status);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Persist the terminal workflow projection under its retry-stable workflow id. */
+  async recordTerminalWorkflowMetrics(
+    workflowId: string,
+    input: TerminalWorkflowMetricsInput,
+  ): Promise<TerminalWorkflowMetricTotals> {
+    await this.ensureInitialized();
+
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.recordTerminalWorkflowMetrics(workflowId, input);
     } finally {
       unlock();
     }

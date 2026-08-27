@@ -59,6 +59,8 @@ async function atomicCopy(sourcePath: string, destinationPath: string): Promise<
   } catch (error) {
     if (!isErrno(error, 'ENOENT')) throw error;
   }
+  // Write to a unique temp path then rename, so a crash mid-write never leaves a partial file
+  // at the customer destination. `wx` fails rather than reusing a leftover temp file.
   const temporaryPath = `${destinationPath}.tmp-${randomUUID()}`;
   try {
     await writeFile(temporaryPath, contents, { flag: 'wx' });
@@ -75,6 +77,12 @@ async function atomicCopy(sourcePath: string, destinationPath: string): Promise<
   }
 }
 
+/**
+ * Surface the PDF only when its bytes verify against the current canonical report's provenance.
+ * A matching deliverables PDF is copied out; otherwise the unverifiable source is removed, and
+ * an already-verified customer PDF is preserved rather than deleted. Every failure here is a
+ * warning: the PDF is a secondary artifact and cannot fail the run or change its status.
+ */
 async function surfaceProvenancedPdf(args: {
   readonly deliverablesDir: string;
   readonly customerDir: string;
@@ -159,15 +167,17 @@ export async function surfaceReportOutputs(args: {
       destination: FINAL_REPORT_MD_FILENAME,
       removeWhenSourceMissing: false,
     },
-    { source: SARIF_FILENAME, destination: SARIF_FILENAME, removeWhenSourceMissing: true },
   ];
+  // With provenance supplied, the PDF is surfaced by surfaceProvenancedPdf under a byte check;
+  // without it, the PDF falls back to the same unconditional copy as the other outputs.
   if (args.pdfVerification === undefined) {
-    outputs.splice(1, 0, {
+    outputs.push({
       source: ASSEMBLED_REPORT_PDF_FILENAME,
       destination: FINAL_REPORT_PDF_FILENAME,
       removeWhenSourceMissing: true,
     });
   }
+  outputs.push({ source: SARIF_FILENAME, destination: SARIF_FILENAME, removeWhenSourceMissing: true });
   const copyOutput = args.copyOutput ?? atomicCopy;
   const surfaced: string[] = [];
   const removedStale: string[] = [];

@@ -11,7 +11,9 @@ import type { SastSourceLocation } from '../ai/reconciliation/contracts.js';
 import type { AddFindingInput } from '../collectors/finding-collector.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ALL_VULN_CLASSES } from '../types/config.js';
+import { ErrorCode } from '../types/errors.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
+import { PentestError } from './error-handling.js';
 import { readCommittedFile } from './git-manager.js';
 import { renumberMapPath } from './renumber-core.js';
 
@@ -26,10 +28,17 @@ interface JoinedLocations {
   readonly sastSourceLocation?: SastSourceLocation;
 }
 
+interface LocationIndexes {
+  readonly stable: ReadonlyMap<string, JoinedLocations>;
+  readonly current: ReadonlyMap<string, JoinedLocations>;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
+// The queue entry is untrusted committed JSON, not a value this process just produced, so its
+// shape is re-validated field by field rather than trusted from the type annotation alone.
 function isSastSourceLocation(value: unknown): value is SastSourceLocation {
   if (!isRecord(value)) return false;
   return (
@@ -44,11 +53,29 @@ function isSastSourceLocation(value: unknown): value is SastSourceLocation {
   );
 }
 
-function parseJson(contents: string, description: string): unknown {
+function committedLocationError(
+  message: string,
+  checkCode: string,
+  vulnerabilityClass: ReconciliationClass,
+): PentestError {
+  return new PentestError(
+    message,
+    'validation',
+    false,
+    { checkCode, vulnerabilityClass },
+    ErrorCode.AGENT_EXECUTION_FAILED,
+  );
+}
+
+function parseJson(contents: string, description: string, vulnerabilityClass: ReconciliationClass): unknown {
   try {
     return JSON.parse(contents) as unknown;
   } catch {
-    throw new Error(`${description} is not valid JSON`);
+    throw committedLocationError(
+      `${description} is not valid JSON`,
+      'committed-location-json-invalid',
+      vulnerabilityClass,
+    );
   }
 }
 
@@ -58,14 +85,30 @@ async function currentReferenceMap(
 ): Promise<ReadonlyMap<string, string>> {
   const mapRead = await readCommittedFile(deliverablesPath, renumberMapPath(vulnerabilityClass));
   if (mapRead.state === 'absent') return new Map();
-  if (mapRead.state !== 'present') throw new Error(`${vulnerabilityClass} report-reference map is unreadable`);
-  const decoded = parseJson(mapRead.contents, `${vulnerabilityClass} report-reference map`);
+  if (mapRead.state !== 'present') {
+    throw committedLocationError(
+      `${vulnerabilityClass} report-reference map is unreadable`,
+      'committed-reference-map-unreadable',
+      vulnerabilityClass,
+    );
+  }
+  const decoded = parseJson(mapRead.contents, `${vulnerabilityClass} report-reference map`, vulnerabilityClass);
   if (!isRecord(decoded) || !isRecord(decoded.map)) {
-    throw new Error(`${vulnerabilityClass} report-reference map is malformed`);
+    throw committedLocationError(
+      `${vulnerabilityClass} report-reference map is malformed`,
+      'committed-reference-map-malformed',
+      vulnerabilityClass,
+    );
   }
   const references = new Map<string, string>();
   for (const [stable, current] of Object.entries(decoded.map)) {
-    if (typeof current !== 'string') throw new Error(`${vulnerabilityClass} report-reference map is malformed`);
+    if (typeof current !== 'string') {
+      throw committedLocationError(
+        `${vulnerabilityClass} report-reference map is malformed`,
+        'committed-reference-map-entry-malformed',
+        vulnerabilityClass,
+      );
+    }
     references.set(stable, current);
   }
   return references;
@@ -74,15 +117,26 @@ async function currentReferenceMap(
 async function loadQueueLocations(
   deliverablesPath: string,
   participatingClasses: readonly ReconciliationClass[],
-): Promise<Map<string, JoinedLocations>> {
-  const locations = new Map<string, JoinedLocations>();
+): Promise<LocationIndexes> {
+  const stableLocations = new Map<string, JoinedLocations>();
+  const currentLocations = new Map<string, JoinedLocations>();
   for (const vulnerabilityClass of participatingClasses) {
     const queueRead = await readCommittedFile(deliverablesPath, `${vulnerabilityClass}_exploitation_queue.json`);
     if (queueRead.state === 'absent') continue;
-    if (queueRead.state !== 'present') throw new Error(`${vulnerabilityClass} queue is unreadable`);
-    const decoded = parseJson(queueRead.contents, `${vulnerabilityClass} queue`);
+    if (queueRead.state !== 'present') {
+      throw committedLocationError(
+        `${vulnerabilityClass} queue is unreadable`,
+        'committed-queue-unreadable',
+        vulnerabilityClass,
+      );
+    }
+    const decoded = parseJson(queueRead.contents, `${vulnerabilityClass} queue`, vulnerabilityClass);
     if (!isRecord(decoded) || !Array.isArray(decoded.vulnerabilities)) {
-      throw new Error(`${vulnerabilityClass} queue is malformed`);
+      throw committedLocationError(
+        `${vulnerabilityClass} queue is malformed`,
+        'committed-queue-malformed',
+        vulnerabilityClass,
+      );
     }
     const referenceMap = await currentReferenceMap(deliverablesPath, vulnerabilityClass);
     for (const rawEntry of decoded.vulnerabilities) {
@@ -96,12 +150,12 @@ async function loadQueueLocations(
         ...(isSastSourceLocation(entry.sast_source_location) ? { sastSourceLocation: entry.sast_source_location } : {}),
       };
       if (bundle.codeLocations === undefined && bundle.sastSourceLocation === undefined) continue;
-      locations.set(stableReference, bundle);
+      stableLocations.set(stableReference, bundle);
       const currentReference = referenceMap.get(stableReference);
-      if (currentReference !== undefined) locations.set(currentReference, bundle);
+      if (currentReference !== undefined) currentLocations.set(currentReference, bundle);
     }
   }
-  return locations;
+  return { stable: stableLocations, current: currentLocations };
 }
 
 /** Attach the two independent location fields without consulting exploit-inspection locations. */
@@ -115,14 +169,19 @@ export async function attachQueueCodeLocations(
   let analysisMatches = 0;
   let sastMatches = 0;
   const joined = findings.map((finding) => {
-    const locations = byReference.get(finding.finding_id);
-    if (locations === undefined) return finding;
-    if (locations.codeLocations !== undefined) analysisMatches++;
-    if (locations.sastSourceLocation !== undefined) sastMatches++;
+    // Report findings normally carry the renumbered current reference. Resolve that lane first,
+    // then fall back to the stable lane for unrenumbered classes. Keeping the lanes separate
+    // prevents one entry's stable reference from overwriting another entry's current reference.
+    const locations = byReference.current.get(finding.finding_id) ?? byReference.stable.get(finding.finding_id);
+    if (locations?.codeLocations !== undefined) analysisMatches++;
+    if (locations?.sastSourceLocation !== undefined) sastMatches++;
+    // The queue is the sole authority for sast_source_location: strip any value the finding
+    // carries so it is present iff Capella committed one, never a report-agent fabrication.
+    const { sast_source_location: _dropped, ...withoutSast } = finding;
     return {
-      ...finding,
-      ...(locations.codeLocations !== undefined && { code_locations: locations.codeLocations }),
-      ...(locations.sastSourceLocation !== undefined && { sast_source_location: locations.sastSourceLocation }),
+      ...withoutSast,
+      ...(locations?.codeLocations !== undefined && { code_locations: locations.codeLocations }),
+      ...(locations?.sastSourceLocation !== undefined && { sast_source_location: locations.sastSourceLocation }),
     };
   });
   logger.info('Attached committed report-task locations', {

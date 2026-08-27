@@ -48,9 +48,12 @@ export interface RenumberMapFile {
 
 export interface ClassCompaction {
   readonly vulnerabilityClass: ReconciliationClass;
+  /** Dense renumbered reference to its gapless replacement; the map applied to artifact text. */
   readonly gapMap: ReadonlyMap<string, string>;
+  /** Original stable reference straight to the gapless reference, composed across both hops. */
   readonly composedMap: ReadonlyMap<string, string>;
   readonly excluded: readonly ExcludedEntry[];
+  /** Replacement renumber-map artifact, so the committed map always records stable-to-current. */
   readonly renumberMapFile: RenumberMapFile;
 }
 
@@ -169,6 +172,9 @@ export function remapExploitCollector(
       throw new RenumberError('key-set-divergence', false, { checkCode: 'compaction-collector-reference-missing' });
     }
     const gapless = classGapMap.get(reference);
+    // A collector entry with no gap mapping is one the final report did not keep, so the
+    // compacted collector drops it too instead of carrying a reference the report no longer
+    // contains.
     if (gapless === undefined) continue;
     const rewritten = deepRemapStrings(entry, allGapMap) as Record<string, unknown>;
     remapped.push({ ...rewritten, vulnerability_id: gapless } as unknown as AddExploitInput);

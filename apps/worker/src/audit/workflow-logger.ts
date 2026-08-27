@@ -10,7 +10,7 @@ import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
 import { isCapellaSafeFailureMessage, isCapellaTerminalStageLabel } from '../ai/sast/capella/safe-failures.js';
 import type { CapellaStage } from '../ai/sast/types.js';
-import type { ErrorCode } from '../types/errors.js';
+import { type ErrorCode, isProviderFailureCategory } from '../types/errors.js';
 import { isPartialReason, type PartialReasonView, projectPartialReasons } from '../types/run-state.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
 import {
@@ -22,6 +22,7 @@ import {
   type TraceActor,
 } from './actor-projection.js';
 import { LogStream, warnAgentLoggingFailure, warnLoggingFailure } from './log-stream.js';
+import { type OperationalStageTiming, summarizeOperationalMetrics } from './operational-summary.js';
 import {
   isLoggableAgentName,
   isWorkflowPhase,
@@ -49,18 +50,39 @@ export interface AgentMetricsSummary {
   readonly costUsd: number | null;
 }
 
+export interface OperationalMetricsSummary {
+  readonly durationMs: number;
+  readonly costUsd: number | null;
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly cacheReadTokens: number | null;
+  readonly cacheWriteTokens: number | null;
+  readonly numTurns: number | null;
+  readonly usageComplete: boolean;
+}
+
 export interface WorkflowSummary {
   readonly status: 'completed' | 'failed' | 'cancelled' | 'partial';
+  readonly startedAtMs: number;
+  readonly endedAtMs: number;
   readonly totalDurationMs: number;
   readonly totalCostUsd: number;
   readonly completedAgents: readonly string[];
   readonly skippedAgents?: readonly string[];
   readonly agentMetrics: Readonly<Record<string, AgentMetricsSummary>>;
+  readonly operationalMetrics: Readonly<Record<string, OperationalMetricsSummary>>;
+  /** Per-stage wall-clock spans, keyed as `operationalStages` is; feeds each group's real duration. */
+  readonly operationalStages: Readonly<Record<string, OperationalStageTiming>>;
   readonly partialReasons?: readonly PartialReasonView[];
   readonly usageAccountingComplete?: boolean;
+  /** Usage-accounting warnings from the Capella run; empty when the ledger reconciled. */
+  readonly usageAccountingWarnings?: readonly string[];
   readonly agenticSastFailedStage?: string;
   readonly agenticSastFailureMessage?: string;
   readonly agenticSastErrorCode?: string;
+  /** Terminal disposition of the agentic-SAST child, so a successful run is visible, not just a failed one. */
+  readonly agenticSastStatus?: 'disabled' | 'running' | 'succeeded' | 'failed';
+  readonly agenticSastCoverage?: 'complete' | 'reduced';
   readonly errorCode?: ErrorCode;
 }
 
@@ -102,12 +124,17 @@ function safeReasonMessage(reason: PartialReasonView): string | undefined {
 }
 
 function safeAgenticSastCode(code: string | undefined): string | undefined {
-  if (code !== undefined && /^[A-Z][A-Z0-9_]{0,63}$/u.test(code)) return code;
+  if (code !== undefined && (/^[A-Z][A-Z0-9_]{0,63}$/u.test(code) || isProviderFailureCategory(code))) return code;
   return undefined;
 }
 
 function safeAgenticSastStageLabel(label: string | undefined): string | undefined {
   return label !== undefined && isCapellaTerminalStageLabel(label) ? label : undefined;
+}
+
+/** Render a cost the same way the agent breakdown does: N/A when unknown, else a fixed 4-dp dollar value. */
+function formatCostUsd(costUsd: number | null): string {
+  return costUsd === null ? 'N/A' : `$${Math.max(0, costUsd).toFixed(4)}`;
 }
 
 /** Keep normal PI names readable and losslessly quote any unexpected name. */
@@ -646,6 +673,8 @@ export class WorkflowLogger {
     const status = statusHeaders[summary.status];
     const completedAgents = summary.completedAgents.filter(isLoggableAgentName);
     const skippedAgents = (summary.skippedAgents ?? []).filter(isLoggableAgentName);
+    const operationalGroups = summarizeOperationalMetrics(summary.operationalMetrics, summary.operationalStages);
+    const sastGroup = operationalGroups.find((group) => group.key === 'agentic-sast');
     const lines = [
       '',
       '================================================================================',
@@ -691,10 +720,37 @@ export class WorkflowLogger {
           lines.push(`  - ${agentName}`);
           continue;
         }
-        const cost = metrics.costUsd === null ? 'N/A' : `$${Math.max(0, metrics.costUsd).toFixed(4)}`;
-        lines.push(`  - ${agentName} (${formatDuration(Math.max(0, metrics.durationMs))}, ${cost})`);
+        lines.push(
+          `  - ${agentName} (${formatDuration(Math.max(0, metrics.durationMs))}, ${formatCostUsd(metrics.costUsd)})`,
+        );
       }
       for (const agentName of skippedAgents) lines.push(`  - ${agentName} (skipped — nothing to exploit)`);
+    }
+
+    // Agentic SAST is a pluggable analysis engine, a peer to the pentest rather than background
+    // plumbing, so it gets its own section. Its spend sits in Total Cost but has no agent line; the
+    // detailed "stopped at" block above narrates a failure, this line accounts for its time and cost.
+    if (
+      sastGroup !== undefined &&
+      summary.agenticSastStatus !== undefined &&
+      summary.agenticSastStatus !== 'disabled'
+    ) {
+      const outcome = summary.agenticSastStatus === 'failed' ? 'failed' : 'completed';
+      const coverageSuffix = summary.agenticSastCoverage === 'reduced' ? ' — reduced coverage' : '';
+      lines.push('', 'Analysis Engines:');
+      lines.push(
+        `  - Agentic SAST — ${outcome} (${formatDuration(sastGroup.durationMs)}, ${formatCostUsd(sastGroup.costUsd)})${coverageSuffix}`,
+      );
+    }
+
+    // Concurrent, non-agent plumbing (finding reconciliation, and a rare catch-all) whose spend is
+    // inside Total Cost but never itemized above. Grouped so it stays legible as keys evolve.
+    const backgroundGroups = operationalGroups.filter((group) => group.key !== 'agentic-sast');
+    if (backgroundGroups.length > 0) {
+      lines.push('', 'Background Work:');
+      for (const group of backgroundGroups) {
+        lines.push(`  - ${group.label} (${formatDuration(group.durationMs)}, ${formatCostUsd(group.costUsd)})`);
+      }
     }
     lines.push('================================================================================');
 

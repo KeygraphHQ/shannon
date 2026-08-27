@@ -344,6 +344,8 @@ export interface PipelineState {
     readonly failedStageLabel?: string;
     readonly error?: string;
     readonly errorCode?: string;
+    /** Usage-accounting warnings projected by the worker; empty when the ledger reconciled. */
+    readonly warnings?: readonly string[];
   };
   readonly nonFatalFailures?: { readonly phase: string; readonly error: string }[];
   /** Ordered durable degradation reasons with safe messages; empty or absent for full success. */

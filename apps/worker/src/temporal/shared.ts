@@ -2,7 +2,13 @@ import { defineQuery } from '@temporalio/workflow';
 
 export type { AgentMetrics } from '../types/metrics.js';
 
-import type { CapellaFailurePoint, CapellaStage, SarifRef } from '../ai/sast/types.js';
+import type {
+  AgenticSastReduction,
+  CapellaFailurePoint,
+  CapellaRecoveredFailure,
+  CapellaStage,
+  SarifRef,
+} from '../ai/sast/types.js';
 import type { VulnClass } from '../types/config.js';
 import type { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
@@ -45,6 +51,8 @@ export type AgenticSastState =
       readonly coverage: 'complete' | 'reduced';
       readonly warnings: readonly string[];
       readonly durationMs: number;
+      readonly reductions?: readonly AgenticSastReduction[];
+      readonly recoveredFailure?: CapellaRecoveredFailure;
     }
   | {
       readonly status: 'failed';
@@ -55,6 +63,7 @@ export type AgenticSastState =
       /** Bounded machine code preserved from the failing Capella activity, when one crossed the child. */
       readonly errorCode?: string;
       readonly completedStages: readonly CapellaStage[];
+      readonly warnings: readonly string[];
       readonly durationMs: number;
     };
 

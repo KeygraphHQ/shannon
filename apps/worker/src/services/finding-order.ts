@@ -21,8 +21,14 @@ export const CONFIDENCE_RANK: Readonly<Record<string, number>> = Object.freeze({
   low: 2,
 });
 
-/** Recognized report categories. Unrecognized values form a sentinel group after `Other`. */
-export const CATEGORY_ORDER = ['Injection', 'XSS', 'Authentication', 'SSRF', 'Authorization', 'Other'] as const;
+/**
+ * Recognized report categories. Unrecognized values form a sentinel group after `Miscellaneous`.
+ *
+ * Mirrors the `TypstCategory` union in report-output-schema.ts as plain strings rather than
+ * importing the type. A category added there without a matching entry here will not fail to
+ * compile; it will just sort into the unrecognized/lexical tail instead of its intended position.
+ */
+export const CATEGORY_ORDER = ['Injection', 'XSS', 'Authentication', 'SSRF', 'Authorization', 'Miscellaneous'] as const;
 
 export function severityRank(severity: string | null | undefined): number {
   if (severity == null) return UNRANKED;

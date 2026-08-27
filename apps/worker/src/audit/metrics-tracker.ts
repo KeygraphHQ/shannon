@@ -32,6 +32,7 @@ import {
 } from '../types/run-state.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
+import { mergeIntervalsDurationMs, type OperationalStageTiming } from './operational-summary.js';
 import { safeErrorFromCode } from './safe-fields.js';
 import { generateSessionJsonPath, type SessionMetadata } from './utils.js';
 
@@ -71,6 +72,83 @@ interface PhaseMetrics {
   agent_count: number;
 }
 
+interface OperationalAuditMetrics {
+  duration_ms: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_write_tokens: number;
+  cost_usd: number;
+  turns: number;
+  usage_complete: boolean;
+}
+
+/** One operational stage's wall-clock span, as persisted per run. */
+interface StageSpan {
+  started_at_ms: number;
+  duration_ms: number;
+}
+
+/**
+ * The stage families `total_operational_duration_ms` and the `background` phase are defined over:
+ * agentic SAST and finding reconciliation. Report steps and the miscellaneous lane are pipeline
+ * work, not operational spend, so their spans are excluded and those two fields keep the meaning
+ * they document.
+ */
+const OPERATIONAL_STAGE_FAMILIES: readonly string[] = ['agentic-sast', 'reconciliation'];
+
+function isOperationalStageKey(stageKey: string): boolean {
+  return OPERATIONAL_STAGE_FAMILIES.some((family) => stageKey === family || stageKey.startsWith(`${family}:`));
+}
+
+interface TerminalRunMetrics {
+  status: 'completed' | 'failed' | 'cancelled' | 'partial';
+  started_at: string;
+  ended_at: string;
+  wall_duration_ms: number;
+  usage_accounting_complete: boolean;
+  /** Usage-accounting warnings for this run; always an array, empty when the ledger reconciled. */
+  usage_accounting_warnings: string[];
+}
+
+/** One workflow's usage for a single operational metric key (an agentic-SAST stage, a reconciliation class). */
+export interface WorkflowOperationalMetric {
+  readonly durationMs: number;
+  readonly inputTokens: number | null;
+  readonly outputTokens: number | null;
+  readonly cacheReadTokens: number | null;
+  readonly cacheWriteTokens: number | null;
+  readonly costUsd: number | null;
+  readonly numTurns: number | null;
+  readonly usageComplete?: boolean;
+}
+
+/** The terminal projection recorded for one workflow execution, keyed by its retry-stable workflow id. */
+export interface TerminalWorkflowMetricsInput {
+  readonly status: TerminalRunMetrics['status'];
+  readonly startedAtMs: number;
+  readonly endedAtMs: number;
+  readonly usageAccountingComplete: boolean;
+  readonly usageAccountingWarnings: readonly string[];
+  readonly operationalMetrics: Readonly<Record<string, WorkflowOperationalMetric>>;
+  /**
+   * Real wall-clock spans for this run's operational stages. Priced metrics carry no faithful
+   * duration — a reconciliation stage's `StageMetrics` records cost and tokens only — so this is
+   * the sole source of operational timing.
+   */
+  readonly operationalStages: Readonly<Record<string, OperationalStageTiming>>;
+}
+
+/** Workspace-wide totals recomputed across every recorded run, returned after a terminal metrics write. */
+export interface TerminalWorkflowMetricTotals {
+  readonly totalDurationMs: number;
+  readonly totalCostUsd: number;
+  readonly totalTurns: number;
+  readonly runCount: number;
+  readonly usageAccountingComplete: boolean;
+}
+
+/** One recorded resume of a workspace, with the prior workflows it terminated and the checkpoint it restored. */
 export interface ResumeAttempt {
   workflowId: string;
   timestamp: string;
@@ -91,9 +169,18 @@ interface SessionData {
   };
   metrics: {
     total_duration_ms: number;
+    total_agent_duration_ms?: number;
+    /** Wall time attributed to operational (non-agent) work — agentic SAST and reconciliation. */
+    total_operational_duration_ms?: number;
     total_cost_usd: number;
+    total_turns?: number;
+    usage_accounting_complete?: boolean;
     phases: Record<string, PhaseMetrics>;
     agents: Record<string, AgentAuditMetrics>;
+    operational?: Record<string, Record<string, OperationalAuditMetrics>>;
+    /** Operational stage spans per run, keyed by workflow id then stage key. */
+    stages?: Record<string, Record<string, StageSpan>>;
+    runs?: Record<string, TerminalRunMetrics>;
   };
   durableScanState?: DurableScanState;
 }
@@ -152,9 +239,16 @@ export class MetricsTracker {
       },
       metrics: {
         total_duration_ms: 0,
+        total_agent_duration_ms: 0,
+        total_operational_duration_ms: 0,
         total_cost_usd: 0,
+        total_turns: 0,
+        usage_accounting_complete: true,
         phases: {}, // Phase-level aggregations
         agents: {}, // Agent-level metrics
+        operational: {},
+        stages: {},
+        runs: {},
       },
     };
 
@@ -194,6 +288,9 @@ export class MetricsTracker {
       );
     }
 
+    // The report agent never reaches success through this ordinary path. Its model attempt is
+    // recorded as a nonterminal draft, and only verified finalization promotes it to success,
+    // so a success here would let an unfinalized report look complete.
     if (agentName === 'report' && result.success) {
       throw new RunStateError('DurableStateConflictError', 'report-success-requires-terminal-promotion');
     }
@@ -438,14 +535,13 @@ export class MetricsTracker {
       if (current.sarif_disposition !== terminal.sarifDisposition) {
         throw new RunStateError('DurableStateConflictError', 'report-final-disposition-conflict');
       }
-      const adopted: ReportProgress = {
-        ...current,
+      const { pdf_provenance: _priorProvenance, ...currentWithoutProvenance } = current;
+      let adopted: ReportProgress = {
+        ...currentWithoutProvenance,
         partial_reasons: appendPartialReasons(current.partial_reasons, terminal.partialReasons),
-        ...(terminal.pdfProvenance !== null ? { pdf_provenance: terminal.pdfProvenance } : {}),
       };
-      if (terminal.pdfProvenance === null && 'pdf_provenance' in adopted) {
-        const { pdf_provenance: _removed, ...withoutProvenance } = adopted;
-        return await this.persistFinalizedReport(data, durableState, withoutProvenance as ReportProgress);
+      if (terminal.pdfProvenance !== null) {
+        adopted = { ...adopted, pdf_provenance: terminal.pdfProvenance };
       }
       return await this.persistFinalizedReport(data, durableState, adopted);
     }
@@ -562,6 +658,67 @@ export class MetricsTracker {
     await this.save();
   }
 
+  /** Upsert one workflow's terminal wall time and operational usage, then recompute workspace totals. */
+  async recordTerminalWorkflowMetrics(
+    workflowId: string,
+    input: TerminalWorkflowMetricsInput,
+  ): Promise<TerminalWorkflowMetricTotals> {
+    const data = this.requireData();
+    if (
+      !Number.isSafeInteger(input.startedAtMs) ||
+      !Number.isSafeInteger(input.endedAtMs) ||
+      input.startedAtMs < 0 ||
+      input.endedAtMs < input.startedAtMs
+    ) {
+      throw new RunStateError('DurableStateConflictError', 'terminal-metric-time-invalid');
+    }
+
+    data.metrics.operational ??= {};
+    const operational = data.metrics.operational;
+    operational[workflowId] = Object.fromEntries(
+      Object.entries(input.operationalMetrics).map(([key, metric]) => [
+        key,
+        {
+          duration_ms: metric.durationMs,
+          input_tokens: metric.inputTokens ?? 0,
+          output_tokens: metric.outputTokens ?? 0,
+          cache_read_tokens: metric.cacheReadTokens ?? 0,
+          cache_write_tokens: metric.cacheWriteTokens ?? 0,
+          cost_usd: metric.costUsd ?? 0,
+          turns: metric.numTurns ?? 0,
+          usage_complete: metric.usageComplete !== false,
+        },
+      ]),
+    );
+
+    data.metrics.stages ??= {};
+    data.metrics.stages[workflowId] = this.collectOperationalSpans(input.operationalStages);
+
+    data.metrics.runs ??= {};
+    const runs = data.metrics.runs;
+    runs[workflowId] = {
+      status: input.status,
+      started_at: new Date(input.startedAtMs).toISOString(),
+      ended_at: new Date(input.endedAtMs).toISOString(),
+      wall_duration_ms: input.endedAtMs - input.startedAtMs,
+      usage_accounting_complete: input.usageAccountingComplete,
+      usage_accounting_warnings: [...input.usageAccountingWarnings],
+    };
+
+    data.session.status = input.status;
+    data.session.completedAt = runs[workflowId].ended_at;
+    this.recalculateAggregations();
+    await this.save();
+
+    return {
+      totalDurationMs: data.metrics.total_duration_ms,
+      totalCostUsd: data.metrics.total_cost_usd,
+      totalTurns: data.metrics.total_turns ?? 0,
+      runCount: Object.keys(runs).length,
+      usageAccountingComplete: data.metrics.usage_accounting_complete ?? false,
+    };
+  }
+
   /**
    * Add a resume attempt to the session
    *
@@ -626,22 +783,82 @@ export class MetricsTracker {
     // Only count successful agents
     const successfulAgents = Object.entries(agents).filter(([, data]) => data.status === 'success');
 
-    // Calculate total duration and cost
-    const totalDuration = successfulAgents.reduce((sum, [, data]) => sum + data.final_duration_ms, 0);
+    const totalAgentDuration = successfulAgents.reduce((sum, [, data]) => sum + data.final_duration_ms, 0);
+    const operational = Object.values(this.data.metrics.operational ?? {}).flatMap((metrics) => Object.values(metrics));
+    const runs = Object.values(this.data.metrics.runs ?? {});
 
-    const totalCost = successfulAgents.reduce((sum, [, data]) => sum + data.total_cost_usd, 0);
-
-    this.data.metrics.total_duration_ms = totalDuration;
-    this.data.metrics.total_cost_usd = totalCost;
+    this.data.metrics.total_agent_duration_ms = totalAgentDuration;
+    this.data.metrics.total_operational_duration_ms = this.operationalWallClockMs(this.data);
+    this.data.metrics.total_duration_ms = runs.reduce((sum, run) => sum + run.wall_duration_ms, 0);
+    this.data.metrics.total_cost_usd =
+      Object.values(agents).reduce((sum, agent) => sum + agent.total_cost_usd, 0) +
+      operational.reduce((sum, metric) => sum + metric.cost_usd, 0);
+    this.data.metrics.total_turns =
+      Object.values(agents).reduce(
+        (sum, agent) => sum + agent.attempts.reduce((attemptSum, attempt) => attemptSum + (attempt.turns ?? 0), 0),
+        0,
+      ) + operational.reduce((sum, metric) => sum + metric.turns, 0);
+    this.data.metrics.usage_accounting_complete =
+      runs.every((run) => run.usage_accounting_complete) && operational.every((metric) => metric.usage_complete);
 
     // Calculate phase-level metrics
-    this.data.metrics.phases = this.calculatePhaseMetrics(successfulAgents);
+    this.data.metrics.phases = this.calculatePhaseMetrics(successfulAgents, operational);
+  }
+
+  /**
+   * Keep the operational stage spans this run can place on a timeline. A stage that never ran, or
+   * that was still running, has no complete span and is dropped rather than guessed at; a present
+   * but nonsensical value is corruption and fails closed.
+   */
+  private collectOperationalSpans(
+    operationalStages: Readonly<Record<string, OperationalStageTiming>>,
+  ): Record<string, StageSpan> {
+    const spans: Record<string, StageSpan> = {};
+    for (const [stageKey, timing] of Object.entries(operationalStages)) {
+      if (!isOperationalStageKey(stageKey)) continue;
+      if (timing.startedAt === undefined || timing.durationMs === undefined) continue;
+      const spanIsWellFormed =
+        Number.isSafeInteger(timing.startedAt) &&
+        Number.isSafeInteger(timing.durationMs) &&
+        timing.startedAt >= 0 &&
+        timing.durationMs >= 0;
+      if (!spanIsWellFormed) {
+        throw new RunStateError('DurableStateConflictError', 'terminal-stage-span-invalid');
+      }
+      spans[stageKey] = { started_at_ms: timing.startedAt, duration_ms: timing.durationMs };
+    }
+    return spans;
+  }
+
+  /**
+   * Wall time the workspace actually spent on operational work. Reconciliation stages carry no
+   * duration in their priced metrics, so the timing comes from the stage spans, merged so classes
+   * that overlapped count once instead of once each. A run recorded before spans were persisted has
+   * none, so it falls back to summing its priced durations — the same fallback
+   * `summarizeOperationalMetrics` applies to a metrics-only view. The two sets never intersect, so
+   * no run is counted twice.
+   */
+  private operationalWallClockMs(data: SessionData): number {
+    const spansByRun = data.metrics.stages ?? {};
+    const spans = Object.values(spansByRun).flatMap((stages) =>
+      Object.values(stages).map((span) => ({ startedAt: span.started_at_ms, durationMs: span.duration_ms })),
+    );
+    const spanlessRunDuration = Object.entries(data.metrics.operational ?? {})
+      .filter(([workflowId]) => spansByRun[workflowId] === undefined)
+      .reduce(
+        (sum, [, metrics]) => sum + Object.values(metrics).reduce((inner, metric) => inner + metric.duration_ms, 0),
+        0,
+      );
+    return mergeIntervalsDurationMs(spans) + spanlessRunDuration;
   }
 
   /**
    * Calculate phase-level metrics
    */
-  private calculatePhaseMetrics(successfulAgents: Array<[string, AgentAuditMetrics]>): Record<string, PhaseMetrics> {
+  private calculatePhaseMetrics(
+    successfulAgents: Array<[string, AgentAuditMetrics]>,
+    operational: OperationalAuditMetrics[],
+  ): Record<string, PhaseMetrics> {
     const phases: Record<PhaseName, AgentAuditMetrics[]> = {
       'pre-recon': [],
       recon: [],
@@ -660,8 +877,11 @@ export class MetricsTracker {
 
     // Calculate metrics per phase
     const phaseMetrics: Record<string, PhaseMetrics> = {};
-    // biome-ignore lint/style/noNonNullAssertion: called from recalculateAggregations which guards this.data
-    const totalDuration = this.data!.metrics.total_duration_ms;
+    // Percentages share one basis — agent plus operational duration — so the synthetic background
+    // phase below is comparable to the agent phases rather than measured against a different total.
+    // (`this.data` is guaranteed by the recalculateAggregations caller; optional chaining keeps it lint-clean.)
+    const operationalDuration = this.data?.metrics.total_operational_duration_ms ?? 0;
+    const totalDuration = (this.data?.metrics.total_agent_duration_ms ?? 0) + operationalDuration;
 
     for (const [phaseName, agentList] of Object.entries(phases)) {
       if (agentList.length === 0) continue;
@@ -674,6 +894,19 @@ export class MetricsTracker {
         duration_percentage: calculatePercentage(phaseDuration, totalDuration),
         cost_usd: phaseCost,
         agent_count: agentList.length,
+      };
+    }
+
+    // Operational work (agentic SAST, reconciliation) runs concurrently with the agent phases and is
+    // otherwise absent from this breakdown; surface it as one `background` phase. `agent_count` here
+    // is the number of operational metric entries, not agents.
+    if (operational.length > 0) {
+      const backgroundCost = operational.reduce((sum, metric) => sum + metric.cost_usd, 0);
+      phaseMetrics.background = {
+        duration_ms: operationalDuration,
+        duration_percentage: calculatePercentage(operationalDuration, totalDuration),
+        cost_usd: backgroundCost,
+        agent_count: operational.length,
       };
     }
 
@@ -720,6 +953,12 @@ export class MetricsTracker {
     return durableState;
   }
 
+  /**
+   * Append one attempt and recompute the agent's cumulative totals from the full attempt list,
+   * rather than incrementing them. A reload-then-write cycle can replay this on the same agent
+   * more than once across a retry, and recomputing from the stored attempts keeps the totals
+   * correct regardless of how many times that happens.
+   */
   private appendAttempt(agentName: string, result: AgentEndResult): AgentAuditMetrics {
     const data = this.requireData();
     const existingAgent = data.metrics.agents[agentName];

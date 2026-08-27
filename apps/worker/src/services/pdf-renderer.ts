@@ -181,6 +181,8 @@ export async function renderReportPdf(options: RenderReportPdfOptions): Promise<
     ]);
 
     await mkdir(path.dirname(outputPath), { recursive: true });
+    // Publish the compiled PDF by atomic rename, so a reader never observes a half-written file
+    // at outputPath and provenance can be recorded only after the complete bytes are in place.
     const outputAttemptPath = `${outputPath}.tmp-${randomUUID()}`;
     try {
       await copyFile(pdfInWorkDir, outputAttemptPath);

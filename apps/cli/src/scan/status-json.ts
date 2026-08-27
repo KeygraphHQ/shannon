@@ -38,7 +38,13 @@ export interface StatusJson {
   /** Ordered durable degradation reasons with safe messages; present only when non-empty. */
   readonly partialReasons?: readonly PartialReasonView[];
   /** Agentic SAST outcome, with the worker's sanitized failure sentence and bounded code. */
-  readonly agenticSast?: { readonly status: string; readonly error?: string; readonly errorCode?: string };
+  readonly agenticSast?: {
+    readonly status: string;
+    readonly error?: string;
+    readonly errorCode?: string;
+    /** Usage-accounting warnings; always present (empty when the ledger reconciled) so it is never null. */
+    readonly warnings: readonly string[];
+  };
   /** False when operational (Capella/reconciliation) spend is known to be incomplete. */
   readonly usageAccountingComplete?: boolean;
   readonly phases: readonly DerivedPhase[];
@@ -90,6 +96,7 @@ export function toStatusJson(input: RenderInput, now: number): StatusJson {
           status: agenticSast.status,
           ...(agenticSast.error !== undefined && { error: agenticSast.error }),
           ...(agenticSast.errorCode !== undefined && { errorCode: agenticSast.errorCode }),
+          warnings: [...agenticSast.warnings],
         },
       }),
     ...(usageAccountingComplete !== undefined && { usageAccountingComplete }),

@@ -20,15 +20,18 @@ import {
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { DistributedReportConfig } from '../types/config.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
+import { isOrderedPartialReasonSet, type PartialReason } from '../types/run-state.js';
 import type { ExactOutputCommit, ExactOutputFile } from './exact-output-commit.js';
 import { writeAndCommitExactFiles } from './exact-output-commit.js';
 import { orderFindings } from './finding-order.js';
 import { readCommittedFile, withGitRepoLock } from './git-manager.js';
 import { type PdfProvenance, pdfProvenanceIsCurrent, readPdfProvenance, renderReportPdf } from './pdf-renderer.js';
-import { type ReportData, renderReport } from './report-renderer.js';
+import { buildReportCoverage, type ReportData, renderReport } from './report-renderer.js';
 import { renderSarif } from './sarif-renderer.js';
 
 const FINALIZATION_SCHEMA_VERSION = 1;
+// Renderer versions feed the input fingerprint: bumping one invalidates adoption of an existing
+// finalization, forcing a re-render instead of adopting output from an older renderer.
 const REPORT_RENDERER_VERSION = '4.13.1';
 const SARIF_RENDERER_VERSION = '4.13.1';
 
@@ -131,7 +134,7 @@ function isSha256(value: unknown): value is string {
   return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 }
 
-/** Runtime guard consumed by resume/terminal-state wiring in the next task. */
+/** Runtime guard for manifests read back from the deliverables repo during resume and repair. */
 export function isReportFinalizationManifest(value: unknown): value is ReportFinalizationManifest {
   if (!isRecord(value) || value.schema_version !== FINALIZATION_SCHEMA_VERSION || !isSha256(value.input_fingerprint)) {
     return false;
@@ -174,8 +177,12 @@ export function isReportFinalizationManifest(value: unknown): value is ReportFin
 function canonicalizeReport(args: {
   readonly report: ReportData;
   readonly exploit: boolean;
+  readonly partialReasons: readonly PartialReason[];
   readonly reconciliationFailedClasses?: readonly ReconciliationClass[];
 }): ReportData {
+  if (!isOrderedPartialReasonSet(args.partialReasons)) {
+    throw new ReportFinalizationIntegrityError('finalization-partial-reasons-invalid');
+  }
   const reconciliationFailed = args.reconciliationFailedClasses ?? args.report.reconciliation_failed ?? [];
   if (new Set(reconciliationFailed).size !== reconciliationFailed.length) {
     throw new ReportFinalizationIntegrityError('finalization-failed-class-duplicate');
@@ -188,12 +195,19 @@ function canonicalizeReport(args: {
   }
   return {
     ...args.report,
-    report_meta: { ...args.report.report_meta, exploit: args.exploit },
+    report_meta: {
+      ...args.report.report_meta,
+      exploit: args.exploit,
+      coverage: buildReportCoverage(args.partialReasons),
+    },
     findings: orderFindings(args.report.findings),
     reconciliation_failed: [...reconciliationFailed],
   };
 }
 
+// The fingerprint covers everything that determines the finalized bytes. Degraded-SARIF mode is
+// deliberately excluded: a degraded re-drive must produce the same fingerprint as the ordinary
+// attempt so it can adopt an existing coherent commit instead of publishing a rival one.
 function buildInputFingerprint(args: {
   readonly canonicalJson: string;
   readonly exploit: boolean;
@@ -249,6 +263,13 @@ function buildManifest(args: {
   };
 }
 
+/**
+ * Load a previously committed finalization for adoption. Returns null when none exists, the
+ * verified manifest and SARIF when the committed state matches the current inputs byte for
+ * byte, and throws a terminal integrity error on any conflict or corruption. This runs before
+ * any new render, so a lost acknowledgement re-drive (including a degraded one) adopts the
+ * earlier coherent commit rather than replacing it.
+ */
 async function readExistingFinalization(args: {
   readonly deliverablesDir: string;
   readonly canonicalJson: string;
@@ -313,6 +334,7 @@ async function readExistingFinalization(args: {
 export async function finalizeReport(args: {
   readonly deliverablesDir: string;
   readonly exploit: boolean;
+  readonly partialReasons: readonly PartialReason[];
   readonly reconciliationFailedClasses?: readonly ReconciliationClass[];
   readonly reportConfig: DistributedReportConfig;
   readonly workspaceName: string;
@@ -335,6 +357,7 @@ export async function finalizeReport(args: {
     const canonicalReport = canonicalizeReport({
       report: parseReportData(reportRead.contents),
       exploit: args.exploit,
+      partialReasons: args.partialReasons,
       ...(args.reconciliationFailedClasses !== undefined && {
         reconciliationFailedClasses: args.reconciliationFailedClasses,
       }),
@@ -369,6 +392,9 @@ export async function finalizeReport(args: {
     const sarifRequested = args.exploit && args.reportConfig.sarif;
     let sarif: string | null = null;
     let sarifDisposition: ReportSarifDisposition = 'absent';
+    // Reaching this point in degraded mode means no coherent finalization existed to adopt, so
+    // the manifest records `render_failed` and the null SARIF contents below make the exact-path
+    // commit delete any SARIF a partial earlier attempt left behind.
     if (sarifRequested && args.degradedSarif === true) {
       sarifDisposition = 'render_failed';
     } else if (sarifRequested) {
@@ -428,6 +454,8 @@ export async function finalizeReport(args: {
     const warning = `The PDF report could not be produced (${label}). The Markdown report and the structured findings are unaffected.`;
     warnings.push(warning);
     args.logger.warn(warning);
+    // Keep an old PDF only when its bytes still prove out against the current canonical report;
+    // otherwise remove it so a stale PDF is never served alongside fresh JSON and Markdown.
     const canPreservePriorPdf =
       args.priorPdfProvenance !== undefined &&
       (await pdfProvenanceIsCurrent({

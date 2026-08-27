@@ -36,9 +36,11 @@ import { DEFAULT_MODEL_SPEC } from '../ai/models.js';
 import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
 import { capellaActivities, mergeActivityRegistries } from '../ai/sast/capella/temporal/registry.js';
 import { CAPELLA_FORMAT_VERSION, CAPELLA_PROMPT_SET_VERSION } from '../ai/sast/capella/types.js';
+import { summarizeOperationalMetrics } from '../audit/operational-summary.js';
 import { sanitizeHostname } from '../audit/utils.js';
 import { distributeConfig, parseConfig } from '../config-parser.js';
 import { deliverablesDir, resolveSessionJsonPath } from '../paths.js';
+import { isProviderFailureCategory } from '../types/errors.js';
 import {
   ACCEPTED_CAPELLA_FAILURE_STAGES,
   isPartialReason,
@@ -95,11 +97,15 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROGRESS_QUERY = 'getProgress';
 
+/** Accept only a code shaped like a stable error code, or a known provider-failure category; anything else is treated as absent rather than printed. */
 function safeFailureCode(value: string | undefined): string | undefined {
-  if (value !== undefined && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value)) return value;
+  if (value !== undefined && (/^[A-Z][A-Z0-9_]{0,63}$/u.test(value) || isProviderFailureCategory(value))) {
+    return value;
+  }
   return undefined;
 }
 
+/** Re-derive a printable line from the closed partial-reason projection instead of trusting the workflow-returned view directly, so a malformed reason prints nothing rather than something wrong. */
 function safePartialReasonMessage(reason: PipelineState['partialReasons'][number]): string | undefined {
   if (reason.code === 'agentic_sast_reduced') return 'Agentic SAST completed with reduced coverage.';
   const candidate = {
@@ -577,6 +583,19 @@ async function waitForWorkflowResult(
     if (result.summary) {
       console.log(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`);
       console.log(`Agents resolved: ${result.summary.agentCount}`);
+      // Agentic SAST is not an agent, so it is absent from the count above; name it so its spend in
+      // Run cost is accounted for. The failure detail, if any, already printed above.
+      if (result.agenticSast.status === 'succeeded') {
+        const sastGroup = summarizeOperationalMetrics(result.operationalMetrics).find(
+          (group) => group.key === 'agentic-sast',
+        );
+        const cost = sastGroup === undefined || sastGroup.costUsd === null ? 'N/A' : `$${sastGroup.costUsd.toFixed(4)}`;
+        const duration = sastGroup === undefined ? '0s' : `${Math.floor(sastGroup.durationMs / 1000)}s`;
+        const coverage = result.agenticSast.coverage === 'reduced' ? ' — reduced coverage' : '';
+        console.log(`Agentic SAST: completed (${duration}, ${cost})${coverage}`);
+      } else if (result.agenticSast.status === 'failed') {
+        console.log('Agentic SAST: failed');
+      }
       console.log(`Total turns: ${result.summary.totalTurns}`);
       console.log(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`);
       if (result.summary.usageAccountingComplete === false) {

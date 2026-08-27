@@ -47,6 +47,8 @@ import { loadPrompt } from './prompt-manager.js';
 export interface AgentExecutionInput {
   webUrl: string;
   repoPath: string;
+  /** Workflow-owned UTC date used by the report prompt. */
+  assessmentDate?: string | undefined;
   deliverablesPath: string;
   configPath?: string | undefined;
   configData?: import('../types/config.js').DistributedConfig | undefined;
@@ -60,6 +62,12 @@ export interface AgentExecutionInput {
   failedClasses?: readonly import('../types/config.js').VulnClass[] | undefined;
   // Renders the deliverable to disk; invoked after validation, before the success commit.
   writeDeliverable?: (deliverablesPath: string, execution: { readonly model?: string }) => Promise<void>;
+  /**
+   * 'report-draft' routes a successful attempt through `AuditSession.endReportDraft` instead of
+   * `endAgent`, recording a nonterminal checkpoint. The report agent only becomes terminal once
+   * finalization verifies and promotes the draft; `MetricsTracker.endAgent` rejects a successful
+   * report attempt outright, so this must stay 'report-draft' for that agent or execution fails.
+   */
   successDisposition?: 'terminal' | 'report-draft';
   cancellationSignal?: AbortSignal | undefined;
 }
@@ -150,6 +158,7 @@ export class AgentExecutionService {
       configYAML,
       pipelineTestingMode = false,
       attemptNumber,
+      assessmentDate,
       analysisClasses,
       promptDir,
       customTools,
@@ -160,6 +169,8 @@ export class AgentExecutionService {
     } = input;
     const gitPaths = getAgentGitPaths(agentName);
 
+    // The parameter type only constrains element type, not that this is exactly the fixed five
+    // classes in order; this runtime check catches a caller that bypasses the workflow's contract.
     assertFixedAnalysisScope(analysisClasses);
     if (successDisposition === 'report-draft' && agentName !== 'report') {
       return err(
@@ -189,6 +200,7 @@ export class AgentExecutionService {
         {
           webUrl,
           repoPath,
+          ...(assessmentDate !== undefined && { assessmentDate }),
           AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata),
           analysisClasses,
           ...(failedClasses !== undefined && { failedClasses }),

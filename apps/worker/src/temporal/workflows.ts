@@ -42,6 +42,7 @@ import {
   type MiscellaneousOutcome,
   miscellaneousLaneIsSettled,
   type PartialReason,
+  partialReasonFromReduction,
   projectPartialReasons,
   renderSafeMessage,
   reportIsAuthored,
@@ -313,6 +314,11 @@ function capellaMetrics(result: CapellaRunResult, model: string): OperationalMet
   };
 }
 
+/**
+ * A reconciliation stage's priced metrics. `StageMetrics` records spend only, so the duration
+ * stays zero rather than being invented here; the stage's real wall-clock is carried separately
+ * by `operationalStages` and is what terminal accounting reads.
+ */
 function stageMetrics(metrics: StageMetrics): OperationalMetrics {
   return {
     durationMs: 0,
@@ -426,6 +432,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   const activityInput: ActivityInput = {
     webUrl: input.webUrl,
     repoPath: input.repoPath,
+    assessmentDate: new Date(state.startTime).toISOString().slice(0, 10),
     workflowId,
     sessionId,
     analysisClasses: [...ALL_VULN_CLASSES],
@@ -440,10 +447,13 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   };
 
   let resumeState: ResumeState | null = null;
-  let miscellaneousOutcome: MiscellaneousOutcome | undefined;
   // The one shared Capella settlement, once analysis has started it. The terminal paths read
   // it so a stopping run can account for a child that is still working.
   let capellaSettlement: Promise<CapellaSettlement> | null = null;
+  // What durable state records for the internal `miscellaneous` class, kept current by every
+  // durable summary this run reads or writes. The lane consults it before deciding admission,
+  // rather than re-deciding from a queue an earlier run already settled.
+  let miscellaneousOutcome: MiscellaneousOutcome | undefined;
   // Latched when a stopped run has recorded the terminal Capella state. The hard-failure path
   // does not wait for the child, so the child can still return while the terminal activity
   // yields; from that point the recorded state is final and no continuation may rewrite it.
@@ -822,6 +832,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       failedStageLabel: capellaTerminalStageLabel('workflow'),
       error: message,
       completedStages: [],
+      warnings: [],
       durationMs: Date.now() - startedAt,
     };
     failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, message);
@@ -889,11 +900,21 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           coverage: result.coverage,
           warnings: [...result.warnings],
           durationMs: result.durationMs,
+          ...(result.reductions !== undefined && { reductions: result.reductions }),
+          ...(result.recoveredFailure !== undefined && { recoveredFailure: result.recoveredFailure }),
         };
         completeOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt);
         if (result.coverage === 'reduced') {
-          addPartialReason({ code: 'agentic_sast_reduced' });
-          addNonFatal({ phase: 'agentic-sast', error: 'Agentic SAST completed with reduced coverage.' });
+          // One durable reason per reduction (research before export); each renders its own
+          // bounded safe message. A reduced run with no structured reduction keeps the bare code.
+          const reasons: PartialReason[] =
+            result.reductions === undefined || result.reductions.length === 0
+              ? [{ code: 'agentic_sast_reduced' }]
+              : result.reductions.map(partialReasonFromReduction);
+          for (const reason of reasons) {
+            addPartialReason(reason);
+            addNonFatal({ phase: 'agentic-sast', error: projectPartialReasons([reason])[0]?.message ?? '' });
+          }
         }
         return result.sarif;
       }
@@ -908,6 +929,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         error: safeFailureMessage,
         ...(result.errorCode !== undefined && { errorCode: result.errorCode }),
         completedStages: [...result.completedStages],
+        warnings: [...result.warnings],
         durationMs: result.durationMs,
       };
       addPartialReason({ code: 'agentic_sast_failed', stage: result.failedStage });
@@ -993,6 +1015,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   async function runMiscellaneousPipeline(effectiveSarif: SarifRef): Promise<void> {
     const key = 'miscellaneous-pipeline';
     const label = 'Miscellaneous findings';
+    // An earlier run already settled this class. Re-deciding admission would ask durable state to
+    // move backwards, which fails closed and would be recorded as a class failure that never
+    // happened; re-running the lane would also repeat work that run already paid for.
     if (miscellaneousLaneIsSettled(miscellaneousOutcome)) {
       if (miscellaneousOutcome === 'completed') markCompleted('miscellaneous-exploit');
       skipOperation(key, label);
@@ -1151,12 +1176,25 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       // three-attempt policy exhausted. The degraded call still adopts a coherent earlier
       // commit first, so a prior committed finalization keeps its committed disposition.
       if (!isSarifRenderExhaustion(error)) throw error;
+      addPartialReason({ code: 'report_sarif_failed' });
+      const canonicalProgress = state.reportProgress;
+      if (canonicalProgress.stage !== 'draft' || canonicalProgress.canonical_checkpoint === undefined) {
+        throw ApplicationFailure.nonRetryable(
+          'The report could not save its reduced-output state. Re-running this workspace retries reporting.',
+          'ReportDraftError',
+        );
+      }
+      // Persist the limitation before producing replacement outputs so report.json, Markdown,
+      // PDF, session state, and CLI status all derive from the same durable reason set.
+      state.reportProgress = await deterministicReportActs.persistCanonicalReportProgress(
+        activityInput,
+        canonicalProgress.canonical_checkpoint,
+        partialReasons,
+      );
+      adoptDurableReasons(state.reportProgress.partial_reasons);
       finalized = await runOperation('report:finalize-degraded', 'Finalize report without SARIF', () =>
         finalReportActs.finalizeReportOutputs(activityInput, true),
       );
-    }
-    if (finalized.sarifDisposition === 'render_failed') {
-      addPartialReason({ code: 'report_sarif_failed' });
     }
     state.reportProgress = await runOperation('report:terminal', 'Saving final report state', () =>
       deterministicReportActs.persistFinalizedReportProgress(

@@ -46,6 +46,7 @@ import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
 import { pdfProvenanceIsCurrent } from '../services/pdf-renderer.js';
 import { runPreflightChecks } from '../services/preflight.js';
+import { formatVulnClassScope } from '../services/prompt-manager.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
 import {
   renumberClassFindings as renumberClassFindingsService,
@@ -125,6 +126,8 @@ const HEARTBEAT_INTERVAL_MS = 2000;
 export interface ActivityInput {
   webUrl: string;
   repoPath: string;
+  /** Workflow-owned UTC date for every customer-facing assessment date. */
+  assessmentDate?: string;
   configPath?: string;
   outputPath?: string;
   pipelineTestingMode?: boolean;
@@ -413,6 +416,7 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        assessmentDate: input.assessmentDate,
         analysisClasses: resolveAnalysisClasses(input),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
@@ -683,6 +687,12 @@ export async function runMiscellaneousExploitAgent(input: ActivityInput): Promis
 
 export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
   const { createFindingCollector } = await import('../collectors/finding-collector.js');
+  const assessmentDate = input.assessmentDate;
+  if (assessmentDate === undefined) {
+    throw ApplicationFailure.nonRetryable('The report assessment date is missing.', 'ConfigurationError', [
+      { checkCode: 'report-assessment-date-missing' },
+    ]);
+  }
 
   const auditSession = new AuditSession(buildSessionMetadata(input));
   await auditSession.initialize(input.workflowId);
@@ -734,7 +744,7 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
     const reportJsonPath = path.join(deliverablesPath, REPORT_JSON_FILENAME);
     let reportMeta: ReportMeta = {
       target: input.webUrl,
-      assessment_date: new Date().toISOString().slice(0, 10),
+      assessment_date: assessmentDate,
       scope: '',
       executive_summary: '',
       exploit,
@@ -761,6 +771,15 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
     } else {
       logger.warn('Report execution returned no model identifier; canonical report metadata omits model');
     }
+    reportMeta = {
+      ...reportMeta,
+      // The workflow supplies the scan date to the prompt and owns the final field. A model-written
+      // value cannot move the assessment to a different day.
+      assessment_date: assessmentDate,
+      // The workflow owns the assessed class set. The model may summarize the engagement,
+      // but it cannot rename or omit the canonical scope in customer output.
+      scope: formatVulnClassScope(resolveAnalysisClasses(input)),
+    };
 
     const reportData: ReportData = {
       report_meta: reportMeta,
@@ -1231,13 +1250,15 @@ export async function finalizeReportOutputs(
   const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
   const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
   if (isErr(configResult)) throw deterministicActivityFailure(configResult.error, 'ReportFinalizationError');
-  // Preserve public main's default-on exploit SARIF behavior when no report config is present.
+  // A run with no config file at all still leaves `report.sarif` omitted, which means on: the
+  // default must match `distributeConfig`, or the commonest launch path would silently opt out.
   const reportConfig = configResult.value?.report ?? { sarif: true };
   let result: Awaited<ReturnType<typeof finalizeReport>>;
   try {
     result = await finalizeReport({
       deliverablesDir: deliverablesPath,
       exploit: state.exploit,
+      partialReasons: state.report.partial_reasons,
       reconciliationFailedClasses: state.report.renumber_failed_classes,
       reportConfig,
       workspaceName: input.sessionId,
@@ -1855,21 +1876,33 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   const { workflowId } = input;
   const sessionMetadata = buildSessionMetadata(input);
 
-  // 1. Initialize audit session and mark final status
+  // 1. Initialize the audit session. The terminal write below owns both status and totals.
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize(workflowId);
-  await auditSession.updateSessionStatus(summary.status);
 
-  // 2. Load cumulative metrics from session.json
+  // 2. Operational work has no independent audit-session writer, so this terminal
+  // projection is its durable source of truth.
+  const totals = await auditSession.recordTerminalWorkflowMetrics(workflowId, {
+    status: summary.status,
+    startedAtMs: summary.startedAtMs,
+    endedAtMs: summary.endedAtMs,
+    usageAccountingComplete: summary.usageAccountingComplete !== false,
+    usageAccountingWarnings: summary.usageAccountingWarnings ?? [],
+    operationalMetrics: summary.operationalMetrics,
+    // The priced metrics carry cost but no faithful duration, so the stage spans are the only
+    // source of operational wall-clock. The tracker keeps the operational families and drops
+    // the rest.
+    operationalStages: summary.operationalStages,
+  });
+
+  // 3. Load the now-current cumulative agent ledger from session.json.
   const sessionData = (await auditSession.getMetrics()) as {
     metrics: {
-      total_duration_ms: number;
-      total_cost_usd: number;
       agents: Record<string, { final_duration_ms: number; total_cost_usd: number }>;
     };
   };
 
-  // 3. Fill in metrics for skipped agents (resumed from previous run)
+  // 4. Fill in metrics for skipped agents that completed in an earlier workflow run.
   const agentMetrics = { ...summary.agentMetrics };
   for (const agentName of summary.completedAgents) {
     if (!agentMetrics[agentName]) {
@@ -1883,25 +1916,20 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
     }
   }
 
-  // 4. Build cumulative totals: session.json carries cross-run agent spend only, so this
-  // run's operational (Capella/reconciliation) entries are added on top instead of being
-  // silently replaced by agent-only session totals.
-  const operationalEntries = Object.entries(agentMetrics).filter(
-    ([name]) => sessionData.metrics.agents[name] === undefined,
-  );
-  const operationalCostUsd = operationalEntries.reduce((sum, [, metrics]) => sum + (metrics.costUsd ?? 0), 0);
-  const operationalDurationMs = operationalEntries.reduce((sum, [, metrics]) => sum + metrics.durationMs, 0);
+  // 5. Log the cumulative workspace totals. Duration is elapsed workflow time, while the
+  // separate total_agent_duration_ms in session.json remains the sum of agent work.
   const cumulativeSummary: WorkflowSummary = {
     ...summary,
-    totalDurationMs: sessionData.metrics.total_duration_ms + operationalDurationMs,
-    totalCostUsd: sessionData.metrics.total_cost_usd + operationalCostUsd,
+    totalDurationMs: totals.totalDurationMs,
+    totalCostUsd: totals.totalCostUsd,
+    usageAccountingComplete: totals.usageAccountingComplete,
     agentMetrics,
   };
 
-  // 5. Write completion entry to workflow.log
+  // 6. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Drop the authenticated browser session. auth-state.json holds live cookies/storage for
+  // 7. Drop the authenticated browser session. auth-state.json holds live cookies/storage for
   // the lifetime of the scan only; leaving it on disk past workflow end would let a session
   // outlive the run that created it. The removal is best-effort: a failure here is logged and
   // swallowed rather than failing a scan that otherwise completed successfully.
@@ -1912,7 +1940,7 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
     console.warn(`Failed to clean up auth-state.json: ${detail}`);
   }
 
-  // 7. Clean up container
+  // 8. Clean up container
   removeContainer(workflowId);
 }
 

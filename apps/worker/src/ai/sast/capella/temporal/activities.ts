@@ -553,8 +553,8 @@ async function runStageActivity<T, V>(
   const startedAt = Date.now();
   let heartbeatInterval: NodeJS.Timeout | undefined;
   let inputFingerprint: string | undefined;
-  let completedStageReturned = false;
   let stageTrace: CapellaStageTrace | undefined;
+  let completedStageReturned = false;
 
   // Hold the stage's per-agent file open for the life of the activity so its concurrent sessions'
   // trace lines ride one reference count. openStageAgentLog never throws (it returns null on

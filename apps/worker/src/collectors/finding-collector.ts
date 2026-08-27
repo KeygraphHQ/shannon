@@ -24,6 +24,8 @@ import { cleanInput, stringEnum } from './schema.js';
 // SCHEMA
 // ============================================================================
 
+const CATEGORY_VALUES = ['Injection', 'XSS', 'Authentication', 'SSRF', 'Authorization', 'Miscellaneous'] as const;
+
 const OWASP_CATEGORY_VALUES = [
   'A01:2025 — Broken Access Control',
   'A02:2025 — Security Misconfiguration',
@@ -117,6 +119,13 @@ const AdditionalSectionSchema = Type.Object({
   }),
 });
 
+const SASTSourceLocationSchema = Type.Object({
+  file: Type.String({ minLength: 1, description: 'Source file path relative to the repository root.' }),
+  line: Type.Integer({ minimum: 1, description: 'One-based source line.' }),
+  column: Type.Integer({ minimum: 0, description: 'Zero-based source column.' }),
+  rule_id: Type.String({ minLength: 1, description: 'Validated SAST rule or CWE identifier.' }),
+});
+
 /**
  * `severity` is recorded in both modes, but it does not mean the same thing in each: an exploit
  * run measures it from what the exploit demonstrated, an analysis run assesses it from the class
@@ -131,18 +140,17 @@ function identityFields(exploit: boolean) {
     severity: stringEnum(SEVERITY_VALUES, { description: severityDescription }),
     finding_id: Type.String({
       minLength: 1,
-      description: 'Finding identifier (e.g., "AUTH-VULN-07", "INJ-VULN-03"). Must be unique per report.',
+      description: 'Stable finding identifier (e.g., "AUTH-07", "INJ-03", "MISC-01"). Must be unique per report.',
     }),
     title: Type.String({
       minLength: 1,
       description:
         'Descriptive name (e.g., "SQL Injection — User Search", "IDOR — Unauthorized Access to User Orders").',
     }),
-    category: stringEnum(['Injection', 'XSS', 'Authentication', 'Authorization', 'SSRF'], {
+    category: stringEnum(CATEGORY_VALUES, {
       description:
-        'From the finding_id prefix: INJ-VULN-xxx Injection, ' +
-        'XSS-VULN-xxx XSS, AUTH-VULN-xxx Authentication, AUTHZ-VULN-xxx Authorization, ' +
-        'SSRF-VULN-xxx SSRF.',
+        'From the finding_id prefix: INJ-* Injection, XSS-* XSS, AUTH-* Authentication, ' +
+        'AUTHZ-* Authorization, SSRF-* SSRF, MISC-* Miscellaneous.',
     }),
     owasp_category: stringEnum(OWASP_CATEGORY_VALUES, {
       description: 'OWASP Top Ten 2025 category.',
@@ -256,6 +264,9 @@ export function buildAddFindingSchema(exploit: boolean) {
 const AddFindingSupersetSchema = Type.Object({
   ...identityFields(true),
   code_locations: Type.Optional(Type.Array(CodeLocationSchema)),
+  // Join-only, like code_locations: set by attachQueueCodeLocations from Capella's committed
+  // output. Absent from buildAddFindingSchema so the report agent cannot author (fabricate) it.
+  sast_source_location: Type.Optional(Type.Union([SASTSourceLocationSchema, Type.Null()])),
   auth_state: Type.Optional(Type.String()),
   prerequisites: Type.Optional(Type.String()),
   exploitation_steps: Type.Optional(Type.Array(StructuredStepSchema)),
@@ -275,6 +286,7 @@ export type HttpLocation = Static<typeof HttpLocationSchema>;
 export type StepItem = Static<typeof StepItemSchema>;
 export type StructuredStep = Static<typeof StructuredStepSchema>;
 export type AdditionalSection = Static<typeof AdditionalSectionSchema>;
+export type SASTSourceLocation = Static<typeof SASTSourceLocationSchema>;
 
 // ============================================================================
 // RESPONSE HELPERS

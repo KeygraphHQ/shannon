@@ -248,19 +248,35 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
     };
   });
 
-  // The synthetic phase appears only when there is operational work to show, so a scan
+  // The synthetic phase(s) appear only when there is operational work to show, so a scan
   // with no recorded operational stages keeps the plain agent tree.
   if (operationalAgents.length === 0) return agentPhases;
-  return [
-    ...agentPhases,
-    {
+
+  // Agentic SAST is a pluggable analysis engine — a peer to the pentest, not background plumbing —
+  // so it stands in its own phase; reconciliation and report steps remain under "Background work".
+  const engineAgents = operationalAgents.filter((agent) => operationFamilyKey(agent.name) === 'agentic-sast');
+  const backgroundAgents = operationalAgents.filter((agent) => operationFamilyKey(agent.name) !== 'agentic-sast');
+
+  const syntheticPhases: DerivedPhase[] = [];
+  if (engineAgents.length > 0) {
+    syntheticPhases.push({
+      key: 'analysis-engines',
+      label: 'Analysis Engines',
+      parallel: true,
+      state: phaseGlyphState(engineAgents.map((operation) => operation.state)),
+      agents: engineAgents,
+    });
+  }
+  if (backgroundAgents.length > 0) {
+    syntheticPhases.push({
       key: 'operational-work',
       label: 'Background work',
       parallel: true,
-      state: phaseGlyphState(operationalAgents.map((operation) => operation.state)),
-      agents: operationalAgents,
-    },
-  ];
+      state: phaseGlyphState(backgroundAgents.map((operation) => operation.state)),
+      agents: backgroundAgents,
+    });
+  }
+  return [...agentPhases, ...syntheticPhases];
 }
 
 export { agentError };

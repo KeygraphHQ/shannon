@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -20,6 +20,12 @@ import { type CompletedStage, type ExportStageInput, type ExportValue, ZERO_CAPE
 import { isExportValue, isRawFindingSetValue } from '../validation.js';
 import { artifactLineage, buildStageFingerprint, completeStage, resolveStageIdentity } from './shared.js';
 
+/**
+ * A cached export envelope proves only that an export once completed. The SARIF and
+ * report files live outside that envelope, so their presence and the SARIF digest are
+ * re-verified before the cache is adopted; adopting a gutted artifact root would
+ * report success with nothing on disk.
+ */
 async function verifyPublishedExport(input: ExportStageInput, value: ExportValue): Promise<void> {
   const expectedSarifPath = resolve(input.artifactRoot, 'capella.sarif');
   const expectedReportPath = resolve(input.artifactRoot, 'report.md');
@@ -39,6 +45,9 @@ async function verifyPublishedExport(input: ExportStageInput, value: ExportValue
   }
 }
 
+// The findings source is all-or-nothing: an export with no source is the legitimate
+// short circuit for a run with nothing to report, while a half-specified source is
+// always a caller bug.
 function assertExportSource(input: ExportStageInput): void {
   const hasArtifact = input.findingsArtifact !== undefined;
   const hasStage = input.findingsStage !== undefined;
@@ -60,6 +69,8 @@ function assertExportSource(input: ExportStageInput): void {
 
 function throwIfCancelled(signal: AbortSignal | undefined): void {
   if (!signal?.aborted) return;
+  // Rethrowing the signal's own reason keeps a Temporal CancelledFailure's identity
+  // intact through this boundary instead of degrading it into a generic abort.
   if (signal.reason instanceof Error) throw signal.reason;
   throw new DOMException('Capella export cancelled.', 'AbortError');
 }
@@ -100,6 +111,8 @@ export async function runExportStage(
   const cached = await loadCompletedArtifact(input.artifactRoot, completedPath, 'export', fingerprint, isExportValue);
   if (cached) {
     await verifyPublishedExport(input, cached.value);
+    // Last checkpoint before the durable run-record write; a cancelled scan must not
+    // re-record completion.
     throwIfCancelled(cancellationSignal);
     await recordStageCompletion(
       input,
@@ -137,6 +150,8 @@ export async function runExportStage(
     codePathAvoids: input.codePathAvoids,
     ...(cancellationSignal && { cancellationSignal }),
   });
+  // The exporter has written capella.sarif, but completion is not yet recorded.
+  // Cancelling here leaves a reusable artifact without marking the stage complete.
   throwIfCancelled(cancellationSignal);
   const value: ExportValue = {
     sarif: exported.sarif,
@@ -144,6 +159,7 @@ export async function runExportStage(
     coverage: exported.coverage,
     warnings: [...exported.warnings],
     reportPath: exported.reportPath,
+    ...(exported.reduction !== undefined && { reduction: exported.reduction }),
   };
   const completed = await completeStage(
     input,

@@ -12,6 +12,8 @@
 //   exploits → ExploitsReportData (exploit=true runs, full reproduction)
 //   findings → FindingsReportData (exploit=false runs, analysis-only)
 #let mode = data.at("mode", default: "exploits")
+#let coverage = data.at("coverage", default: (status: "complete", limitations: ()))
+#let assessment-status = if coverage.status == "partial" { "Completed with limitations" } else { "Complete" }
 
 #let tester-override = sys.inputs.at("tester", default: "Shannon")
 #let brand = sys.inputs.at("brand", default: "Shannon | AI Pentester by Keygraph")
@@ -133,7 +135,7 @@
   "XSS",
   "Injection",
   "SSRF",
-  "Other",
+  "Miscellaneous",
 )
 
 #let sev-chip(level) = chip(level, sev-color(level))
@@ -157,6 +159,15 @@
     }
   }
   out
+}
+
+// Preserve blank-line paragraph boundaries in model-authored report prose while
+// retaining the inline-code treatment used by the rest of the template.
+#let render-paragraphs(s) = {
+  if type(s) != str { return s }
+  for paragraph in s.split(regex("\\r?\\n\\s*\\r?\\n")) {
+    par(inline-code(paragraph))
+  }
 }
 
 #let render-items(items) = {
@@ -291,11 +302,20 @@
     (text(fill: muted, size: 10pt)[Application], text(size: 10.5pt)[#inline-code(data.meta.application)])
   } else { () }),
   text(fill: muted, size: 10pt)[Tester],       text(size: 10.5pt)[#tester-override],
+  text(fill: muted, size: 10pt)[Assessment Status], text(size: 10.5pt)[#assessment-status],
 )
+
+#render-paragraphs(data.executiveSummary)
 
 == Scope
 
 #inline-code(data.scope)
+
+#if coverage.status == "partial" and coverage.limitations.len() > 0 [
+  == Limitations
+
+  #list(..coverage.limitations.map(limitation => [#inline-code(limitation.message)]))
+]
 
 // ---------- BY TYPE ---------------------------------------------------------
 #let by-type-entries = if mode == "exploits" { data.exploitedByType } else { data.identifiedByType }

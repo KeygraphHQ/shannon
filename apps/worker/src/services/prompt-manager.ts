@@ -39,6 +39,21 @@ const VULN_CLASS_HEADINGS: Record<VulnClass, string> = {
   ssrf: 'Server-Side Request Forgery (SSRF) Vulnerabilities',
 };
 
+// Inline report scope labels are intentionally separate from section headings. The report
+// needs formal names without the repeated "Vulnerabilities" suffix.
+const VULN_CLASS_SCOPE_LABELS: Readonly<Record<VulnClass, string>> = Object.freeze({
+  injection: 'Injection',
+  xss: 'Cross-Site Scripting (XSS)',
+  auth: 'Authentication',
+  authz: 'Authorization',
+  ssrf: 'Server-Side Request Forgery (SSRF)',
+});
+
+/** Render the fixed workflow-owned vulnerability scope for a reader. */
+export function formatVulnClassScope(classes: readonly VulnClass[]): string {
+  return classes.map((vulnerabilityClass) => VULN_CLASS_SCOPE_LABELS[vulnerabilityClass]).join(', ');
+}
+
 /**
  * Renders the <not_assessed_classes> block. Empty when every class completed.
  *
@@ -139,6 +154,8 @@ function renderReportFilterRules(report: DistributedReportConfig | undefined, ex
 interface PromptVariables {
   webUrl: string;
   repoPath: string;
+  /** Workflow-owned UTC date for report metadata and prose. */
+  assessmentDate?: string;
   /** Classes whose analysis did not complete, so the report can mark them not assessed. */
   failedClasses?: readonly VulnClass[];
   /** Explicit workflow-owned analysis scope for prompts that describe tested classes. */
@@ -335,6 +352,14 @@ async function interpolateVariables(
     let result = template;
     result = replaceLiteral(result, /{{WEB_URL}}/g, variables.webUrl);
     result = replaceLiteral(result, /{{REPO_PATH}}/g, variables.repoPath);
+    if (result.includes('{{ASSESSMENT_DATE}}')) {
+      if (variables.assessmentDate === undefined) {
+        throw new PentestError('Prompt requires a workflow-owned assessment date', 'prompt', false, {
+          placeholder: 'ASSESSMENT_DATE',
+        });
+      }
+      result = replaceLiteral(result, /{{ASSESSMENT_DATE}}/g, variables.assessmentDate);
+    }
     result = replaceLiteral(result, /{{PLAYWRIGHT_SESSION}}/g, variables.PLAYWRIGHT_SESSION || 'agent1');
     result = replaceLiteral(result, /{{AUTH_CONTEXT}}/g, buildAuthContext(config));
     result = replaceLiteral(
@@ -384,13 +409,16 @@ async function interpolateVariables(
     }
 
     if (result.includes('{{VULN_CLASSES_TESTED}}')) {
+      // Fails closed instead of falling back to a guessed or hardcoded class list: a template
+      // that describes tested classes must receive the workflow's resolved scope explicitly, so
+      // a caller that forgets to pass analysisClasses cannot silently render a stale scope.
       if (variables.analysisClasses === undefined) {
         throw new PentestError('Prompt requires an explicit workflow-owned analysis scope', 'prompt', false, {
           placeholder: 'VULN_CLASSES_TESTED',
         });
       }
       assertFixedAnalysisScope(variables.analysisClasses);
-      result = replaceLiteral(result, /{{VULN_CLASSES_TESTED}}/g, variables.analysisClasses.join(', '));
+      result = replaceLiteral(result, /{{VULN_CLASSES_TESTED}}/g, formatVulnClassScope(variables.analysisClasses));
     }
     result = replaceLiteral(
       result,

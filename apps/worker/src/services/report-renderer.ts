@@ -15,6 +15,8 @@
 import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
 import type { VulnClass } from '../types/config.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
+import { classDisplayName, type PartialReason, type PartialReasonCode } from '../types/run-state.js';
+import { compareCategories, orderFindings } from './finding-order.js';
 
 // ============================================================================
 // TYPES
@@ -27,6 +29,18 @@ export interface ReportMeta {
   readonly executive_summary: string;
   readonly exploit?: boolean;
   readonly model?: string;
+  /** Added deterministically during finalization; model-authored values are ignored. */
+  readonly coverage?: ReportCoverage;
+}
+
+export interface ReportLimitation {
+  readonly code: PartialReasonCode;
+  readonly message: string;
+}
+
+export interface ReportCoverage {
+  readonly status: 'complete' | 'partial';
+  readonly limitations: readonly ReportLimitation[];
 }
 
 export interface ReportData {
@@ -35,7 +49,11 @@ export interface ReportData {
   // Vuln classes whose pipeline failed and were not assessed this run. Rendered as an explicit
   // caveat so an un-assessed class is never presented as a clean result.
   readonly not_assessed?: readonly VulnClass[];
-  /** Exploit classes excluded from compaction after a renumber failure, in workflow order. */
+  /**
+   * Exploit classes excluded from compaction after a renumber failure, in workflow order. Read
+   * by report finalization and its checkpoint idempotency check, not by renderReport: this
+   * field carries no markdown output of its own.
+   */
   readonly reconciliation_failed?: readonly ReconciliationClass[];
 }
 
@@ -45,6 +63,40 @@ const ANALYSIS_ONLY_DISCLAIMER = [
   '> identified through analysis; impact is assessed rather than demonstrated, and no live',
   '> exploitation steps or proof of impact are included.',
 ].join('\n');
+
+const COMPLETE_COVERAGE: ReportCoverage = Object.freeze({ status: 'complete', limitations: Object.freeze([]) });
+
+function limitationMessage(reason: PartialReason): string {
+  switch (reason.code) {
+    case 'agentic_sast_failed':
+      return 'Agentic SAST did not complete, so its findings are not included.';
+    case 'agentic_sast_reduced':
+      if (reason.stage === 'research') return 'Some files were not reviewed by Agentic SAST.';
+      if (reason.stage === 'export') return 'Some Agentic SAST findings are not included.';
+      return 'Some Agentic SAST results are not included.';
+    case 'class_pipeline_failed':
+      return `${classDisplayName(reason.vulnerabilityClass as ReconciliationClass)} was not fully assessed.`;
+    case 'class_reconciliation_failed':
+      return `${classDisplayName(reason.vulnerabilityClass as ReconciliationClass)} was analyzed but not exploited.`;
+    case 'report_renumber_failed':
+      return `${classDisplayName(reason.vulnerabilityClass as ReconciliationClass)} finding numbers may contain gaps; all findings are included.`;
+    case 'report_compaction_failed':
+      return 'Finding numbers may contain gaps; all findings are included.';
+    case 'report_class_omitted':
+      return `${classDisplayName(reason.vulnerabilityClass as ReconciliationClass)} was assessed, but its results are not included.`;
+    case 'report_sarif_failed':
+      return 'The SARIF report could not be generated.';
+  }
+}
+
+/** Project durable degradation state into the deliberately small customer report contract. */
+export function buildReportCoverage(reasons: readonly PartialReason[]): ReportCoverage {
+  if (reasons.length === 0) return COMPLETE_COVERAGE;
+  return {
+    status: 'partial',
+    limitations: reasons.map((reason) => ({ code: reason.code, message: limitationMessage(reason) })),
+  };
+}
 
 const NOT_ASSESSED_LABELS: Record<VulnClass, string> = {
   auth: 'Authentication',
@@ -150,8 +202,8 @@ function renderFinding(finding: AddFindingInput, exploitEnabled: boolean): strin
   if (finding.exploitation_steps && finding.exploitation_steps.length > 0) {
     lines.push('**Exploitation Steps:**');
     lines.push('');
-    for (let i = 0; i < finding.exploitation_steps.length; i++) {
-      lines.push(renderStructuredStep(finding.exploitation_steps[i]!, i));
+    for (const [index, step] of finding.exploitation_steps.entries()) {
+      lines.push(renderStructuredStep(step, index));
       lines.push('');
     }
   }
@@ -188,28 +240,15 @@ function renderFinding(finding: AddFindingInput, exploitEnabled: boolean): strin
 }
 
 // ============================================================================
-// CATEGORY GROUPING
-// ============================================================================
-
-const CATEGORY_ORDER: readonly string[] = ['Injection', 'XSS', 'Authentication', 'SSRF', 'Authorization'];
-
-function categorySort(a: string, b: string): number {
-  const ai = CATEGORY_ORDER.indexOf(a);
-  const bi = CATEGORY_ORDER.indexOf(b);
-  if (ai !== -1 && bi !== -1) return ai - bi;
-  if (ai !== -1) return -1;
-  if (bi !== -1) return 1;
-  return a.localeCompare(b);
-}
-
-// ============================================================================
 // REPORT RENDERING
 // ============================================================================
 
 export function renderReport(data: ReportData): string {
-  const { report_meta, findings, not_assessed = [] } = data;
+  const { report_meta, not_assessed = [] } = data;
+  const findings = orderFindings(data.findings);
   const notAssessedClasses = [...new Set(not_assessed)];
   const exploitEnabled = report_meta.exploit ?? true;
+  const coverage = report_meta.coverage ?? COMPLETE_COVERAGE;
   const sections: string[] = [];
 
   // 1. Executive Summary
@@ -220,6 +259,7 @@ export function renderReport(data: ReportData): string {
   sections.push(`- Assessment Date: ${report_meta.assessment_date}`);
   sections.push(`- Scope: ${report_meta.scope}`);
   sections.push(`- Exploitation: ${exploitEnabled ? 'enabled' : 'disabled'}`);
+  sections.push(`- Assessment Status: ${coverage.status === 'partial' ? 'Completed with limitations' : 'Complete'}`);
   if (report_meta.model) {
     sections.push(`- Model: ${report_meta.model}`);
   }
@@ -231,20 +271,31 @@ export function renderReport(data: ReportData): string {
     sections.push('');
   }
 
+  if (coverage.status === 'partial' && coverage.limitations.length > 0) {
+    sections.push('## Limitations');
+    sections.push('');
+    for (const limitation of coverage.limitations) {
+      sections.push(`- ${limitation.message}`);
+    }
+    sections.push('');
+  }
+
   if (findings.length === 0) {
     if (notAssessedClasses.length > 0) {
       // Some classes were not assessed — a blanket "no vulnerabilities" statement would be a false
       // clean bill of health. Scope the clean statement to assessed classes and list the gaps.
       sections.push('No vulnerabilities were identified in the classes that were assessed.');
-      sections.push('');
-      sections.push(renderNotAssessedSection(notAssessedClasses));
+      if (coverage.status !== 'partial' || coverage.limitations.length === 0) {
+        sections.push('');
+        sections.push(renderNotAssessedSection(notAssessedClasses));
+      }
     } else {
       sections.push('No vulnerabilities were identified during this assessment.');
     }
-    return sections.join('\n').trimEnd() + '\n';
+    return `${sections.join('\n').trimEnd()}\n`;
   }
 
-  if (notAssessedClasses.length > 0) {
+  if (notAssessedClasses.length > 0 && (coverage.status !== 'partial' || coverage.limitations.length === 0)) {
     sections.push(renderNotAssessedSection(notAssessedClasses));
     sections.push('');
   }
@@ -257,12 +308,12 @@ export function renderReport(data: ReportData): string {
     byCategory.set(f.category, list);
   }
 
-  const sortedCategories = [...byCategory.keys()].sort(categorySort);
+  const sortedCategories = [...byCategory.keys()].sort(compareCategories);
 
   sections.push('## Summary by Vulnerability Type');
   sections.push('');
   for (const cat of sortedCategories) {
-    const catFindings = byCategory.get(cat)!;
+    const catFindings = byCategory.get(cat) ?? [];
     sections.push(`### ${cat}`);
     sections.push('');
     for (const f of catFindings) {
@@ -286,7 +337,7 @@ export function renderReport(data: ReportData): string {
   const heading = exploitEnabled ? 'Exploitation Evidence' : 'Findings';
 
   for (const cat of sortedCategories) {
-    const catFindings = byCategory.get(cat)!;
+    const catFindings = byCategory.get(cat) ?? [];
     sections.push(`# ${cat} ${heading}`);
     sections.push('');
     sections.push(`## ${subheading}`);
@@ -297,5 +348,5 @@ export function renderReport(data: ReportData): string {
     }
   }
 
-  return sections.join('\n').trimEnd() + '\n';
+  return `${sections.join('\n').trimEnd()}\n`;
 }

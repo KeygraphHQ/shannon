@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -18,7 +18,7 @@ import {
   type CapellaSarifSeverity,
   validateCapellaSarif,
 } from '../sarif-profile.js';
-import type { SarifRef } from '../types.js';
+import type { AgenticSastOmission, AgenticSastReduction, SarifRef } from '../types.js';
 import { atomicPublishBytes, sha256Bytes, stableJson } from './artifacts.js';
 import { SastContractError } from './errors.js';
 import type { CapellaFinding, CapellaSeverity } from './finding-types.js';
@@ -33,6 +33,7 @@ export interface CapellaExportResult {
   readonly coverage: 'complete' | 'reduced';
   readonly warnings: string[];
   readonly reportPath: string;
+  readonly reduction?: AgenticSastReduction;
 }
 
 export interface CapellaExportOptions {
@@ -41,6 +42,10 @@ export interface CapellaExportOptions {
   readonly codePathAvoids: readonly string[];
   readonly publishOptions?: AtomicPublishOptions;
   readonly cancellationSignal?: AbortSignal;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function throwIfExportCancelled(signal: AbortSignal | undefined): void {
@@ -91,13 +96,54 @@ function threadLocationLabel(index: number, locationCount: number): 'Source' | '
   return 'Step';
 }
 
-function isExportableFinding(value: unknown): value is CapellaFinding {
-  if (!isCapellaFinding(value)) return false;
-  if (value.code_paths.length === 0) return false;
-  return value.code_paths.every((entry) => {
+function classifyExportCandidate(
+  value: unknown,
+): { readonly finding: CapellaFinding } | { readonly omission: AgenticSastOmission } {
+  if (!isCapellaFinding(value)) {
+    return { omission: buildOmission(value, 'invalid_finding_record') };
+  }
+  if (value.code_paths.length === 0) {
+    return { omission: buildOmission(value, 'missing_code_path') };
+  }
+  const codePathsAreValid = value.code_paths.every((entry) => {
     const parsed = parseCodePath(entry);
     return parsed !== undefined && isNormalizedRepositoryPath(parsed.file);
   });
+  if (!codePathsAreValid) {
+    return { omission: buildOmission(value, 'invalid_code_path') };
+  }
+  return { finding: value };
+}
+
+function buildOmission(value: unknown, reason: AgenticSastOmission['reason']): AgenticSastOmission {
+  if (!isRecord(value)) return { reason };
+  const findingId = safeFindingId(value.id);
+  const displayName = safeFindingDisplayName(value.cwe, value.title);
+  return {
+    reason,
+    ...(findingId !== undefined && { findingId }),
+    ...(displayName !== undefined && { displayName }),
+  };
+}
+
+function safeFindingId(value: unknown): string | undefined {
+  if (typeof value !== 'string' || !/^[a-z0-9-]{1,256}$/.test(value)) return undefined;
+  return value;
+}
+
+function safeFindingDisplayName(cwe: unknown, title: unknown): string | undefined {
+  if (typeof cwe !== 'string' || !/^CWE-\d+$/.test(cwe) || typeof title !== 'string') return undefined;
+  const normalizedTitle = [...title]
+    .map((character) => {
+      const code = character.charCodeAt(0);
+      return code <= 31 || code === 127 ? ' ' : character;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (normalizedTitle.length === 0) return undefined;
+  const prefix = `${cwe}: `;
+  return `${prefix}${normalizedTitle.slice(0, 160 - prefix.length)}`;
 }
 
 function buildRule(finding: CapellaFinding): CapellaSarifRule {
@@ -186,6 +232,13 @@ export function buildCapellaSarif(findings: readonly CapellaFinding[], repositor
   };
 }
 
+/**
+ * Read the immutable SARIF reference from a prior successful run, if any.
+ *
+ * A missing or unreadable run.json reads as no prior success, and the export
+ * publishes fresh. A record that claims success but carries a bad reference
+ * throws: that is corruption of an immutability promise, not a fresh run.
+ */
 async function readSuccessfulSarifRef(artifactRoot: string, expectedPath: string): Promise<SarifRef | undefined> {
   try {
     const run = JSON.parse(await readFile(resolve(artifactRoot, 'run.json'), 'utf8')) as Record<string, unknown>;
@@ -212,9 +265,24 @@ export async function exportCapellaFindings(
   throwIfExportCancelled(options.cancellationSignal);
 
   const warnings: string[] = [];
-  const validFindings = rawFindings.filter(isExportableFinding);
-  const invalidCount = rawFindings.length - validFindings.length;
-  if (invalidCount > 0) warnings.push(`${invalidCount} agentic SAST findings were malformed and left out.`);
+  const classified = rawFindings.map(classifyExportCandidate);
+  const validFindings = classified.flatMap((entry) => ('finding' in entry ? [entry.finding] : []));
+  const omissions = classified.flatMap((entry) => ('omission' in entry ? [entry.omission] : []));
+  const invalidCount = omissions.length;
+  if (invalidCount > 0) {
+    const finding = invalidCount === 1 ? 'finding was' : 'findings were';
+    warnings.push(`${invalidCount} agentic SAST ${finding} malformed and left out.`);
+  }
+  const reduction: AgenticSastReduction | undefined =
+    invalidCount > 0
+      ? {
+          stage: 'export',
+          reason: 'malformed_findings',
+          omittedCount: invalidCount,
+          consideredCount: rawFindings.length,
+          omissions,
+        }
+      : undefined;
 
   const gated = validFindings.filter(passesExportGate);
   const exported = gated
@@ -247,6 +315,9 @@ export async function exportCapellaFindings(
   const reportPath = resolve(options.artifactRoot, 'report.md');
   const sarifPath = resolve(options.artifactRoot, 'capella.sarif');
 
+  // Adoption path: once run.json says succeeded, the export is immutable. A
+  // re-driven activity verifies the published bytes still match what this input
+  // would produce and returns the existing reference instead of republishing.
   const successful = await readSuccessfulSarifRef(options.artifactRoot, sarifPath);
   if (successful) {
     let existingBytes: Buffer;
@@ -269,12 +340,17 @@ export async function exportCapellaFindings(
     return {
       sarif: successful,
       findingCount: exported.length,
+      // Coverage is 'reduced' only when records were invalid: gate-dropped and
+      // operator-excluded findings are normal outcomes, not lost data.
       coverage: invalidCount > 0 ? 'reduced' : 'complete',
       warnings: [...warnings].sort(),
       reportPath,
+      ...(reduction !== undefined && { reduction }),
     };
   }
 
+  // Cancellation is re-checked immediately before each publish so an aborted
+  // activity stops without writing new bytes.
   throwIfExportCancelled(options.cancellationSignal);
   await atomicPublishBytes(
     options.artifactRoot,
@@ -298,5 +374,6 @@ export async function exportCapellaFindings(
     coverage: invalidCount > 0 ? 'reduced' : 'complete',
     warnings: [...warnings].sort(),
     reportPath,
+    ...(reduction !== undefined && { reduction }),
   };
 }

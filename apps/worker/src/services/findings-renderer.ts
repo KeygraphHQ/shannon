@@ -286,6 +286,8 @@ export async function renderFindingsFromQueues(
       await fs.writeFile(findingsPath, markdown);
       logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
     } catch (error) {
+      // One class's render failure does not abort the others. The failed class is returned so
+      // the report can mark it not_assessed rather than presenting it as a clean result.
       const err = error as Error;
       failedClasses.push(vulnerabilityClass);
       logger.warn(`${config.heading}: failed to render findings from ${config.queueFile}: ${err.message}`);

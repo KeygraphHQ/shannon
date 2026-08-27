@@ -73,6 +73,9 @@ interface QueueValidationResult {
   error: string | null;
 }
 
+// Filesystem faults are retryable by default: a transient I/O blip should not fail the run.
+// The listed codes are the deterministic ones (bad path, wrong type, permissions) that will
+// never resolve on retry, so they classify as non-retryable instead.
 function isRetryableQueueFileSystemError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   const code = (error as NodeJS.ErrnoException).code;
@@ -154,7 +157,7 @@ const PARTIAL_RESULTS_MESSAGE =
 
 /**
  * Name the outcome the reader can act on rather than the files behind it: nothing landed at
- * all, or only some of what the class owes. The analysis-less `other` class has no
+ * all, or only some of what the class owes. The analysis-less `miscellaneous` class has no
  * deliverable, so its queue alone decides which of the two applies.
  */
 function getExistenceErrorMessage({ existence, deliverableRequired, vulnerabilityClass }: ExistenceContext): string {
@@ -358,6 +361,8 @@ export async function validateQueueSafe<T extends ReconciliationClass>(
     return ok(result);
   } catch (error) {
     if (error instanceof PentestError) return err(error);
+    // Fail closed: an unexpected non-PentestError becomes a non-retryable error rather than
+    // being treated as a passed validation that would let exploitation proceed on bad input.
     return err(
       new PentestError('Queue validation failed closed on an internal invariant.', 'unknown', false, { vulnType }),
     );

@@ -49,6 +49,8 @@ const DELIVERABLE_BY_CLASS: Readonly<
   },
 });
 
+// `miscellaneous` is absent on purpose: it joins the report only when the workflow passes it in
+// `participatingClasses`, since the class exists only on runs that produced miscellaneous-class tasks.
 const DEFAULT_REPORT_CLASS_ORDER = [
   'injection',
   'xss',
@@ -108,9 +110,14 @@ async function assembleFinalReportInternal(
   const participatingClasses = options.participatingClasses ?? DEFAULT_REPORT_CLASS_ORDER;
   const deliverableFiles: readonly DeliverableFile[] = participatingClasses.map((vulnerabilityClass) => {
     const definition = DELIVERABLE_BY_CLASS[vulnerabilityClass];
-    let paths: readonly string[] = [definition.exploit, definition.analysis];
-    if (options.exploit === true) paths = [definition.exploit];
-    if (options.exploit === false) paths = [definition.analysis];
+    let paths: readonly string[];
+    if (options.exploit === true) {
+      paths = [definition.exploit];
+    } else if (options.exploit === false) {
+      paths = [definition.analysis];
+    } else {
+      paths = [definition.exploit, definition.analysis];
+    }
     return { vulnerabilityClass, name: definition.name, paths, required: false };
   });
 
@@ -126,6 +133,9 @@ async function assembleFinalReportInternal(
     let added = false;
     for (const candidate of file.paths) {
       try {
+        // Exploit runs assemble from committed Git state, not the worktree: evidence is only
+        // trustworthy once checkpointed, and a corrupt committed object is a class failure
+        // rather than a silently skipped section.
         if (options.exploit === true) {
           const committed = await readCommittedFile(dir, candidate);
           if (committed.state === 'corrupt') {
@@ -211,9 +221,13 @@ export async function assembleFinalReportWithEvidence(
   return assembleFinalReportInternal(sourceDir, deliverablesSubdir, logger, options, true);
 }
 
-// Pure function: Assemble final report from specialist deliverables.
-// Per class, prefer the exploit-agent's evidence file; fall back to renderer-produced findings.
-// Both never coexist for a workspace because scope (exploit flag) is locked.
+/**
+ * Assemble the final report from per-class deliverables and return only the content. With an
+ * explicit exploit mode each class reads exactly its evidence or findings file; without one,
+ * evidence is preferred and findings are the fallback. The boolean form of the last parameter
+ * is shorthand for `{ exploit }`. In exploit mode a read failure throws instead of being
+ * collected, because canonical evidence assembly must not silently omit a class.
+ */
 export async function assembleFinalReport(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
@@ -240,7 +254,7 @@ export async function assembleFinalReport(
  *
  * The SARIF log is surfaced beside it when present, since a CI step consuming it needs a stable
  * path and cannot be expected to reach into the internals directory. It is absent whenever the
- * run was analysis-only or `report.sarif` was not enabled.
+ * run was analysis-only or `report.sarif` was set to false.
  */
 export async function copyReportToRunRoot(
   repoPath: string,
