@@ -33,12 +33,19 @@ import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { DEFAULT_MODEL_SPEC } from '../ai/models.js';
+import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
 import { capellaActivities, mergeActivityRegistries } from '../ai/sast/capella/temporal/registry.js';
 import { CAPELLA_FORMAT_VERSION, CAPELLA_PROMPT_SET_VERSION } from '../ai/sast/capella/types.js';
 import { sanitizeHostname } from '../audit/utils.js';
 import { distributeConfig, parseConfig } from '../config-parser.js';
 import { deliverablesDir, resolveSessionJsonPath } from '../paths.js';
-import { SAFE_RUN_STATE_MESSAGES, workspaceExploitMismatchMessage } from '../types/run-state.js';
+import {
+  ACCEPTED_CAPELLA_FAILURE_STAGES,
+  isPartialReason,
+  projectPartialReasons,
+  SAFE_RUN_STATE_MESSAGES,
+  workspaceExploitMismatchMessage,
+} from '../types/run-state.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import {
   assembleReportActivity,
@@ -87,6 +94,27 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROGRESS_QUERY = 'getProgress';
+
+function safeFailureCode(value: string | undefined): string | undefined {
+  if (value !== undefined && /^[A-Z][A-Z0-9_]{0,63}$/u.test(value)) return value;
+  return undefined;
+}
+
+function safePartialReasonMessage(reason: PipelineState['partialReasons'][number]): string | undefined {
+  if (reason.code === 'agentic_sast_reduced') return 'Agentic SAST completed with reduced coverage.';
+  const candidate = {
+    code: reason.code,
+    ...(reason.vulnerabilityClass !== undefined && { vulnerabilityClass: reason.vulnerabilityClass }),
+    ...(reason.stage !== undefined && { stage: reason.stage }),
+    ...(reason.reductionReason !== undefined && { reductionReason: reason.reductionReason }),
+    ...(reason.omittedCount !== undefined && { omittedCount: reason.omittedCount }),
+    ...(reason.consideredCount !== undefined && { consideredCount: reason.consideredCount }),
+    ...(reason.classifiedCount !== undefined && { classifiedCount: reason.classifiedCount }),
+    ...(reason.affectedBatchCount !== undefined && { affectedBatchCount: reason.affectedBatchCount }),
+  };
+  if (!isPartialReason(candidate)) return undefined;
+  return projectPartialReasons([candidate])[0]?.message;
+}
 
 // The ordinary activity names. This frozen list is one of three that together form the
 // registered activity set the CLI status reader mirrors: the Capella names in
@@ -417,7 +445,7 @@ async function resolveWorkspace(client: Client, args: CliArgs, expectedExploit: 
   }
 
   if (!isValidWorkspaceName(workspace)) {
-    console.error(`ERROR: Invalid workspace name: "${workspace}"`);
+    console.error('ERROR: Invalid workspace name.');
     console.error('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric');
     process.exit(1);
   }
@@ -467,8 +495,7 @@ async function loadOrchestrationConfig(configPath: string | undefined): Promise<
   } catch (error) {
     // A broken config must fail the run, not silently fall back to empty
     // defaults that quietly change scope (vuln classes, exploit, retries).
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to parse config ${configPath}: ${message}`);
+    console.error('Worker configuration could not be loaded. Reference code: CONFIG_VALIDATION_FAILED');
     process.exit(1);
   }
 }
@@ -523,15 +550,23 @@ async function waitForWorkflowResult(
     if (result.status === 'partial') {
       console.log('\nScan completed with gaps (partial). The reasons are listed below.');
       for (const reason of result.partialReasons) {
-        console.log(`  - ${reason.message}`);
+        const message = safePartialReasonMessage(reason);
+        if (message !== undefined) console.log(`  - ${message}`);
       }
       // The reason above says a class of coverage degraded; these three name the sanitized
       // agentic-SAST failure behind it, under the same labels every other surface uses.
       if (result.agenticSast.status === 'failed') {
-        console.log(`    Agentic SAST stopped at: ${result.agenticSast.failedStageLabel}`);
-        console.log(`    What happened: ${result.agenticSast.error}`);
-        if (result.agenticSast.errorCode !== undefined) {
-          console.log(`    Reference code (for a bug report): ${result.agenticSast.errorCode}`);
+        const stage = ACCEPTED_CAPELLA_FAILURE_STAGES.includes(result.agenticSast.failedStage)
+          ? capellaTerminalStageLabel(result.agenticSast.failedStage)
+          : 'orchestration';
+        const message = isCapellaSafeFailureMessage(result.agenticSast.error)
+          ? result.agenticSast.error
+          : 'An agentic SAST step failed.';
+        console.log(`    Agentic SAST stopped at: ${stage}`);
+        console.log(`    What happened: ${message}`);
+        const code = safeFailureCode(result.agenticSast.errorCode);
+        if (code !== undefined) {
+          console.log(`    Reference code (for a bug report): ${code}`);
         }
       }
     } else if (result.status === 'cancelled') {
@@ -559,9 +594,9 @@ async function waitForWorkflowResult(
         }
       }
     }
-  } catch (error) {
+  } catch {
     clearInterval(progressInterval);
-    console.error('\nPipeline failed:', error);
+    console.error('\nScan failed. Reference code: WORKFLOW_FAILED');
     process.exit(1);
   }
 }
@@ -638,8 +673,8 @@ async function run(): Promise<void> {
 
 const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
 if (invokedPath === fileURLToPath(import.meta.url)) {
-  run().catch((err) => {
-    console.error('Worker failed:', err);
+  run().catch(() => {
+    console.error('Worker failed. Reference code: WORKER_FAILED');
     process.exit(1);
   });
 }

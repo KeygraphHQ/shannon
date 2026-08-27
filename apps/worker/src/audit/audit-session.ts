@@ -26,10 +26,14 @@ import {
 } from '../types/run-state.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import { fileExists } from '../utils/file-io.js';
-import { formatTimestamp } from '../utils/formatting.js';
-import { AgentLogger } from './logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
-import { generateSessionJsonPath, initializeAuditStructure, type SessionMetadata } from './utils.js';
+import type { LoggableAgentName, WorkflowPhase } from './safe-fields.js';
+import {
+  generateSessionJsonPath,
+  generateWorkflowLogPath,
+  initializeAuditStructure,
+  type SessionMetadata,
+} from './utils.js';
 import { type AgentLogDetails, WorkflowLogger, type WorkflowSummary } from './workflow-logger.js';
 
 // Global mutex instance
@@ -37,14 +41,17 @@ const sessionMutex = new SessionMutex();
 
 /**
  * AuditSession - Main audit system facade
+ *
+ * Construct a fresh instance per agent execution rather than sharing one across concurrent
+ * agents. `WorkflowLogger.close()` (called after every logged unit of work) releases every
+ * per-agent lease the instance currently holds, not just the caller's; a shared instance would
+ * let one agent's completion sever another agent's still-open log file mid-write.
  */
 export class AuditSession {
   readonly sessionMetadata: SessionMetadata;
   private sessionId: string;
   private metricsTracker: MetricsTracker;
   private workflowLogger: WorkflowLogger;
-  private currentLogger: AgentLogger | null = null;
-  private currentAgentName: string | null = null;
   private initialized: boolean = false;
 
   constructor(sessionMetadata: SessionMetadata) {
@@ -93,8 +100,9 @@ export class AuditSession {
     // Initialize metrics tracker (loads or creates session.json)
     await this.metricsTracker.initialize(workflowId);
 
-    // Initialize workflow logger with actual Temporal workflow ID
-    await this.workflowLogger.initialize(workflowId);
+    if (workflowId !== undefined) {
+      this.workflowLogger.setWorkflowId(workflowId);
+    }
 
     this.initialized = true;
   }
@@ -111,76 +119,41 @@ export class AuditSession {
   /**
    * Start agent execution
    */
-  async startAgent(agentName: string, promptContent: string, attemptNumber: number = 1): Promise<void> {
+  async startAgent(agentName: LoggableAgentName, attemptNumber: number = 1): Promise<void> {
     await this.ensureInitialized();
-
-    // 1. Save prompt snapshot (only on first attempt)
-    if (attemptNumber === 1) {
-      await AgentLogger.savePrompt(this.sessionMetadata, agentName, promptContent);
-    }
-
-    // 2. Create and initialize the per-agent logger
-    this.currentAgentName = agentName;
-    this.currentLogger = new AgentLogger(this.sessionMetadata, agentName, attemptNumber);
-    await this.currentLogger.initialize();
-
-    // 3. Start metrics timer
     this.metricsTracker.startAgent(agentName, attemptNumber);
-
-    // 4. Log start event to both agent log and workflow log
-    await this.currentLogger.logEvent('agent_start', {
-      agentName,
-      attemptNumber,
-      timestamp: formatTimestamp(),
-    });
-
     await this.workflowLogger.logAgent(agentName, 'start', { attemptNumber });
   }
 
-  /**
-   * Log event during agent execution
-   */
-  async logEvent(eventType: string, eventData: unknown): Promise<void> {
-    if (!this.currentLogger) {
-      throw new PentestError(
-        'No active logger. Call startAgent() first.',
-        'validation',
-        false,
-        {},
-        ErrorCode.AGENT_EXECUTION_FAILED,
-      );
-    }
+  /** Absolute path to this scan's human-readable log, for path-based trace writers. */
+  get workflowLogPath(): string {
+    return generateWorkflowLogPath(this.sessionMetadata);
+  }
 
-    // Log to agent-specific log file (JSON format)
-    await this.currentLogger.logEvent(eventType, eventData);
-
-    // Also log to unified workflow log (human-readable format)
-    const data = eventData as Record<string, unknown>;
-    const agentName = this.currentAgentName || 'unknown';
-    switch (eventType) {
-      case 'tool_start':
-        await this.workflowLogger.logToolStart(agentName, String(data.toolName || ''), data.parameters);
-        break;
-      case 'llm_response':
-        await this.workflowLogger.logLlmResponse(agentName, Number(data.turn || 0), String(data.content || ''));
-        break;
-      // tool_end and error events are intentionally not logged to workflow log
-      // to reduce noise - the agent completion message captures the outcome
-    }
+  /** Record an agent attempt's closed-vocabulary error to the workflow log. */
+  async logAgentError(
+    agentName: LoggableAgentName,
+    code: ErrorCode,
+    category: string,
+    attempt: number,
+    durationMs: number,
+    turns: number,
+  ): Promise<void> {
+    await this.workflowLogger.logAgentError(agentName, code, category, attempt, durationMs, turns);
   }
 
   /**
-   * Write a human-readable note to the unified workflow log (e.g. a model
-   * refusal fallback). Independent of agent event logging.
+   * Release an agent's open per-agent log lease without recording an end. A backstop for an
+   * abnormal abort where {@link endAgent} never ran; idempotent, so a normal end makes it a no-op.
    */
-  async logWorkflowNote(category: string, message: string): Promise<void> {
-    await this.workflowLogger.logEvent(category, message);
+  async releaseAgentLog(agentName: LoggableAgentName): Promise<void> {
+    await this.workflowLogger.releaseAgentLog(agentName);
   }
 
   /**
    * End agent execution (mutex-protected)
    */
-  async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
+  async endAgent(agentName: LoggableAgentName, result: AgentEndResult): Promise<void> {
     await this.finishAgentLogs(agentName, result);
 
     // 3. Acquire mutex before touching session.json
@@ -207,32 +180,17 @@ export class AuditSession {
     }
   }
 
-  private async finishAgentLogs(agentName: string, result: AgentEndResult): Promise<void> {
-    // 1. Finalize agent log and close the stream
-    if (this.currentLogger) {
-      await this.currentLogger.logEvent('agent_end', {
-        agentName,
-        success: result.success,
-        duration_ms: result.duration_ms,
-        cost_usd: result.cost_usd,
-        timestamp: formatTimestamp(),
-      });
-
-      await this.currentLogger.close();
-      this.currentLogger = null;
-    }
-
-    // 2. Log completion to the unified workflow log
-    this.currentAgentName = null;
-
+  /** Write the agent's end line and close this instance's logger before touching session.json. */
+  private async finishAgentLogs(agentName: LoggableAgentName, result: AgentEndResult): Promise<void> {
     const agentLogDetails: AgentLogDetails = {
       attemptNumber: result.attemptNumber,
       duration_ms: result.duration_ms,
       cost_usd: result.cost_usd,
       success: result.success,
-      ...(result.error !== undefined && { error: result.error }),
+      ...(result.errorCode !== undefined && { errorCode: result.errorCode }),
     };
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
+    await this.workflowLogger.close();
   }
 
   /**
@@ -252,6 +210,8 @@ export class AuditSession {
       throw new RunStateError('IncompatibleWorkspaceError', 'session-json-missing-on-resume');
     }
     await this.initialize(workflowId);
+    await this.workflowLogger.initialize(workflowId);
+    await this.workflowLogger.close();
 
     const unlock = await sessionMutex.lock(this.sessionId);
     try {
@@ -386,17 +346,25 @@ export class AuditSession {
   /**
    * Log phase start to unified workflow log
    */
-  async logPhaseStart(phase: string): Promise<void> {
+  async logPhaseStart(phase: WorkflowPhase): Promise<void> {
     await this.ensureInitialized();
-    await this.workflowLogger.logPhase(phase, 'start');
+    try {
+      await this.workflowLogger.logPhase(phase, 'start');
+    } finally {
+      await this.workflowLogger.close();
+    }
   }
 
   /**
    * Log phase completion to unified workflow log
    */
-  async logPhaseComplete(phase: string): Promise<void> {
+  async logPhaseComplete(phase: WorkflowPhase): Promise<void> {
     await this.ensureInitialized();
-    await this.workflowLogger.logPhase(phase, 'complete');
+    try {
+      await this.workflowLogger.logPhase(phase, 'complete');
+    } finally {
+      await this.workflowLogger.close();
+    }
   }
 
   /**
@@ -404,7 +372,11 @@ export class AuditSession {
    */
   async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
     await this.ensureInitialized();
-    await this.workflowLogger.logWorkflowComplete(summary);
+    try {
+      await this.workflowLogger.logWorkflowComplete(summary);
+    } finally {
+      await this.workflowLogger.close();
+    }
   }
 
   /**
@@ -427,17 +399,28 @@ export class AuditSession {
     }
   }
 
-  /**
-   * Log resume header to workflow.log
-   * Call this when a workflow is resuming to add a visual separator
-   */
-  async logResumeHeader(resumeInfo: {
+  /** Write and flush the new execution boundary before publishing its durable resume record. */
+  async logResumeBoundary(workflowId: string): Promise<void> {
+    await this.ensureInitialized();
+    try {
+      await this.workflowLogger.logResumeBoundary(workflowId);
+    } finally {
+      await this.workflowLogger.close();
+    }
+  }
+
+  /** Add checkpoint details beneath the already-durable resume boundary. */
+  async logResumeDetails(resumeInfo: {
     previousWorkflowId: string;
     newWorkflowId: string;
     checkpointHash: string;
     completedAgents: string[];
   }): Promise<void> {
     await this.ensureInitialized();
-    await this.workflowLogger.logResumeHeader(resumeInfo);
+    try {
+      await this.workflowLogger.logResumeDetails(resumeInfo);
+    } finally {
+      await this.workflowLogger.close();
+    }
   }
 }

@@ -12,6 +12,7 @@ import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
 import { derivePipeline, isTerminal, type RunState, scanElapsedMs } from './derive.js';
 import type { PipelineState } from './pipeline.js';
+import { safeAgenticSast, safeCliIdentifier, safePartialReasons, safeTerminalFailure } from './safe-fields.js';
 
 export interface RenderInput {
   readonly workspace: string;
@@ -67,7 +68,7 @@ function truncate(text: string, max: number): string {
 /** Temporal Web UI, published by compose on 8233; deep-links to the workflow when its id is known. */
 function temporalDashboardUrl(workflowId: string | undefined): string {
   const base = 'http://localhost:8233';
-  return workflowId ? `${base}/namespaces/default/workflows/${workflowId}` : base;
+  return workflowId ? `${base}/namespaces/default/workflows/${safeCliIdentifier(workflowId)}` : base;
 }
 
 // === Glyphs & status ===
@@ -214,7 +215,7 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
 function headerLines(input: RenderInput, opts: RenderOptions): string[] {
   const elapsedMs = scanElapsedMs(input, opts.now);
   const meta = [statusBadge(input, opts), elapsedMs !== undefined ? formatDuration(elapsedMs) : '—'].join(' · ');
-  return [`  ${paint('Scan:', COLORS.bold, opts.color)} ${input.workspace.padEnd(22)} ${meta}`];
+  return [`  ${paint('Scan:', COLORS.bold, opts.color)} ${safeCliIdentifier(input.workspace).padEnd(22)} ${meta}`];
 }
 
 /** Aligned label column for the footer's Logs / Temporal rows. */
@@ -239,7 +240,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
 
     // A partial scan names each durable degradation reason through its safe message,
     // so the operator never has to guess why the badge is not "completed".
-    const reasons = input.state.partialReasons ?? [];
+    const reasons = safePartialReasons(input.state.partialReasons ?? []);
     if (reasons.length > 0) {
       lines.push('', `  ${paint('Why this scan is partial:', COLORS.yellow, opts.color)}`);
       for (const reason of reasons) {
@@ -247,7 +248,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
       }
       // The safe message names what degraded; these three name the agentic-SAST failure
       // behind it, under the same labels the scan log and worker output use.
-      const agenticSast = input.state.agenticSast;
+      const agenticSast = safeAgenticSast(input.state.agenticSast);
       if (agenticSast?.status === 'failed') {
         if (agenticSast.failedStageLabel !== undefined) {
           lines.push(paint(`    Agentic SAST stopped at: ${agenticSast.failedStageLabel}`, COLORS.dim, opts.color));
@@ -268,11 +269,13 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
     return lines;
   }
 
-  const logsValue = `${prefix} logs ${input.workspace}`;
+  const logsValue = `${prefix} logs ${safeCliIdentifier(input.workspace)}`;
   const temporalValue = temporalDashboardUrl(input.workflowId);
 
   if (isTerminal(input.temporalStatus)) {
-    const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
+    const hasRecordedFailure =
+      input.failureMessage !== undefined || (input.state !== null && input.state.error !== null);
+    const reason = safeTerminalFailure(hasRecordedFailure) ?? 'no result recorded';
     return [
       footerDivider(opts),
       paint(

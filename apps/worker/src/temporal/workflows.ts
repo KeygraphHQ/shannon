@@ -28,16 +28,17 @@ import {
   workflowInfo,
 } from '@temporalio/workflow';
 import type { StageMetrics } from '../ai/reconciliation/stage-contracts.js';
+import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
 import type { CapellaWorkflowInput } from '../ai/sast/capella/temporal/activity-types.js';
 import { CAPELLA_CHILD_WORKFLOW_OPTIONS, capellaWorkflow } from '../ai/sast/capella/temporal/workflow.js';
 import type { CapellaRunResult, SarifRef } from '../ai/sast/types.js';
+import type { WorkflowPhase } from '../audit/safe-fields.js';
 import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
 import {
   appendPartialReasons,
-  capellaStageDisplayName,
   type MiscellaneousOutcome,
   miscellaneousLaneIsSettled,
   type PartialReason,
@@ -172,13 +173,18 @@ const seedMiscellaneousActs = proxyActivities<Pick<ReconciliationActivityRegistr
 });
 
 const MAX_CONCURRENT_PIPELINES = 5;
-const MAX_PIPELINE_ERROR_MESSAGE_LENGTH = 2000;
 const MAX_NON_FATAL_FAILURES = 32;
 
 const CAPELLA_OPERATION_KEY = 'agentic-sast';
 const CAPELLA_OPERATION_LABEL = 'Agentic SAST';
 const CAPELLA_INFRASTRUCTURE_FAILURE = 'Agentic SAST infrastructure failed before producing a usable result.';
 const CAPELLA_UNFINISHED = 'Agentic SAST had not finished when the scan stopped.';
+const OPERATION_FAILURE = 'This scan step could not be completed.';
+const CLASS_PIPELINE_FAILURE = 'A vulnerability analysis lane could not be completed.';
+const CLASS_RECONCILIATION_FAILURE = 'Findings reconciliation could not be completed.';
+const MISCELLANEOUS_PIPELINE_FAILURE = 'The additional findings lane could not be completed.';
+const REPORT_RENUMBER_FAILURE = 'Report finding identifiers could not be refreshed for this class.';
+const REPORT_COMPACTION_FAILURE = 'Report findings could not be compacted.';
 
 /**
  * The single Capella outcome every vulnerability class joins on. Agentic SAST overlaps the
@@ -188,11 +194,6 @@ const CAPELLA_UNFINISHED = 'Agentic SAST had not finished when the scan stopped.
 type CapellaSettlement =
   | { readonly outcome: 'settled'; readonly sarif?: SarifRef }
   | { readonly outcome: 'cancelled'; readonly error: unknown };
-
-function truncatePipelineErrorMessage(message: string): string {
-  if (message.length <= MAX_PIPELINE_ERROR_MESSAGE_LENGTH) return message;
-  return `${message.slice(0, MAX_PIPELINE_ERROR_MESSAGE_LENGTH - 20)}\n[truncated]`;
-}
 
 /** Walk a rejection's `.cause` chain into an array, deduped and depth-bounded against a cycle. */
 function failureChain(error: unknown): unknown[] {
@@ -478,10 +479,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   // limit; an entry past the cap is dropped silently rather than turned into a failure of its own.
   function addNonFatal(failure: NonFatalFailure): void {
     if (state.nonFatalFailures.length >= MAX_NON_FATAL_FAILURES) return;
-    state.nonFatalFailures.push({
-      phase: failure.phase,
-      error: truncatePipelineErrorMessage(failure.error),
-    });
+    state.nonFatalFailures.push(failure);
   }
 
   function startOperation(key: string, label: string): number {
@@ -500,8 +498,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     };
   }
 
-  function failOperation(key: string, label: string, startedAt: number, error: unknown): void {
-    const message = truncatePipelineErrorMessage(error instanceof Error ? error.message : String(error));
+  function failOperation(key: string, label: string, startedAt: number, message: string = OPERATION_FAILURE): void {
     state.operationalStages[key] = {
       key,
       label,
@@ -524,7 +521,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       completeOperation(key, label, startedAt);
       return result;
     } catch (error) {
-      failOperation(key, label, startedAt, error);
+      failOperation(key, label, startedAt);
       throw error;
     }
   }
@@ -538,7 +535,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   async function runSequentialPhase(
-    phaseName: string,
+    phaseName: WorkflowPhase,
     agentName: AgentName,
     runAgent: (input: ActivityInput) => Promise<AgentMetrics>,
   ): Promise<void> {
@@ -736,7 +733,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       };
     } catch (error) {
       if (hasCancellationInCauseChain(error)) throw error;
-      const message = truncatePipelineErrorMessage(error instanceof Error ? error.message : String(error));
+      const message =
+        reconciliationStarted && !reconciliationCompleted ? CLASS_RECONCILIATION_FAILURE : CLASS_PIPELINE_FAILURE;
       if (reconciliationStarted && !reconciliationCompleted) {
         state.failedReconciliations.push({ vulnerabilityClass: vulnType, error: message });
         addPartialReason({ code: 'class_reconciliation_failed', vulnerabilityClass: vulnType });
@@ -791,9 +789,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (result.status === 'fulfilled') {
         if (result.value.error !== null) failed.push({ vulnType: result.value.vulnType, error: result.value.error });
       } else {
-        unattributable.push(
-          truncatePipelineErrorMessage(result.reason instanceof Error ? result.reason.message : String(result.reason)),
-        );
+        unattributable.push(CLASS_PIPELINE_FAILURE);
       }
     }
     if (failed.length === 0 && unattributable.length === 0) return;
@@ -823,12 +819,12 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.agenticSast = {
       status: 'failed',
       failedStage: 'workflow',
-      failedStageLabel: capellaStageDisplayName('workflow'),
+      failedStageLabel: capellaTerminalStageLabel('workflow'),
       error: message,
       completedStages: [],
       durationMs: Date.now() - startedAt,
     };
-    failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, new Error(message));
+    failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, message);
   }
 
   /**
@@ -902,20 +898,23 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         return result.sarif;
       }
 
+      const safeFailureMessage = isCapellaSafeFailureMessage(result.error)
+        ? result.error
+        : 'An agentic SAST step failed.';
       state.agenticSast = {
         status: 'failed',
         failedStage: result.failedStage,
-        failedStageLabel: capellaStageDisplayName(result.failedStage),
-        error: result.error,
+        failedStageLabel: capellaTerminalStageLabel(result.failedStage),
+        error: safeFailureMessage,
         ...(result.errorCode !== undefined && { errorCode: result.errorCode }),
         completedStages: [...result.completedStages],
         durationMs: result.durationMs,
       };
       addPartialReason({ code: 'agentic_sast_failed', stage: result.failedStage });
-      failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, new Error(result.error));
+      failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, safeFailureMessage);
       addNonFatal({
         phase: 'agentic-sast',
-        error: result.errorCode === undefined ? result.error : `${result.error} [${result.errorCode}]`,
+        error: safeFailureMessage,
       });
       return undefined;
     } catch (error) {
@@ -945,11 +944,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       const running = state.agenticSast;
       try {
         if (running.status === 'running') projectCapellaInfrastructureFailure(running.startedAt);
-      } catch (projectionError) {
+      } catch {
         try {
-          log.warn('Capella failure projection did not complete', {
-            error: projectionError instanceof Error ? projectionError.message : String(projectionError),
-          });
+          log.warn('Capella failure projection did not complete', { code: 'CAPELLA_PROJECTION_FAILED' });
         } catch {
           // Even the warning is best-effort. A log that cannot be written must not turn the
           // settlement every class joins into a rejected promise.
@@ -967,9 +964,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   async function awaitCapellaSettlement(settlement: Promise<CapellaSettlement>): Promise<void> {
     try {
       await settlement;
-    } catch (waitError) {
+    } catch {
       log.warn('Capella settlement did not resolve while the scan was stopping', {
-        error: waitError instanceof Error ? waitError.message : String(waitError),
+        code: 'CAPELLA_SETTLEMENT_FAILED',
       });
     }
   }
@@ -1026,8 +1023,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       completeOperation(key, label, startedAt);
     } catch (error) {
       if (hasCancellationInCauseChain(error)) throw error;
-      failOperation(key, label, startedAt, error);
-      const message = truncatePipelineErrorMessage(error instanceof Error ? error.message : String(error));
+      const message = reconciliationCompleted ? MISCELLANEOUS_PIPELINE_FAILURE : CLASS_RECONCILIATION_FAILURE;
+      failOperation(key, label, startedAt, message);
       if (!reconciliationCompleted) {
         state.failedReconciliations.push({ vulnerabilityClass: 'miscellaneous', error: message });
         addPartialReason({ code: 'class_reconciliation_failed', vulnerabilityClass: 'miscellaneous' });
@@ -1092,7 +1089,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
             if (hasCancellationInCauseChain(error)) throw error;
             renumberFailed.push(vulnerabilityClass);
             addPartialReason({ code: 'report_renumber_failed', vulnerabilityClass });
-            addNonFatal({ phase: key, error: error instanceof Error ? error.message : String(error) });
+            addNonFatal({ phase: key, error: REPORT_RENUMBER_FAILURE });
           }
         }
       }
@@ -1134,7 +1131,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         } catch (error) {
           if (hasCancellationInCauseChain(error)) throw error;
           addPartialReason({ code: 'report_compaction_failed' });
-          addNonFatal({ phase: 'report:compact', error: error instanceof Error ? error.message : String(error) });
+          addNonFatal({ phase: 'report:compact', error: REPORT_COMPACTION_FAILURE });
         }
       }
       state.reportProgress = await runOperation('report:checkpoint', 'Saving report progress', () =>
@@ -1321,10 +1318,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       await CancellationScope.nonCancellable(async () => {
         try {
           await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
-        } catch (completionError) {
-          log.warn('Failed to finalize cancelled workflow', {
-            error: completionError instanceof Error ? completionError.message : String(completionError),
-          });
+        } catch {
+          log.warn('Failed to finalize cancelled workflow', { code: 'WORKFLOW_LOG_WRITE_FAILED' });
         }
       });
       return state;
@@ -1340,10 +1335,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.summary = computeSummary(state, usageAccountingComplete());
     try {
       await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
-    } catch (completionError) {
-      log.warn('Failed to finalize failed workflow', {
-        error: completionError instanceof Error ? completionError.message : String(completionError),
-      });
+    } catch {
+      log.warn('Failed to finalize failed workflow', { code: 'WORKFLOW_LOG_WRITE_FAILED' });
     }
     // Terminate the workflow in Temporal's FAILED state. WARNING: this must be an
     // ApplicationFailure — any other thrown type becomes an unhandled workflow-task failure

@@ -20,6 +20,7 @@ import type { CapellaFinding } from '../finding-types.js';
 import { buildCodePathScopeSnippet, buildResearchAssignment, RESEARCH_TOOLS, TRIAGE_TOOLS } from '../prompt-context.js';
 import { createCapellaPromptLoader } from '../prompt-loader.js';
 import { type Investigation, TRIAGE_SCHEMA, type TriageResult } from '../schemas.js';
+import { createCapellaSessionNamer } from '../session-label.js';
 import {
   CAPELLA_AUDIT_CONCURRENCY,
   CAPELLA_TRIAGE_CONCURRENCY,
@@ -325,7 +326,10 @@ export async function runResearchStage(
     batchId: buildFingerprint({ files }).slice(0, 20),
   }));
 
-  const triageOutcomes = await runSettledPool(batches, CAPELLA_TRIAGE_CONCURRENCY, async (batch) => {
+  const triageOutcomes = await runSettledPool(batches, CAPELLA_TRIAGE_CONCURRENCY, async (batch, index) => {
+    // The label is display-only; it is derived from the dispatch index and kept out of the batch
+    // and the checkpoint fingerprint, which must stay keyed on the batch content alone.
+    const sessionLabel = `triage ${index + 1}`;
     const checkpointPath = resolve(input.artifactRoot, 'research', 'triage', `${batch.batchId}.json`);
     const checkpointFingerprint = buildFingerprint({ researchFingerprint: fingerprint, wave: 'triage', ...batch });
     const cached = await loadCompletedArtifact(
@@ -349,6 +353,7 @@ export async function runResearchStage(
       tools: runtime.repositoryTools,
       outputSchema: Type.Unsafe(TRIAGE_SCHEMA),
       signal: runtime.signal,
+      sessionLabel,
     });
     let usage = primaryResponse.usage;
     const primaryIsValid = isTriageResult(primaryResponse.output);
@@ -373,6 +378,7 @@ export async function runResearchStage(
         tools: runtime.repositoryTools,
         outputSchema: Type.Unsafe(TRIAGE_SCHEMA),
         signal: runtime.signal,
+        sessionLabel: `${sessionLabel} repair`,
       });
       if (isTriageResult(repairResponse.output)) {
         const repaired = usableClassifications(missingFiles, repairResponse.output.classifications);
@@ -422,7 +428,10 @@ export async function runResearchStage(
     }))
     .filter((audit) => audit.flaggedFiles.length > 0);
 
+  const nameAuditSession = createCapellaSessionNamer('audit');
   const auditOutcomes = await runSettledPool(audits, CAPELLA_AUDIT_CONCURRENCY, async (audit) => {
+    // Assign the label synchronously, before any await, so concurrent siblings cannot race.
+    const sessionLabel = nameAuditSession(audit.investigation.title);
     const checkpointPath = resolve(input.artifactRoot, 'research', 'audit', `${audit.investigationId}.json`);
     const checkpointFingerprint = buildFingerprint({
       researchFingerprint: fingerprint,
@@ -460,6 +469,7 @@ export async function runResearchStage(
             timeoutMs: input.timeoutMs,
             tools: [...runtime.repositoryTools, ...collector.tools],
             signal: runtime.signal,
+            sessionLabel,
           }),
         () => collector.getFindings().length,
       );

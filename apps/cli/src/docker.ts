@@ -519,6 +519,11 @@ export async function stopContainers(ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
 }
 
+/** Request cooperative cancellation so the workflow can run its terminal finalizer. */
+export function cancelWorkflow(workflowId: string): boolean {
+  return runQuiet('docker', temporalCmd('workflow', 'cancel', '--workflow-id', workflowId));
+}
+
 /**
  * Terminate a Temporal workflow so a stopped scan doesn't linger as a running
  * workflow with no worker. Best-effort: returns false if Temporal is unreachable
@@ -526,18 +531,6 @@ export async function stopContainers(ids: string[]): Promise<void> {
  */
 export function terminateWorkflow(workflowId: string, reason: string): boolean {
   return runQuiet('docker', temporalCmd('workflow', 'terminate', '--workflow-id', workflowId, '--reason', reason));
-}
-
-/**
- * Terminate every running pentest workflow in one batch, so `stop --all` doesn't
- * leave workflows running with no worker. Best-effort: returns false if Temporal
- * is unreachable. Requires Temporal to be up (guard with isTemporalReady).
- */
-export function terminateAllWorkflows(reason: string): boolean {
-  return runQuiet(
-    'docker',
-    temporalCmd('workflow', 'terminate', '--query', RUNNING_SCAN_QUERY, '--reason', reason, '--yes'),
-  );
 }
 
 /**

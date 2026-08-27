@@ -25,6 +25,7 @@ import { fs, path } from 'zx';
 import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/pi-executor.js';
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
+import { safeErrorFromCode } from '../audit/safe-fields.js';
 import { authStateFile } from '../audit/utils.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -234,141 +235,152 @@ export class AgentExecutionService {
     }
 
     // 4. Start audit logging
-    await auditSession.startAgent(agentName, prompt, attemptNumber);
+    await auditSession.startAgent(agentName, attemptNumber);
 
-    // 5. Execute agent. Vuln agents get a submit tool that captures the structured
-    //    exploitation queue (pi has no JSON-schema output format).
-    const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
-    const result: PiPromptResult = await runPiPrompt(
-      prompt,
-      repoPath,
-      '', // context
-      agentName, // description
-      agentName,
-      auditSession,
-      logger,
-      customTools,
-      path.relative(repoPath, deliverablesPath),
-      cancellationSignal,
-      submitTool,
-    );
-
-    // 6. Handle execution failure
-    if (!result.success) {
-      const errorCode = errorCodeFromResult(result);
-      return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
+    // startAgent opens this agent's per-agent log lease. Run the rest under try/finally so an
+    // unexpected throw between here and the agent's end still releases that lease.
+    try {
+      // 5. Execute agent. Vuln agents get a submit tool that captures the structured
+      //    exploitation queue (pi has no JSON-schema output format).
+      const submitTool = createQueueSubmitTool(agentName, distributedConfig?.exploit ?? true);
+      const result: PiPromptResult = await runPiPrompt(
+        prompt,
+        repoPath,
+        '', // context
+        agentName, // description
+        agentName,
+        auditSession,
+        logger,
+        customTools,
+        path.relative(repoPath, deliverablesPath),
+        cancellationSignal,
+        submitTool,
         attemptNumber,
-        result,
-        rollbackReason: 'execution failure',
-        errorMessage: result.error || 'Agent execution failed',
-        errorCode,
-        category: categoryForErrorCode(errorCode),
-        retryable: result.retryable ?? true,
-        context: { agentName, originalError: result.error },
-      });
-    }
+      );
 
-    // 8-11. Write structured output, validate, render, and commit under one repo lock so
-    //       the write→validate→commit sequence is atomic against concurrent sibling agents.
-    let commitHash: string | undefined;
-    const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
-      // Every step below must surface as a returned error rather than a throw: only the
-      // returned path rolls the workspace back and records the failed attempt.
-      try {
-        // 8. Write structured output to disk (vuln agents only) from the executor's capture
-        const queueFilename = getQueueFilename(agentName);
-        if (submitTool && queueFilename && result.structuredOutput !== undefined) {
-          await fs.ensureDir(deliverablesPath);
-          const queuePath = path.join(deliverablesPath, queueFilename);
-          await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
-          logger.info(`Wrote structured output queue to ${queueFilename}`);
-        }
+      // 6. Handle execution failure
+      if (!result.success) {
+        const errorCode = errorCodeFromResult(result);
+        return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
+          attemptNumber,
+          result,
+          rollbackReason: 'execution failure',
+          errorMessage: result.error || 'Agent execution failed',
+          errorCode,
+          category: categoryForErrorCode(errorCode),
+          retryable: result.retryable ?? true,
+          context: { agentName, originalError: result.error },
+        });
+      }
 
-        // 9. Validate output
-        const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
-        if (!validationPassed) {
+      // 8-11. Write structured output, validate, render, and commit under one repo lock so
+      //       the write→validate→commit sequence is atomic against concurrent sibling agents.
+      let commitHash: string | undefined;
+      const finalizationError = await withGitRepoLock(async (): Promise<PentestError | null> => {
+        // Every step below must surface as a returned error rather than a throw: only the
+        // returned path rolls the workspace back and records the failed attempt.
+        try {
+          // 8. Write structured output to disk (vuln agents only) from the executor's capture
+          const queueFilename = getQueueFilename(agentName);
+          if (submitTool && queueFilename && result.structuredOutput !== undefined) {
+            await fs.ensureDir(deliverablesPath);
+            const queuePath = path.join(deliverablesPath, queueFilename);
+            await fs.writeFile(queuePath, JSON.stringify(result.structuredOutput, null, 2), 'utf8');
+            logger.info(`Wrote structured output queue to ${queueFilename}`);
+          }
+
+          // 9. Validate output
+          const validationPassed = await validateAgentOutput(result, agentName, deliverablesPath, logger);
+          if (!validationPassed) {
+            return new PentestError(
+              `Agent ${agentName} failed output validation`,
+              'validation',
+              true,
+              { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+              ErrorCode.OUTPUT_VALIDATION_FAILED,
+            );
+          }
+
+          // 10. Render the deliverable to disk so the success commit below stages it
+          if (writeDeliverable) {
+            await writeDeliverable(deliverablesPath, {
+              ...(result.model !== undefined && { model: result.model }),
+            });
+          }
+
+          // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
+          const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
+          if (!commitResult.success) {
+            return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
+          }
+          commitHash = commitResult.commitHash;
+          // recordReportDraft requires a checkpoint hash to persist the draft durably; without one
+          // a resumed workflow would have nothing to reconcile the draft against.
+          if (successDisposition === 'report-draft' && commitHash === undefined) {
+            return new PentestError(
+              'The report was written but could not be saved. Re-running this workspace retries the reporting phase without repeating the analysis.',
+              'filesystem',
+              false,
+              { agentName },
+              ErrorCode.GIT_CHECKPOINT_FAILED,
+            );
+          }
+          return null;
+        } catch (error) {
+          if (error instanceof PentestError) return error;
+          const errorMessage = error instanceof Error ? error.message : String(error);
           return new PentestError(
-            `Agent ${agentName} failed output validation`,
+            `Agent ${agentName} post-processing failed: ${errorMessage}`,
             'validation',
             true,
-            { agentName, deliverableFilename: AGENTS[agentName].deliverableFilename },
+            { agentName, originalError: errorMessage },
             ErrorCode.OUTPUT_VALIDATION_FAILED,
           );
         }
-
-        // 10. Render the deliverable to disk so the success commit below stages it
-        if (writeDeliverable) {
-          await writeDeliverable(deliverablesPath, {
-            ...(result.model !== undefined && { model: result.model }),
-          });
-        }
-
-        // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
-        const commitResult = await commitGitSuccess(deliverablesPath, agentName, logger, gitPaths);
-        if (!commitResult.success) {
-          return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
-        }
-        commitHash = commitResult.commitHash;
-        if (successDisposition === 'report-draft' && commitHash === undefined) {
-          return new PentestError(
-            'The report was written but could not be saved. Re-running this workspace retries the reporting phase without repeating the analysis.',
-            'filesystem',
-            false,
-            { agentName },
-            ErrorCode.GIT_CHECKPOINT_FAILED,
-          );
-        }
-        return null;
-      } catch (error) {
-        if (error instanceof PentestError) return error;
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        return new PentestError(
-          `Agent ${agentName} post-processing failed: ${errorMessage}`,
-          'validation',
-          true,
-          { agentName, originalError: errorMessage },
-          ErrorCode.OUTPUT_VALIDATION_FAILED,
-        );
-      }
-    });
-
-    if (finalizationError) {
-      const rollbackReason =
-        finalizationError.code === ErrorCode.OUTPUT_VALIDATION_FAILED
-          ? 'validation failure'
-          : 'post-processing failure';
-      return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
-        attemptNumber,
-        result,
-        rollbackReason,
-        errorMessage: finalizationError.message,
-        errorCode: finalizationError.code ?? ErrorCode.AGENT_EXECUTION_FAILED,
-        category: finalizationError.type,
-        retryable: finalizationError.retryable,
-        context: { agentName, ...finalizationError.context },
       });
-    }
 
-    const endResult: AgentEndResult = {
-      attemptNumber,
-      duration_ms: result.duration,
-      cost_usd: result.cost || 0,
-      input_tokens: result.inputTokens,
-      output_tokens: result.outputTokens,
-      cache_read_tokens: result.cacheReadTokens,
-      cache_write_tokens: result.cacheWriteTokens,
-      turns: result.turns,
-      success: true,
-      model: result.model,
-      ...(commitHash && { checkpoint: commitHash }),
-    };
-    if (successDisposition === 'report-draft') {
-      await auditSession.endReportDraft(endResult);
-    } else {
-      await auditSession.endAgent(agentName, endResult);
-    }
+      if (finalizationError) {
+        const rollbackReason =
+          finalizationError.code === ErrorCode.OUTPUT_VALIDATION_FAILED
+            ? 'validation failure'
+            : 'post-processing failure';
+        return this.failAgent(agentName, deliverablesPath, auditSession, logger, {
+          attemptNumber,
+          result,
+          rollbackReason,
+          errorMessage: finalizationError.message,
+          errorCode: finalizationError.code ?? ErrorCode.AGENT_EXECUTION_FAILED,
+          category: finalizationError.type,
+          retryable: finalizationError.retryable,
+          context: { agentName, ...finalizationError.context },
+        });
+      }
 
-    return ok(endResult);
+      const endResult: AgentEndResult = {
+        attemptNumber,
+        duration_ms: result.duration,
+        cost_usd: result.cost || 0,
+        input_tokens: result.inputTokens,
+        output_tokens: result.outputTokens,
+        cache_read_tokens: result.cacheReadTokens,
+        cache_write_tokens: result.cacheWriteTokens,
+        turns: result.turns,
+        success: true,
+        model: result.model,
+        ...(commitHash && { checkpoint: commitHash }),
+      };
+      if (successDisposition === 'report-draft') {
+        await auditSession.endReportDraft(endResult);
+      } else {
+        await auditSession.endAgent(agentName, endResult);
+      }
+
+      return ok(endResult);
+    } finally {
+      // Normal completion already released this agent's log lease (endAgent → close()); this is the
+      // backstop for an unexpected throw between start and end. Idempotent and best-effort.
+      await auditSession.releaseAgentLog(agentName);
+    }
   }
 
   private async failAgent(
@@ -385,6 +397,7 @@ export class AgentExecutionService {
       getAgentGitPaths(agentName),
     );
 
+    const safeError = safeErrorFromCode(opts.errorCode, opts.category);
     const endResult: AgentEndResult = {
       attemptNumber: opts.attemptNumber,
       duration_ms: opts.result.duration,
@@ -396,7 +409,8 @@ export class AgentExecutionService {
       turns: opts.result.turns,
       success: false,
       model: opts.result.model,
-      error: opts.errorMessage,
+      error: safeError.message,
+      errorCode: safeError.code,
     };
     await auditSession.endAgent(agentName, endResult);
 

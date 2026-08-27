@@ -9,11 +9,15 @@ import type { Dirent } from 'node:fs';
 import { mkdir, open, readdir, readFile, realpath } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { ApplicationFailure, CancelledFailure, Context, heartbeat } from '@temporalio/activity';
+import type { LogStream } from '../../../../audit/log-stream.js';
+import { WorkflowLogger } from '../../../../audit/workflow-logger.js';
 import { CapellaAgentError, capellaAgentExecutor } from '../../../pi/capella-agent-executor.js';
 import type {
   CapellaAgentExecutor,
   CapellaAgentRequest,
   CapellaAgentResponse,
+  CapellaStageTrace,
+  CapellaTraceLog,
 } from '../../../pi/capella-agent-types.js';
 import type { CapellaStage, CapellaUsage } from '../../types.js';
 import {
@@ -67,6 +71,7 @@ import {
   type CapellaThreatModelActivityInput,
   type CapellaThreatModelActivityResult,
 } from './activity-types.js';
+import { createCapellaStageTrace } from './stage-trace.js';
 
 // Must stay well under the smallest policy heartbeatTimeoutMs (one minute, for export).
 const HEARTBEAT_INTERVAL_MS = 2_000;
@@ -360,9 +365,12 @@ class UsageRecordingExecutor implements CapellaAgentExecutor {
     private readonly delegate: CapellaAgentExecutor,
     private readonly artifactRoot: string,
     private readonly baseIdentity: Omit<UsageRecordIdentity, 'workloadId' | 'sessionNumber'>,
+    private readonly stageTrace?: CapellaStageTrace,
   ) {}
 
   async run<T>(request: CapellaAgentRequest<T>): Promise<CapellaAgentResponse<T>> {
+    // The label is display-only and is deliberately excluded from this hash: two sessions that
+    // differ only by label are the same logical workload.
     const workloadId = sha256Parts(request.stage, request.role, request.systemPrompt, request.userPrompt).slice(0, 32);
     const sessionNumber = (this.sessionCounts.get(workloadId) ?? 0) + 1;
     this.sessionCounts.set(workloadId, sessionNumber);
@@ -374,12 +382,23 @@ class UsageRecordingExecutor implements CapellaAgentExecutor {
     };
     await writeImmutableUsageRecord(this.artifactRoot, identity, started);
 
+    const sessionLog: CapellaTraceLog | undefined = this.stageTrace?.forSession(request.sessionLabel);
     let response: CapellaAgentResponse<T> | undefined;
     let caught: unknown;
     try {
-      response = await this.delegate.run(request);
+      const correlatedRequest = {
+        ...request,
+        executionKey: this.baseIdentity.executionKey,
+        attempt: this.baseIdentity.attempt,
+        ...(sessionLog !== undefined && { log: sessionLog }),
+      } as CapellaAgentRequest<T>;
+      response = await this.delegate.run(correlatedRequest);
     } catch (error) {
       caught = error;
+    } finally {
+      // Drain this session's trace writes before the run returns, so the activity cannot complete
+      // with lines still buffered in memory.
+      await this.stageTrace?.drain();
     }
 
     const errorUsage = usageFromError(caught);
@@ -535,8 +554,17 @@ async function runStageActivity<T, V>(
   let heartbeatInterval: NodeJS.Timeout | undefined;
   let inputFingerprint: string | undefined;
   let completedStageReturned = false;
+  let stageTrace: CapellaStageTrace | undefined;
+
+  // Hold the stage's per-agent file open for the life of the activity so its concurrent sessions'
+  // trace lines ride one reference count. openStageAgentLog never throws (it returns null on
+  // failure); everything after it runs inside the try so the finally always releases the lease.
+  const stageAgentLog: LogStream | null = await WorkflowLogger.openStageAgentLog(input.workflowLogPath, stage);
 
   try {
+    // Log the start line after opening the lease so the per-agent file header leads.
+    await WorkflowLogger.logAgenticSastStart(input.workflowLogPath, stage, attempt, maximumAttempts);
+
     // A missing policy row heartbeats too; only an explicit null opts a stage out.
     if (policy?.heartbeatTimeoutMs !== null) {
       heartbeat({ stage, attempt, elapsedSeconds: 0 });
@@ -562,12 +590,13 @@ async function runStageActivity<T, V>(
       executionKey,
       attempt,
     });
-    const executor = new UsageRecordingExecutor(capellaAgentExecutor, input.artifactRoot, {
-      inputFingerprint,
-      stage,
-      executionKey,
-      attempt,
-    });
+    stageTrace = createCapellaStageTrace(input.workflowLogPath, stage);
+    const executor = new UsageRecordingExecutor(
+      capellaAgentExecutor,
+      input.artifactRoot,
+      { inputFingerprint, stage, executionKey, attempt },
+      stageTrace,
+    );
     const repositoryTools = await createCapellaRepositoryTools({
       repositoryRoot: input.repoPath,
       deniedPaths: [...input.codePathAvoids, ...CONFINEMENT_ONLY_DENIED_PATHS],
@@ -587,6 +616,14 @@ async function runStageActivity<T, V>(
     // ledger aggregate that also counts any failed attempts of this stage.
     await recordStageUsageAccounting(input, inputFingerprint, stage, summary);
     const compactValue = compact(result.value);
+    const researchValue = stage === 'research' ? (compactValue as Record<string, unknown>) : undefined;
+    const dispatchedCount = researchValue?.dispatchedCount;
+    const resumedCount = researchValue?.resumedCount;
+    const counts =
+      Number.isSafeInteger(dispatchedCount) && Number.isSafeInteger(resumedCount)
+        ? { dispatchedCount: Number(dispatchedCount), resumedCount: Number(resumedCount) }
+        : undefined;
+    await WorkflowLogger.logAgenticSastComplete(input.workflowLogPath, stage, result.durationMs, result.reused, counts);
     return {
       status: 'completed',
       durationMs: result.durationMs,
@@ -600,6 +637,7 @@ async function runStageActivity<T, V>(
   } catch (error) {
     const cancellation = activityCancellation(error, signal);
     if (cancellation) {
+      await WorkflowLogger.logAgenticSastCancelled(input.workflowLogPath, stage, attempt, maximumAttempts);
       throw cancellation;
     }
 
@@ -647,6 +685,15 @@ async function runStageActivity<T, V>(
       usageComplete: stageComplete,
       warnings: stageComplete ? [] : [usageAccountingWarning(stage)],
     };
+    const retrying = classified.retryable && attempt < maximumAttempts;
+    await WorkflowLogger.logAgenticSastFailure(
+      input.workflowLogPath,
+      stage,
+      attempt,
+      maximumAttempts,
+      classified.code,
+      retrying,
+    );
     // The message crossing the Temporal boundary comes from the fixed safe-message
     // table; raw provider and filesystem text never enters workflow history.
     throw ApplicationFailure.create({
@@ -657,6 +704,10 @@ async function runStageActivity<T, V>(
     });
   } finally {
     if (heartbeatInterval) clearInterval(heartbeatInterval);
+    // Drain any trailing trace writes, then release the stage's file lease, before the activity
+    // returns — so no line is still buffered and the stream closes with the stage.
+    if (stageTrace) await stageTrace.drain();
+    await WorkflowLogger.closeStageAgentLog(stageAgentLog);
   }
 }
 

@@ -16,6 +16,7 @@ import {
   pipelineForState,
 } from './pipeline.js';
 import type { RenderInput } from './render.js';
+import { safeFailureDetail, safeOperationKey, safeOperationLabel } from './safe-fields.js';
 
 export type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
 
@@ -77,11 +78,9 @@ function agentState(name: string, state: PipelineState | null, running: Set<stri
  */
 function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
   const failed = state?.failedPipelines.find((f) => f.vulnType === agentClass(name));
-  return (
-    failed?.error ??
-    byAgent.get(name)?.lastFailure ??
-    (state?.failedAgent === name ? (state.error ?? undefined) : undefined)
-  );
+  const hasFailure =
+    failed !== undefined || byAgent.get(name)?.lastFailure !== undefined || state?.failedAgent === name;
+  return safeFailureDetail(hasFailure);
 }
 
 /** Scan wall-clock elapsed ms: recorded duration for a closed scan, live elapsed for a running one. */
@@ -229,7 +228,7 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
       label: runner.label,
       status: 'running' as const,
       ...(runner.startedAt !== undefined && { startedAt: runner.startedAt }),
-      ...(runner.lastFailure !== undefined && { error: runner.lastFailure }),
+      ...(runner.lastFailure !== undefined && { error: safeFailureDetail(true) }),
     }));
   const operationalAgents: DerivedAgent[] = [...persistedOperations, ...unpersistedRunning].map((operation) => {
     const runner = byAgent.get(operation.key);
@@ -237,15 +236,15 @@ export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] 
     const persistedDurationMs = 'durationMs' in operation ? (operation.durationMs ?? null) : null;
     const detail = operationState === 'running' ? stepByFamily.get(operationFamilyKey(operation.key)) : undefined;
     return {
-      name: operation.key,
-      label: operation.label,
+      name: safeOperationKey(operation.key),
+      label: safeOperationLabel(operation.label),
       state: operationState,
       durationMs: operationState === 'completed' ? persistedDurationMs : null,
       runningElapsedMs:
         operationState === 'running' && operation.startedAt !== undefined ? now - operation.startedAt : null,
       attempt: operationState === 'running' ? (runner?.attempt ?? null) : null,
       ...(detail !== undefined && { detail }),
-      ...(operation.error !== undefined && { error: operation.error }),
+      ...(operation.error !== undefined && { error: safeFailureDetail(true) }),
     };
   });
 

@@ -18,6 +18,7 @@ import { Type } from 'typebox';
 import { runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { CapturedSubmitTool } from '../ai/submit-tool.js';
 import type { AuditSession } from '../audit/index.js';
+import { safeErrorFromUnknown } from '../audit/safe-fields.js';
 import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
@@ -136,7 +137,7 @@ export async function validateAuthentication(
     promptDir,
   );
 
-  await auditSession.startAgent(AGENT_NAME, prompt, attemptNumber);
+  await auditSession.startAgent(AGENT_NAME, attemptNumber);
   const startTime = Date.now();
 
   const submitTool = createAuthSubmitTool();
@@ -152,6 +153,7 @@ export async function validateAuthentication(
     deliverablesSubdir,
     cancellationSignal,
     submitTool,
+    attemptNumber,
   );
 
   let classification = classifyResult(result, authentication);
@@ -164,13 +166,14 @@ export async function validateAuthentication(
   }
 
   const durationMs = Date.now() - startTime;
+  const safeError = classification.ok ? undefined : safeErrorFromUnknown(classification.error);
   const endResult: AgentEndResult = {
     attemptNumber,
     duration_ms: durationMs,
     cost_usd: result.cost || 0,
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
-    ...(!classification.ok && { error: classification.error.message }),
+    ...(safeError !== undefined && { error: safeError.message, errorCode: safeError.code }),
   };
   await auditSession.endAgent(AGENT_NAME, endResult);
 

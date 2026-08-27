@@ -23,6 +23,7 @@ import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
+import type { WorkflowPhase } from '../audit/safe-fields.js';
 import { authStateFile, generateAuditPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
@@ -1803,7 +1804,8 @@ export async function restoreGitCheckpoint(
 export async function registerResumeAttempt(input: ActivityInput, terminatedWorkflows: string[]): Promise<void> {
   const sessionMetadata = buildSessionMetadata(input);
   const auditSession = new AuditSession(sessionMetadata);
-  await auditSession.initialize();
+  await auditSession.initialize(input.workflowId);
+  await auditSession.logResumeBoundary(input.workflowId);
   await auditSession.addResumeAttempt(input.workflowId, terminatedWorkflows);
 }
 
@@ -1817,8 +1819,8 @@ export async function recordResumeAttempt(
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();
 
-  // session.json entry already added by registerResumeAttempt; here we only write the workflow.log header.
-  await auditSession.logResumeHeader({
+  // The execution boundary was flushed by registerResumeAttempt before session.json publication.
+  await auditSession.logResumeDetails({
     previousWorkflowId,
     newWorkflowId: input.workflowId,
     checkpointHash,
@@ -1831,7 +1833,7 @@ export async function recordResumeAttempt(
  */
 export async function logPhaseTransition(
   input: ActivityInput,
-  phase: string,
+  phase: WorkflowPhase,
   event: 'start' | 'complete',
 ): Promise<void> {
   const sessionMetadata = buildSessionMetadata(input);

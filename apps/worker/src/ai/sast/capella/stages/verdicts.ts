@@ -203,6 +203,7 @@ export async function runDedupeStage(
           timeoutMs: input.timeoutMs,
           tools: [...runtime.repositoryTools, ...collector.tools],
           signal: runtime.signal,
+          sessionLabel: 'primary',
         }),
       () => collector.getDuplicates().length,
     );
@@ -260,6 +261,7 @@ export async function runReviewStage(
           timeoutMs: input.timeoutMs,
           tools: [...runtime.repositoryTools, ...collector.tools],
           signal: runtime.signal,
+          sessionLabel: 'primary',
         }),
       () => collector.getAcceptedIds().length,
     );
@@ -279,6 +281,7 @@ export async function runReviewStage(
             timeoutMs: input.timeoutMs,
             tools: [...runtime.repositoryTools, ...collector.tools],
             signal: runtime.signal,
+            sessionLabel: 'repair',
           }),
         () => collector.getAcceptedIds().length,
       );
@@ -363,6 +366,7 @@ export async function runCriticStage(
           timeoutMs: input.timeoutMs,
           tools: [...runtime.repositoryTools, ...collector.tools],
           signal: runtime.signal,
+          sessionLabel: 'primary',
         }),
       () => collector.getAcceptedIds().length,
     );
@@ -388,6 +392,7 @@ export async function runCriticStage(
             timeoutMs: input.timeoutMs,
             tools: [...runtime.repositoryTools, ...collector.tools],
             signal: runtime.signal,
+            sessionLabel: 'repair',
           }),
         () => collector.getAcceptedIds().length,
       );
@@ -456,6 +461,7 @@ export async function runConfirmStage(
           timeoutMs: input.timeoutMs,
           tools: [...runtime.repositoryTools, ...collector.tools],
           signal: runtime.signal,
+          sessionLabel: 'primary',
         }),
       () => collector.getAcceptedIds().length,
     );
@@ -475,6 +481,7 @@ export async function runConfirmStage(
             timeoutMs: input.timeoutMs,
             tools: [...runtime.repositoryTools, ...collector.tools],
             signal: runtime.signal,
+            sessionLabel: 'repair',
           }),
         () => collector.getAcceptedIds().length,
       );
@@ -552,6 +559,7 @@ export async function runCalibrateStage(
           timeoutMs: input.timeoutMs,
           tools: [...runtime.repositoryTools, ...collector.tools],
           signal: runtime.signal,
+          sessionLabel: 'primary',
         }),
       () => collector.getAcceptedIds().length,
     );
@@ -577,6 +585,7 @@ export async function runCalibrateStage(
             timeoutMs: input.timeoutMs,
             tools: [...runtime.repositoryTools, ...collector.tools],
             signal: runtime.signal,
+            sessionLabel: 'repair',
           }),
         () => collector.getAcceptedIds().length,
       );

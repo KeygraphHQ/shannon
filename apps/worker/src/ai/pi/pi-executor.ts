@@ -5,6 +5,9 @@
 // as published by the Free Software Foundation.
 
 // Production agent execution on the pi harness, with git checkpoints and audit logging.
+// The checkpoint itself is created by the caller (AgentExecutionService) before and after
+// runPiPrompt runs; this module owns the session, its audit/error logging, and the trace it
+// produces, not the git commit around it.
 
 import os from 'node:os';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
@@ -22,6 +25,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../../audit/index.js';
+import { isLoggableAgentName, type SafeErrorDetails, safeErrorFromUnknown } from '../../audit/safe-fields.js';
 import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
 import { isRetryableFailure, PentestError } from '../../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../../session-manager.js';
@@ -44,6 +48,7 @@ import { permissionSystemConfigExists, permissionSystemPackageDir } from './perm
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 import { createTaskTool } from './task-tool.js';
+import { TraceEmitter } from './trace-emitter.js';
 import { providerTurnError } from './turn-error.js';
 
 declare global {
@@ -142,7 +147,6 @@ export interface PiPromptResult {
   model?: string | undefined;
   error?: string | undefined;
   errorType?: string | undefined;
-  prompt?: string | undefined;
   retryable?: boolean | undefined;
   structuredOutput?: unknown;
 }
@@ -154,18 +158,20 @@ function outputLines(lines: string[]): void {
 }
 
 async function writeErrorLog(
-  err: Error & { code?: string; status?: number },
   sourceDir: string,
-  fullPrompt: string,
+  error: SafeErrorDetails,
   duration: number,
+  turns: number,
+  retryable: boolean,
 ): Promise<void> {
   try {
     const errorLog = {
       timestamp: formatTimestamp(),
       agent: 'pi-executor',
-      error: { name: err.constructor.name, message: err.message, code: err.code, status: err.status, stack: err.stack },
-      context: { sourceDir, prompt: `${fullPrompt.slice(0, 200)}...`, retryable: isRetryableFailure(err) },
+      error: { code: error.code, category: error.category, message: error.message },
       duration,
+      turns,
+      retryable,
     };
     const logPath = path.join(deliverablesDir(sourceDir), 'error.log');
     await fs.appendFile(logPath, `${JSON.stringify(errorLog)}\n`);
@@ -186,6 +192,9 @@ export async function validateAgentOutput(
       logger.error('Validation failed: Agent execution was unsuccessful');
       return false;
     }
+    // Not every agent has a deliverable-structure validator registered. Absence is not treated as
+    // a failure: the agent already reported success above, so an agent with no validator passes on
+    // that alone rather than being held to a check that was never defined for it.
     const validator = agentName ? AGENT_VALIDATORS[agentName as keyof typeof AGENT_VALIDATORS] : undefined;
     if (!validator) {
       logger.warn(`No validator found for agent "${agentName}" - assuming success`);
@@ -230,6 +239,7 @@ export async function runPiPrompt(
   deliverablesSubdir?: string,
   cancellationSignal?: AbortSignal,
   submitTool?: CapturedSubmitTool,
+  attemptNumber: number = 1,
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt. A submit tool appends its directive so the
   //    instruction to call it lives with the tool, not in every prompt file.
@@ -243,7 +253,7 @@ export async function runPiPrompt(
     { description, useCleanOutput: execContext.useCleanOutput },
     global.SHANNON_DISABLE_LOADER ?? false,
   );
-  const auditLogger = createAuditLogger(auditSession);
+  const auditLogger = createAuditLogger(auditSession, agentName, attemptNumber);
 
   logger.info(`Running pi agent: ${description}...`);
 
@@ -259,6 +269,14 @@ export async function runPiPrompt(
   //    plus any caller-supplied collector/submit tools).
   const selection = await resolveModelSelection();
   const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
+  const agentNameCandidate = agentName ?? '';
+  const parentAgentName = isLoggableAgentName(agentNameCandidate) ? agentNameCandidate : 'pre-recon';
+  // The durable trace log is path-addressed, so parent, child, and Capella writers all
+  // reach the same file without sharing a stream handle.
+  const workflowLogPath = auditSession?.workflowLogPath;
+  const traceEmitter = workflowLogPath
+    ? new TraceEmitter(workflowLogPath, { kind: 'agent', agent: parentAgentName })
+    : undefined;
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
   const childUsage: ChildUsage = { cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
@@ -267,6 +285,11 @@ export async function runPiPrompt(
       model: selection.model,
       modelRuntime: selection.modelRuntime,
       cwd: sourceDir,
+      parentAgentName,
+      ...(workflowLogPath !== undefined && { workflowLogPath }),
+      ...(traceEmitter !== undefined && {
+        onDelegationStart: (child: string) => traceEmitter.delegationStart(child),
+      }),
       onUsage: (usage) => {
         childUsage.cost += usage.cost;
         childUsage.inputTokens += usage.inputTokens;
@@ -277,7 +300,7 @@ export async function runPiPrompt(
       resourceLoader,
       ...(cancellationSignal && { cancellationSignal }),
     }),
-    createTodoWriteTool(auditLogger),
+    createTodoWriteTool(),
     createGlobTool(sourceDir),
     ...(callerTools ?? []),
     ...(submitTool ? [submitTool.tool] : []),
@@ -330,7 +353,6 @@ export async function runPiPrompt(
           const msg = event.message;
           const text = extractAssistantText(msg);
           if (text.trim()) {
-            void auditLogger.logLlmResponse(turnCount, text);
             progress.stop();
             outputLines(formatAssistantOutput(text, execContext, turnCount, description));
             progress.start();
@@ -341,7 +363,8 @@ export async function runPiPrompt(
           break;
         }
         case 'tool_execution_start': {
-          void auditLogger.logToolStart(event.toolName, event.args);
+          const count = submitTool?.tool.name === event.toolName ? submitTool.safeCount : undefined;
+          traceEmitter?.toolStart(event.toolCallId, event.toolName, event.args, count);
           const toolLines = formatToolCall(
             event.toolName,
             event.args as Record<string, unknown>,
@@ -355,9 +378,10 @@ export async function runPiPrompt(
           }
           break;
         }
-        case 'tool_execution_end':
-          void auditLogger.logToolEnd(event.result);
+        case 'tool_execution_end': {
+          traceEmitter?.toolEnd(event.toolCallId, event.isError);
           break;
+        }
         case 'compaction_end':
           if (!event.aborted && !event.willRetry && event.errorMessage) {
             pendingError =
@@ -387,6 +411,8 @@ export async function runPiPrompt(
     // Capture the submit tool's structured payload so callers read it off the
     // result instead of holding a reference to the tool.
     const structuredOutput = submitTool?.getCaptured();
+    await auditLogger.flush();
+    await traceEmitter?.flush();
 
     return {
       result,
@@ -402,13 +428,17 @@ export async function runPiPrompt(
       ...(structuredOutput !== undefined && { structuredOutput }),
     };
   } catch (error) {
-    // 10. Handle errors — log, write error file, return failure
+    // 9. Handle errors: log, write error file, return failure
     const duration = timer.stop();
     const err = error as Error & { code?: string; status?: number };
-    await auditLogger.logError(err, duration, turnCount);
+    const safeError = safeErrorFromUnknown(err);
+    const retryable = isRetryableFailure(err);
+    await auditLogger.logError(safeError, duration, turnCount);
+    await auditLogger.flush();
+    await traceEmitter?.flush();
     progress.stop();
-    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableFailure(err)));
-    await writeErrorLog(err, sourceDir, fullPrompt, duration);
+    outputLines(formatErrorOutput(safeError, execContext, duration, turnCount, retryable));
+    await writeErrorLog(sourceDir, safeError, duration, turnCount, retryable);
 
     // A failed agent still spent money — on its own turns and, since Shannon's
     // prompts delegate the heavy work, mostly on `task` sub-agents. Both count
@@ -416,9 +446,8 @@ export async function runPiPrompt(
     const usage = totalUsage(session, childUsage);
 
     return {
-      error: err.message,
-      errorType: err instanceof PentestError && err.code ? err.code : err.constructor.name,
-      prompt: `${fullPrompt.slice(0, 100)}...`,
+      error: safeError.message,
+      errorType: safeError.code,
       success: false,
       duration,
       turns: turnCount,
@@ -427,7 +456,7 @@ export async function runPiPrompt(
       outputTokens: usage.outputTokens,
       cacheReadTokens: usage.cacheReadTokens,
       cacheWriteTokens: usage.cacheWriteTokens,
-      retryable: isRetryableFailure(err),
+      retryable,
     };
   } finally {
     cancellationSignal?.removeEventListener('abort', onCancellation);

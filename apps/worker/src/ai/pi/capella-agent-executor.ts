@@ -18,6 +18,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
+import { captureToolInvocation, decideToolOutcome } from '../../audit/trace.js';
 import type { ProviderFailureCategory } from '../../types/errors.js';
 import { type ModelHost, modelHost } from '../model-host.js';
 import type { ModelSelection } from '../models.js';
@@ -433,13 +434,30 @@ class StandaloneCapellaAgentExecutor implements CapellaAgentExecutor {
 
       let invalidSubmission = false;
       let pendingProviderError: unknown;
+      // Per-session trace correlation lives here in the executor; the injected sink is a
+      // stateless emitter, safe to share across the stage's sessions.
+      const traceLog = request.log;
+      const pendingTrace = new Map<string, { readonly tool: string; readonly startedAt: number }>();
       unsubscribe = session.subscribe((event: AgentSessionEvent) => {
         if (event.type === 'tool_execution_start') {
           operationCount += 1;
+          if (traceLog !== undefined) {
+            const invocation = captureToolInvocation(event.toolName, event.args);
+            pendingTrace.set(event.toolCallId, { tool: event.toolName, startedAt: Date.now() });
+            if (invocation !== undefined) traceLog.toolCall(invocation);
+          }
           return;
         }
         if (event.type === 'tool_execution_end') {
           if (event.toolName === 'submit_result' && event.isError) invalidSubmission = true;
+          if (traceLog !== undefined) {
+            const pending = pendingTrace.get(event.toolCallId);
+            if (pending !== undefined) {
+              pendingTrace.delete(event.toolCallId);
+              const outcome = decideToolOutcome(pending.tool, event.isError, Date.now() - pending.startedAt, undefined);
+              if (outcome !== undefined) traceLog.toolOutcome(outcome);
+            }
+          }
           return;
         }
         if (event.type !== 'turn_end') return;
@@ -455,6 +473,7 @@ class StandaloneCapellaAgentExecutor implements CapellaAgentExecutor {
         }
       });
 
+      const runStartedAt = Date.now();
       let promptError: unknown;
       try {
         await raceWithAbort(session.prompt(request.userPrompt, { expandPromptTemplates: false }), controller.signal);
@@ -471,6 +490,12 @@ class StandaloneCapellaAgentExecutor implements CapellaAgentExecutor {
         usage: frozenUsage(session, turnCount),
       };
       const output = this.resolveOutcome<T>(request, outcome, termination, selection.model.contextWindow);
+
+      // Emitted only past resolveOutcome so a failed, cancelled, timed-out, or turn-capped
+      // session (all of which throw above) never reports a truthful-looking completion.
+      if (traceLog !== undefined) {
+        traceLog.sessionComplete(Date.now() - runStartedAt, turnCount, operationCount);
+      }
 
       return { output, usage: outcome.usage };
     } catch (error) {

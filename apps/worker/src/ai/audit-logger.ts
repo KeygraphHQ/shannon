@@ -4,83 +4,69 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-// Null Object pattern for audit logging - callers never check for null
-
 import type { AuditSession } from '../audit/index.js';
-import { formatTimestamp } from '../utils/formatting.js';
+import { isLoggableAgentName, type LoggableAgentName, type SafeErrorDetails } from '../audit/safe-fields.js';
 
+/**
+ * Per-agent-run error audit sink. `createAuditLogger` always returns one of these
+ * (never null), so a caller can log unconditionally without checking whether
+ * audit is actually wired up for this run.
+ */
 export interface AuditLogger {
-  logLlmResponse(turn: number, content: string): Promise<void>;
-  logToolStart(toolName: string, parameters: unknown): Promise<void>;
-  logToolEnd(result: unknown): Promise<void>;
-  logError(error: Error, duration: number, turns: number): Promise<void>;
-  logNote(category: string, message: string): Promise<void>;
+  logError(error: SafeErrorDetails, duration: number, turns: number): Promise<void>;
+  flush(): Promise<void>;
 }
 
 class RealAuditLogger implements AuditLogger {
-  private auditSession: AuditSession;
+  private queue: Promise<void> = Promise.resolve();
 
-  constructor(auditSession: AuditSession) {
-    this.auditSession = auditSession;
+  constructor(
+    private readonly auditSession: AuditSession,
+    private readonly agentName: LoggableAgentName,
+    private readonly attemptNumber: number,
+  ) {}
+
+  // Serializes writes onto one chain so concurrent calls append in call order rather than racing
+  // on the underlying audit session, and swallows failures so a broken audit write never surfaces
+  // as the agent's own error: recording an error must not itself risk failing the run.
+  private enqueue(operation: () => Promise<void>): Promise<void> {
+    this.queue = this.queue.then(operation, operation).catch(() => undefined);
+    return this.queue;
   }
 
-  async logLlmResponse(turn: number, content: string): Promise<void> {
-    await this.auditSession.logEvent('llm_response', {
-      turn,
-      content,
-      timestamp: formatTimestamp(),
-    });
+  logError(error: SafeErrorDetails, duration: number, turns: number): Promise<void> {
+    return this.enqueue(() =>
+      this.auditSession.logAgentError(this.agentName, error.code, error.category, this.attemptNumber, duration, turns),
+    );
   }
 
-  async logToolStart(toolName: string, parameters: unknown): Promise<void> {
-    await this.auditSession.logEvent('tool_start', {
-      toolName,
-      parameters,
-      timestamp: formatTimestamp(),
-    });
-  }
-
-  async logToolEnd(result: unknown): Promise<void> {
-    await this.auditSession.logEvent('tool_end', {
-      result,
-      timestamp: formatTimestamp(),
-    });
-  }
-
-  async logError(error: Error, duration: number, turns: number): Promise<void> {
-    await this.auditSession.logEvent('error', {
-      message: error.message,
-      errorType: error.constructor.name,
-      stack: error.stack,
-      duration,
-      turns,
-      timestamp: formatTimestamp(),
-    });
-  }
-
-  async logNote(category: string, message: string): Promise<void> {
-    await this.auditSession.logWorkflowNote(category, message);
+  async flush(): Promise<void> {
+    await this.queue;
   }
 }
 
-/** Null Object implementation - all methods are safe no-ops */
+/** No-op sink for a run with no audit session or an agent name unsafe to log. */
 class NullAuditLogger implements AuditLogger {
-  async logLlmResponse(_turn: number, _content: string): Promise<void> {}
+  async logError(_error: SafeErrorDetails, _duration: number, _turns: number): Promise<void> {}
 
-  async logToolStart(_toolName: string, _parameters: unknown): Promise<void> {}
-
-  async logToolEnd(_result: unknown): Promise<void> {}
-
-  async logError(_error: Error, _duration: number, _turns: number): Promise<void> {}
-
-  async logNote(_category: string, _message: string): Promise<void> {}
+  async flush(): Promise<void> {}
 }
 
-// Returns no-op when auditSession is null
-export function createAuditLogger(auditSession: AuditSession | null): AuditLogger {
-  if (auditSession) {
-    return new RealAuditLogger(auditSession);
+/**
+ * Build the error-audit sink for one agent attempt.
+ *
+ * Falls back to the null sink whenever real logging can't be done safely: no
+ * audit session for this run, no agent name, or a name that isn't in the closed
+ * loggable set (`isLoggableAgentName`). An unrecognized name is never written
+ * to the durable audit trail, even as a bare string.
+ */
+export function createAuditLogger(
+  auditSession: AuditSession | null,
+  agentName: string | null,
+  attemptNumber: number,
+): AuditLogger {
+  if (auditSession !== null && agentName !== null && isLoggableAgentName(agentName)) {
+    return new RealAuditLogger(auditSession, agentName, attemptNumber);
   }
-
   return new NullAuditLogger();
 }

@@ -8,15 +8,13 @@
  * Per-session custom tools registered for every agent: `todo_write` and `glob`.
  *
  * These replace harness built-ins that pi does not ship. `todo_write` is a
- * full-state-replace planning scratchpad mirrored to the workflow log; `glob` is
- * fast-glob file matching (pi has no `Glob` built-in).
+ * full-state-replace planning scratchpad; `glob` is fast-glob file matching
+ * (pi has no `Glob` built-in).
  */
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { fs, glob, path } from 'zx';
-
-import type { AuditLogger } from '../audit-logger.js';
 
 export interface TodoItem {
   content: string;
@@ -24,16 +22,7 @@ export interface TodoItem {
   activeForm: string;
 }
 
-function renderTodos(todos: readonly TodoItem[]): string {
-  const mark = (status: TodoItem['status']): string => {
-    if (status === 'completed') return 'x';
-    if (status === 'in_progress') return '~';
-    return ' ';
-  };
-  return todos.map((todo) => `[${mark(todo.status)}] ${todo.content}`).join('  ');
-}
-
-export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
+export function createTodoWriteTool(): ToolDefinition {
   let current: TodoItem[] = [];
 
   return defineTool({
@@ -56,7 +45,6 @@ export function createTodoWriteTool(auditLogger: AuditLogger): ToolDefinition {
     async execute(_toolCallId, params) {
       current = params.todos as TodoItem[];
       const completed = current.filter((todo) => todo.status === 'completed').length;
-      await auditLogger.logNote('todo', renderTodos(current));
       return {
         content: [
           {

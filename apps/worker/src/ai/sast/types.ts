@@ -11,17 +11,26 @@ export interface SarifRef {
   sha256: string;
 }
 
-export type CapellaStage =
-  | 'architecture'
-  | 'threat-model'
-  | 'plan'
-  | 'research'
-  | 'dedupe'
-  | 'review'
-  | 'critic'
-  | 'confirm'
-  | 'calibrate'
-  | 'export';
+export const CAPELLA_STAGES = [
+  'architecture',
+  'threat-model',
+  'plan',
+  'research',
+  'dedupe',
+  'review',
+  'critic',
+  'confirm',
+  'calibrate',
+  'export',
+] as const;
+
+export type CapellaStage = (typeof CAPELLA_STAGES)[number];
+
+const CAPELLA_STAGE_SET = new Set<string>(CAPELLA_STAGES);
+
+export function isCapellaStage(value: string): value is CapellaStage {
+  return CAPELLA_STAGE_SET.has(value);
+}
 
 export type CapellaFailurePoint = CapellaStage | 'workflow';
 

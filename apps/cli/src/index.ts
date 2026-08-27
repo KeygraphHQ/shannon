@@ -94,6 +94,7 @@ function renderUsage(prefix: string, mode: Mode): string {
     [`${prefix} stop --all [--yes]`, 'Stop all scans (Temporal stays up)'],
     [`${prefix} reset`, 'Stop everything and wipe all Temporal data'],
     [`${prefix} logs [<workspace>]`, "Show a scan's live log (default: running or most recent)"],
+    [`${prefix} logs [<workspace>] --agent <name>`, "Tail one agent's log; --list-agents to list them"],
     [
       `${prefix} status [<workspace>] [--json]`,
       'Live phase/agent progress of one scan (default: running or most recent)',
@@ -294,9 +295,19 @@ async function main(): Promise<void> {
       break;
     }
     case 'logs': {
-      const { positionals } = parseArgs(rest, { maxPositionals: 1 });
-      const workspaceId = resolveViewingWorkspace(positionals[0], `Usage: ${commandPrefix()} logs [<workspace>]`);
-      logs(workspaceId);
+      const { flags, values, positionals } = parseArgs(rest, {
+        booleans: { listAgents: ['--list-agents'] },
+        values: { agent: ['--agent'] },
+        maxPositionals: 1,
+      });
+      const workspaceId = resolveViewingWorkspace(
+        positionals[0],
+        `Usage: ${commandPrefix()} logs [<workspace>] [--agent <name>] [--list-agents]`,
+      );
+      logs(workspaceId, {
+        ...(values.agent !== undefined && { agent: values.agent }),
+        ...(flags.listAgents && { listAgents: true }),
+      });
       break;
     }
     case 'status': {

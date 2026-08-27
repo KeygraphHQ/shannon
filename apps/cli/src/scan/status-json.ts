@@ -10,6 +10,13 @@ import type { DerivedPhase } from './derive.js';
 import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
 import type { PartialReasonView } from './pipeline.js';
 import type { RenderInput } from './render.js';
+import {
+  safeAgenticSast,
+  safeCliIdentifier,
+  safePartialReasons,
+  safeTemporalStatus,
+  safeTerminalFailure,
+} from './safe-fields.js';
 
 /** Coarse scan status token, mirroring the human status badge in machine-friendly form. */
 export type ScanStatus = 'running' | 'completed' | 'partial' | 'failed' | 'stopped' | 'cancelled' | 'timed_out';
@@ -61,19 +68,20 @@ function deriveStatus(input: RenderInput): ScanStatus {
 /** Build the JSON snapshot for a scan at instant `now`. */
 export function toStatusJson(input: RenderInput, now: number): StatusJson {
   const elapsedMs = scanElapsedMs(input, now);
-  const partialReasons = input.state?.partialReasons ?? [];
-  const agenticSast = input.state?.agenticSast;
+  const partialReasons = safePartialReasons(input.state?.partialReasons ?? []);
+  const agenticSast = safeAgenticSast(input.state?.agenticSast);
   const usageAccountingComplete = input.state?.summary?.usageAccountingComplete;
+  const failureMessage = safeTerminalFailure(input.failureMessage !== undefined);
 
   return {
-    workspace: input.workspace,
-    ...(input.workflowId !== undefined && { workflowId: input.workflowId }),
+    workspace: safeCliIdentifier(input.workspace),
+    ...(input.workflowId !== undefined && { workflowId: safeCliIdentifier(input.workflowId) }),
     status: deriveStatus(input),
-    temporalStatus: input.temporalStatus,
+    temporalStatus: safeTemporalStatus(input.temporalStatus),
     elapsedMs: elapsedMs ?? null,
     ...(input.startedAt !== undefined && { startedAt: new Date(input.startedAt).toISOString() }),
     ...(input.endedAt !== undefined && { endedAt: new Date(input.endedAt).toISOString() }),
-    ...(input.failureMessage !== undefined && { failureMessage: input.failureMessage }),
+    ...(failureMessage !== undefined && { failureMessage }),
     ...(partialReasons.length > 0 && { partialReasons }),
     // Present only when agentic SAST actually ran; a disabled scan omits the key entirely.
     ...(agenticSast !== undefined &&

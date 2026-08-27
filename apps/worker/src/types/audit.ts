@@ -35,6 +35,7 @@ export interface AgentEndResult {
   success: boolean;
   model?: string | undefined;
   error?: string | undefined;
+  errorCode?: import('./errors.js').ErrorCode | undefined;
   checkpoint?: string | undefined;
   isFinalAttempt?: boolean | undefined;
 }

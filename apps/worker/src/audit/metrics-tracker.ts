@@ -32,6 +32,7 @@ import {
 } from '../types/run-state.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
+import { safeErrorFromCode } from './safe-fields.js';
 import { generateSessionJsonPath, type SessionMetadata } from './utils.js';
 
 interface AttemptData {
@@ -47,6 +48,7 @@ interface AttemptData {
   timestamp: string;
   model?: string | undefined;
   error?: string | undefined;
+  error_code?: ErrorCode | undefined;
 }
 
 interface AgentAuditMetrics {
@@ -733,6 +735,7 @@ export class MetricsTracker {
     };
     data.metrics.agents[agentName] = agent;
 
+    const safeError = result.errorCode === undefined ? undefined : safeErrorFromCode(result.errorCode);
     const attempt: AttemptData = {
       attempt_number: result.attemptNumber,
       duration_ms: result.duration_ms,
@@ -745,7 +748,7 @@ export class MetricsTracker {
       ...(result.cache_write_tokens !== undefined && { cache_write_tokens: result.cache_write_tokens }),
       ...(result.turns !== undefined && { turns: result.turns }),
       ...(result.model !== undefined && { model: result.model }),
-      ...(result.error !== undefined && { error: result.error }),
+      ...(safeError !== undefined && { error: safeError.message, error_code: safeError.code }),
     };
     agent.attempts.push(attempt);
     agent.total_cost_usd = agent.attempts.reduce((sum, entry) => sum + entry.cost_usd, 0);

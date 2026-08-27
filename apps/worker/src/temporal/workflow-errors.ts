@@ -9,6 +9,8 @@
  * Pure functions with no side effects — safe for Temporal workflow sandbox.
  */
 
+import { WORKFLOW_PHASES } from '../audit/safe-fields.js';
+import { ALL_AGENTS } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
 
 /**
@@ -26,6 +28,12 @@ const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
   AgentExecutionError: ErrorCode.AGENT_EXECUTION_FAILED,
   GitError: ErrorCode.GIT_CHECKPOINT_FAILED,
   InvalidTargetError: ErrorCode.TARGET_UNREACHABLE,
+  AuthLoginFailedError: ErrorCode.AUTH_LOGIN_FAILED,
+  PipelineFailedError: ErrorCode.AGENT_EXECUTION_FAILED,
+  ReportDraftError: ErrorCode.AGENT_EXECUTION_FAILED,
+  ReportSarifRenderError: ErrorCode.OUTPUT_VALIDATION_FAILED,
+  IncompatibleWorkspaceError: ErrorCode.CONFIG_VALIDATION_FAILED,
+  WorkspaceNotFoundError: ErrorCode.CONFIG_NOT_FOUND,
 };
 
 export function classifyErrorCode(error: unknown): ErrorCode | undefined {
@@ -54,41 +62,47 @@ const REMEDIATION_HINTS: Record<string, string> = {
   PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
 };
 
+const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
+  AuthenticationError: 'Provider authentication failed.',
+  ConfigurationError: 'The scan configuration is invalid.',
+  OutputValidationError: 'A scan step returned an unusable result.',
+  AgentExecutionError: 'An agent could not complete its work.',
+  GitError: 'The scan checkpoint could not be updated.',
+  InvalidTargetError: 'The target could not be reached.',
+  AuthLoginFailedError: 'The configured login could not be completed.',
+  PipelineFailedError: 'The vulnerability analysis phase could not be completed.',
+  ReportDraftError: 'The report could not be saved.',
+  ReportSarifRenderError: 'The report SARIF output could not be rendered.',
+  IncompatibleWorkspaceError: 'This workspace cannot be resumed.',
+  WorkspaceNotFoundError: 'The requested workspace was not found.',
+};
+
+const WORKFLOW_PHASE_SET = new Set<string>(WORKFLOW_PHASES);
+const AGENT_NAME_SET = new Set<string>(ALL_AGENTS);
+
 /**
- * Walk the .cause chain to find the innermost error with a .type property.
- * Temporal wraps ApplicationFailure in ActivityFailure — the useful info is inside.
+ * Walk the .cause chain to find the innermost approved failure type.
+ * Temporal wraps ApplicationFailure in ActivityFailure, so classification must inspect causes.
  *
  * Uses duck-typing because workflow code cannot import @temporalio/activity types.
  */
-function unwrapActivityError(error: unknown): {
-  message: string;
-  type: string | null;
-} {
+function unwrapActivityError(error: unknown): { type: string | null } {
   let current: unknown = error;
-  let typed: { message: string; type: string } | null = null;
+  let type: string | null = null;
 
   while (current instanceof Error) {
     if ('type' in current && typeof (current as { type: unknown }).type === 'string') {
-      typed = {
-        message: current.message,
-        type: (current as { type: string }).type,
-      };
+      const candidate = (current as { type: string }).type;
+      if (candidate in SAFE_WORKFLOW_FAILURE_MESSAGES) type = candidate;
     }
     current = (current as { cause?: unknown }).cause;
   }
 
-  if (typed) {
-    return typed;
-  }
-
-  return {
-    message: error instanceof Error ? error.message : String(error),
-    type: null,
-  };
+  return { type };
 }
 
 /**
- * Format a structured error string from workflow catch context.
+ * Format a structured, closed-field error string from workflow catch context.
  * Segments are delimited by | for multi-line rendering by WorkflowLogger.
  */
 export function formatWorkflowError(error: unknown, currentPhase: string | null, currentAgent: string | null): string {
@@ -96,10 +110,12 @@ export function formatWorkflowError(error: unknown, currentPhase: string | null,
 
   // Phase context (first segment)
   let phaseContext = 'Pipeline failed';
-  if (currentPhase && currentAgent && currentPhase !== currentAgent) {
-    phaseContext = `${currentPhase} failed (agent: ${currentAgent})`;
-  } else if (currentPhase) {
-    phaseContext = `${currentPhase} failed`;
+  const safePhase = currentPhase !== null && WORKFLOW_PHASE_SET.has(currentPhase) ? currentPhase : null;
+  const safeAgent = currentAgent !== null && AGENT_NAME_SET.has(currentAgent) ? currentAgent : null;
+  if (safePhase && safeAgent && safePhase !== safeAgent) {
+    phaseContext = `${safePhase} failed (agent: ${safeAgent})`;
+  } else if (safePhase) {
+    phaseContext = `${safePhase} failed`;
   }
 
   const segments: string[] = [phaseContext];
@@ -108,8 +124,11 @@ export function formatWorkflowError(error: unknown, currentPhase: string | null,
     segments.push(unwrapped.type);
   }
 
-  // Sanitize pipe characters from message to preserve delimiter format
-  segments.push(unwrapped.message.replaceAll('|', '/'));
+  segments.push(
+    unwrapped.type === null
+      ? 'The scan could not be completed.'
+      : (SAFE_WORKFLOW_FAILURE_MESSAGES[unwrapped.type] ?? 'The scan could not be completed.'),
+  );
 
   if (unwrapped.type) {
     const hint = REMEDIATION_HINTS[unwrapped.type];

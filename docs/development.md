@@ -66,11 +66,19 @@ npx @keygraph/shannon version
 Source-build equivalents:
 
 ```bash
-./shannon logs <workspace>
-./shannon status <workspace>
+./shannon logs [<workspace>]                 # the combined live log (unchanged default)
+./shannon logs [<workspace>] --agent <name>  # tail one agent's own log
+./shannon logs [<workspace>] --list-agents   # list the agents with their own log
+./shannon status [<workspace>]
 ./shannon scans
 ./shannon version
 ```
+
+Every scan writes one combined `.shannon/workflow.log` and a per-agent projection of it under
+`.shannon/agents/`: one file per pipeline agent (`recon.log`, `xss-vuln.log`, …) and one per Capella
+stage (`agentic-sast-research.log`, …). Delegated subagents fold into their parent's file, and a
+Capella stage's concurrent sessions share its file with an inline session label. The combined log
+stays canonical; the per-agent files are best-effort projections.
 
 Open the Temporal Web UI for detailed monitoring:
 
@@ -147,7 +155,7 @@ workspaces/{hostname}_{sessionId}/
 |-- Security-Assessment-Report.md   # the final report (Markdown)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
-    |-- agents/                     # per-agent logs
+    |-- agents/                     # per-agent log projections, one file per agent/Capella stage
     |-- prompts/                    # rendered prompts
     |-- scratchpad/                 # screenshots, scripts
     |-- session.json                # resume state

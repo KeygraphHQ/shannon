@@ -337,6 +337,10 @@ export function createQueueSubmitTool(agentName: AgentName, exploit = true): Cap
       },
     }),
     getCaptured: () => captured,
+    safeCount: () => {
+      const vulnerabilities = (captured as { vulnerabilities?: unknown } | undefined)?.vulnerabilities;
+      return Array.isArray(vulnerabilities) ? vulnerabilities.length : undefined;
+    },
     directive:
       '\n\nYou MUST call the submit_exploitation_queue tool exactly once as your final action ' +
       'to deliver your structured exploitation queue. Do not output JSON as text. Fill every required parameter.',
