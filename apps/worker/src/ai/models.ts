@@ -232,10 +232,11 @@ export async function createModelRuntime(providerId: string, apiKey: string | un
 }
 
 export interface ModelSelection {
-  model: Model<Api>;
-  modelRuntime: ModelRuntime;
-  modelId: string;
-  providerId: string;
+  readonly model: Model<Api>;
+  readonly modelRuntime: ModelRuntime;
+  readonly modelId: string;
+  readonly providerId: string;
+  readonly credentialSource: 'api-key' | 'pi-auth' | 'ambient';
 }
 
 /**
@@ -324,6 +325,7 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
   const credentials = resolveProviderCredentials(providerId);
   const format = resolveGatewayFormat(providerId, credentials.baseUrl);
 
+  const mountedPiAuth = piAuthPresent();
   const modelRuntime = await createModelRuntime(providerId, credentials.apiKey);
 
   const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl, format);
@@ -338,5 +340,6 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
     modelRuntime,
     modelId,
     providerId,
+    credentialSource: mountedPiAuth ? 'pi-auth' : credentials.apiKey ? 'api-key' : 'ambient',
   };
 }

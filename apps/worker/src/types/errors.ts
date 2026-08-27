@@ -44,6 +44,31 @@ export enum ErrorCode {
 
 export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'unknown';
 
+/** Stable, sanitized provider failure passed across model execution boundaries. */
+export const PROVIDER_FAILURE_CATEGORIES = Object.freeze([
+  'rate_limit',
+  'overloaded',
+  'transport',
+  'context_limit',
+  'quota',
+  'authentication',
+  'configuration',
+  'unknown',
+] as const);
+
+export type ProviderFailureCategory = (typeof PROVIDER_FAILURE_CATEGORIES)[number];
+
+export function isProviderFailureCategory(value: unknown): value is ProviderFailureCategory {
+  return typeof value === 'string' && PROVIDER_FAILURE_CATEGORIES.includes(value as ProviderFailureCategory);
+}
+
+export interface ProviderFailure {
+  readonly type: 'AuthenticationError' | 'ConfigurationError' | 'AgentExecutionError';
+  readonly category: ProviderFailureCategory;
+  readonly retryable: boolean;
+  readonly message: string;
+}
+
 export interface PentestErrorContext {
   [key: string]: unknown;
 }
