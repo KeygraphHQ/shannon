@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/github-banner-light.png" alt="Shannon - AI Pentester by Keygraph" width="100%">
+<img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/github-banner-light.png" alt="Shannon, AI Pentester for Web Apps and APIs, by Keygraph" width="100%">
 
 ### Shannon is an autonomous, AI pentester for web applications and APIs.
 
