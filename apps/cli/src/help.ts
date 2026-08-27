@@ -47,30 +47,32 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     ],
   },
   stop: {
-    usage: ['stop <workspace> [--yes]', 'stop --all [--yes]'],
-    description: 'Stop one scan by workspace, or every scan with --all (Temporal stays up).',
+    usage: ['stop [<workspace>] [--yes]', 'stop --all [--yes]'],
+    description:
+      'Stop one scan by workspace, or every scan with --all (Temporal stays up). With no workspace, stops the single running scan; when several are running, name one or use --all.',
     options: [['--all', 'Stop all running scans'], YES_OPTION],
-    examples: ['stop q1-audit', 'stop --all'],
+    examples: ['stop', 'stop q1-audit', 'stop --all'],
   },
   reset: {
     usage: ['reset'],
     description: 'Stop everything and permanently remove all Temporal data and volumes.',
   },
   logs: {
-    usage: ['logs <workspace>'],
-    description: "Tail a scan's live log until it completes.",
-    examples: ['logs q1-audit'],
+    usage: ['logs [<workspace>]'],
+    description:
+      "Tail a scan's live log until it completes. With no workspace, follows the single running scan, or the most recent workspace when none is running; when several are running, name one.",
+    examples: ['logs', 'logs q1-audit'],
   },
   status: {
-    usage: ['status <workspace> [--json]'],
+    usage: ['status [<workspace>] [--json]'],
     description:
-      "Show one scan's phase-by-phase progress, read live from Temporal. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished. With --json, prints a single machine-readable snapshot and exits.",
+      "Show one scan's phase-by-phase progress, read live from Temporal. With no workspace, shows the single running scan, or the most recent workspace when none is running; when several are running, name one. Watches and redraws until the scan finishes on a terminal; prints one frame when piped or already finished. With --json, prints a single machine-readable snapshot and exits.",
     options: [['--json', 'Output a point-in-time snapshot as JSON, then exit']],
-    examples: ['status q1-audit', 'status q1-audit --json'],
+    examples: ['status', 'status q1-audit', 'status q1-audit --json'],
   },
   scans: {
     usage: ['scans [--json]'],
-    description: 'List completed scans and where each report lives.',
+    description: 'List running and completed scans, and where each finished report lives.',
     options: [['--json', 'Output the scan list as JSON']],
     examples: ['scans', 'scans --json'],
   },
@@ -100,6 +102,15 @@ const MODE_ONLY: Readonly<Record<string, 'local' | 'npx'>> = {
 /** Whether a command has its own help page (and so responds to `--help`/`-h`). */
 export function isHelpableCommand(command: string): boolean {
   return command in COMMAND_HELP;
+}
+
+/**
+ * Every explicit help topic, mode-blind, with `help` itself as the known global topic.
+ * Topic lookup is deliberately not mode-filtered (unlike `availableCommands`) so
+ * cross-mode help such as local `help setup` and npx `help build` keeps working.
+ */
+export function helpTopics(): readonly string[] {
+  return [...Object.keys(COMMAND_HELP), 'help'];
 }
 
 /**

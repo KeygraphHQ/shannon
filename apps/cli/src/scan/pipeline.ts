@@ -93,16 +93,16 @@ export const PIPELINE: readonly PhaseSpec[] = [
   },
 ];
 
-const OTHER_EXPLOIT_AGENT: AgentSpec = {
-  name: 'other-exploit',
-  label: 'other',
-  activityType: 'runOtherExploitAgent',
+const MISCELLANEOUS_EXPLOIT_AGENT: AgentSpec = {
+  name: 'miscellaneous-exploit',
+  label: 'miscellaneous',
+  activityType: 'runMiscellaneousExploitAgent',
 };
 
 /**
  * Shape the static PIPELINE to one scan's durable truth. expectedAgents, persisted by the
  * worker at scan start, names every exploit agent the scan can ever run: exploit rows it
- * excludes are dropped, 'other-exploit' is appended only once the other pipeline has
+ * excludes are dropped, 'miscellaneous-exploit' is appended only once the miscellaneous pipeline has
  * admitted findings, and a phase left with no agents disappears entirely. Without state
  * (the scan has not initialized durable state yet) the full static pipeline is the best
  * available guess.
@@ -113,13 +113,13 @@ export function pipelineForState(state: PipelineState | null): readonly PhaseSpe
   return PIPELINE.map((phase) => {
     if (phase.key !== 'exploitation') return phase;
     const agents = phase.agents.filter((agent) => expected.has(agent.name));
-    if (expected.has(OTHER_EXPLOIT_AGENT.name)) agents.push(OTHER_EXPLOIT_AGENT);
+    if (expected.has(MISCELLANEOUS_EXPLOIT_AGENT.name)) agents.push(MISCELLANEOUS_EXPLOIT_AGENT);
     return { ...phase, agents };
   }).filter((phase) => phase.agents.length > 0);
 }
 
 const AGENT_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>> = Object.fromEntries(
-  [...PIPELINE.flatMap((phase) => phase.agents), OTHER_EXPLOIT_AGENT].map((agent) => [
+  [...PIPELINE.flatMap((phase) => phase.agents), MISCELLANEOUS_EXPLOIT_AGENT].map((agent) => [
     agent.activityType,
     { key: agent.name, label: agent.label, kind: 'agent' },
   ]),
@@ -141,7 +141,11 @@ const OPERATION_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>
   initDeliverableGit: { key: 'scan-initialization', label: 'Initialize deliverables', kind: 'operation' },
   syncCodePathDenyRules: { key: 'scan-initialization', label: 'Apply source rules', kind: 'operation' },
   initializeDurableScanState: { key: 'durable-state', label: 'Saving scan state', kind: 'operation' },
-  persistOtherOutcome: { key: 'other-pipeline', label: 'Including other findings', kind: 'operation' },
+  persistMiscellaneousOutcome: {
+    key: 'miscellaneous-pipeline',
+    label: 'Including miscellaneous findings',
+    kind: 'operation',
+  },
   initializeReportProgress: { key: 'report:initialize', label: 'Initialize report state', kind: 'operation' },
   renumberClassFindings: { key: 'report:renumber', label: 'Renumber findings', kind: 'operation' },
   assembleReportActivity: { key: 'report:assemble', label: 'Assemble report inputs', kind: 'operation' },
@@ -158,7 +162,11 @@ const OPERATION_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>
   logPhaseTransition: { key: 'audit-log', label: 'Update audit log', kind: 'operation' },
   logWorkflowComplete: { key: 'audit-log', label: 'Finalize audit log', kind: 'operation' },
   saveCheckpoint: { key: 'checkpoint', label: 'Save checkpoint', kind: 'operation' },
-  seedEmptyProducerQueue: { key: 'other-pipeline', label: 'Preparing other findings', kind: 'operation' },
+  seedEmptyProducerQueue: {
+    key: 'miscellaneous-pipeline',
+    label: 'Preparing miscellaneous findings',
+    kind: 'operation',
+  },
   prepareClassReconciliation: {
     key: 'reconciliation',
     label: 'Preparing findings',

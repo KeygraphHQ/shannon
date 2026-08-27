@@ -70,6 +70,11 @@ function agentState(name: string, state: PipelineState | null, running: Set<stri
   return resolved ? 'skipped' : 'pending';
 }
 
+/**
+ * Only `failed`'s presence is used here, never its `.error` text: that string is the
+ * worker's raw error for the failed class, not vetted for display, so it is reduced to
+ * a boolean before reaching safeFailureDetail's fixed sentence.
+ */
 function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
   const failed = state?.failedPipelines.find((f) => f.vulnType === agentClass(name));
   return (

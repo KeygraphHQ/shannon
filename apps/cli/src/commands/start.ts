@@ -74,8 +74,8 @@ function arraysEqual(left: readonly unknown[], right: readonly unknown[]): boole
 /**
  * Hand-rolled twin of the worker's durable-state validator in
  * apps/worker/src/types/run-state.ts, which owns the session.json.durableScanState shape.
- * Each array check accepts two variants because the worker appends 'other' and
- * 'other-exploit' only after the other pipeline admits findings. If the worker's shape
+ * Each array check accepts two variants because the worker appends 'miscellaneous' and
+ * 'miscellaneous-exploit' only after the miscellaneous pipeline admits findings. If the worker's shape
  * changes and this twin lags, resume fails fast as incompatible instead of launching a
  * worker against state it would misread.
  */
@@ -85,14 +85,14 @@ function isCurrentDurableState(value: unknown): boolean {
 
   const participating = value.participating_classes;
   const validParticipation =
-    arraysEqual(participating, FIXED_CLASSES) || arraysEqual(participating, [...FIXED_CLASSES, 'other']);
+    arraysEqual(participating, FIXED_CLASSES) || arraysEqual(participating, [...FIXED_CLASSES, 'miscellaneous']);
   if (!validParticipation) return false;
 
   const baselineAgents = ['pre-recon', 'recon', ...FIXED_CLASSES.map((name) => `${name}-vuln`)];
   if (value.exploit) baselineAgents.push(...FIXED_CLASSES.map((name) => `${name}-exploit`));
   baselineAgents.push('report');
   const expected = value.expected_agents;
-  return arraysEqual(expected, baselineAgents) || arraysEqual(expected, [...baselineAgents, 'other-exploit']);
+  return arraysEqual(expected, baselineAgents) || arraysEqual(expected, [...baselineAgents, 'miscellaneous-exploit']);
 }
 
 /** One refusal for damaged CLI-owned or worker-owned workspace records, whichever reads first. */

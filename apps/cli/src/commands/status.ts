@@ -3,17 +3,17 @@
  *
  * While the scan runs, polls Temporal and redraws the phase/agent tree on a
  * terminal (a pipe or a finished scan gets a single frame). When the scan reaches
- * a terminal state, prints the overall result and exits. Reads Temporal directly —
- * no worker, no session files — so it needs Temporal up and shows scans within its
- * ~24h retention window.
+ * a terminal state, prints the overall result and exits. Local session records prove
+ * the target's canonical workspace/workflow identity; the progress itself is read from
+ * Temporal directly — no worker — so it needs Temporal up and shows scans within its
+ * retention window (Shannon configures seven days by default; see SHANNON_TEMPORAL_RETENTION).
  */
 
 import { setTimeout as sleep } from 'node:timers/promises';
-import { fail } from '../errors.js';
-import { isLocal } from '../mode.js';
+import { failWith } from '../errors.js';
+import { commandPrefix, isLocal } from '../mode.js';
 import { type RenderInput, renderScan } from '../scan/render.js';
 import { toStatusJson } from '../scan/status-json.js';
-import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
 import {
   ActivityMirrorError,
@@ -24,6 +24,7 @@ import {
 } from '../temporal-client.js';
 import { stdoutIsTerminal, supportsColor } from '../tty.js';
 import { getVersion } from '../version.js';
+import { resolveScanIdentity } from '../workspaces.js';
 
 const HIDE_CURSOR = '\x1b[?25l';
 const SHOW_CURSOR = '\x1b[?25h';
@@ -45,8 +46,9 @@ async function readScanDescription(workflowId: string): Promise<ScanDescription 
   try {
     return await describeScan(workflowId);
   } catch (error) {
-    if (error instanceof ActivityMirrorError) fail(error.message);
-    fail(
+    if (error instanceof ActivityMirrorError) failWith('CLI_SCAN_SCHEMA_UNSUPPORTED', error.message);
+    failWith(
+      'CLI_SCAN_STATUS_UNAVAILABLE',
       "Could not read this scan's progress.",
       'If Temporal is not running, start a scan to bring it up. If it is running, this build of the CLI',
       'does not recognise part of the scan and needs updating.',
@@ -155,7 +157,7 @@ async function watch(workspace: string, workflowId: string): Promise<never> {
     const desc = await readScanDescription(workflowId);
     if (!desc) {
       clearInterval(ticker);
-      fail(`Scan "${workspace}" is no longer in Temporal.`);
+      failWith('CLI_SCAN_NOT_FOUND', `Scan "${workspace}" is no longer in Temporal.`);
     }
 
     if (isTerminalStatus(desc.status)) {
@@ -177,18 +179,40 @@ async function snapshot(workspace: string, workflowId: string, desc: ScanDescrip
     : buildRunningInput(workspace, workflowId, desc);
 }
 
-export async function status(workspace: string, opts: { readonly json: boolean }): Promise<void> {
-  // A resume spawns a new workflow id (recorded in session.json); resolve through there so status
-  // follows the current resume, not the superseded original. Fresh scans: the name is the id.
-  const workflowId = resolveWorkflowId(workspace) ?? workspace;
+export async function status(target: string, opts: { readonly json: boolean }): Promise<void> {
+  // Target selection picked a string; identity resolution proves the canonical workspace and
+  // workflow pair from session records before Temporal is queried. A workspace name follows its
+  // latest resume; an exact recorded workflow id keeps addressing that execution. A raw id with
+  // no local record is refused rather than echoed into the required workspace field.
+  const identity = resolveScanIdentity(target);
+  if (identity.kind === 'ambiguous') {
+    failWith(
+      'CLI_SCAN_IDENTITY_AMBIGUOUS',
+      `Multiple workspaces claim workflow ID "${target}": ${identity.claims.join(', ')}.`,
+      `Run '${commandPrefix()} scans' and pass the workspace directory name instead.`,
+    );
+  }
+  if (identity.kind === 'not-found') {
+    failWith(
+      'CLI_SCAN_IDENTITY_NOT_FOUND',
+      identity.reason === 'unreadable-record'
+        ? `Workspace "${target}" has no readable session record (${identity.sessionPath}).`
+        : `No scan matches "${target}" in the local workspace records.`,
+      `Run '${commandPrefix()} scans' to list scans.`,
+      'Temporal dashboard: http://localhost:8233',
+    );
+  }
+  const { workspace, workflowId } = identity;
 
   const desc = await readScanDescription(workflowId);
 
   if (!desc) {
-    fail(
+    failWith(
+      'CLI_SCAN_NOT_FOUND',
       `No scan found for "${workspace}".`,
       '',
-      'Scans are visible while running and for ~24h after they finish (Temporal retention).',
+      "Scan histories are available while a scan runs and within Temporal's retention window after it finishes.",
+      "Shannon configures 7 days of retention by default (override: SHANNON_TEMPORAL_RETENTION). Expired histories can't be restored.",
     );
   }
 

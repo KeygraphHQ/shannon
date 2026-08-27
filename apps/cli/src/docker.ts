@@ -14,7 +14,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
-import { fail } from './errors.js';
+import { fail, warn } from './errors.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
 import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
@@ -116,10 +116,8 @@ export function isTemporalReady(): boolean {
   return output.includes('SERVING');
 }
 
-/**
- * Ensure Temporal is running via compose.
- */
-export async function ensureInfra(spinner: SpinnerResult): Promise<void> {
+/** Start (or find) Temporal via compose and wait until it serves; exits the process on failure. */
+async function ensureTemporalHealthy(spinner: SpinnerResult): Promise<void> {
   if (isTemporalReady()) {
     return;
   }
@@ -144,6 +142,97 @@ export async function ensureInfra(spinner: SpinnerResult): Promise<void> {
 
   spinner.error('Temporal did not become ready in time');
   process.exit(1);
+}
+
+const DEFAULT_RETENTION_HOURS = 168;
+const RETENTION_ENV = 'SHANNON_TEMPORAL_RETENTION';
+const RETENTION_NAMESPACE = 'default';
+
+/**
+ * Desired retention in whole hours: unset or empty env → 168 (7 days); a positive
+ * whole-hour override like `72h`; anything else warns and returns null (leave unchanged).
+ */
+function desiredRetentionHours(): number | null {
+  const raw = process.env[RETENTION_ENV];
+  if (raw === undefined || raw.trim() === '') {
+    return DEFAULT_RETENTION_HOURS;
+  }
+  const match = raw.trim().match(/^([1-9][0-9]*)h$/);
+  if (!match) {
+    warn(
+      `Ignoring invalid ${RETENTION_ENV} "${raw}" — Temporal retention left unchanged.`,
+      'Use a positive whole number of hours, e.g. "168h".',
+    );
+    return null;
+  }
+  return Number(match[1]);
+}
+
+/** Convert a Go duration such as "24h0m0s" or "168h" to whole seconds, or null when it doesn't parse. */
+function parseGoDurationSeconds(text: string): number | null {
+  const match = text.match(/^(?:(\d+)h)?(?:(\d+)m)?(?:(\d+)s)?$/);
+  if (!match || (match[1] === undefined && match[2] === undefined && match[3] === undefined)) {
+    return null;
+  }
+  const hours = Number(match[1] ?? 0);
+  const minutes = Number(match[2] ?? 0);
+  const seconds = Number(match[3] ?? 0);
+  return hours * 3600 + minutes * 60 + seconds;
+}
+
+/**
+ * Current retention of the `default` namespace in seconds, or null when it can't be read.
+ * `runOutput` returns '' on a failed describe, so a failed read and an unparseable one both
+ * collapse to null — either way the live value is unknown, which the caller handles the same way.
+ */
+function readCurrentRetentionSeconds(): number | null {
+  const output = runOutput('docker', temporalCmd('operator', 'namespace', 'describe', RETENTION_NAMESPACE));
+  const match = output.match(/WorkflowExecutionRetentionTtl\s+(\S+)/);
+  if (!match || match[1] === undefined) {
+    return null;
+  }
+  return parseGoDurationSeconds(match[1]);
+}
+
+/**
+ * Converge the `default` namespace's retention to the CLI-owned value after Temporal is
+ * healthy. The CLI is the authority: a manual change is replaced on the next start unless
+ * the operator sets the matching override. A describe or update failure warns once that the
+ * requested value wasn't applied and never blocks the scan.
+ */
+function convergeNamespaceRetention(): void {
+  const hours = desiredRetentionHours();
+  if (hours === null) {
+    return;
+  }
+
+  const currentSeconds = readCurrentRetentionSeconds();
+  if (currentSeconds === null) {
+    warn(
+      `Could not read Temporal retention for namespace "${RETENTION_NAMESPACE}" — the requested value (${hours}h) was not applied.`,
+    );
+    return;
+  }
+
+  if (currentSeconds === hours * 3600) {
+    return;
+  }
+
+  const updated = runQuiet(
+    'docker',
+    temporalCmd('operator', 'namespace', 'update', '--namespace', RETENTION_NAMESPACE, '--retention', `${hours}h`),
+  );
+  if (!updated) {
+    warn(`Could not update Temporal retention to ${hours}h — the requested value was not applied.`);
+  }
+}
+
+/**
+ * Ensure Temporal is running via compose, then converge its scan-history retention.
+ */
+export async function ensureInfra(spinner: SpinnerResult): Promise<void> {
+  await ensureTemporalHealthy(spinner);
+  convergeNamespaceRetention();
 }
 
 /**
@@ -358,7 +447,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Environment
   args.push(...opts.envFlags);
 
-  // Container settings
+  // Container settings. Chromium's own sandbox needs syscalls Docker's default seccomp
+  // profile blocks, so it is loosened for the in-container browser automation; the
+  // worker process itself is not granted any extra privilege by this.
   args.push('--shm-size', '2gb', '--security-opt', 'seccomp=unconfined');
 
   // Image
@@ -403,6 +494,20 @@ export function scanFilter(workspace: string): readonly string[] {
 export function runningContainers(filter: readonly string[]): string[] {
   const output = runOutput('docker', ['ps', '-q', ...filter]);
   return output.split('\n').filter(Boolean);
+}
+
+/**
+ * Workspace names of every running worker container, read from the shannon.workspace
+ * label each scan is stamped with at spawn. This is the authoritative running-scan →
+ * workspace-name map. Best-effort: empty when Docker is unreachable, which is the
+ * correct answer anyway (no scan can be running without the daemon).
+ */
+export function runningScanWorkspaces(): string[] {
+  const output = runOutput('docker', ['ps', ...WORKER_FILTER, '--format', `{{ index .Labels "${WORKSPACE_LABEL}" }}`]);
+  return output
+    .split('\n')
+    .map((name) => name.trim())
+    .filter(Boolean);
 }
 
 /**

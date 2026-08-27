@@ -91,7 +91,14 @@ export async function describeScan(workflowId: string): Promise<ScanDescription 
       if (!progress) {
         throw new ActivityMirrorError(activityType || 'unknown activity');
       }
-      const lastFailure = pending.lastFailure?.message;
+      // Temporal's own failure message is never forwarded verbatim: it can carry raw
+      // exception text from inside the activity, which this client has no way to vet
+      // before painting it into a terminal. Only its presence is kept; the boolean feeds
+      // a fixed sentence downstream (see safeFailureDetail), and the real detail stays
+      // one `shannon logs` away.
+      // NOTE: the proto decoder writes an absent lastFailure as null, not undefined, so a
+      // loose check is what distinguishes a healthy attempt from a failed one.
+      const lastFailure = pending.lastFailure == null ? undefined : 'This activity attempt failed.';
       const startedAt = timestampMs(pending.scheduledTime ?? pending.lastStartedTime ?? null);
       runningAgents.push({
         agent: progress.key,
@@ -179,8 +186,9 @@ export async function waitForWorkflowClose(workflowId: string, opts: WatchOption
 
   while (!signal?.aborted) {
     try {
-      const desc = await describeScan(workflowId);
-      if (desc === null || TERMINAL_STATUSES.has(desc.status)) {
+      const client = await getClient();
+      const desc = await client.workflow.getHandle(workflowId).describe();
+      if (TERMINAL_STATUSES.has(desc.status.name)) {
         return { reason: 'closed' };
       }
       // Reachable and still RUNNING — reset the failure streak and note any recovery.
@@ -190,6 +198,9 @@ export async function waitForWorkflowClose(workflowId: string, opts: WatchOption
       }
       connectFailures = 0;
     } catch (err) {
+      if (err instanceof WorkflowNotFoundError) {
+        return { reason: 'closed' };
+      }
       connectFailures++;
       lastError = err instanceof Error ? err.message : String(err);
       if (!warned && connectFailures >= warnAfterFailures) {

@@ -20,6 +20,7 @@ import {
 import { fail, failUsage, warn } from '../errors.js';
 import { commandPrefix } from '../mode.js';
 import { resolveWorkflowId } from '../session.js';
+import { resolveDefaultWorkspace } from '../workspaces.js';
 
 export interface StopOptions {
   all: boolean;
@@ -108,6 +109,24 @@ async function stopAllScans(yes: boolean): Promise<void> {
   }
 }
 
+/**
+ * Infer which scan `stop` acts on when neither a workspace nor --all was given: the single
+ * running scan, announced on stderr so it is never a silent guess. Zero or several running
+ * scans exit with guidance — there is no most-recent fallback, since stopping a finished
+ * scan is a no-op.
+ */
+function resolveStopTarget(): string {
+  const target = resolveDefaultWorkspace({ allowFinished: false });
+  if (target.kind === 'ok') {
+    console.error(`No workspace given; stopping running scan "${target.workspace}".`);
+    return target.workspace;
+  }
+  if (target.kind === 'ambiguous') {
+    failUsage('Multiple scans are running — specify which one, or use --all:', `  ${target.running.join(', ')}`);
+  }
+  fail('No running scans to stop.', 'Pass a workspace name to stop a specific scan.');
+}
+
 export async function stop(opts: StopOptions): Promise<void> {
   ensureDocker();
 
@@ -115,12 +134,12 @@ export async function stop(opts: StopOptions): Promise<void> {
   if (opts.all && opts.workspace) {
     failUsage('Pass a workspace name or --all, not both.');
   }
-  if (!opts.all && !opts.workspace) {
-    failUsage('Specify which scan to stop: `stop <workspace>`, or `stop --all` to stop every scan.');
-  }
 
-  if (opts.workspace) {
-    await stopSingleScan(opts.workspace, opts.yes);
+  // With no explicit target and no --all, default to the single running scan.
+  const workspace = opts.all ? undefined : (opts.workspace ?? resolveStopTarget());
+
+  if (workspace) {
+    await stopSingleScan(workspace, opts.yes);
   } else {
     await stopAllScans(opts.yes);
   }
