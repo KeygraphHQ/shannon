@@ -157,14 +157,16 @@ export function safeErrorFromUnknown(
  * Ordinary security vocabulary — `authorization`, `password`, `token` — is allowed; the
  * rejection is structural, not a word blocklist. Fail-closed: anything carrying a URL,
  * path, domain, assignment, colon, secret-shaped token, control character, or excessive
- * length is rejected rather than partially sanitized.
+ * length is rejected rather than partially sanitized. A forward slash is treated as a word
+ * separator (`XSS/Injection` → `xss injection`), not a path marker — real paths and URLs are
+ * still rejected below by their `.`, `\`, `:`, or `@`.
  */
 export function normalizeSemanticLabel(value: unknown): string | undefined {
   if (typeof value !== 'string' || containsControlCharacter(value)) return undefined;
-  const collapsed = value.trim().replace(/\s+/gu, ' ');
+  const collapsed = value.replace(/[\s/]+/gu, ' ').trim();
   if (collapsed.length === 0 || collapsed.length > 48) return undefined;
   // Paths, domains/filenames, assignments, colons, and addresses are structurally unsafe.
-  if (/[./\\=:@]/u.test(collapsed)) return undefined;
+  if (/[.\\=:@]/u.test(collapsed)) return undefined;
   // A long unbroken alphanumeric run is secret/hash/base64-shaped, never a real word.
   if (/[A-Za-z0-9_-]{20,}/u.test(collapsed)) return undefined;
   const words = collapsed.toLowerCase().split(' ');
