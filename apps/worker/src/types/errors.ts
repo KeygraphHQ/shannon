@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -63,6 +63,8 @@ export function isProviderFailureCategory(value: unknown): value is ProviderFail
 }
 
 export interface ProviderFailure {
+  // The exhaustive set of shapes a model-provider failure can take at this boundary: bad
+  // credentials, bad provider/model configuration, or everything else the agent run raised.
   readonly type: 'AuthenticationError' | 'ConfigurationError' | 'AgentExecutionError';
   readonly category: ProviderFailureCategory;
   readonly retryable: boolean;

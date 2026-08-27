@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -176,6 +176,9 @@ function buildMessageMarkdown(finding: AddFindingInput): string {
   parts.push('', '**Remediation**', '', finding.remediation);
   // Exploitation steps and proof of impact are deliberately absent: SARIF has no structural home
   // for them, and flattening them into prose would imply this file carries the evidence.
+  // NOTE: the filename below is not imported from paths.ts (FINAL_REPORT_PDF_FILENAME) because
+  // it is customer-facing prose, not a path this module reads or writes. It must be kept in sync
+  // by hand if that constant's value ever changes.
   parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.pdf`');
   return parts.join('\n');
 }

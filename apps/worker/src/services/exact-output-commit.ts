@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -33,6 +33,11 @@ export interface RenumberErrorDetails {
   readonly [key: string]: unknown;
 }
 
+/**
+ * Integrity failure shared by exact-path publication and the renumber/compaction transforms.
+ * `retryable` drives the Temporal wrapper's retry decision, and `details.checkCode` is a stable
+ * machine-readable identifier; both are part of the durable error contract.
+ */
 export class RenumberError extends Error {
   readonly retryable: boolean;
   readonly type: RenumberErrorType;
@@ -56,6 +61,7 @@ export interface ExactOutputFile {
 export interface ExactOutputCommit {
   readonly commitHash: string;
   readonly changedPaths: readonly string[];
+  /** True when HEAD already held every declared byte and the existing commit was adopted. */
   readonly alreadyCommitted: boolean;
 }
 
@@ -71,6 +77,9 @@ function isErrno(error: unknown, code: string): boolean {
   return error instanceof Error && (error as NodeJS.ErrnoException).code === code;
 }
 
+// WARNING: a symlink at a declared output path would redirect the atomic write outside the
+// deliverables repo, so publication refuses to write through one. ENOENT is fine: the path
+// simply has not been written yet.
 async function rejectSymlinks(dir: string, relPaths: readonly string[]): Promise<void> {
   for (const relPath of relPaths) {
     try {
@@ -107,6 +116,11 @@ async function executeExactGitCommand(
   }
 }
 
+/**
+ * Realign only the declared paths with HEAD, in both the worktree and the index: paths present
+ * at HEAD are restored, paths absent at HEAD are unstaged and deleted. Sibling files are never
+ * touched, so a failed publication cannot discard a concurrent agent's staged or dirty work.
+ */
 async function repairExactPathsFromHead(dir: string, relPaths: readonly string[]): Promise<void> {
   const presentPaths: string[] = [];
   const absentPaths: string[] = [];
@@ -141,6 +155,13 @@ async function repairExactPathsFromHead(dir: string, relPaths: readonly string[]
   }
 }
 
+/**
+ * Commit the declared files through a scratch index seeded from HEAD's tree, so entries staged
+ * in the real index can never leak into the commit and a failed attempt leaves the real index
+ * untouched. Publication routes here whenever the file set declares a deletion.
+ * `update-ref HEAD <new> <old>` is a compare-and-swap: it fails instead of clobbering HEAD if
+ * anything else advanced the branch after the tree was read.
+ */
 async function commitExactFilesWithTemporaryIndex(
   dir: string,
   files: readonly ExactOutputFile[],
@@ -178,6 +199,9 @@ async function commitExactFilesWithTemporaryIndex(
       dir,
       'advancing HEAD to the exact-output commit',
     );
+    // The commit was built in the scratch index, so the real index still reflects the old HEAD.
+    // Re-sync just the declared paths there; otherwise later status and commit calls would see
+    // phantom changes for files this commit already settled.
     for (const file of files) {
       if (file.contents === null) {
         const listed = await executeExactGitCommand(
@@ -207,7 +231,16 @@ async function commitExactFilesWithTemporaryIndex(
   }
 }
 
-/** Exact-path, lost-acknowledgement-safe publication used by both transforms. */
+/**
+ * Publish an exact file set as one commit whose changed paths equal exactly the declared
+ * deltas, leaving every sibling path alone.
+ *
+ * The call is safe to re-drive after a lost acknowledgement: when HEAD already holds every
+ * declared byte it repairs worktree drift and adopts the existing state (`alreadyCommitted`)
+ * instead of creating a second commit. Committed bytes are re-read and verified before the
+ * result is returned, so a caller never acknowledges a publication the repo does not hold.
+ * On any failure the declared paths are rolled back to HEAD.
+ */
 export async function writeAndCommitExactFiles(
   dir: string,
   files: readonly ExactOutputFile[],
@@ -278,6 +311,8 @@ export async function writeAndCommitExactFiles(
         throw new RenumberError('key-set-divergence', false, { checkCode: 'changed-path-set-mismatch' });
       }
       await options.afterCommit?.(committed);
+      // Verify the committed bytes before returning: acknowledgement must follow proof, and a
+      // mismatch here rolls back and surfaces as terminal rather than as a lying success.
       for (const file of files) {
         const verified = await readCommittedFile(dir, file.relPath);
         const matches =

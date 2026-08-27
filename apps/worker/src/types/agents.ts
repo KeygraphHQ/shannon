@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -61,7 +61,9 @@ export type VulnType = VulnClass;
  * Decision returned by queue validation for exploitation phase.
  */
 export interface ExploitationDecision {
+  /** True when the class's exploitation queue has at least one vulnerability to process. */
   shouldExploit: boolean;
+  /** Currently always false; queue validation failures are surfaced as thrown errors instead. */
   shouldRetry: boolean;
   vulnerabilityCount: number;
   vulnType: VulnType;

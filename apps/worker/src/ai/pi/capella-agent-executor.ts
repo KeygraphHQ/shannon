@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -38,6 +38,9 @@ const MAX_TOOLS_PER_SESSION = 32;
 const MAX_TURNS_PER_SESSION = 1_000;
 const MAX_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
+// The closed set of stage-specific tools a caller is allowed to hand in alongside the confined
+// repository tools. Anything not on this list, and not a repository tool, is rejected as unknown
+// by validateCallerTools below.
 const CAPELLA_COLLECTOR_TOOL_NAMES = new Set([
   'report_finding',
   'record_duplicates',
@@ -47,6 +50,12 @@ const CAPELLA_COLLECTOR_TOOL_NAMES = new Set([
   'record_calibration',
 ]);
 
+// A Capella stage reasons over a read-only, confined view of the repository; none of these may
+// ever be offered to it. `bash`/`shell`/`network`/`browser`/`web_search` would give it an escape
+// hatch out of the confined tool set entirely; `edit`/`write` would let a review agent change the
+// code it is meant to only analyze; `task` would let it spawn further sessions outside this
+// executor's bounded turn/timeout accounting; `glob`/`ls`/`todo`/`todo_write` duplicate tools the
+// stage already gets from the confined factory or has no use for.
 const FORBIDDEN_TOOL_NAMES = new Set([
   'bash',
   'browser',

@@ -6,6 +6,17 @@ Shannon as a whole is distributed under the GNU Affero General Public License,
 version 3.0 (see LICENSE). Third-party material incorporated into Shannon
 remains subject to the attribution and notice requirements of its own license.
 
+## Pi
+
+Shannon uses Pi as part of its agent framework.
+
+Project: https://github.com/earendil-works/pi
+License: MIT
+
+Copyright (c) 2025 Mario Zechner
+
+The applicable license is reproduced at `LICENSES/MIT-Pi.txt`.
+
 ## Mantis
 
 Portions of Shannon's Capella agentic SAST implementation, specifically the
@@ -24,13 +35,12 @@ reside under:
 - apps/worker/prompts/partials/      (capella-*.hbs prompt partials)
 - apps/worker/prompts/sast/capella/  (prompt templates)
 
-The pinned upstream tree contains no NOTICE file, so no upstream NOTICE text is
-reproduced here. The upstream LICENSE carries no copyright notice of its own, so
-none is reproduced.
+The Mantis-derived material has been substantially modified by Keygraph
+for use within Shannon, including adaptation to Shannon's agent
+architecture and the Pi agent framework.
 
-The Mantis-derived material has been substantially modified by Keygraph for
-Shannon. Material changes include adaptation to Shannon's agent architecture,
-enforcing repository-relative paths and complete verdict sets, and providing
-separate production and pipeline-testing prompt variants.
+Copyright and attribution notices from the original Mantis material
+remain the property of their respective copyright holders.
 
-Modifications: Copyright © 2026 Keygraph, Inc.
+Modifications:
+Copyright © 2026 Keygraph, Inc.

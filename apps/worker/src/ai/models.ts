@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -19,6 +19,13 @@
  *
  * Resolution returns a pi `Model` plus the `ModelRuntime` that owns its auth,
  * built over an in-memory credential store primed from the environment.
+ *
+ * The CLI cannot import this module (it ships as a separate bundle), so
+ * `apps/cli/src/model-spec.ts` mirrors the parse rule and the provider/credential
+ * tables by hand for its own `status` rendering and setup wizard. The two copies
+ * have no shared compile-time link: a provider added or renamed on one side and
+ * not the other does not fail to build, it just makes the CLI's guidance or
+ * guard rails disagree with what the worker actually accepts at runtime.
  */
 
 import { existsSync } from 'node:fs';
@@ -30,6 +37,11 @@ import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
  * Providers Shannon curates with their own credential variables, config sections,
  * and setup flows. Each is a pi-ai provider id; any other pi provider is still
  * reachable through the generic credential path below.
+ *
+ * Kept identical to the CLI's own copy of this list (`apps/cli/src/model-spec.ts`),
+ * which the CLI uses to decide whether "only one provider is configured" and to
+ * gate its "Other provider" setup option. A curated provider missing from one
+ * copy is silently treated as generic on that side.
  */
 export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
 
@@ -47,6 +59,11 @@ export const GENERIC_API_KEY_ENV = 'SHANNON_AI_API_KEY';
  * does not invent credential names — these are the variables each provider's own
  * tooling uses. Bedrock pairs its bearer token with AWS_REGION, which is provider
  * config rather than a credential.
+ *
+ * Mirrored by the CLI's own table of the same name, used there to decide which
+ * env vars to forward into the worker container. A variable added here without
+ * its CLI counterpart never reaches the container: the worker looks for a
+ * credential the CLI never forwarded, and preflight reports it as absent.
  */
 export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly string[]>> = {
   anthropic: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
@@ -335,11 +352,18 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
     );
   }
 
+  let credentialSource: ModelSelection['credentialSource'] = 'ambient';
+  if (mountedPiAuth) {
+    credentialSource = 'pi-auth';
+  } else if (credentials.apiKey) {
+    credentialSource = 'api-key';
+  }
+
   return {
     model,
     modelRuntime,
     modelId,
     providerId,
-    credentialSource: mountedPiAuth ? 'pi-auth' : credentials.apiKey ? 'api-key' : 'ambient',
+    credentialSource,
   };
 }

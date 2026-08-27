@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -125,6 +125,12 @@ export async function validateAuthentication(
     loginType: authentication.login_type,
   });
 
+  // This is the one place in the pipeline that performs a real login and persists the resulting
+  // browser session (cookies/storage) to disk, so downstream agents can reuse it instead of
+  // logging in again. Remove any file left by a prior attempt first: verifySavedAuthState below
+  // trusts the file's mere presence as proof this run's login succeeded, so a stale leftover
+  // would let a failed attempt look like a success. The file itself is deleted again when the
+  // workflow ends, so an authenticated session never survives between scans.
   const stateFile = authStateFile(auditSession.sessionMetadata);
   await rm(stateFile, { force: true });
 

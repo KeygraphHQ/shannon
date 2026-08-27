@@ -148,10 +148,10 @@ export function tailUntilComplete(logFile: string, opts: TailOptions = {}): Prom
   return new Promise((resolve) => {
     let position = 0;
     const completion = new LogCompletionState();
+    const completionDecoder = new StringDecoder('utf8');
     let done = false;
     const controller = new AbortController();
     let watcher: ReturnType<typeof watch> | undefined;
-    const completionDecoder = new StringDecoder('utf8');
 
     /** Output any new content appended since the last read. */
     function flush(): boolean {

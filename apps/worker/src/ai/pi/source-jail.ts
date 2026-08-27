@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -13,6 +13,9 @@ import path from 'node:path';
 import { ArtifactIntegrityError, ReconciliationIoError } from '../reconciliation/artifact-store.js';
 
 const JAIL_PREFIX = 'shannon-task-formation-';
+// Never copied into the model-readable jail: `.git` carries deliverables history, `.shannon` holds
+// scan internals, and `.pi` holds provider credentials. Any of these reaching the jail would expose
+// them to the tools the model drives. The post-copy verification re-checks their absence by name.
 const ALWAYS_EXCLUDED_NAMES = Object.freeze(['.git', '.shannon', '.pi'] as const);
 
 export interface SourceJailOptions {
@@ -44,6 +47,8 @@ function checkCancellation(signal: AbortSignal | undefined): void {
   if (signal?.aborted === true) throw cancellationError(signal);
 }
 
+// Path-confinement predicate: true only when `candidate` is `root` itself or lies beneath it.
+// A relative path that escapes upward (`..`) or is absolute means the candidate is outside the root.
 function isWithin(root: string, candidate: string): boolean {
   const relativePath = path.relative(root, candidate);
   return (
@@ -76,6 +81,8 @@ async function relativeExclusion(
   if (relativePath === undefined) return undefined;
 
   if (relativePath === '') {
+    // An exclusion that resolves to the whole root would empty the jail. Fail closed rather than
+    // copy nothing and hand the model an empty tree.
     throw new ArtifactIntegrityError('A task-formation exclusion resolves to the complete source root');
   }
   return relativePath;
@@ -119,11 +126,16 @@ async function copySourceTree(
     throw new ReconciliationIoError('Unable to enumerate the task-formation source tree');
   }
 
+  // Cancellation is checked before every top-level entry and inside the copy filter so an aborted
+  // scan stops promptly instead of copying a whole large tree first.
   for (const entry of entries) {
     checkCancellation(signal);
     const source = path.join(sourceRoot, entry.name);
     const destinationEntry = path.join(destination, entry.name);
     try {
+      // verbatimSymlinks copies links as links rather than following them, so a link pointing
+      // outside the tree cannot pull external content in; the filter then drops any path that
+      // resolves outside the root, plus the always- and dynamically-excluded paths.
       await cp(source, destinationEntry, {
         recursive: true,
         verbatimSymlinks: true,
@@ -183,6 +195,9 @@ async function assertDynamicExclusionsAbsent(
   }
 }
 
+// Re-verify the copied tree independently of the copy filter: the jail root must be a real
+// directory (not a symlink), and no excluded name or protected workspace path may survive. This
+// catches a filter gap or a race during the copy before the model is allowed to read the tree.
 async function verifyJail(
   directory: string,
   dynamicExclusions: readonly string[],
@@ -247,6 +262,7 @@ export async function materializeSourceJail(options: SourceJailOptions): Promise
   } catch {
     throw new ReconciliationIoError('Unable to resolve the task-formation temporary root');
   }
+  // A temp root inside the source tree would make the copy try to copy the jail into itself.
   if (isWithin(sourceRoot, tempRoot)) {
     throw new ArtifactIntegrityError('The task-formation temporary root cannot be inside the source tree');
   }

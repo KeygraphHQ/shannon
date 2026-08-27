@@ -93,4 +93,6 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT = findRepoRoot();
+
+/** Default root for named scan workspaces; each session's audit directory nests under here. */
 export const WORKSPACES_DIR = path.join(REPO_ROOT, 'workspaces');

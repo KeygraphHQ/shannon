@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -162,6 +162,9 @@ async function validateConfig(configPath: string, logger: ActivityLogger): Promi
 
 // === code_path Existence Validation ===
 
+// .shannon/ holds this scan's own internal bookkeeping (deliverables, logs, checkpoints), not
+// source the operator meant to scope. Without this exclusion, a code_path rule could match a
+// path Shannon itself created rather than a real entry in the target repo.
 const CODE_PATH_IGNORE = ['.git/**', '.shannon/**'];
 
 async function patternMatchesAny(repoPath: string, pattern: string): Promise<boolean> {

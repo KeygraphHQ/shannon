@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -717,6 +717,9 @@ export function createReconCollector(): ReconCollector {
       'The renderer sorts by (path, method) before rendering, so emission order does not affect output.',
     parameters: AddEndpointsInputSchema,
     async execute(_toolCallId, input) {
+      // Unlike the one-shot set_* tools, repeated calls here are expected (the agent splits a
+      // large inventory across several), so a repeated (method, path) pair is silently skipped
+      // as a no-op rather than rejected as a DuplicateError.
       addEndpointsCalls += 1;
       const added: string[] = [];
       const skipped: string[] = [];

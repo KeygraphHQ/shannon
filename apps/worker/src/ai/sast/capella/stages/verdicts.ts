@@ -267,6 +267,9 @@ export async function runReviewStage(
     );
     let usage = primary.usage;
     let salvagedTurnLimitCount = primary.salvagedTurnLimit ? 1 : 0;
+    // One bounded repair pass, scoped to only the findings the primary session skipped: this
+    // recovers a session that ran out of turns or omitted a few findings without re-running the
+    // full finding set, which would double the cost of every unaffected verdict alongside it.
     const missing = missingFindings(source.findings, collector.getAcceptedIds());
     if (missing.length > 0) {
       const repair = await runCollectorSession(

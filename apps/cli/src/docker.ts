@@ -448,8 +448,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push(...opts.envFlags);
 
   // Container settings. Chromium's own sandbox needs syscalls Docker's default seccomp
-  // profile blocks, so it is loosened for the in-container browser automation; the
-  // worker process itself is not granted any extra privilege by this.
+  // profile blocks, which is why the profile is dropped. `seccomp=unconfined` is a
+  // container-wide setting, not a per-process one: every process here runs unfiltered,
+  // the worker included — not just the browser automation that motivates it.
   args.push('--shm-size', '2gb', '--security-opt', 'seccomp=unconfined');
 
   // Image

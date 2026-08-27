@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -51,6 +51,9 @@ export class SessionMutex {
 
     // 4. Return unlock that releases the next waiter in the chain
     return () => {
+      // Only delete the map entry if it still points at this call's own promise. If a later
+      // lock() has already replaced it, this unlock is not the current tail, so leave the
+      // newer entry alone; deleting unconditionally would drop a still-pending waiter.
       if (this.locks.get(sessionId) === promise) {
         this.locks.delete(sessionId);
       }

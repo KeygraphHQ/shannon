@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -107,6 +107,10 @@ function main(): void {
     process.exit(1);
   }
 
+  // The --type argument only ever resolves to one of the fixed filenames in
+  // DELIVERABLE_FILENAMES; there is no path taking an agent-supplied filename directly
+  // to disk. This keeps the deliverables directory contents fully predictable regardless
+  // of what an agent passes for --type.
   const deliverableType = args.type as DeliverableType;
   const filename = DELIVERABLE_FILENAMES[deliverableType];
 

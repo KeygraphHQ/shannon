@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -8,6 +8,9 @@
  * Configuration type definitions
  */
 
+// Every variant but `code_path` scopes network requests (URL/method/header/parameter matching).
+// `code_path` is enforced by a different mechanism entirely: it becomes a permission-system deny
+// rule so an avoided path is blocked from every tool and child session, not just outbound traffic.
 export type RuleType = 'url_path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter' | 'code_path';
 
 export interface Rule {

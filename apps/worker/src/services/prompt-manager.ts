@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -170,6 +170,10 @@ interface IncludeReplacement {
 }
 
 // Pure function: Build complete login instructions from config
+//
+// Username, password, TOTP secret, and email-login credentials are substituted directly into
+// the returned string, which only ever lives in process memory on its way into the prompt sent
+// to the model. Nothing in this function writes credentials to a file.
 async function buildLoginInstructions(
   authentication: Authentication,
   logger: ActivityLogger,
@@ -306,6 +310,10 @@ function replaceLiteral(input: string, pattern: RegExp | string, replacement: st
   return input.replace(pattern, () => replacement);
 }
 
+// Deliberately omits password, TOTP secret, and email-login credentials: this block is
+// background context for the agent's prompt header, not the login mechanism itself. The
+// actual secret values are only ever interpolated into {{LOGIN_INSTRUCTIONS}} via
+// buildLoginInstructions, so a secret is never duplicated into this second location.
 function buildAuthContext(config: DistributedConfig | null): string {
   if (!config?.authentication) {
     return 'No authentication configured - unauthenticated testing only';

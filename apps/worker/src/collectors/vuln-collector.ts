@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -404,6 +404,8 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     parameters: intelSchema,
     async execute(_toolCallId, input) {
       if (state.strategic_intelligence) return alreadyCalled('set_strategic_intelligence');
+      // Safe: intelSchema was selected from STRATEGIC_INTEL_SCHEMAS by this collector's own
+      // vulnClass, so cleanInput's output shape always matches one arm of the union below.
       state.strategic_intelligence = cleanInput(intelSchema, input) as unknown as StrategicIntelligenceInput;
       return successResult({ set: 'set_strategic_intelligence' });
     },

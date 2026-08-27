@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -17,6 +17,10 @@ import { type CapturedSubmitTool, createGenericSubmitTool } from '../submit-tool
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0, costUsd: 0 } as const;
 
+// True only when this caller's own signal aborted and the error traces back to it. Walk a bounded,
+// cycle-guarded cause chain so a cancellation wrapped several layers deep is still recognized as a
+// cancellation and not misreported as a provider error. Without the `signal.aborted` gate an
+// unrelated AbortError from the provider could be mistaken for our cancellation.
 function isSignalCancellation(error: unknown, signal: AbortSignal | undefined): boolean {
   if (signal?.aborted !== true) return false;
 
@@ -109,6 +113,8 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
     };
   }
   if (response.stopReason === 'aborted') {
+    // An abort with our signal set is a real cancellation. An abort without it is a provider-side
+    // stop we did not ask for, so classify it as an error the caller can retry on.
     if (request.signal?.aborted === true) {
       return { stopReason: 'aborted', toolCalls: [], usage: responseUsage(response) };
     }

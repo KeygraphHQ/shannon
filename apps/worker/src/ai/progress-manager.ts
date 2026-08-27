@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -9,6 +9,13 @@
 import { ProgressIndicator } from '../progress-indicator.js';
 import { extractAgentType } from '../utils/formatting.js';
 
+/**
+ * `useCleanOutput` marks the phases that use the friendly "Running X..."
+ * spinner plus a one-line completion message (pre-recon, recon, report, and
+ * the vuln/exploit agents) as opposed to the verbose turn-by-turn fallback
+ * formatting used elsewhere. `createProgressManager` reads it to decide
+ * between a real spinner and the silent null one.
+ */
 export interface ProgressContext {
   description: string;
   useCleanOutput: boolean;
@@ -62,7 +69,8 @@ class NullProgressManager implements ProgressManager {
   }
 }
 
-// Returns no-op when disabled
+// Returns no-op when disabled. `disableLoader` lets a caller force the silent manager regardless
+// of useCleanOutput, for a context where an animated spinner would be unwanted no matter the phase.
 export function createProgressManager(context: ProgressContext, disableLoader: boolean): ProgressManager {
   if (!context.useCleanOutput || disableLoader) {
     return new NullProgressManager();

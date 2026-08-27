@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -62,6 +62,11 @@ const REMEDIATION_HINTS: Record<string, string> = {
   PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
 };
 
+/**
+ * Every message a terminal scan failure can show. Closed on purpose: an ApplicationFailure's
+ * own `.message` can carry raw activity or provider detail, so it is never surfaced directly.
+ * A type absent from this record falls back to one generic sentence instead.
+ */
 const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
   AuthenticationError: 'Provider authentication failed.',
   ConfigurationError: 'The scan configuration is invalid.',

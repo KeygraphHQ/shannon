@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -90,6 +90,9 @@ function errorCodeFromResult(result: PiPromptResult): ErrorCode {
   return ErrorCode.AGENT_EXECUTION_FAILED;
 }
 
+// Only the codes this service can itself raise from execution failure get a specific category;
+// every other code (including provider-classified ones) falls through to 'validation' because
+// this path only runs for a failed agent attempt, never for a config or preflight error.
 function categoryForErrorCode(code: ErrorCode): PentestErrorType {
   switch (code) {
     case ErrorCode.GIT_CHECKPOINT_FAILED:
@@ -109,6 +112,8 @@ function gitFailureForAgent(
   error: Error | undefined,
   code: ErrorCode = ErrorCode.GIT_CHECKPOINT_FAILED,
 ): PentestError {
+  // An unclassified git failure is assumed transient (filesystem contention, not a permanent
+  // fault), so it does not cost the class its one shot at succeeding on retry.
   const retryable = error instanceof PentestError ? error.retryable : true;
   const message = error?.message ?? 'unknown git failure';
   return new PentestError(

@@ -57,11 +57,13 @@ The target repository is mounted read-only inside the worker container.
 Monitor progress:
 
 ```bash
-npx @keygraph/shannon logs <workspace>
-npx @keygraph/shannon status <workspace>
+npx @keygraph/shannon logs [<workspace>]     # defaults to the single running scan, else the most recent
+npx @keygraph/shannon status [<workspace>]   # same default target; add --json for a machine-readable snapshot
 npx @keygraph/shannon scans
 npx @keygraph/shannon version
 ```
+
+With no workspace, `logs` and `status` follow the single running scan; when several are running, name one.
 
 Source-build equivalents:
 
@@ -89,7 +91,7 @@ open http://localhost:8233
 Stop Shannon:
 
 ```bash
-npx @keygraph/shannon stop <workspace>   # stop one scan (confirms first; add --yes/-y to skip)
+npx @keygraph/shannon stop [<workspace>] # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
 npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
 npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
@@ -97,7 +99,7 @@ npx @keygraph/shannon reset              # stop everything and wipe all Temporal
 Source-build equivalents:
 
 ```bash
-./shannon stop <workspace>               # stop one scan (confirms first; add --yes/-y to skip)
+./shannon stop [<workspace>]             # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
 ./shannon stop --all                     # stop all scans (Temporal stays up)
 ./shannon reset                          # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
@@ -120,7 +122,7 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 # Stream the log until the scan finishes, then exit on its outcome (useful in CI).
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
 
-# List completed scans.
+# List running and completed scans.
 npx @keygraph/shannon scans
 ```
 

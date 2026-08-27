@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -180,6 +180,9 @@ export async function withGitRepoLock<T>(operation: () => Promise<T>): Promise<T
   }
 }
 
+// Git has no structured exit code for "another process holds the lock", so the only signal
+// available is these known substrings in stderr. Matching here is scoped to lock contention only,
+// never used to infer anything else about a command's outcome.
 const GIT_LOCK_ERROR_PATTERNS = [
   'index.lock',
   'unable to lock',
