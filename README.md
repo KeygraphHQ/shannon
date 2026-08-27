@@ -6,7 +6,7 @@
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset="./assets/github-banner-dark.png">
 <source media="(prefers-color-scheme: light)" srcset="./assets/github-banner-light.png">
-<img src="./assets/github-banner.png" alt="Shannon - AI Pentester by Keygraph" width="100%">
+<img src="./assets/github-banner-light.png" alt="Shannon, AI Pentester for Web Apps and APIs, by Keygraph" width="100%">
 </picture>
 
 <a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>

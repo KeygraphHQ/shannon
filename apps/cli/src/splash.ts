@@ -75,3 +75,20 @@ export function displaySplash(version?: string): void {
 
   console.log(lines.join('\n'));
 }
+
+/** Matches the divider width the CI wrappers and the scan renderer already use. */
+const RULE_WIDTH = 60;
+
+/**
+ * Plain-text banner for non-terminal output (CI logs, pipes, redirects).
+ * Drops the wordmark but keeps the authorized-use notice, which a reader of
+ * someone else's pipeline log still needs to see.
+ */
+export function displayPlainBanner(version?: string): void {
+  const rule = '─'.repeat(RULE_WIDTH);
+  console.log(rule);
+  console.log(version ? ` Shannon v${version}` : ' Shannon');
+  console.log(' AI Pentester for Web Apps and APIs, by Keygraph');
+  console.log(' Authorized security testing only.');
+  console.log(rule);
+}

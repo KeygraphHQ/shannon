@@ -22,13 +22,14 @@ import { copyFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
+import { TYPST_BRAND } from '../branding.js';
 import { adaptReportToTypst } from './report-json-adapter.js';
 import type { ReportData } from './report-renderer.js';
 
 const execFileAsync = promisify(execFile);
 
 const DEFAULT_TESTER = 'Shannon';
-const DEFAULT_BRAND = 'Shannon | AI Pentester by Keygraph';
+const DEFAULT_BRAND = TYPST_BRAND;
 
 const DATA_FILENAME = 'data.json';
 const TEMPLATE_FILENAME = 'report.typ';

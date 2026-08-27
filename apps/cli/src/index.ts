@@ -1,5 +1,5 @@
 /**
- * Shannon CLI — AI Penetration Testing Framework
+ * Shannon CLI — AI Pentester for Web Apps and APIs
  *
  * Unified CLI supporting two modes:
  *   Local mode: Run from cloned repo — builds locally, mounts prompts, uses ./workspaces/
@@ -79,7 +79,7 @@ function showHelp(withSplash: boolean): void {
   const mode = getMode();
   const prefix = commandPrefix();
 
-  const header = withSplash ? '' : '\nShannon - AI Penetration Testing Framework\n';
+  const header = withSplash ? '' : '\nShannon — AI Pentester by Keygraph\n';
 
   console.log(`${header}
 Usage:
