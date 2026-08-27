@@ -75,3 +75,15 @@ export function displaySplash(version?: string): void {
 
   console.log(lines.join('\n'));
 }
+
+/**
+ * Plain-text banner for non-terminal output (CI logs, pipes, redirects).
+ * Drops the wordmark but keeps the authorized-use notice, which a reader of
+ * someone else's pipeline log still needs to see.
+ */
+export function displayPlainBanner(version?: string): void {
+  const label = version ? `Shannon v${version}` : 'Shannon';
+  console.log(`${label} — AI Pentester for Web Apps and APIs, by Keygraph`);
+  console.log('Authorized security testing only.');
+  console.log('');
+}

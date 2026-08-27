@@ -26,7 +26,7 @@ import {
 } from '../paths.js';
 import { indentFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
-import { displaySplash } from '../splash.js';
+import { displayPlainBanner, displaySplash } from '../splash.js';
 import { getTerminalOutcome } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
 import { tailUntilComplete } from './logs.js';
@@ -81,10 +81,12 @@ export async function start(args: StartArgs): Promise<void> {
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
 
-  // Inputs are valid — show the splash before the Docker/Temporal setup work.
-  // Skip it off a real terminal (e.g. CI) so piped/logged output stays clean.
+  // Inputs are valid — identify the run before the Docker/Temporal setup work.
+  const bannerVersion = isLocal() ? undefined : args.version;
   if (stdoutIsTerminal()) {
-    displaySplash(isLocal() ? undefined : args.version);
+    displaySplash(bannerVersion);
+  } else {
+    displayPlainBanner(bannerVersion);
   }
 
   // 4. Ensure workspaces dir is writable by container user (UID 1001)
