@@ -35,7 +35,7 @@
     "appsec",
     "keygraph"
   ],
-  "author": "Keygraph, Inc. (https://keygraph.io)",
+  "author": "Keygraph, Inc.",
   "license": "AGPL-3.0-only",
   "bugs": {
     "url": "https://github.com/KeygraphHQ/shannon/issues"
