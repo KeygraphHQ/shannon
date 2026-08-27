@@ -1,0 +1,11 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are Server-Side Request Forgery vulnerabilities.
+
+CRITICAL RULES:
+- vulnerability_type must match the sink pattern: HTTP client → URL_Manipulation, redirect function → Redirect_Abuse, webhook registration → Webhook_Injection.
+- exploitation_hypothesis should reference likely internal targets (cloud metadata, internal APIs, admin panels) based on code context.
+- suggested_exploit_technique must be actionable — the exploitation agent will actually attempt this against the live app.
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+
+SAST FINDINGS:

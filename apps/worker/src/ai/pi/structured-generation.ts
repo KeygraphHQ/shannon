@@ -16,9 +16,19 @@ import { type CapturedSubmitTool, createGenericSubmitTool } from '../submit-tool
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0, costUsd: 0 } as const;
 
-function isAbort(error: unknown, signal: AbortSignal | undefined): boolean {
-  const abortError = error instanceof Error && (error.name === 'AbortError' || error.name === 'TimeoutError');
-  return signal?.aborted === true || abortError;
+function isSignalCancellation(error: unknown, signal: AbortSignal | undefined): boolean {
+  if (signal?.aborted !== true) return false;
+
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < 8 && current !== undefined && current !== null && !seen.has(current); depth++) {
+    if (current === signal.reason) return true;
+    seen.add(current);
+    const errorName = current instanceof Error ? current.name : undefined;
+    if (errorName === 'AbortError' || errorName === 'CancelledFailure') return true;
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
 }
 
 function responseUsage(response: AssistantMessage): StructuredGenerationResult['usage'] {
@@ -50,7 +60,6 @@ async function captureSingleValidSubmission(
 }
 
 async function generate(host: ModelHost, request: StructuredGenerationRequest): Promise<StructuredGenerationResult> {
-  const selection = await host.resolve('small');
   const submitTool = createGenericSubmitTool(request.tool.parametersJsonSchema);
   const context: Context = {
     ...(request.systemPrompt !== undefined && { systemPrompt: request.systemPrompt }),
@@ -66,6 +75,7 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
 
   let response: AssistantMessage;
   try {
+    const selection = await host.resolve('small');
     // One enrichment batch is one billable provider request. Temporal owns any
     // retry after this boundary, so provider-level retries stay disabled here.
     response = await selection.modelRuntime.completeSimple(selection.model, context, {
@@ -74,7 +84,7 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
       ...(request.signal !== undefined && { signal: request.signal }),
     });
   } catch (error) {
-    if (isAbort(error, request.signal)) {
+    if (isSignalCancellation(error, request.signal)) {
       return { stopReason: 'aborted', toolCalls: [], usage: ZERO_USAGE };
     }
     const failure = host.classify(error);
@@ -96,7 +106,16 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
     };
   }
   if (response.stopReason === 'aborted') {
-    return { stopReason: 'aborted', toolCalls: [], usage: responseUsage(response) };
+    if (request.signal?.aborted === true) {
+      return { stopReason: 'aborted', toolCalls: [], usage: responseUsage(response) };
+    }
+    const failure = host.classify(response);
+    return {
+      stopReason: 'error',
+      toolCalls: [],
+      usage: responseUsage(response),
+      errorMessage: `${failure.type}: ${failure.message}`,
+    };
   }
 
   const toolCalls = response.content.filter((block): block is ToolCall => block.type === 'toolCall');

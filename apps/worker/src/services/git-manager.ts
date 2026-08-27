@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 import { $ } from 'zx';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
@@ -233,9 +234,50 @@ export async function executeGitCommandWithRetry(
   );
 }
 
-// Two-phase reset: hard reset (tracked files) + clean (untracked files).
-// When paths is provided, the untracked clean is scoped to those paths so a
-// failing agent's rollback can't delete a concurrent sibling agent's scratch.
+// Filter paths to those present in the HEAD tree, so a subsequent
+// `git restore --source=HEAD` won't abort on a pathspec the commit doesn't
+// contain. Sourced from HEAD (not the index) to match what restore reads.
+async function listPathsInHead(sourceDir: string, paths: readonly string[]): Promise<string[]> {
+  const result = await executeGitCommandWithRetry(
+    ['git', 'ls-tree', '-r', '-z', '--name-only', 'HEAD', '--', ...paths],
+    sourceDir,
+    'list HEAD-tracked rollback paths',
+  );
+  return result.stdout.split('\0').filter((path) => path.length > 0);
+}
+
+async function restoreScopedPathsFromHead(
+  sourceDir: string,
+  paths: readonly string[],
+  description: string,
+): Promise<void> {
+  const pathsInHead = await listPathsInHead(sourceDir, paths);
+
+  // Resetting the scoped index first also makes a newly staged path untracked,
+  // allowing the clean step to remove it when the path is absent from HEAD.
+  await executeGitCommandWithRetry(
+    ['git', 'reset', 'HEAD', '--', ...paths],
+    sourceDir,
+    `resetting owned index paths for ${description}`,
+  );
+  if (pathsInHead.length > 0) {
+    await executeGitCommandWithRetry(
+      ['git', 'restore', '--source=HEAD', '--worktree', '--', ...pathsInHead],
+      sourceDir,
+      `restoring owned worktree paths for ${description}`,
+    );
+  }
+  await executeGitCommandWithRetry(
+    ['git', 'clean', '-fd', '--', ...paths],
+    sourceDir,
+    `cleaning untracked owned paths for ${description}`,
+  );
+}
+
+// Two-phase rollback to the last checkpoint: restore tracked files, then clean
+// untracked files. When paths is provided, both phases are scoped to those
+// paths so one agent's rollback cannot discard a concurrent sibling's work.
+// Without paths, the existing whole-workspace reset remains available.
 export async function rollbackGitWorkspace(
   sourceDir: string,
   reason: string = 'retry preparation',
@@ -250,11 +292,15 @@ export async function rollbackGitWorkspace(
 
   logger.info(`Rolling back workspace for ${reason}`);
   try {
+    const scoped = paths !== undefined && paths.length > 0;
     const changes = await withGitRepoLock(async () => {
-      const pendingChanges = await getChangedFiles(sourceDir, 'status check for rollback');
-      await executeGitCommandWithRetry(['git', 'reset', '--hard', 'HEAD'], sourceDir, 'hard reset for rollback');
-      const cleanArgs = paths && paths.length > 0 ? ['git', 'clean', '-fd', '--', ...paths] : ['git', 'clean', '-fd'];
-      await executeGitCommandWithRetry(cleanArgs, sourceDir, 'cleaning untracked files for rollback');
+      const pendingChanges = await getChangedFiles(sourceDir, 'status check for rollback', paths);
+      if (scoped) {
+        await restoreScopedPathsFromHead(sourceDir, paths, 'rollback');
+      } else {
+        await executeGitCommandWithRetry(['git', 'reset', '--hard', 'HEAD'], sourceDir, 'hard reset for rollback');
+        await executeGitCommandWithRetry(['git', 'clean', '-fd'], sourceDir, 'cleaning untracked files for rollback');
+      }
       return pendingChanges;
     });
 
@@ -384,6 +430,95 @@ export async function commitGitSuccess(
 }
 
 /**
+ * Return the repo-relative paths changed by one commit.
+ *
+ * The result is NUL-delimited at the Git boundary so unusual path characters
+ * are not split or unquoted.
+ */
+export async function pathsChangedInCommit(sourceDir: string, commitHash: string): Promise<string[]> {
+  const result = await executeGitCommandWithRetry(
+    ['git', 'diff-tree', '--root', '--no-commit-id', '--name-only', '-r', '-z', commitHash],
+    sourceDir,
+    'listing commit changed paths',
+  );
+  return result.stdout.split('\0').filter((path) => path.length > 0);
+}
+
+function samePathSet(first: readonly string[], second: readonly string[]): boolean {
+  return (
+    first.length === second.length &&
+    new Set(first).size === first.length &&
+    first.every((path) => second.includes(path))
+  );
+}
+
+async function stagedPaths(sourceDir: string, paths: readonly string[]): Promise<string[]> {
+  const result = await executeGitCommandWithRetry(
+    ['git', 'diff', '--cached', '--name-only', '-z', '--', ...paths],
+    sourceDir,
+    'verifying exact staged paths',
+  );
+  return result.stdout.split('\0').filter((path) => path.length > 0);
+}
+
+/** Raised before commit when the staged delta differs from the caller's exact contract. */
+export class ExactPathCommitMismatchError extends Error {
+  constructor() {
+    super('The staged Git path set differs from the exact publication contract');
+    this.name = 'ExactPathCommitMismatchError';
+  }
+}
+
+/**
+ * Commit only the supplied pathspecs, leaving unrelated staged and dirty paths untouched.
+ *
+ * There is no empty-path or empty-commit mode: either would weaken the exact-path
+ * contract. The caller owns cleanup after any failed write or commit.
+ */
+export async function commitExactPaths(
+  sourceDir: string,
+  paths: readonly string[],
+  description: string,
+  logger: ActivityLogger,
+  expectedChangedPaths?: readonly string[],
+): Promise<{ commitHash: string; changedPaths: string[] }> {
+  if (paths.length === 0) {
+    throw new Error('commitExactPaths: refusing an empty pathspec set');
+  }
+  if (
+    expectedChangedPaths !== undefined &&
+    (new Set(expectedChangedPaths).size !== expectedChangedPaths.length ||
+      expectedChangedPaths.some((expectedPath) => !paths.includes(expectedPath)))
+  ) {
+    throw new ExactPathCommitMismatchError();
+  }
+
+  return withGitRepoLock(async () => {
+    await executeGitCommandWithRetry(['git', 'add', '-A', '--', ...paths], sourceDir, 'staging exact paths');
+    if (expectedChangedPaths !== undefined) {
+      const prospectivePaths = await stagedPaths(sourceDir, paths);
+      if (!samePathSet(prospectivePaths, expectedChangedPaths)) {
+        throw new ExactPathCommitMismatchError();
+      }
+    }
+    await executeGitCommandWithRetry(
+      ['git', 'commit', '-m', description, '--', ...paths],
+      sourceDir,
+      'creating path-limited commit',
+    );
+
+    const commitHash = await getGitCommitHash(sourceDir);
+    if (commitHash === null) {
+      throw new Error('commitExactPaths: HEAD is unreadable after commit');
+    }
+
+    const changedPaths = await pathsChangedInCommit(sourceDir, commitHash);
+    logger.info(`Path-limited commit ${commitHash.slice(0, 8)} changed ${changedPaths.length} path(s)`);
+    return { commitHash, changedPaths };
+  });
+}
+
+/**
  * Get current git commit hash.
  * Returns null if not a git repository.
  */
@@ -397,4 +532,154 @@ export async function getGitCommitHash(sourceDir: string): Promise<string | null
   } catch {
     return null;
   }
+}
+
+/** Return whether one commit is an ancestor of or equal to another. */
+export async function isAncestor(ancestor: string, descendant: string, sourceDir: string): Promise<boolean> {
+  return withGitRepoLock(async () => {
+    const result = await $`cd ${sourceDir} && git merge-base --is-ancestor ${ancestor} ${descendant}`.nothrow().quiet();
+    return result.exitCode === 0;
+  });
+}
+
+/** Read a file from `HEAD`, returning null only when the Git command cannot supply it. */
+export async function readFileFromHead(sourceDir: string, relPath: string): Promise<string | null> {
+  return withGitRepoLock(async () => {
+    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
+    return result.exitCode === 0 ? result.stdout : null;
+  });
+}
+
+/**
+ * Classify a failed committed read.
+ *
+ * Transient markers are checked before corruption markers because Git can emit
+ * `bad object` after an earlier permission or I/O error. Unknown failures remain
+ * transient so callers retry instead of incorrectly treating them as absent.
+ */
+export function classifyHeadReadFailure(stderr: string): 'absent' | 'corrupt' | 'transient' {
+  const text = stderr.toLowerCase();
+  if (/does not exist in|exists on disk, but not in/.test(text)) {
+    return 'absent';
+  }
+  if (
+    /permission denied|resource temporarily unavailable|operation timed out|input\/output error|too many open files|no space left|unable to open|interrupted system call/.test(
+      text,
+    )
+  ) {
+    return 'transient';
+  }
+  if (
+    /bad object|is corrupt|object file .* is empty|unable to unpack|inflate|did not match|hash mismatch|sha1 mismatch/.test(
+      text,
+    )
+  ) {
+    return 'corrupt';
+  }
+  return 'transient';
+}
+
+/** The classifiable outcomes of reading one committed file from `HEAD`. */
+export type CommittedReadResult =
+  | { readonly state: 'present'; readonly contents: string }
+  | { readonly state: 'absent' }
+  | { readonly state: 'corrupt' };
+
+/** The classifiable outcomes of reading one committed blob identity from `HEAD`. */
+export type CommittedBlobResult =
+  | { readonly state: 'present'; readonly sha: string }
+  | { readonly state: 'absent' }
+  | { readonly state: 'corrupt' };
+
+function transientHeadReadError(operation: string): PentestError {
+  return new PentestError(
+    'A committed Git object could not be read because of a transient repository error',
+    'filesystem',
+    true,
+    { operation },
+    ErrorCode.GIT_CHECKPOINT_FAILED,
+  );
+}
+
+/**
+ * Read a committed file while preserving absent, corrupt, and transient outcomes.
+ * Transient reads throw so the activity retry policy remains authoritative.
+ */
+export async function readCommittedFile(sourceDir: string, relPath: string): Promise<CommittedReadResult> {
+  return withGitRepoLock(async () => {
+    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
+    if (result.exitCode === 0) {
+      return { state: 'present', contents: result.stdout };
+    }
+
+    const failure = classifyHeadReadFailure(result.stderr);
+    if (failure === 'absent') {
+      return { state: 'absent' };
+    }
+    if (failure === 'corrupt') {
+      return { state: 'corrupt' };
+    }
+    throw transientHeadReadError('read-committed-file');
+  });
+}
+
+/** Read one Git blob identity from `HEAD` without collapsing transient failure into absence. */
+export async function blobShaFromHead(sourceDir: string, relPath: string): Promise<CommittedBlobResult> {
+  return withGitRepoLock(async () => {
+    const result = await $`cd ${sourceDir} && git rev-parse ${`HEAD:${relPath}`}`.nothrow().quiet();
+    if (result.exitCode === 0) {
+      return { state: 'present', sha: result.stdout.trim() };
+    }
+
+    const failure = classifyHeadReadFailure(result.stderr);
+    if (failure === 'absent') {
+      return { state: 'absent' };
+    }
+    if (failure === 'corrupt') {
+      return { state: 'corrupt' };
+    }
+    throw transientHeadReadError('read-committed-blob-identity');
+  });
+}
+
+/**
+ * Compute the Git blob id for in-memory bytes without writing them, so a caller can compare
+ * intended contents against a committed blob id. Uses the repo's own object format (sha1 or
+ * sha256) so the id matches what this repository would store.
+ */
+export async function gitBlobShaForContents(sourceDir: string, contents: string): Promise<string> {
+  return withGitRepoLock(async () => {
+    const result = await executeGitCommandWithRetry(
+      ['git', 'rev-parse', '--show-object-format'],
+      sourceDir,
+      'reading Git object format',
+    );
+    const objectFormat = result.stdout.trim();
+    if (objectFormat !== 'sha1' && objectFormat !== 'sha256') {
+      throw new Error('Unsupported Git object format');
+    }
+    const bytes = Buffer.from(contents, 'utf8');
+    return createHash(objectFormat).update(`blob ${bytes.length}\0`, 'utf8').update(bytes).digest('hex');
+  });
+}
+
+/** Return the newest reachable commit that changed one exact path. */
+export async function lastCommitForPathAtHead(sourceDir: string, relPath: string): Promise<string | null> {
+  return withGitRepoLock(async () => {
+    const result = await executeGitCommandWithRetry(
+      ['git', 'log', '-1', '--format=%H', 'HEAD', '--', relPath],
+      sourceDir,
+      'reading exact-path publication commit',
+    );
+    const commitHash = result.stdout.trim();
+    return commitHash.length > 0 ? commitHash : null;
+  });
+}
+
+/** Restore only the supplied paths in both the index and working tree from `HEAD`. */
+export async function restorePathsFromHead(sourceDir: string, paths: readonly string[]): Promise<void> {
+  if (paths.length === 0) {
+    return;
+  }
+  await withGitRepoLock(() => restoreScopedPathsFromHead(sourceDir, paths, 'committed-state repair'));
 }
