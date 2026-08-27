@@ -14,11 +14,22 @@
 import { PentestError } from '../services/error-handling.js';
 import { ErrorCode } from '../types/errors.js';
 import type { AgentEndResult } from '../types/index.js';
+import type { AgentMetrics } from '../types/metrics.js';
+import {
+  type DurableScanState,
+  type MiscellaneousOutcome,
+  type PartialReason,
+  type ReportProgress,
+  type ReportSarifDisposition,
+  RunStateError,
+  type StoredPdfProvenance,
+} from '../types/run-state.js';
 import { SessionMutex } from '../utils/concurrency.js';
+import { fileExists } from '../utils/file-io.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import { AgentLogger } from './logger.js';
 import { MetricsTracker } from './metrics-tracker.js';
-import { initializeAuditStructure, type SessionMetadata } from './utils.js';
+import { generateSessionJsonPath, initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { type AgentLogDetails, WorkflowLogger, type WorkflowSummary } from './workflow-logger.js';
 
 // Global mutex instance
@@ -170,6 +181,33 @@ export class AuditSession {
    * End agent execution (mutex-protected)
    */
   async endAgent(agentName: string, result: AgentEndResult): Promise<void> {
+    await this.finishAgentLogs(agentName, result);
+
+    // 3. Acquire mutex before touching session.json
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
+      await this.metricsTracker.reload();
+      await this.metricsTracker.endAgent(agentName, result);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Record a successful report-model attempt as a nonterminal durable draft. */
+  async endReportDraft(result: AgentEndResult): Promise<ReportProgress> {
+    await this.finishAgentLogs('report', result);
+
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.recordReportDraft(result);
+    } finally {
+      unlock();
+    }
+  }
+
+  private async finishAgentLogs(agentName: string, result: AgentEndResult): Promise<void> {
     // 1. Finalize agent log and close the stream
     if (this.currentLogger) {
       await this.currentLogger.logEvent('agent_end', {
@@ -195,13 +233,128 @@ export class AuditSession {
       ...(result.error !== undefined && { error: result.error }),
     };
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
+  }
 
-    // 3. Acquire mutex before touching session.json
+  /**
+   * Initialize fresh durable state or validate a resume record without reconstructing it.
+   *
+   * This is the first activity of every run, so it is also where a fresh workspace's
+   * session.json is created. It therefore takes the workflow id explicitly: initializing
+   * without one would persist a session with no `originalWorkflowId`, and later calls load
+   * the existing file rather than rewriting identity, leaving the scan unresolvable.
+   */
+  async initializeDurableScanState(
+    workflowId: string,
+    exploit: boolean,
+    context: 'fresh' | 'resume',
+  ): Promise<DurableScanState> {
+    if (context === 'resume' && !(await fileExists(generateSessionJsonPath(this.sessionMetadata)))) {
+      throw new RunStateError('IncompatibleWorkspaceError', 'session-json-missing-on-resume');
+    }
+    await this.initialize(workflowId);
+
     const unlock = await sessionMutex.lock(this.sessionId);
     try {
-      // 4. Reload-then-write inside mutex to prevent lost updates during parallel phases
       await this.metricsTracker.reload();
-      await this.metricsTracker.endAgent(agentName, result);
+      return await this.metricsTracker.initializeDurableScanState(exploit, context);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Return a validated snapshot of durable execution state. */
+  async getDurableScanState(): Promise<DurableScanState> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return this.metricsTracker.getDurableScanState();
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Persist a `miscellaneous` branch outcome under the session lock. */
+  async updateMiscellaneousOutcome(outcome: MiscellaneousOutcome): Promise<DurableScanState> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.updateMiscellaneousOutcome(outcome);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Persist the ordered renumber-failure set and durable partial reasons before assembly. */
+  async initializeReportProgress(
+    failedClasses: readonly import('../types/reconciliation.js').ReconciliationClass[],
+    partialReasons: readonly PartialReason[],
+  ): Promise<ReportProgress> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.initializeReportProgress(failedClasses, partialReasons);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Persist the post-compaction canonical report checkpoint without terminal success. */
+  async recordCanonicalReportCheckpoint(
+    checkpoint: string,
+    appendReasons: readonly PartialReason[] = [],
+  ): Promise<ReportProgress> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.recordCanonicalReportCheckpoint(checkpoint, appendReasons);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Atomically mark report finalized and successful after external proof validation. */
+  async finalizeReportProgress(
+    finalCheckpoint: string,
+    manifestSha256: string,
+    terminal: {
+      readonly sarifDisposition: ReportSarifDisposition;
+      readonly pdfProvenance: StoredPdfProvenance | null;
+      readonly partialReasons: readonly PartialReason[];
+    },
+  ): Promise<ReportProgress> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.finalizeReportProgress(finalCheckpoint, manifestSha256, terminal);
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Return an invalid model draft to pending without erasing its billable attempt. */
+  async rollbackReportDraft(): Promise<ReportProgress> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.rollbackReportDraft();
+    } finally {
+      unlock();
+    }
+  }
+
+  /** Read persisted report metrics for model-skip resume. */
+  async getReportMetrics(): Promise<AgentMetrics> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return this.metricsTracker.getReportMetrics();
     } finally {
       unlock();
     }

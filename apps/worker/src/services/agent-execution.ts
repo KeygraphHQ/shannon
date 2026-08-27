@@ -33,6 +33,7 @@ import type { AgentEndResult } from '../types/audit.js';
 import { ErrorCode, type PentestErrorType } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 import { err, isErr, ok, type Result } from '../types/result.js';
+import { assertFixedAnalysisScope } from '../types/run-state.js';
 import { getAgentGitPaths } from './agent-git-paths.js';
 import type { ConfigLoaderService } from './config-loader.js';
 import { PentestError } from './error-handling.js';
@@ -51,11 +52,14 @@ export interface AgentExecutionInput {
   configYAML?: string | undefined;
   pipelineTestingMode?: boolean | undefined;
   attemptNumber: number;
+  /** Workflow-resolved fixed scope; prompt generation never derives this from public config. */
+  analysisClasses: readonly import('../types/config.js').VulnClass[];
   promptDir?: string | undefined;
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[];
   failedClasses?: readonly import('../types/config.js').VulnClass[] | undefined;
   // Renders the deliverable to disk; invoked after validation, before the success commit.
-  writeDeliverable?: (deliverablesPath: string) => Promise<void>;
+  writeDeliverable?: (deliverablesPath: string, execution: { readonly model?: string }) => Promise<void>;
+  successDisposition?: 'terminal' | 'report-draft';
   cancellationSignal?: AbortSignal | undefined;
 }
 
@@ -145,13 +149,28 @@ export class AgentExecutionService {
       configYAML,
       pipelineTestingMode = false,
       attemptNumber,
+      analysisClasses,
       promptDir,
       customTools,
       failedClasses,
       writeDeliverable,
+      successDisposition = 'terminal',
       cancellationSignal,
     } = input;
     const gitPaths = getAgentGitPaths(agentName);
+
+    assertFixedAnalysisScope(analysisClasses);
+    if (successDisposition === 'report-draft' && agentName !== 'report') {
+      return err(
+        new PentestError(
+          'Draft success is reserved for the report agent',
+          'validation',
+          false,
+          { agentName },
+          ErrorCode.CONFIG_VALIDATION_FAILED,
+        ),
+      );
+    }
 
     // 1. Load config (pre-parsed configData → raw YAML → file path)
     const configResult = await this.configLoader.loadOptional(configPath, configData, configYAML);
@@ -170,6 +189,7 @@ export class AgentExecutionService {
           webUrl,
           repoPath,
           AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata),
+          analysisClasses,
           ...(failedClasses !== undefined && { failedClasses }),
         },
         distributedConfig,
@@ -278,7 +298,9 @@ export class AgentExecutionService {
 
         // 10. Render the deliverable to disk so the success commit below stages it
         if (writeDeliverable) {
-          await writeDeliverable(deliverablesPath);
+          await writeDeliverable(deliverablesPath, {
+            ...(result.model !== undefined && { model: result.model }),
+          });
         }
 
         // 11. Success - commit deliverables (scoped) and capture the checkpoint hash
@@ -287,6 +309,15 @@ export class AgentExecutionService {
           return gitFailureForAgent(agentName, 'commit successful results', commitResult.error);
         }
         commitHash = commitResult.commitHash;
+        if (successDisposition === 'report-draft' && commitHash === undefined) {
+          return new PentestError(
+            'The report was written but could not be saved. Re-running this workspace retries the reporting phase without repeating the analysis.',
+            'filesystem',
+            false,
+            { agentName },
+            ErrorCode.GIT_CHECKPOINT_FAILED,
+          );
+        }
         return null;
       } catch (error) {
         if (error instanceof PentestError) return error;
@@ -331,7 +362,11 @@ export class AgentExecutionService {
       model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
     };
-    await auditSession.endAgent(agentName, endResult);
+    if (successDisposition === 'report-draft') {
+      await auditSession.endReportDraft(endResult);
+    } else {
+      await auditSession.endAgent(agentName, endResult);
+    }
 
     return ok(endResult);
   }
@@ -419,6 +454,7 @@ export class AgentExecutionService {
       costUsd: endResult.cost_usd,
       numTurns: result.turns ?? null,
       model: result.model,
+      ...(endResult.checkpoint !== undefined && { checkpoint: endResult.checkpoint }),
     };
   }
 }

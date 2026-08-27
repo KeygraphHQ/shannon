@@ -40,12 +40,18 @@ export function classifyErrorCode(error: unknown): ErrorCode | undefined {
   return undefined;
 }
 
-/** Maps Temporal error type strings to actionable remediation hints. */
+/**
+ * Maps Temporal error type strings to actionable remediation hints. A type earns an entry
+ * only when the reader has a next step to take; the rest print without a hint line.
+ */
 const REMEDIATION_HINTS: Record<string, string> = {
   AuthenticationError: "Verify the selected provider's API key is valid and not expired.",
   ConfigurationError: 'Check your CONFIG file path and contents.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
+  IncompatibleWorkspaceError: 'start a new scan with a different -w name.',
+  WorkspaceNotFoundError: 'check the -w name against: shannon scans',
+  PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
 };
 
 /**

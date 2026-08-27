@@ -6,6 +6,7 @@
 
 import type { AssistantMessage, Context, ToolCall } from '@earendil-works/pi-ai';
 import { Value } from 'typebox/value';
+import { providerFailureSentence } from '../../services/error-handling.js';
 import { type ModelHost, modelHost } from '../model-host.js';
 import type {
   StructuredGenerationPort,
@@ -92,7 +93,8 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
       stopReason: 'error',
       toolCalls: [],
       usage: ZERO_USAGE,
-      errorMessage: `${failure.type}: ${failure.message}`,
+      errorMessage: providerFailureSentence(failure),
+      providerFailure: { type: failure.type, retryable: failure.retryable },
     };
   }
 
@@ -102,7 +104,8 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
       stopReason: 'error',
       toolCalls: [],
       usage: responseUsage(response),
-      errorMessage: `${failure.type}: ${failure.message}`,
+      errorMessage: providerFailureSentence(failure),
+      providerFailure: { type: failure.type, retryable: failure.retryable },
     };
   }
   if (response.stopReason === 'aborted') {
@@ -114,7 +117,8 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
       stopReason: 'error',
       toolCalls: [],
       usage: responseUsage(response),
-      errorMessage: `${failure.type}: ${failure.message}`,
+      errorMessage: providerFailureSentence(failure),
+      providerFailure: { type: failure.type, retryable: failure.retryable },
     };
   }
 

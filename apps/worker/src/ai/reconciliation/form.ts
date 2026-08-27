@@ -347,6 +347,7 @@ export function createFormClassExploitTasks(
       ...(signal !== undefined && { signal }),
     });
 
+    let formation: FormClassExploitTasksResult;
     try {
       const classPolicy = await loadClassPolicy(
         input.vulnerabilityClass,
@@ -412,20 +413,28 @@ export function createFormClassExploitTasks(
         dropped_unknown_label_count: accepted.droppedUnknownLabelCount,
       };
       const ref = await writeFormationArtifact(input, workspacesDir, body);
-      return { ref, metrics, model: `${modelResult.providerId}:${modelResult.modelId}` };
-    } finally {
-      // Cleanup runs on every exit path, but a cleanup failure must not overwrite the stage's real
-      // outcome. Log and swallow it so a successful formation stays successful and a failure keeps
-      // its original cause for Temporal to classify.
+      formation = { ref, metrics, model: `${modelResult.providerId}:${modelResult.modelId}` };
+    } catch (error) {
+      // A primary error — including cancellation — already owns the outcome, so a cleanup failure
+      // is logged and swallowed rather than replacing that error's type or cause chain.
       try {
         await jail.cleanup();
       } catch {
-        logger.error('Task-formation source-jail cleanup failed.', {
-          stage: 'task-formation',
-          vulnerabilityClass: input.vulnerabilityClass,
-        });
+        logger.error(
+          'A temporary copy of your source code could not be removed after analysis. It is inside the scan workspace and is safe to delete.',
+          {
+            stage: 'task-formation',
+            vulnerabilityClass: input.vulnerabilityClass,
+          },
+        );
       }
+      throw error;
     }
+
+    // Nothing else is in flight after a successful formation, so an unremoved or unverifiable jail
+    // is the stage's outcome: it leaves a full copy of the scanned tree on disk and fails here.
+    await jail.cleanup();
+    return formation;
   };
 }
 

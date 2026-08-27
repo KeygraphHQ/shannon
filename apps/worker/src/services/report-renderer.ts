@@ -14,6 +14,7 @@
 
 import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
 import type { VulnClass } from '../types/config.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
 
 // ============================================================================
 // TYPES
@@ -34,6 +35,8 @@ export interface ReportData {
   // Vuln classes whose pipeline failed and were not assessed this run. Rendered as an explicit
   // caveat so an un-assessed class is never presented as a clean result.
   readonly not_assessed?: readonly VulnClass[];
+  /** Exploit classes excluded from compaction after a renumber failure, in workflow order. */
+  readonly reconciliation_failed?: readonly ReconciliationClass[];
 }
 
 // Without this, an analysis-only report reads as though the impact was demonstrated.

@@ -510,8 +510,11 @@ Source-build equivalent:
 # Describe your target environment.
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment; .env files contain local-only credentials."
 
-# Limit which vulnerability classes run end-to-end.
-# vuln_classes: [injection, xss, auth, authz, ssrf]
+# Every scan runs all five vulnerability classes.
+
+# Agentic static analysis. `enabled` is its only setting.
+# agentic_sast:
+#   enabled: "true"
 
 # Skip the exploitation phase.
 # exploit: "false"
@@ -569,6 +572,25 @@ rules:
 #     Drop findings about missing security headers and rate-limit gaps.
 #   sarif: "false"
 ```
+
+## Analysis Scope and Agentic SAST
+
+Every scan runs all five analysis classes: Injection, Cross-Site Scripting, Authentication, Authorization, and
+Server-Side Request Forgery. The class set is fixed and has no configuration selector.
+
+Agentic static analysis is opt-in:
+
+```yaml
+agentic_sast:
+  enabled: "true"
+```
+
+`enabled` is the only setting. Omitting the block, or setting `enabled: "false"`, turns agentic static analysis off;
+`"true"` turns it on. Either way, all five vulnerability classes still run.
+
+Agentic static analysis reads the repository for vulnerabilities before the pentest and passes what it finds into the
+exploitation phase. It adds model time and cost. If it fails, the pentest continues without its findings and the scan
+finishes as "partial".
 
 ## Report Options
 

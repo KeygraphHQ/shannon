@@ -345,7 +345,7 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     args.push('-v', `${opts.config.hostPath}:${opts.config.containerPath}:ro`);
   }
 
-  // Output directory for deliverables copy
+  // Customer-copy destination. The workflow surfaces only final report artifacts here.
   if (opts.outputDir) {
     args.push('-v', `${opts.outputDir}:/app/output`);
   }

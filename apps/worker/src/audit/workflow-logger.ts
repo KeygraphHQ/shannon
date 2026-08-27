@@ -29,12 +29,33 @@ export interface AgentMetricsSummary {
   costUsd: number | null;
 }
 
+/** Mirror of the derived partial-reason view; the safe message is already resolved. */
+export interface WorkflowSummaryPartialReason {
+  readonly code: string;
+  readonly message: string;
+  readonly vulnerabilityClass?: string;
+  readonly stage?: string;
+}
+
 export interface WorkflowSummary {
   status: 'completed' | 'failed' | 'cancelled' | 'partial';
   totalDurationMs: number;
   totalCostUsd: number;
+  /** Agents that actually ran. Mutually exclusive from `skippedAgents`. */
   completedAgents: string[];
+  /** Expected agents that never ran because their class had nothing to exploit. */
+  skippedAgents?: readonly string[];
   agentMetrics: Record<string, AgentMetricsSummary>;
+  /** Ordered durable degradation reasons; present and non-empty exactly for partial runs. */
+  partialReasons?: readonly WorkflowSummaryPartialReason[];
+  /** False when operational (Capella/reconciliation) spend is known to be incomplete. */
+  usageAccountingComplete?: boolean;
+  /** Reader-facing name of the stage a failed agentic-SAST run stopped at. */
+  agenticSastFailedStage?: string;
+  /** Sanitized failure sentence from a failed agentic-SAST run; safe for operator output. */
+  agenticSastFailureMessage?: string;
+  /** Bounded machine code from a failed agentic-SAST run, when one was preserved. */
+  agenticSastErrorCode?: string;
   error?: string;
 }
 
@@ -322,7 +343,22 @@ export class WorkflowLogger {
   async logWorkflowComplete(summary: WorkflowSummary): Promise<void> {
     await this.ensureInitialized();
 
-    const status = summary.status === 'completed' ? 'COMPLETED' : 'FAILED';
+    // Each terminal status prints its own header so partial and cancelled runs are never
+    // mislabelled as full successes or failures. The CLI log tailer stops on exactly these
+    // headings (COMPLETION_PATTERN in apps/cli/src/commands/logs.ts); adding one here without
+    // adding it there strands `shannon logs` on a finished scan.
+    const STATUS_HEADERS: Record<WorkflowSummary['status'], string> = {
+      completed: 'COMPLETED',
+      partial: 'PARTIAL',
+      cancelled: 'CANCELLED',
+      failed: 'FAILED',
+    };
+    const status = STATUS_HEADERS[summary.status];
+
+    // completedAgents and skippedAgents are mutually exclusive: an agent that was skipped
+    // because its class had nothing to exploit is tracked only in skippedAgents.
+    const skippedAgents = summary.skippedAgents ?? [];
+    const ranCount = summary.completedAgents.length;
 
     const lines: string[] = [
       '',
@@ -333,14 +369,36 @@ export class WorkflowLogger {
       `Status:      ${summary.status}`,
       `Duration:    ${formatDuration(summary.totalDurationMs)}`,
       `Total Cost:  $${summary.totalCostUsd.toFixed(4)}`,
-      `Agents:      ${summary.completedAgents.length} completed`,
+      `Agents:      ${ranCount} ran, ${skippedAgents.length} skipped`,
     ];
+    if (summary.usageAccountingComplete === false) {
+      lines.push('Cost Note:   Cost is incomplete — some background work is not included in this total.');
+    }
 
     if (summary.error) {
       lines.push(this.formatErrorBlock(summary.error).trimEnd());
     }
 
-    if (summary.completedAgents.length > 0) {
+    if (summary.partialReasons !== undefined && summary.partialReasons.length > 0) {
+      lines.push('');
+      lines.push('Why this scan is partial:');
+      for (const reason of summary.partialReasons) {
+        lines.push(`  - ${reason.message}`);
+      }
+      // The reason above says what degraded; these three name the agentic-SAST failure
+      // behind it, under the same labels the terminal and worker output use.
+      if (summary.agenticSastFailedStage !== undefined) {
+        lines.push(`  Agentic SAST stopped at: ${summary.agenticSastFailedStage}`);
+      }
+      if (summary.agenticSastFailureMessage !== undefined) {
+        lines.push(`  What happened: ${summary.agenticSastFailureMessage}`);
+      }
+      if (summary.agenticSastErrorCode !== undefined) {
+        lines.push(`  Reference code (for a bug report): ${summary.agenticSastErrorCode}`);
+      }
+    }
+
+    if (summary.completedAgents.length > 0 || skippedAgents.length > 0) {
       lines.push('');
       lines.push('Agent Breakdown:');
 
@@ -354,6 +412,12 @@ export class WorkflowLogger {
           lines.push(`  - ${agentName}`);
         }
       }
+      for (const agentName of skippedAgents) {
+        lines.push(`  - ${agentName} (skipped — nothing to exploit)`);
+      }
+    }
+    for (const agentName of skippedAgents) {
+      lines.push(`  - ${agentName} (skipped — nothing to exploit)`);
     }
 
     lines.push('================================================================================');

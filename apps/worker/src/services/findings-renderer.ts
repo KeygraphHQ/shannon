@@ -17,10 +17,18 @@
  */
 
 import { fs, path } from 'zx';
-import type { AuthFinding, AuthzFinding, InjectionFinding, SsrfFinding, XssFinding } from '../ai/queue-schemas.js';
+import type {
+  AuthFinding,
+  AuthzFinding,
+  InjectionFinding,
+  MiscellaneousFinding,
+  SsrfFinding,
+  XssFinding,
+} from '../ai/queue-schemas.js';
 import { deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
-import type { VulnClass } from '../types/config.js';
+import { ALL_VULN_CLASSES } from '../types/config.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
 
 const DISCLAIMER = [
   '> Exploitation phase was not run for this assessment. Each entry documents a',
@@ -37,7 +45,11 @@ interface ClassConfig<T> {
 }
 
 interface QueueDocument<T> {
-  vulnerabilities?: T[];
+  readonly vulnerabilities: readonly T[];
+}
+
+export interface RenderFindingsResult {
+  readonly failedClasses: readonly ReconciliationClass[];
 }
 
 // === Common Render Helpers ===
@@ -46,6 +58,17 @@ function summaryRow(label: string, value: string | undefined | null | boolean): 
   if (value === undefined || value === null) return null;
   if (typeof value === 'string' && value.trim() === '') return null;
   return `- **${label}:** ${value}`;
+}
+
+function parseQueueDocument(value: unknown): QueueDocument<unknown> {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('queue document is malformed');
+  }
+  const vulnerabilities = (value as Record<string, unknown>).vulnerabilities;
+  if (!Array.isArray(vulnerabilities)) {
+    throw new Error('queue document vulnerabilities are malformed');
+  }
+  return { vulnerabilities };
 }
 
 function formatLocation(endpoint: string | undefined, codeLocation: string | undefined): string {
@@ -110,6 +133,20 @@ function renderSsrfEntry(e: SsrfFinding): string {
   );
 }
 
+function renderMiscellaneousEntry(e: MiscellaneousFinding): string {
+  return buildEntry(
+    e.ID,
+    e.vulnerability_type,
+    { confidence: e.confidence },
+    [
+      summaryRow('Vulnerable location', formatLocation(e.source_endpoint, e.vulnerable_code_location)),
+      summaryRow('Overview', e.missing_defense),
+      summaryRow('Impact', e.exploitation_hypothesis),
+    ],
+    e.notes,
+  );
+}
+
 function renderAuthzEntry(e: AuthzFinding): string {
   return buildEntry(
     e.ID,
@@ -148,7 +185,7 @@ function renderXssEntry(e: XssFinding): string {
 
 // === Class Registry ===
 
-const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
+const CLASSES: Record<ReconciliationClass, ClassConfig<unknown>> = {
   auth: {
     heading: 'Authentication',
     noneFoundLabel: 'authentication',
@@ -184,6 +221,13 @@ const CLASSES: Record<VulnClass, ClassConfig<unknown>> = {
     findingsFile: 'ssrf_findings.md',
     renderEntry: (e) => renderSsrfEntry(e as SsrfFinding),
   },
+  miscellaneous: {
+    heading: 'Miscellaneous',
+    noneFoundLabel: 'miscellaneous',
+    queueFile: 'miscellaneous_exploitation_queue.json',
+    findingsFile: 'miscellaneous_findings.md',
+    renderEntry: (e) => renderMiscellaneousEntry(e as MiscellaneousFinding),
+  },
 };
 
 // === Class File Assembly ===
@@ -213,39 +257,40 @@ function renderClassFile(config: ClassConfig<unknown>, entries: readonly unknown
 /**
  * Render `*_findings.md` per class from each `*_exploitation_queue.json`.
  *
- * Idempotent: skips classes whose findings file already exists, or whose queue
- * is missing (class out of scope this run). Per-class failures are logged and
- * other classes still proceed.
+ * Idempotent: rewrites each present class from its queue; a missing queue means the class was out of
+ * scope. Per-class failures are logged and other classes still proceed.
  */
 export async function renderFindingsFromQueues(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
-): Promise<void> {
+  participatingClasses: readonly ReconciliationClass[] = ALL_VULN_CLASSES,
+): Promise<RenderFindingsResult> {
   const dir = deliverablesDir(sourceDir, deliverablesSubdir);
+  const failedClasses: ReconciliationClass[] = [];
 
-  for (const config of Object.values(CLASSES)) {
+  for (const vulnerabilityClass of participatingClasses) {
+    const config = CLASSES[vulnerabilityClass];
     const queuePath = path.join(dir, config.queueFile);
     const findingsPath = path.join(dir, config.findingsFile);
 
-    if (await fs.pathExists(findingsPath)) {
-      logger.info(`${config.heading}: ${config.findingsFile} already exists, skipping`);
-      continue;
-    }
     if (!(await fs.pathExists(queuePath))) {
       logger.info(`${config.heading}: no queue file (class out of scope), skipping`);
       continue;
     }
 
     try {
-      const doc = (await fs.readJson(queuePath)) as QueueDocument<unknown>;
-      const entries = doc.vulnerabilities ?? [];
+      const doc = parseQueueDocument(await fs.readJson(queuePath));
+      const entries = doc.vulnerabilities;
       const markdown = renderClassFile(config, entries);
       await fs.writeFile(findingsPath, markdown);
       logger.info(`${config.heading}: rendered ${entries.length} finding(s) to ${config.findingsFile}`);
     } catch (error) {
       const err = error as Error;
+      failedClasses.push(vulnerabilityClass);
       logger.warn(`${config.heading}: failed to render findings from ${config.queueFile}: ${err.message}`);
     }
   }
+
+  return { failedClasses };
 }

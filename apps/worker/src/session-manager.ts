@@ -8,8 +8,16 @@ import { fs, path } from 'zx';
 
 import type { ActivityLogger } from './types/activity-logger.js';
 import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
+import type { ReconciliationClass } from './types/reconciliation.js';
 
-// Agent definitions according to PRD
+// Single source of truth for every agent the pipeline can run. Each entry:
+//   - name / displayName: identity used in logs, metrics, and per-agent log filenames
+//   - prerequisites: the agents this one conceptually depends on. This is documentation
+//     of the intended dependency graph, not an executed check. Actual phase ordering and
+//     concurrency are enforced by the explicit phase structure in the Temporal workflow.
+//   - promptTemplate: the file under apps/worker/prompts/ (without extension) rendered for this agent
+//   - deliverableFilename: the canonical filename AgentExecutionService and the
+//     save-deliverable CLI script write this agent's output under
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
   'pre-recon': {
     name: 'pre-recon',
@@ -95,6 +103,16 @@ export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freez
     promptTemplate: 'exploit-authz',
     deliverableFilename: 'authz_exploitation_evidence.md',
   },
+  // Internal class covering findings outside the five core vuln types (from reconciliation
+  // or agentic SAST). It has no analysis-phase counterpart: there is no 'miscellaneous-vuln'
+  // agent, since it only ever receives findings that another phase already surfaced.
+  'miscellaneous-exploit': {
+    name: 'miscellaneous-exploit',
+    displayName: 'Miscellaneous exploit agent',
+    prerequisites: ['recon'],
+    promptTemplate: 'exploit-miscellaneous',
+    deliverableFilename: 'miscellaneous_exploitation_evidence.md',
+  },
   report: {
     name: 'report',
     displayName: 'Report agent',
@@ -121,6 +139,7 @@ export const AGENT_PHASE_MAP: Readonly<Record<AgentName, PhaseName>> = Object.fr
   'auth-exploit': 'exploitation',
   'authz-exploit': 'exploitation',
   'ssrf-exploit': 'exploitation',
+  'miscellaneous-exploit': 'exploitation',
   report: 'reporting',
 });
 
@@ -147,9 +166,9 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
 // hook after the agent succeeds (before the success commit), so a file-existence check
 // here would race the renderer.
 //
-// VulnType is kept in the import surface for createVulnValidator above; this factory
-// returns a no-op validator parameterized only for symmetry with the vuln-side factory.
-function createExploitValidator(_vulnType: VulnType): AgentValidator {
+// Exploitation includes the analysis-less internal `miscellaneous` class, while vulnerability
+// analysis remains limited to the five-class VulnType contract above.
+function createExploitValidator(_vulnType: ReconciliationClass): AgentValidator {
   return async (): Promise<boolean> => true;
 }
 
@@ -178,6 +197,9 @@ export const PLAYWRIGHT_SESSION_MAPPING: Record<string, PlaywrightSession> = Obj
   'exploit-auth': 'agent3',
   'exploit-ssrf': 'agent4',
   'exploit-authz': 'agent5',
+
+  // Conditional analysis-less class; it may run beside the five analysis-backed exploit agents.
+  'exploit-miscellaneous': 'agent6',
 
   // Phase 5: Reporting
   'report-executive': 'agent3',
@@ -208,6 +230,7 @@ export const AGENT_VALIDATORS: Record<AgentName, AgentValidator> = Object.freeze
   'auth-exploit': createExploitValidator('auth'),
   'ssrf-exploit': createExploitValidator('ssrf'),
   'authz-exploit': createExploitValidator('authz'),
+  'miscellaneous-exploit': createExploitValidator('miscellaneous'),
 
   // Executive report agent
   report: async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {

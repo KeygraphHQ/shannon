@@ -9,6 +9,7 @@ import { PROMPTS_DIR } from '../paths.js';
 import { PLAYWRIGHT_SESSION_MAPPING } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { Authentication, DistributedConfig, DistributedReportConfig, Rule, VulnClass } from '../types/config.js';
+import { assertFixedAnalysisScope } from '../types/run-state.js';
 import { isGlobPattern } from '../utils/glob.js';
 import { handlePromptError, PentestError } from './error-handling.js';
 
@@ -140,6 +141,8 @@ interface PromptVariables {
   repoPath: string;
   /** Classes whose analysis did not complete, so the report can mark them not assessed. */
   failedClasses?: readonly VulnClass[];
+  /** Explicit workflow-owned analysis scope for prompts that describe tested classes. */
+  analysisClasses?: readonly VulnClass[];
   AUTH_STATE_FILE: string;
   PLAYWRIGHT_SESSION?: string;
 }
@@ -380,12 +383,15 @@ async function interpolateVariables(
       result = result.replace(/{{LOGIN_INSTRUCTIONS}}/g, '');
     }
 
-    const vulnClasses = config?.vuln_classes ?? [];
-    result = replaceLiteral(
-      result,
-      /{{VULN_CLASSES_TESTED}}/g,
-      vulnClasses.length > 0 ? vulnClasses.join(', ') : 'injection, xss, auth, authz, ssrf',
-    );
+    if (result.includes('{{VULN_CLASSES_TESTED}}')) {
+      if (variables.analysisClasses === undefined) {
+        throw new PentestError('Prompt requires an explicit workflow-owned analysis scope', 'prompt', false, {
+          placeholder: 'VULN_CLASSES_TESTED',
+        });
+      }
+      assertFixedAnalysisScope(variables.analysisClasses);
+      result = replaceLiteral(result, /{{VULN_CLASSES_TESTED}}/g, variables.analysisClasses.join(', '));
+    }
     result = replaceLiteral(
       result,
       /{{NOT_ASSESSED_CLASSES}}/g,
@@ -443,6 +449,14 @@ async function interpolateVariables(
   }
 }
 
+// Prompt families that drive deterministic, model-only stages with no browser of their own.
+// They share loadPrompt with the browser agents but must never claim a Playwright session.
+const NON_BROWSER_PROMPT_PREFIXES: readonly string[] = Object.freeze(['task-formation-', 'sast-enrichment-']);
+
+function isNonBrowserPrompt(promptName: string): boolean {
+  return NON_BROWSER_PROMPT_PREFIXES.some((prefix) => promptName.startsWith(prefix));
+}
+
 // Resolve promptDir override against SHANNON_WORKER_ROOT so relative paths
 // from callers stay cwd-independent.
 function resolvePromptDir(promptDir: string | undefined): string {
@@ -480,7 +494,9 @@ export async function loadPrompt(
     if (session) {
       enhancedVariables.PLAYWRIGHT_SESSION = session;
       logger.info(`Assigned ${promptName} -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
-    } else {
+    } else if (!isNonBrowserPrompt(promptName)) {
+      // A browser agent missing from the table is a real gap; a non-browser family is not, so it
+      // takes neither the fallback session nor the warning.
       enhancedVariables.PLAYWRIGHT_SESSION = 'agent1';
       logger.warn(`Unknown agent ${promptName}, using fallback -> ${enhancedVariables.PLAYWRIGHT_SESSION}`);
     }

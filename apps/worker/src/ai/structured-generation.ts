@@ -17,6 +17,12 @@ export interface StructuredGenerationRequest {
   signal?: AbortSignal;
 }
 
+/** Typed classification of a failed provider request, set whenever `errorMessage` is. */
+export interface StructuredGenerationProviderFailure {
+  readonly type: 'AuthenticationError' | 'ConfigurationError' | 'AgentExecutionError';
+  readonly retryable: boolean;
+}
+
 /** Host-neutral outcome of one structured generation request. */
 export interface StructuredGenerationResult {
   stopReason: 'toolUse' | 'stop' | 'length' | 'error' | 'aborted';
@@ -27,6 +33,8 @@ export interface StructuredGenerationResult {
     costUsd: number;
   };
   errorMessage?: string;
+  /** Consumers branch on this typed flag, never on `errorMessage` text. */
+  providerFailure?: StructuredGenerationProviderFailure;
 }
 
 /** Host-supplied transport that makes exactly one model request per call. */

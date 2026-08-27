@@ -214,7 +214,7 @@ export async function exportCapellaFindings(
   const warnings: string[] = [];
   const validFindings = rawFindings.filter(isExportableFinding);
   const invalidCount = rawFindings.length - validFindings.length;
-  if (invalidCount > 0) warnings.push(`${invalidCount} invalid finding(s) were excluded`);
+  if (invalidCount > 0) warnings.push(`${invalidCount} agentic SAST findings were malformed and left out.`);
 
   const gated = validFindings.filter(passesExportGate);
   const exported = gated
@@ -224,9 +224,13 @@ export async function exportCapellaFindings(
     })
     .sort((left, right) => compareText(left.id, right.id));
   const excludedCount = gated.length - exported.length;
-  if (excludedCount > 0) warnings.push(`${excludedCount} finding(s) matched code-path exclusions`);
+  if (excludedCount > 0) {
+    warnings.push(`${excludedCount} agentic SAST findings were in paths your config told Shannon to avoid.`);
+  }
   if (validFindings.length > 0 && exported.length === 0) {
-    warnings.push(`all ${validFindings.length} valid finding record(s) were dropped before export`);
+    warnings.push(
+      'Every agentic SAST finding was excluded, so no static-analysis results reached the pentest. Check the avoid rules in your config file.',
+    );
   }
 
   const sarifDocument = buildCapellaSarif(exported, options.repositoryLabel);

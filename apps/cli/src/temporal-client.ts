@@ -9,7 +9,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Client, Connection, WorkflowFailedError, WorkflowNotFoundError } from '@temporalio/client';
-import { ACTIVITY_TO_AGENT, type PipelineState } from './scan/pipeline.js';
+import { ACTIVITY_TO_PROGRESS, type PipelineState } from './scan/pipeline.js';
 
 const ADDRESS = '127.0.0.1:7233';
 const NAMESPACE = 'default';
@@ -20,9 +20,28 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['COMPLETED', 'FAILED', '
 
 export interface RunningAgent {
   readonly agent: string;
+  readonly label: string;
+  /** 'agent' rows join the static pipeline tree; 'operation' rows feed the background-work phase. */
+  readonly kind: 'agent' | 'operation';
+  /** Set when a persisted parent stage owns this row; the label then reads as that stage's step. */
+  readonly parentKey?: string;
   readonly attempt: number;
   readonly startedAt?: number;
   readonly lastFailure?: string;
+}
+
+/**
+ * The CLI's activity mirror does not know an activity type the running scan is using, so the
+ * progress tree cannot be rendered completely. Distinct from a Temporal connection failure.
+ */
+export class ActivityMirrorError extends Error {
+  override name = 'ActivityMirrorError' as const;
+
+  constructor(activityType: string) {
+    super(
+      `This version of the Shannon command line does not recognise part of the running scan\n(${activityType}). Update Shannon, or watch the scan with: shannon logs <workspace>`,
+    );
+  }
 }
 
 /** Convert a proto ITimestamp (seconds is a Long) to epoch millis. */
@@ -66,12 +85,19 @@ export async function describeScan(workflowId: string): Promise<ScanDescription 
 
     const runningAgents: RunningAgent[] = [];
     for (const pending of desc.raw.pendingActivities ?? []) {
-      const agent = ACTIVITY_TO_AGENT[pending.activityType?.name ?? ''];
-      if (!agent) continue;
+      const activityType = pending.activityType?.name ?? '';
+      const progress = ACTIVITY_TO_PROGRESS[activityType];
+      // Fail closed: skipping an unknown activity would render a quietly incomplete tree.
+      if (!progress) {
+        throw new ActivityMirrorError(activityType || 'unknown activity');
+      }
       const lastFailure = pending.lastFailure?.message;
       const startedAt = timestampMs(pending.scheduledTime ?? pending.lastStartedTime ?? null);
       runningAgents.push({
-        agent,
+        agent: progress.key,
+        label: progress.label,
+        kind: progress.kind,
+        ...(progress.parentKey !== undefined ? { parentKey: progress.parentKey } : {}),
         attempt: pending.attempt ?? 1,
         ...(startedAt !== undefined ? { startedAt } : {}),
         ...(lastFailure ? { lastFailure } : {}),

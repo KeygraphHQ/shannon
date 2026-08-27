@@ -19,7 +19,7 @@
  * Options:
  *   --task-queue <name>    Task queue name (required, unique per scan)
  *   --config <path>        Configuration file path
- *   --output <path>        Output directory for workspaces
+ *   --output <path>        Stable mounted path for final customer report copies
  *   --workspace <name>     Resume from existing workspace
  *   --pipeline-testing     Use minimal prompts for fast testing
  *
@@ -27,30 +27,178 @@
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
  */
 
-import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
+import { DEFAULT_MODEL_SPEC } from '../ai/models.js';
+import { capellaActivities, mergeActivityRegistries } from '../ai/sast/capella/temporal/registry.js';
+import { CAPELLA_FORMAT_VERSION, CAPELLA_PROMPT_SET_VERSION } from '../ai/sast/capella/types.js';
 import { sanitizeHostname } from '../audit/utils.js';
-import { parseConfig } from '../config-parser.js';
-import {
-  ASSEMBLED_REPORT_PDF_FILENAME,
-  deliverablesDir,
-  FINAL_REPORT_PDF_FILENAME,
-  resolveSessionJsonPath,
-} from '../paths.js';
-import type { VulnClass } from '../types/config.js';
+import { distributeConfig, parseConfig } from '../config-parser.js';
+import { deliverablesDir, resolveSessionJsonPath } from '../paths.js';
+import { SAFE_RUN_STATE_MESSAGES, workspaceExploitMismatchMessage } from '../types/run-state.js';
 import { fileExists, readJson } from '../utils/file-io.js';
-import * as activities from './activities.js';
-import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js';
+import {
+  assembleReportActivity,
+  checkExploitationQueue,
+  compactReportFindings,
+  finalizeReportOutputs,
+  initDeliverableGit,
+  initializeDurableScanState,
+  initializeReportProgress,
+  loadResumeState,
+  logPhaseTransition,
+  logWorkflowComplete,
+  persistCanonicalReportProgress,
+  persistFinalizedReportProgress,
+  persistMiscellaneousOutcome,
+  recordResumeAttempt,
+  registerResumeAttempt,
+  renumberClassFindings,
+  restoreGitCheckpoint,
+  runAuthExploitAgent,
+  runAuthenticationValidation,
+  runAuthVulnAgent,
+  runAuthzExploitAgent,
+  runAuthzVulnAgent,
+  runInjectionExploitAgent,
+  runInjectionVulnAgent,
+  runMiscellaneousExploitAgent,
+  runPreflightValidation,
+  runPreReconAgent,
+  runReconAgent,
+  runReportAgent,
+  runSsrfExploitAgent,
+  runSsrfVulnAgent,
+  runXssExploitAgent,
+  runXssVulnAgent,
+  saveCheckpoint,
+  surfaceReportOutputs,
+  syncCodePathDenyRules,
+  syncPlaywrightStealthConfig,
+} from './activities.js';
+import { createReconciliationActivityRegistry } from './reconcile-activities.js';
+import type { AgenticSastInput, PipelineInput, PipelineProgress, PipelineState } from './shared.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROGRESS_QUERY = 'getProgress';
+
+// The ordinary activity names. This frozen list is one of three that together form the
+// registered activity set the CLI status reader mirrors: the Capella names in
+// ai/sast/capella/temporal/activity-types.ts and the reconciliation names in
+// reconcile-activity-types.ts are the other two. Adding or removing an activity means
+// updating both this list and the `pentestActivities` object below, or the load-time check
+// throws.
+export const PENTEST_ACTIVITY_NAMES = Object.freeze([
+  'runPreReconAgent',
+  'runReconAgent',
+  'runInjectionVulnAgent',
+  'runXssVulnAgent',
+  'runAuthVulnAgent',
+  'runAuthzVulnAgent',
+  'runSsrfVulnAgent',
+  'runInjectionExploitAgent',
+  'runXssExploitAgent',
+  'runAuthExploitAgent',
+  'runAuthzExploitAgent',
+  'runSsrfExploitAgent',
+  'runMiscellaneousExploitAgent',
+  'runReportAgent',
+  'runPreflightValidation',
+  'runAuthenticationValidation',
+  'initDeliverableGit',
+  'syncPlaywrightStealthConfig',
+  'syncCodePathDenyRules',
+  'initializeDurableScanState',
+  'persistMiscellaneousOutcome',
+  'initializeReportProgress',
+  'renumberClassFindings',
+  'assembleReportActivity',
+  'compactReportFindings',
+  'persistCanonicalReportProgress',
+  'finalizeReportOutputs',
+  'persistFinalizedReportProgress',
+  'surfaceReportOutputs',
+  'checkExploitationQueue',
+  'loadResumeState',
+  'restoreGitCheckpoint',
+  'registerResumeAttempt',
+  'recordResumeAttempt',
+  'logPhaseTransition',
+  'logWorkflowComplete',
+  'saveCheckpoint',
+] as const);
+
+export const pentestActivities = Object.freeze({
+  runPreReconAgent,
+  runReconAgent,
+  runInjectionVulnAgent,
+  runXssVulnAgent,
+  runAuthVulnAgent,
+  runAuthzVulnAgent,
+  runSsrfVulnAgent,
+  runInjectionExploitAgent,
+  runXssExploitAgent,
+  runAuthExploitAgent,
+  runAuthzExploitAgent,
+  runSsrfExploitAgent,
+  runMiscellaneousExploitAgent,
+  runReportAgent,
+  runPreflightValidation,
+  runAuthenticationValidation,
+  initDeliverableGit,
+  syncPlaywrightStealthConfig,
+  syncCodePathDenyRules,
+  initializeDurableScanState,
+  persistMiscellaneousOutcome,
+  initializeReportProgress,
+  renumberClassFindings,
+  assembleReportActivity,
+  compactReportFindings,
+  persistCanonicalReportProgress,
+  finalizeReportOutputs,
+  persistFinalizedReportProgress,
+  surfaceReportOutputs,
+  checkExploitationQueue,
+  loadResumeState,
+  restoreGitCheckpoint,
+  registerResumeAttempt,
+  recordResumeAttempt,
+  logPhaseTransition,
+  logWorkflowComplete,
+  saveCheckpoint,
+});
+
+const registeredPentestNames = Object.keys(pentestActivities).sort();
+const expectedPentestNames = [...PENTEST_ACTIVITY_NAMES].sort();
+if (
+  registeredPentestNames.length !== expectedPentestNames.length ||
+  registeredPentestNames.some((name, index) => name !== expectedPentestNames[index])
+) {
+  throw new Error('Pentest activity registry does not match its frozen ordinary activity contract');
+}
+
+export interface ProductionActivityBindings {
+  readonly repositoryPath: string;
+  readonly webUrl: string;
+  readonly workspacesDir: string;
+}
+
+/** Compose the frozen ordinary, Capella, and reconciliation activity namespaces. */
+export function createProductionActivityRegistry(bindings: ProductionActivityBindings): Readonly<object> {
+  const reconciliationActivities = createReconciliationActivityRegistry({
+    repositoryPath: bindings.repositoryPath,
+    deliverablesDir: deliverablesDir(bindings.repositoryPath),
+    workspacesDir: bindings.workspacesDir,
+    webUrl: bindings.webUrl,
+  });
+  return mergeActivityRegistries(pentestActivities, capellaActivities, reconciliationActivities);
+}
 
 // === CLI Argument Parsing ===
 
@@ -59,7 +207,7 @@ interface CliArgs {
   repoPath: string;
   taskQueue: string;
   configPath?: string;
-  outputPath?: string;
+  customerOutputPath?: string;
   pipelineTestingMode: boolean;
   resumeFromWorkspace?: string;
 }
@@ -73,6 +221,7 @@ function showUsage(): void {
   console.log('  --task-queue <name>    Task queue name (required)');
   console.log('  --config <path>        Configuration file path');
   console.log('  --workspace <name>     Resume from existing workspace');
+  console.log('  --output <path>        Stable mounted path for final customer report copies');
   console.log('  --pipeline-testing     Use minimal prompts for fast testing\n');
 }
 
@@ -86,7 +235,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   let repoPath: string | undefined;
   let taskQueue: string | undefined;
   let configPath: string | undefined;
-  let outputPath: string | undefined;
+  let customerOutputPath: string | undefined;
   let pipelineTestingMode = false;
   let resumeFromWorkspace: string | undefined;
 
@@ -107,7 +256,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     } else if (arg === '--output') {
       const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
-        outputPath = nextArg;
+        customerOutputPath = nextArg;
         i++;
       }
     } else if (arg === '--workspace') {
@@ -145,7 +294,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     taskQueue,
     pipelineTestingMode,
     ...(configPath && { configPath }),
-    ...(outputPath && { outputPath }),
+    ...(customerOutputPath && { customerOutputPath }),
     ...(resumeFromWorkspace && { resumeFromWorkspace }),
   };
 }
@@ -158,9 +307,14 @@ interface SessionJson {
     webUrl: string;
     originalWorkflowId?: string;
     resumeAttempts?: Array<{ workflowId: string }>;
+    status?: 'in-progress' | 'completed' | 'failed' | 'cancelled' | 'partial';
   };
   metrics: {
     total_cost_usd: number;
+  };
+  durableScanState?: {
+    schema_version?: unknown;
+    exploit?: unknown;
   };
 }
 
@@ -216,7 +370,7 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
   return terminated;
 }
 
-async function resolveWorkspace(client: Client, args: CliArgs): Promise<WorkspaceResolution> {
+async function resolveWorkspace(client: Client, args: CliArgs, expectedExploit: boolean): Promise<WorkspaceResolution> {
   if (!args.resumeFromWorkspace) {
     const hostname = sanitizeHostname(args.webUrl);
     const workflowId = `${hostname}_shannon-${Date.now()}`;
@@ -233,20 +387,25 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
   const workspaceExists = await fileExists(sessionPath);
 
   if (workspaceExists) {
+    const session = await readJson<SessionJson>(sessionPath);
+    if (session.session.webUrl !== args.webUrl) {
+      throw new Error(
+        'This workspace was created for a different target URL, so it cannot be resumed against this one. Check -u, or start a new scan with a different -w name.',
+      );
+    }
+    if (session.durableScanState?.schema_version !== 1 || typeof session.durableScanState.exploit !== 'boolean') {
+      throw new Error(SAFE_RUN_STATE_MESSAGES.CorruptedSessionError);
+    }
+    if (session.durableScanState.exploit !== expectedExploit) {
+      throw new Error(workspaceExploitMismatchMessage(session.durableScanState.exploit));
+    }
+
     console.log('=== RESUME MODE ===');
     console.log(`Workspace: ${workspace}\n`);
 
     const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
     if (terminatedWorkflows.length > 0) {
       console.log(`Terminated ${terminatedWorkflows.length} previous scan(s)\n`);
-    }
-
-    const session = await readJson<SessionJson>(sessionPath);
-    if (session.session.webUrl !== args.webUrl) {
-      console.error('ERROR: URL mismatch with workspace');
-      console.error(`  Workspace URL: ${session.session.webUrl}`);
-      console.error(`  Provided URL:  ${args.webUrl}`);
-      process.exit(1);
     }
 
     return {
@@ -281,7 +440,7 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
 // === Pipeline Input Construction ===
 
 interface OrchestrationConfig {
-  vulnClasses?: VulnClass[];
+  agenticSast?: AgenticSastInput;
   exploit?: boolean;
 }
 
@@ -289,10 +448,21 @@ async function loadOrchestrationConfig(configPath: string | undefined): Promise<
   if (!configPath) return {};
   try {
     const config = await parseConfig(configPath);
+    const distributed = distributeConfig(config);
+    const codePathAvoids = distributed.avoid.filter((rule) => rule.type === 'code_path').map((rule) => rule.value);
+    const codePathFocus = distributed.focus.filter((rule) => rule.type === 'code_path').map((rule) => rule.value);
 
     return {
-      ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
-      ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
+      ...(distributed.agenticSast && {
+        agenticSast: {
+          codePathAvoids,
+          codePathFocus,
+          modelSpec: process.env.SHANNON_AI_MODEL?.trim() || DEFAULT_MODEL_SPEC,
+          capellaFormatVersion: CAPELLA_FORMAT_VERSION,
+          promptSetVersion: CAPELLA_PROMPT_SET_VERSION,
+        },
+      }),
+      exploit: distributed.exploit,
     };
   } catch (error) {
     // A broken config must fail the run, not silently fall back to empty
@@ -317,7 +487,8 @@ function buildPipelineInput(
     ...(args.pipelineTestingMode && { pipelineTestingMode: args.pipelineTestingMode }),
     ...(workspace.isResume && args.resumeFromWorkspace && { resumeFromWorkspace: args.resumeFromWorkspace }),
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
-    ...(orchestration.vulnClasses && { vulnClasses: orchestration.vulnClasses }),
+    ...(args.customerOutputPath !== undefined && { customerOutputPath: args.customerOutputPath }),
+    ...(orchestration.agenticSast !== undefined && { agenticSast: orchestration.agenticSast }),
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
   };
 }
@@ -332,8 +503,11 @@ async function waitForWorkflowResult(
     try {
       const progress = await handle.query<PipelineProgress>(PROGRESS_QUERY);
       const elapsed = Math.floor(progress.elapsedMs / 1000);
+      const expectedCount = progress.expectedAgents.length;
+      // Agentic SAST runs alongside the phase above, so the line names it while it is working.
+      const agenticSast = progress.agenticSast.status === 'running' ? ' | Agentic SAST: running' : '';
       console.log(
-        `[${elapsed}s] Phase: ${progress.currentPhase || 'unknown'} | Agent: ${progress.currentAgent || 'none'} | Completed: ${progress.completedAgents.length}/13`,
+        `[${elapsed}s] Phase: ${progress.currentPhase || 'unknown'} | Agent: ${progress.currentAgent || 'none'} | Completed: ${progress.completedAgents.length + progress.skippedAgents.length}/${expectedCount}${agenticSast}`,
       );
     } catch {
       // Workflow may have completed
@@ -344,12 +518,35 @@ async function waitForWorkflowResult(
     const result = await handle.result();
     clearInterval(progressInterval);
 
-    console.log('\nPipeline completed successfully!');
+    // The returned workflow state distinguishes completed, partial, and cancelled runs;
+    // each prints its own terminal line so degradation is never labelled as full success.
+    if (result.status === 'partial') {
+      console.log('\nScan completed with gaps (partial). The reasons are listed below.');
+      for (const reason of result.partialReasons) {
+        console.log(`  - ${reason.message}`);
+      }
+      // The reason above says a class of coverage degraded; these three name the sanitized
+      // agentic-SAST failure behind it, under the same labels every other surface uses.
+      if (result.agenticSast.status === 'failed') {
+        console.log(`    Agentic SAST stopped at: ${result.agenticSast.failedStageLabel}`);
+        console.log(`    What happened: ${result.agenticSast.error}`);
+        if (result.agenticSast.errorCode !== undefined) {
+          console.log(`    Reference code (for a bug report): ${result.agenticSast.errorCode}`);
+        }
+      }
+    } else if (result.status === 'cancelled') {
+      console.log('\nScan cancelled before it finished.');
+    } else {
+      console.log('\nScan completed.');
+    }
     if (result.summary) {
       console.log(`Duration: ${Math.floor(result.summary.totalDurationMs / 1000)}s`);
-      console.log(`Agents completed: ${result.summary.agentCount}`);
+      console.log(`Agents resolved: ${result.summary.agentCount}`);
       console.log(`Total turns: ${result.summary.totalTurns}`);
       console.log(`Run cost: $${result.summary.totalCostUsd.toFixed(4)}`);
+      if (result.summary.usageAccountingComplete === false) {
+        console.log('Cost is incomplete — some background work is not included in this total.');
+      }
 
       if (workspace.isResume) {
         try {
@@ -369,39 +566,6 @@ async function waitForWorkflowResult(
   }
 }
 
-// === Deliverables Copy ===
-
-function copyDeliverables(repoPath: string, outputPath: string): void {
-  const outputDir = deliverablesDir(repoPath);
-  if (!fs.existsSync(outputDir)) {
-    console.log('No deliverables directory found, skipping copy');
-    return;
-  }
-
-  const files = fs.readdirSync(outputDir);
-  if (files.length === 0) {
-    console.log('No deliverables to copy');
-    return;
-  }
-
-  fs.mkdirSync(outputPath, { recursive: true });
-
-  for (const file of files) {
-    if (file === '.git') continue;
-    const src = path.join(outputDir, file);
-    const dest = path.join(outputPath, file);
-    fs.cpSync(src, dest, { recursive: true });
-  }
-
-  // Surface the report under its human-facing name alongside the raw deliverables
-  const assembledPdf = path.join(outputDir, ASSEMBLED_REPORT_PDF_FILENAME);
-  if (fs.existsSync(assembledPdf)) {
-    fs.copyFileSync(assembledPdf, path.join(outputPath, FINAL_REPORT_PDF_FILENAME));
-  }
-
-  console.log(`Copied ${files.length} deliverable(s) to ${outputPath}`);
-}
-
 // === Main Entry Point ===
 
 async function run(): Promise<void> {
@@ -417,30 +581,40 @@ async function run(): Promise<void> {
   const client = new Client({ connection: clientConnection });
 
   try {
-    // 3. Bundle workflows and create worker on per-invocation task queue
+    // 3. Validate orchestration and resume state before terminating any workflow.
+    const orchestration = await loadOrchestrationConfig(args.configPath);
+    const workspace = await resolveWorkspace(client, args, orchestration.exploit ?? true);
+
+    // 4. Bundle workflows and create the worker with the collision-checked activity registry.
     console.log('Preparing scan...');
     const workflowBundle = await bundleWorkflowCode({
       workflowsPath: path.join(__dirname, 'workflows.js'),
     });
 
+    const productionActivities = createProductionActivityRegistry({
+      repositoryPath: args.repoPath,
+      webUrl: args.webUrl,
+      workspacesDir: path.resolve('./workspaces'),
+    });
+    // args.taskQueue is generated fresh per scan (see resolveWorkspace), so Temporal can only
+    // ever route this worker's activities to this scan's own container: an activity task from
+    // an older or unrelated scan can never execute against the repo mounted here.
     const worker = await Worker.create({
       connection,
       namespace: 'default',
       workflowBundle,
-      activities,
+      activities: productionActivities,
       taskQueue: args.taskQueue,
       maxConcurrentActivityTaskExecutions: 25,
     });
 
-    // 4. Resolve workspace and build pipeline input
-    const workspace = await resolveWorkspace(client, args);
-    const orchestration = await loadOrchestrationConfig(args.configPath);
+    // 5. Build the fixed-scope pipeline input.
     const input = buildPipelineInput(args, workspace, orchestration);
 
-    // 5. Start worker polling in the background
+    // 6. Start worker polling in the background.
     const workerDone = worker.run();
 
-    // 6. Submit workflow to the same task queue
+    // 7. Submit workflow to the same task queue.
     const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
       'pentestPipelineWorkflow',
       {
@@ -450,15 +624,10 @@ async function run(): Promise<void> {
       },
     );
 
-    // 7. Wait for workflow result
+    // 8. Wait for workflow result.
     await waitForWorkflowResult(handle, workspace);
 
-    // 8. Copy deliverables to output directory
-    if (args.outputPath) {
-      copyDeliverables(args.repoPath, args.outputPath);
-    }
-
-    // 9. Shut down worker gracefully
+    // 9. Shut down worker gracefully. Final customer copies are workflow-owned.
     worker.shutdown();
     await workerDone;
   } finally {
@@ -467,7 +636,10 @@ async function run(): Promise<void> {
   }
 }
 
-run().catch((err) => {
-  console.error('Worker failed:', err);
-  process.exit(1);
-});
+const invokedPath = process.argv[1] ? path.resolve(process.argv[1]) : undefined;
+if (invokedPath === fileURLToPath(import.meta.url)) {
+  run().catch((err) => {
+    console.error('Worker failed:', err);
+    process.exit(1);
+  });
+}

@@ -15,6 +15,7 @@
  * Business logic is delegated to services in src/services/.
  */
 
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
@@ -22,39 +23,88 @@ import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
-import { authStateFile, generateAuditPath, generateSessionJsonPath, type SessionMetadata } from '../audit/utils.js';
+import { authStateFile, generateAuditPath, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import {
-  ASSEMBLED_REPORT_FILENAME,
   ASSEMBLED_REPORT_PDF_FILENAME,
   DEFAULT_DELIVERABLES_SUBDIR,
   deliverablesDir,
+  REPORT_FINALIZATION_MANIFEST_FILENAME,
   REPORT_JSON_FILENAME,
   resolveSessionJsonPath,
-  SARIF_FILENAME,
   TYPST_TEMPLATE,
 } from '../paths.js';
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
+import { compactReportFindings as compactReportFindingsService } from '../services/compaction-core.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
+import { RenumberError } from '../services/exact-output-commit.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
+import { pdfProvenanceIsCurrent } from '../services/pdf-renderer.js';
 import { runPreflightChecks } from '../services/preflight.js';
 import type { ExploitationDecision, VulnType } from '../services/queue-validation.js';
+import {
+  renumberClassFindings as renumberClassFindingsService,
+  sparseExploitCollectorPath,
+} from '../services/renumber-core.js';
+import {
+  checkpointFileContents,
+  checkpointIsAncestor,
+  draftProgressIsCoherent,
+  finalProgressIsCoherent,
+  readFileAtCheckpoint,
+  reportCheckpointIsCoherent,
+  resolveCheckpointCommit,
+  validateDraftProgress,
+} from '../services/report-checkpoints.js';
+import {
+  finalizeReport,
+  ReportFinalizationIntegrityError,
+  ReportSarifRenderError,
+} from '../services/report-finalization.js';
+import { surfaceReportOutputs as surfaceReportOutputsService } from '../services/report-output-surface.js';
 import type { ReportData, ReportMeta } from '../services/report-renderer.js';
-import { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from '../services/reporting.js';
+import { assembleFinalReportWithEvidence } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
-import { ALL_AGENTS } from '../types/agents.js';
 import type { ContainerConfig, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
 import { isErr } from '../types/result.js';
+import {
+  appendPartialReasons,
+  assertFixedAnalysisScope,
+  type DurableScanState,
+  FIXED_ANALYSIS_CLASSES,
+  initialExpectedAgents,
+  isDurableScanState,
+  isOrderedPartialReasonSet,
+  isReportProgress,
+  type MiscellaneousOutcome,
+  type PartialReason,
+  type ReportProgress,
+  type ReportSarifDisposition,
+  RunStateError,
+  SAFE_RUN_STATE_MESSAGES,
+  type StoredPdfProvenance,
+  workspaceExploitMismatchMessage,
+} from '../types/run-state.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { createActivityLogger } from './activity-logger.js';
-import type { AgentMetrics, PipelineState, ResumeState } from './shared.js';
+import type {
+  AgentMetrics,
+  AssembleReportActivityResult,
+  DurableStateSummary,
+  FinalizeReportActivityResult,
+  PipelineState,
+  ReconciliationActivityResult,
+  ResumeState,
+  SurfaceReportActivityResult,
+} from './shared.js';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -86,6 +136,13 @@ export interface ActivityInput {
   auditDir?: string;
   promptDir?: string;
   sastSarifPath?: string;
+
+  /** Fixed workflow-resolved scope supplied to every agent prompt. */
+  analysisClasses?: readonly VulnClass[];
+  /** Distinguishes absent state on a fresh run from forbidden resume reconstruction. */
+  stateContext?: 'fresh' | 'resume';
+  /** Operational route label; no customer path crosses workflow history. */
+  customerOutputRoute?: 'workspace' | 'mounted';
 
   // Vuln classes whose pipeline failed. Set before the report stage on a partial run so the
   // report marks them "not assessed" instead of asserting no findings were present.
@@ -136,6 +193,152 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
 }
 
 /**
+ * Classify a failure from durable scan-state persistence. A RunStateError already carries a
+ * caller-safe message and code, so it maps directly; anything else reaches this path without
+ * having touched durable state, so it falls back to the generic activity classifier.
+ */
+function runStateFailure(error: unknown): ApplicationFailure {
+  if (error instanceof RunStateError) {
+    return ApplicationFailure.nonRetryable(error.message, error.failureType, [{ checkCode: error.checkCode }]);
+  }
+  const classified = classifyErrorForTemporal(error);
+  const message = 'Durable execution-state persistence failed.';
+  return classified.retryable
+    ? ApplicationFailure.create({ message, type: classified.type })
+    : ApplicationFailure.nonRetryable(message, classified.type);
+}
+
+/** Stable Temporal types for the two declared renumber corruption modes. */
+const RENUMBER_STABLE_FAILURE_TYPES = Object.freeze({
+  'unmappable-survivor': 'UnmappableSurvivor',
+  'key-set-divergence': 'KeySetDivergence',
+} as const satisfies Record<RenumberError['type'], string>);
+
+/**
+ * Classify a failure from a deterministic report-processing activity (renumber, compaction,
+ * finalization). Each underlying service throws its own typed error so the workflow can react
+ * to the specific stage that broke; this is the one place that maps those types onto stable
+ * Temporal failure names, so the mapping cannot drift between call sites.
+ */
+function deterministicActivityFailure(error: unknown, failureType: string): ApplicationFailure {
+  if (error instanceof RunStateError) return runStateFailure(error);
+  if (error instanceof ReportSarifRenderError) {
+    // The workflow invokes degraded finalization only after this exact retryable type
+    // exhausts the activity policy, so the name must survive the boundary unflattened.
+    return ApplicationFailure.create({
+      message: error.message,
+      type: 'ReportSarifRenderError',
+      nonRetryable: false,
+      details: [{ stage: failureType }],
+    });
+  }
+  if (error instanceof ReportFinalizationIntegrityError) {
+    return ApplicationFailure.nonRetryable(error.message, 'ReportFinalizationIntegrityError', [
+      { checkCode: error.checkCode },
+    ]);
+  }
+  if (error instanceof RenumberError) {
+    const details = [
+      {
+        ...(error.details?.checkCode !== undefined && { checkCode: error.details.checkCode }),
+        ...(error.details?.vulnerabilityClass !== undefined && {
+          vulnerabilityClass: error.details.vulnerabilityClass,
+        }),
+      },
+    ];
+    const stableType = RENUMBER_STABLE_FAILURE_TYPES[error.type];
+    return error.retryable
+      ? ApplicationFailure.create({ message: error.message, type: stableType, details })
+      : ApplicationFailure.nonRetryable(error.message, stableType, details);
+  }
+  const classified = classifyErrorForTemporal(error);
+  const message = 'Deterministic report processing failed.';
+  return classified.retryable
+    ? ApplicationFailure.create({ message, type: failureType })
+    : ApplicationFailure.nonRetryable(message, failureType);
+}
+
+/**
+ * The five analysis classes are fixed for a scan's whole lifetime and resolved once by the
+ * workflow so every agent prompt sees the same scope. An activity invoked without that scope
+ * is a caller bug rather than a transient condition, so it fails without a retry.
+ */
+function resolveAnalysisClasses(input: ActivityInput): readonly VulnClass[] {
+  if (input.analysisClasses === undefined) {
+    throw ApplicationFailure.nonRetryable(
+      'Workflow-resolved analysis scope is required.',
+      'IncompatibleWorkspaceError',
+      [{ checkCode: 'analysis-scope-missing' }],
+    );
+  }
+  try {
+    assertFixedAnalysisScope(input.analysisClasses);
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+  return input.analysisClasses;
+}
+
+/** Project only the fields the workflow needs to update its queryable state, out of the full durable record. */
+function durableStateSummary(state: DurableScanState): DurableStateSummary {
+  return {
+    exploit: state.exploit,
+    expectedAgents: [...state.expected_agents],
+    participatingClasses: [...state.participating_classes],
+    reportStage: state.report?.stage ?? 'uninitialized',
+    ...(state.miscellaneous_outcome !== undefined && { miscellaneousOutcome: state.miscellaneous_outcome }),
+  };
+}
+
+function sha256(contents: string): string {
+  return createHash('sha256').update(contents, 'utf8').digest('hex');
+}
+
+function arraysEqual<T>(left: readonly T[], right: readonly T[]): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+async function rollbackInvalidReportDraft(input: ActivityInput, progress: ReportProgress): Promise<void> {
+  if (progress.stage !== 'draft') {
+    throw new RunStateError('CorruptedSessionError', 'invalid-nondraft-report-progress');
+  }
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  // Transient resolution failures throw for retry; only proven absence or corruption of the
+  // draft parent is treated as corrupted workspace state.
+  const parentCheckpoint = await resolveCheckpointCommit(deliverablesPath, `${progress.model_checkpoint}^`);
+  if (parentCheckpoint === null) {
+    throw new RunStateError('CorruptedSessionError', 'report-draft-parent-unavailable');
+  }
+
+  for (const relPath of getAgentGitPaths('report')) {
+    const prior = await readFileAtCheckpoint(deliverablesPath, parentCheckpoint, relPath);
+    if (prior.state === 'corrupt') {
+      throw new RunStateError('CorruptedSessionError', 'report-draft-parent-corrupt');
+    }
+    if (prior.state === 'absent') {
+      await executeGitCommandWithRetry(
+        ['git', 'rm', '--cached', '--ignore-unmatch', '--', relPath],
+        deliverablesPath,
+        'unstage invalid report draft path',
+      );
+      await fs.unlink(path.join(deliverablesPath, relPath)).catch((error: unknown) => {
+        if (!(error instanceof Error && (error as NodeJS.ErrnoException).code === 'ENOENT')) throw error;
+      });
+      continue;
+    }
+    await executeGitCommandWithRetry(
+      ['git', 'restore', `--source=${parentCheckpoint}`, '--staged', '--worktree', '--', relPath],
+      deliverablesPath,
+      'restore invalid report draft path',
+    );
+  }
+
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  await auditSession.rollbackReportDraft();
+}
+
+/**
  * Core activity implementation using services.
  *
  * Executes a single agent with:
@@ -143,12 +346,20 @@ function buildContainerConfig(input: ActivityInput): ContainerConfig {
  * 2. Container creation/reuse
  * 3. Service-based agent execution
  * 4. Error classification for Temporal retry
+ *
+ * `successDisposition` tells the service what "done" means for this agent: ordinary agents
+ * commit a terminal deliverable, while the report agent instead produces a draft that still
+ * needs canonical checkpointing before it is finished. `allowCheckpointSkip` is false only for
+ * the report agent, whose skip decision belongs to the durable report-progress state machine
+ * rather than the generic checkpoint provider used by every other agent.
  */
 async function runAgentActivity(
   agentName: AgentName,
   input: ActivityInput,
   customTools?: import('@earendil-works/pi-coding-agent').ToolDefinition[],
-  writeDeliverable?: (deliverablesPath: string) => Promise<void>,
+  writeDeliverable?: (deliverablesPath: string, execution: { readonly model?: string }) => Promise<void>,
+  successDisposition: 'terminal' | 'report-draft' = 'terminal',
+  allowCheckpointSkip = true,
 ): Promise<AgentMetrics> {
   const { repoPath, configPath, pipelineTestingMode = false, workflowId, webUrl } = input;
 
@@ -157,13 +368,15 @@ async function runAgentActivity(
   const skipContainer =
     getContainer(workflowId) ??
     getOrCreateContainer(workflowId, buildSessionMetadata(input), buildContainerConfig(input));
-  const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
-    agentName,
-    repoPath,
-    input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
-  );
-  if (decision.skip && decision.metrics) {
-    return { ...decision.metrics, skipped: true };
+  if (allowCheckpointSkip) {
+    const decision = await skipContainer.checkpointProvider.shouldSkipAgent(
+      agentName,
+      repoPath,
+      input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+    );
+    if (decision.skip && decision.metrics) {
+      return { ...decision.metrics, skipped: true };
+    }
   }
 
   const startTime = Date.now();
@@ -199,11 +412,13 @@ async function runAgentActivity(
         configPath,
         pipelineTestingMode,
         attemptNumber,
+        analysisClasses: resolveAnalysisClasses(input),
         ...(input.promptDir !== undefined && { promptDir: input.promptDir }),
         ...(input.configYAML !== undefined && { configYAML: input.configYAML }),
         ...(input.failedClasses !== undefined && { failedClasses: input.failedClasses }),
         ...(customTools && { customTools }),
         ...(writeDeliverable && { writeDeliverable }),
+        successDisposition,
         cancellationSignal: Context.current().cancellationSignal,
       },
       auditSession,
@@ -220,6 +435,7 @@ async function runAgentActivity(
       costUsd: endResult.cost_usd,
       numTurns: endResult.turns ?? null,
       model: endResult.model,
+      ...(endResult.checkpoint !== undefined && { checkpoint: endResult.checkpoint }),
     };
   } catch (error) {
     // If error is already an ApplicationFailure, re-throw directly
@@ -392,8 +608,14 @@ async function readExploitQueue(queuePath: string): Promise<{ validIds: Set<stri
 }
 
 async function runExploitAgentWithCollector(
-  agentName: 'injection-exploit' | 'xss-exploit' | 'auth-exploit' | 'ssrf-exploit' | 'authz-exploit',
-  vulnClass: 'injection' | 'xss' | 'auth' | 'ssrf' | 'authz',
+  agentName:
+    | 'injection-exploit'
+    | 'xss-exploit'
+    | 'auth-exploit'
+    | 'ssrf-exploit'
+    | 'authz-exploit'
+    | 'miscellaneous-exploit',
+  vulnClass: ReconciliationClass,
   input: ActivityInput,
 ): Promise<AgentMetrics> {
   const { createExploitCollector } = await import('../collectors/exploit-collector.js');
@@ -419,6 +641,10 @@ async function runExploitAgentWithCollector(
       blocked: blockedCount,
       missing: missingIds.length,
     });
+
+    const collectorRelPath = sparseExploitCollectorPath(vulnClass);
+    await atomicWrite(path.join(deliverablesPath, collectorRelPath), `${JSON.stringify(collected, null, 2)}\n`);
+    logger.info(`Wrote ${collectorRelPath} with ${collected.length} collector entries`);
 
     const markdown = renderExploitDeliverable(vulnClass, collected, idToType);
     const mdPath = path.join(deliverablesPath, `${vulnClass}_exploitation_evidence.md`);
@@ -449,83 +675,65 @@ export async function runAuthzExploitAgent(input: ActivityInput): Promise<AgentM
   return runExploitAgentWithCollector('authz-exploit', 'authz', input);
 }
 
-/**
- * Write report.sarif for exploitative runs unless the operator opted out with report.sarif: false.
- *
- * On by default so a CI step consuming the log always finds one. Skipped for analysis-only runs.
- * The original reason was that those findings carried no severity, so every `result.level` would
- * have been invented; since severity is recorded in both modes an analysis run could now populate
- * `level`, but it would report an assessed severity as a measured one, so the gate stays. Failures
- * are logged and swallowed — the SARIF log is a secondary artifact and must not fail a run whose
- * report is already written.
- */
-async function writeSarifIfEnabled(
-  input: ActivityInput,
-  exploit: boolean,
-  reportData: ReportData,
-  deliverablesPath: string,
-  logger: ReturnType<typeof createActivityLogger>,
-): Promise<void> {
-  if (!exploit) return;
-
-  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
-  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
-  // Only an explicit false opts out; a missing config keeps the default on.
-  if (isErr(configResult) || configResult.value?.report?.sarif === false) return;
-
-  try {
-    const { renderSarif } = await import('../services/sarif-renderer.js');
-    const sarif = renderSarif(reportData, { workspaceName: input.sessionId });
-    await atomicWrite(path.join(deliverablesPath, SARIF_FILENAME), sarif);
-    logger.info(`Wrote ${SARIF_FILENAME}`);
-  } catch (error) {
-    logger.warn(`Failed to write ${SARIF_FILENAME}: ${(error as Error).message}`);
-  }
-}
-
-/**
- * Compile the PDF report from the assembled report data.
- *
- * Failures are logged and swallowed — the PDF is a secondary artifact and must not fail a run
- * whose report is already written.
- */
-async function writePdfReport(
-  reportData: ReportData,
-  deliverablesPath: string,
-  logger: ReturnType<typeof createActivityLogger>,
-): Promise<void> {
-  try {
-    const { renderReportPdf } = await import('../services/pdf-renderer.js');
-    await renderReportPdf({
-      reportData,
-      templatePath: TYPST_TEMPLATE,
-      outputPath: path.join(deliverablesPath, ASSEMBLED_REPORT_PDF_FILENAME),
-    });
-    logger.info(`Wrote ${ASSEMBLED_REPORT_PDF_FILENAME}`);
-  } catch (error) {
-    logger.warn(`Failed to write ${ASSEMBLED_REPORT_PDF_FILENAME}: ${(error as Error).message}`);
-  }
+/** Run the ordinary collector-backed agent after durable admission appended it to the expected set. */
+export async function runMiscellaneousExploitAgent(input: ActivityInput): Promise<AgentMetrics> {
+  return runExploitAgentWithCollector('miscellaneous-exploit', 'miscellaneous', input);
 }
 
 export async function runReportAgent(input: ActivityInput, exploit: boolean): Promise<AgentMetrics> {
   const { createFindingCollector } = await import('../collectors/finding-collector.js');
-  const { renderReport } = await import('../services/report-renderer.js');
+
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  let durableState = await auditSession.getDurableScanState();
+  if (durableState.exploit !== exploit) {
+    throw runStateFailure(new RunStateError('IncompatibleWorkspaceError', 'report-exploit-mode-mismatch'));
+  }
+  if (durableState.report === undefined) {
+    throw runStateFailure(new RunStateError('DurableStateConflictError', 'report-progress-not-initialized'));
+  }
+  let reportProgress = durableState.report;
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  if (reportProgress.stage === 'draft') {
+    const validation = await validateDraftProgress(deliverablesPath, reportProgress);
+    if (validation === 'invalid-model') {
+      await rollbackInvalidReportDraft(input, reportProgress);
+      durableState = await auditSession.getDurableScanState();
+      if (durableState.report?.stage !== 'pending') {
+        throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-draft-rollback-did-not-persist'));
+      }
+      reportProgress = durableState.report;
+    } else if (validation === 'invalid-canonical') {
+      throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-canonical-checkpoint-invalid'));
+    }
+  }
+  if (reportProgress.stage === 'finalized' && !(await finalProgressIsCoherent(deliverablesPath, reportProgress))) {
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-final-proof-invalid'));
+  }
+  if (reportProgress.stage !== 'pending') {
+    return { ...(await auditSession.getReportMetrics()), skipped: true };
+  }
 
   const collector = createFindingCollector(exploit);
 
-  const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
+  const writeDeliverable = async (deliverablesPath: string, execution: { readonly model?: string }): Promise<void> => {
     const logger = createActivityLogger();
     const { attachQueueCodeLocations } = await import('../services/code-location-join.js');
     const collected = collector.getAll();
     logger.info(`Collected ${collected.length} finding(s) from report agent`);
-    const findings = await attachQueueCodeLocations(collected, deliverablesPath, logger);
+    const findings = await attachQueueCodeLocations(
+      collected,
+      deliverablesPath,
+      logger,
+      durableState.participating_classes,
+    );
 
     // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
     // the two halves of report.json end up in one document.
     const reportJsonPath = path.join(deliverablesPath, REPORT_JSON_FILENAME);
     let reportMeta: ReportMeta = {
       target: input.webUrl,
-      assessment_date: new Date().toISOString().split('T')[0]!,
+      assessment_date: new Date().toISOString().slice(0, 10),
       scope: '',
       executive_summary: '',
       exploit,
@@ -539,34 +747,32 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
             assessment_date: String(existing.report_meta.assessment_date ?? reportMeta.assessment_date),
             scope: String(existing.report_meta.scope ?? ''),
             executive_summary: String(existing.report_meta.executive_summary ?? ''),
-            // Run scope, not agent output — keeps the rendered report and the schema the agent
-            // was given in agreement.
             exploit,
-            ...(existing.report_meta.model !== undefined && { model: String(existing.report_meta.model) }),
+            ...(execution.model !== undefined && { model: execution.model }),
           };
         }
       } catch {
         logger.warn('Failed to read report_meta from report.json, using defaults');
       }
     }
+    if (execution.model !== undefined) {
+      reportMeta = { ...reportMeta, model: execution.model };
+    } else {
+      logger.warn('Report execution returned no model identifier; canonical report metadata omits model');
+    }
 
     const reportData: ReportData = {
       report_meta: reportMeta,
       findings,
       ...(input.failedClasses && input.failedClasses.length > 0 && { not_assessed: input.failedClasses }),
+      reconciliation_failed: [...reportProgress.renumber_failed_classes],
     };
 
-    await atomicWrite(reportJsonPath, JSON.stringify(reportData, null, 2));
+    await atomicWrite(reportJsonPath, `${JSON.stringify(reportData, null, 2)}\n`);
     logger.info(`Wrote ${REPORT_JSON_FILENAME} with ${findings.length} finding(s)`);
-
-    await atomicWrite(path.join(deliverablesPath, ASSEMBLED_REPORT_FILENAME), renderReport(reportData));
-    logger.info(`Wrote ${ASSEMBLED_REPORT_FILENAME} from structured data`);
-
-    await writePdfReport(reportData, deliverablesPath, logger);
-    await writeSarifIfEnabled(input, exploit, reportData, deliverablesPath, logger);
   };
 
-  return runAgentActivity('report', input, collector.tools, writeDeliverable);
+  return runAgentActivity('report', input, collector.tools, writeDeliverable, 'report-draft', false);
 }
 
 /**
@@ -798,49 +1004,375 @@ export async function syncCodePathDenyRules(input: ActivityInput): Promise<void>
   );
 }
 
+/** Initialize fresh state exactly once, or validate the persisted resume contract. */
+export async function initializeDurableScanState(
+  input: ActivityInput,
+  exploit: boolean,
+  context: 'fresh' | 'resume',
+): Promise<DurableStateSummary> {
+  try {
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initializeDurableScanState(input.workflowId, exploit, context);
+    return durableStateSummary(await auditSession.getDurableScanState());
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+}
+
+/** Persist the `miscellaneous` queue decision before any conditional agent is scheduled. */
+export async function persistMiscellaneousOutcome(
+  input: ActivityInput,
+  outcome: MiscellaneousOutcome,
+): Promise<DurableStateSummary> {
+  try {
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initialize(input.workflowId);
+    return durableStateSummary(await auditSession.updateMiscellaneousOutcome(outcome));
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+}
+
+// === Report progress state machine ===
+// The activities below read and advance one durable ReportProgress record through
+// pending -> draft -> finalized. Every transition is verified against the actual git
+// checkpoint before it is trusted (checkpointIsAncestor, reportCheckpointIsCoherent,
+// finalProgressIsCoherent), so a crash between "committed the work" and "recorded the state"
+// is repaired on the next attempt instead of silently accepted or silently lost.
+
+/** Persist the ordered reconciliation-failure set and durable partial reasons before assembly. */
+export async function initializeReportProgress(
+  input: ActivityInput,
+  failedClasses: readonly ReconciliationClass[],
+  partialReasons: readonly PartialReason[],
+): Promise<ReportProgress> {
+  try {
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initialize(input.workflowId);
+    return await auditSession.initializeReportProgress(failedClasses, partialReasons);
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+}
+
+/** Invoke the class-local exact-output renumber service with a history-safe receipt. */
+export async function renumberClassFindings(
+  input: ActivityInput,
+  vulnerabilityClass: ReconciliationClass,
+): Promise<ReconciliationActivityResult> {
+  try {
+    const result = await renumberClassFindingsService({
+      deliverablesDir: deliverablesDir(input.repoPath, input.deliverablesSubdir),
+      vulnerabilityClass,
+      logger: createActivityLogger(),
+    });
+    return {
+      vulnerabilityClass,
+      skipped: result.skipped,
+      changedPathCount: result.commit?.changedPaths.length ?? 0,
+      ...(result.commit !== undefined && {
+        checkpoint: result.commit.commitHash,
+        alreadyCommitted: result.commit.alreadyCommitted,
+      }),
+    };
+  } catch (error) {
+    throw deterministicActivityFailure(error, 'ReportRenumberError');
+  }
+}
+
 /**
  * Assemble the final report by concatenating per-class deliverables.
  *
- * Under exploit=true, each exploit agent has produced `*_exploitation_evidence.md`
- * directly. Under exploit=false, exploit agents didn't run; we deterministically
- * render `*_findings.md` from each `*_exploitation_queue.json` first, then assemble.
+ * Under exploit=true, each exploit agent writes sparse evidence and a successful
+ * renumber replaces it with the dense render. Under exploit=false, exploit agents
+ * didn't run; we deterministically render `*_findings.md` from each
+ * `*_exploitation_queue.json` first, then assemble.
  */
-export async function assembleReportActivity(input: ActivityInput, exploit: boolean): Promise<void> {
+export async function assembleReportActivity(
+  input: ActivityInput,
+  exploit: boolean,
+): Promise<AssembleReportActivityResult> {
   const { repoPath, deliverablesSubdir } = input;
   const logger = createActivityLogger();
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  const durableState = await auditSession.getDurableScanState();
+  if (durableState.exploit !== exploit || durableState.report?.stage !== 'pending') {
+    throw runStateFailure(new RunStateError('DurableStateConflictError', 'report-assembly-stage-mismatch'));
+  }
 
+  let renderFailedClasses: readonly ReconciliationClass[] = [];
   if (!exploit) {
     logger.info('Rendering per-class findings from analysis queues...');
     try {
-      await renderFindingsFromQueues(repoPath, deliverablesSubdir, logger);
+      const rendered = await renderFindingsFromQueues(
+        repoPath,
+        deliverablesSubdir,
+        logger,
+        durableState.participating_classes,
+      );
+      renderFailedClasses = rendered.failedClasses;
     } catch (error) {
-      const err = error as Error;
-      logger.warn(`Error rendering findings from queues: ${err.message}`);
+      throw deterministicActivityFailure(error, 'ReportAssemblyError');
     }
   }
 
   logger.info('Assembling deliverables from specialist agents...');
   try {
-    await assembleFinalReport(repoPath, deliverablesSubdir, logger);
+    const assembled = await assembleFinalReportWithEvidence(repoPath, deliverablesSubdir, logger, {
+      exploit,
+      participatingClasses: durableState.participating_classes,
+      knownFailedClasses: renderFailedClasses,
+    });
+    return { failedClasses: assembled.failedClasses };
   } catch (error) {
-    const err = error as Error;
-    logger.warn(`Error assembling final report: ${err.message}`);
+    throw deterministicActivityFailure(error, 'ReportAssemblyError');
+  }
+}
+
+/** Compact a coherent draft using only persisted membership and failure order. */
+export async function compactReportFindings(input: ActivityInput): Promise<ReconciliationActivityResult> {
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  const state = await auditSession.getDurableScanState();
+  if (state.report?.stage !== 'draft') {
+    throw runStateFailure(new RunStateError('DurableStateConflictError', 'report-compaction-stage-mismatch'));
+  }
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  const draftValidation = await validateDraftProgress(deliverablesPath, state.report);
+  if (draftValidation === 'invalid-model') {
+    await rollbackInvalidReportDraft(input, state.report);
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-draft-rolled-back'));
+  }
+  if (draftValidation === 'invalid-canonical') {
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-canonical-checkpoint-invalid'));
+  }
+
+  let result: Awaited<ReturnType<typeof compactReportFindingsService>>;
+  try {
+    result = await compactReportFindingsService({
+      deliverablesDir: deliverablesPath,
+      participatingClasses: state.participating_classes,
+      renumberFailedClasses: state.report.renumber_failed_classes,
+      logger: createActivityLogger(),
+    });
+  } catch (error) {
+    throw deterministicActivityFailure(error, 'ReportCompactionError');
+  }
+  return {
+    skipped: result.skipped,
+    changedPathCount: result.commit?.changedPaths.length ?? 0,
+    ...(result.commit !== undefined && {
+      checkpoint: result.commit.commitHash,
+      alreadyCommitted: result.commit.alreadyCommitted,
+    }),
+  };
+}
+
+/** Persist and validate the canonical structured checkpoint after compaction. */
+export async function persistCanonicalReportProgress(
+  input: ActivityInput,
+  checkpoint: string,
+  appendReasons: readonly PartialReason[] = [],
+): Promise<ReportProgress> {
+  try {
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initialize(input.workflowId);
+    const state = await auditSession.getDurableScanState();
+    if (state.report?.stage !== 'draft') {
+      throw new RunStateError('DurableStateConflictError', 'report-canonical-stage-mismatch');
+    }
+    const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+    if (
+      !(await checkpointIsAncestor(state.report.model_checkpoint, checkpoint, deliverablesPath)) ||
+      !(await reportCheckpointIsCoherent(deliverablesPath, checkpoint, state.report.renumber_failed_classes))
+    ) {
+      throw new RunStateError('CorruptedSessionError', 'report-canonical-checkpoint-invalid');
+    }
+    return await auditSession.recordCanonicalReportCheckpoint(checkpoint, appendReasons);
+  } catch (error) {
+    throw runStateFailure(error);
   }
 }
 
 /**
- * Inject model metadata into the final report.
+ * Commit exact canonical outputs and regenerate the derived PDF without terminal promotion.
+ *
+ * `degradedSarif` is passed by the workflow only after the retryable `ReportSarifRenderError`
+ * type has exhausted the ordinary three-attempt policy; the service still runs its adoption
+ * check first, so a coherent earlier commit is adopted instead of degraded.
  */
-export async function injectReportMetadataActivity(input: ActivityInput): Promise<void> {
-  const { repoPath, sessionId, outputPath, deliverablesSubdir } = input;
-  const logger = createActivityLogger();
-  const effectiveOutputPath = outputPath ? path.join(outputPath, sessionId) : path.join('./workspaces', sessionId);
-  try {
-    await injectModelIntoReport(repoPath, deliverablesSubdir, effectiveOutputPath, logger);
-  } catch (error) {
-    const err = error as Error;
-    logger.warn(`Error injecting model into report: ${err.message}`);
+export async function finalizeReportOutputs(
+  input: ActivityInput,
+  degradedSarif = false,
+): Promise<FinalizeReportActivityResult> {
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  const state = await auditSession.getDurableScanState();
+  if (
+    state.report === undefined ||
+    state.report.stage === 'pending' ||
+    (state.report.stage === 'draft' && state.report.canonical_checkpoint === undefined)
+  ) {
+    throw runStateFailure(new RunStateError('DurableStateConflictError', 'report-finalization-stage-mismatch'));
   }
+
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  const reportIsCoherent =
+    state.report.stage === 'finalized'
+      ? await finalProgressIsCoherent(deliverablesPath, state.report)
+      : await draftProgressIsCoherent(deliverablesPath, state.report);
+  if (!reportIsCoherent) {
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-finalization-checkpoint-invalid'));
+  }
+  const priorPdfProvenance = state.report.stage === 'finalized' ? state.report.pdf_provenance : undefined;
+
+  const container = getOrCreateContainer(input.workflowId, buildSessionMetadata(input), buildContainerConfig(input));
+  const configResult = await container.configLoader.loadOptional(input.configPath, undefined, input.configYAML);
+  if (isErr(configResult)) throw deterministicActivityFailure(configResult.error, 'ReportFinalizationError');
+  // Preserve public main's default-on exploit SARIF behavior when no report config is present.
+  const reportConfig = configResult.value?.report ?? { sarif: true };
+  let result: Awaited<ReturnType<typeof finalizeReport>>;
+  try {
+    result = await finalizeReport({
+      deliverablesDir: deliverablesPath,
+      exploit: state.exploit,
+      reconciliationFailedClasses: state.report.renumber_failed_classes,
+      reportConfig,
+      workspaceName: input.sessionId,
+      logger: createActivityLogger(),
+      templatePath: TYPST_TEMPLATE,
+      ...(degradedSarif && { degradedSarif }),
+      ...(priorPdfProvenance !== undefined && { priorPdfProvenance }),
+    });
+  } catch (error) {
+    throw deterministicActivityFailure(error, 'ReportFinalizationError');
+  }
+  const manifestContents = `${JSON.stringify(result.manifest, null, 2)}\n`;
+  return {
+    checkpoint: result.commit.commitHash,
+    manifestSha256: sha256(manifestContents),
+    changedPathCount: result.commit.changedPaths.length,
+    alreadyCommitted: result.commit.alreadyCommitted,
+    sarifDisposition: result.manifest.artifacts.sarif.disposition,
+    pdfGenerated: result.pdfGenerated,
+    pdfProvenance: result.pdfProvenance,
+    warningCount: result.warnings.length,
+  };
+}
+
+export interface FinalizedReportPersistence {
+  readonly sarifDisposition: ReportSarifDisposition;
+  readonly pdfProvenance: StoredPdfProvenance | null;
+  readonly partialReasons: readonly PartialReason[];
+}
+
+/**
+ * Verify exact final bytes, then atomically promote report to the only terminal state.
+ * `final_checkpoint` and the manifest digest are strict match-or-conflict fields; the PDF
+ * provenance is replaceable, and partial reasons are append-only.
+ */
+export async function persistFinalizedReportProgress(
+  input: ActivityInput,
+  checkpoint: string,
+  manifestSha256: string,
+  terminal: FinalizedReportPersistence,
+): Promise<ReportProgress> {
+  try {
+    if (!isOrderedPartialReasonSet(terminal.partialReasons)) {
+      throw new RunStateError('DurableStateConflictError', 'report-terminal-reasons-invalid');
+    }
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initialize(input.workflowId);
+    const state = await auditSession.getDurableScanState();
+    if (state.report?.stage === 'finalized') {
+      if (
+        state.report.final_checkpoint !== checkpoint ||
+        state.report.finalization_manifest_sha256 !== manifestSha256
+      ) {
+        throw new RunStateError('DurableStateConflictError', 'report-finalized-retry-conflict');
+      }
+      if (!(await finalProgressIsCoherent(deliverablesDir(input.repoPath, input.deliverablesSubdir), state.report))) {
+        throw new RunStateError('CorruptedSessionError', 'report-finalized-proof-corrupt');
+      }
+      return await auditSession.finalizeReportProgress(checkpoint, manifestSha256, terminal);
+    }
+    if (state.report?.stage !== 'draft' || state.report.canonical_checkpoint === undefined) {
+      throw new RunStateError('DurableStateConflictError', 'report-terminal-stage-mismatch');
+    }
+    const candidate: ReportProgress = {
+      stage: 'finalized',
+      renumber_failed_classes: [...state.report.renumber_failed_classes],
+      partial_reasons: appendPartialReasons(state.report.partial_reasons, terminal.partialReasons),
+      model_checkpoint: state.report.model_checkpoint,
+      canonical_checkpoint: state.report.canonical_checkpoint,
+      final_checkpoint: checkpoint,
+      finalization_manifest_sha256: manifestSha256,
+      sarif_disposition: terminal.sarifDisposition,
+      ...(terminal.pdfProvenance !== null && { pdf_provenance: terminal.pdfProvenance }),
+    };
+    if (!(await finalProgressIsCoherent(deliverablesDir(input.repoPath, input.deliverablesSubdir), candidate))) {
+      throw new RunStateError('CorruptedSessionError', 'report-final-proof-invalid');
+    }
+    return await auditSession.finalizeReportProgress(checkpoint, manifestSha256, terminal);
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+}
+
+/** Best-effort customer publication after durable terminal promotion. */
+export async function surfaceReportOutputs(input: ActivityInput): Promise<SurfaceReportActivityResult> {
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  const state = await auditSession.getDurableScanState();
+  const deliverablesPath = deliverablesDir(input.repoPath, input.deliverablesSubdir);
+  if (state.report?.stage !== 'finalized' || !(await finalProgressIsCoherent(deliverablesPath, state.report))) {
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-surface-terminal-proof-invalid'));
+  }
+
+  // The manifest just proved coherent, so the canonical digest read cannot miss here.
+  const manifestContents = await checkpointFileContents(
+    deliverablesPath,
+    state.report.final_checkpoint,
+    REPORT_FINALIZATION_MANIFEST_FILENAME,
+  );
+  if (manifestContents === null) {
+    throw runStateFailure(new RunStateError('CorruptedSessionError', 'report-surface-terminal-proof-invalid'));
+  }
+  const manifest = JSON.parse(manifestContents) as { artifacts: { report_json: { sha256: string } } };
+  const canonicalReportSha256 = manifest.artifacts.report_json.sha256;
+
+  // Only provenance that matches the current renderer, template, and PDF bytes is passed
+  // through; anything else surfaces as null so stale customer output is removed.
+  let verifiedProvenance: StoredPdfProvenance | null = null;
+  const storedProvenance = state.report.pdf_provenance;
+  if (
+    storedProvenance !== undefined &&
+    (await pdfProvenanceIsCurrent({
+      pdfPath: path.join(deliverablesPath, ASSEMBLED_REPORT_PDF_FILENAME),
+      canonicalReportSha256,
+      provenance: storedProvenance,
+      templatePath: TYPST_TEMPLATE,
+    }))
+  ) {
+    verifiedProvenance = storedProvenance;
+  }
+
+  const customerDir =
+    input.customerOutputRoute === 'mounted'
+      ? '/app/output'
+      : generateAuditPath({ id: input.sessionId, webUrl: input.webUrl, repoPath: input.repoPath });
+  const result = await surfaceReportOutputsService({
+    deliverablesDir: deliverablesPath,
+    customerDir,
+    logger: createActivityLogger(),
+    pdfVerification: { canonicalReportSha256, provenance: verifiedProvenance },
+  });
+  return {
+    surfaced: result.surfaced,
+    removedStale: result.removedStale,
+    warningCount: result.warnings.length,
+  };
 }
 
 /**
@@ -884,11 +1416,6 @@ export async function checkExploitationQueue(input: ActivityInput, vulnType: Vul
   }
 }
 
-interface RunScope {
-  vulnClasses: VulnClass[];
-  exploit: boolean;
-}
-
 interface SessionJson {
   session: {
     id: string;
@@ -896,7 +1423,6 @@ interface SessionJson {
     repoPath?: string;
     originalWorkflowId?: string;
     resumeAttempts?: ResumeAttempt[];
-    scope?: RunScope;
   };
   metrics: {
     agents: Record<
@@ -907,26 +1433,41 @@ interface SessionJson {
       }
     >;
   };
+  durableScanState?: unknown;
+}
+
+export interface ResumeLoadOptions {
+  readonly deliverablesSubdir?: string;
+  readonly expectedExploit?: boolean;
 }
 
 /**
  * Load resume state from an existing workspace.
+ *
+ * Every completion signal here is cross-checked against independent evidence (a deliverable
+ * file on disk, a git checkpoint, the durable scan-state record) rather than trusted from
+ * session.json alone, because a crash can leave the metrics ledger and the filesystem
+ * disagreeing about what actually finished.
  */
 export async function loadResumeState(
   workspaceName: string,
   expectedUrl: string,
   expectedRepoPath: string,
-  deliverablesSubdir?: string,
+  optionsOrDeliverablesSubdir?: ResumeLoadOptions | string,
 ): Promise<ResumeState> {
+  const options: ResumeLoadOptions =
+    typeof optionsOrDeliverablesSubdir === 'string'
+      ? { deliverablesSubdir: optionsOrDeliverablesSubdir }
+      : (optionsOrDeliverablesSubdir ?? {});
+  const deliverablesSubdir = options.deliverablesSubdir;
   // 1. Validate workspace exists (prefers .shannon/, falls back to legacy run-root layout)
   const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspaceName));
 
   const exists = await fileExists(sessionPath);
   if (!exists) {
-    throw ApplicationFailure.nonRetryable(
-      `Workspace not found: ${workspaceName}\nExpected path: ${sessionPath}`,
-      'WorkspaceNotFoundError',
-    );
+    throw ApplicationFailure.nonRetryable(SAFE_RUN_STATE_MESSAGES.CorruptedSessionError, 'WorkspaceNotFoundError', [
+      { checkCode: 'session-json-missing' },
+    ]);
   }
 
   // 2. Parse session.json and validate URL match
@@ -934,25 +1475,102 @@ export async function loadResumeState(
   try {
     session = await readJson<SessionJson>(sessionPath);
   } catch (error) {
-    const errorMsg = error instanceof Error ? error.message : String(error);
+    throw ApplicationFailure.nonRetryable(SAFE_RUN_STATE_MESSAGES.CorruptedSessionError, 'CorruptedSessionError', [
+      { checkCode: 'session-json-not-json' },
+    ]);
+  }
+
+  if (!isDurableScanState(session.durableScanState)) {
+    // A missing record means a different release wrote this workspace; a malformed one
+    // means the record itself is damaged. Each refusal keeps its own wording.
+    const durableStateMissing = session.durableScanState === undefined;
     throw ApplicationFailure.nonRetryable(
-      `Corrupted session.json in workspace ${workspaceName}: ${errorMsg}`,
-      'CorruptedSessionError',
+      durableStateMissing
+        ? SAFE_RUN_STATE_MESSAGES.IncompatibleWorkspaceError
+        : SAFE_RUN_STATE_MESSAGES.CorruptedSessionError,
+      durableStateMissing ? 'IncompatibleWorkspaceError' : 'CorruptedSessionError',
+      [{ checkCode: durableStateMissing ? 'durable-state-missing' : 'durable-state-malformed' }],
+    );
+  }
+  let durableState: DurableScanState = structuredClone(session.durableScanState);
+  if (options.expectedExploit !== undefined && durableState.exploit !== options.expectedExploit) {
+    throw ApplicationFailure.nonRetryable(
+      workspaceExploitMismatchMessage(durableState.exploit),
+      'IncompatibleWorkspaceError',
+      [{ checkCode: 'exploit-mode-changed' }],
     );
   }
 
   if (session.session.webUrl !== expectedUrl) {
     throw ApplicationFailure.nonRetryable(
-      `URL mismatch with workspace\n  Workspace URL: ${session.session.webUrl}\n  Provided URL:  ${expectedUrl}`,
+      'This workspace was created for a different target URL, so it cannot be resumed against this one. Check -u, or start a new scan with a different -w name.',
       'URLMismatchError',
     );
   }
 
   // 3. Cross-check agent status with deliverables on disk
-  const completedAgents: string[] = [];
+  const completedAgents: AgentName[] = [];
   const agents = session.metrics.agents;
+  const deliverablesPath = deliverablesDir(expectedRepoPath, deliverablesSubdir);
 
-  for (const agentName of ALL_AGENTS) {
+  const miscellaneousAgentSucceeded = agents['miscellaneous-exploit']?.status === 'success';
+  if (miscellaneousAgentSucceeded !== (durableState.miscellaneous_outcome === 'completed')) {
+    throw ApplicationFailure.nonRetryable(
+      'The admitted miscellaneous-agent state conflicts with persisted metrics.',
+      'CorruptedSessionError',
+      [{ checkCode: 'miscellaneous-outcome-metrics-divergence' }],
+    );
+  }
+  const reportAgentSucceeded = agents.report?.status === 'success';
+  if (reportAgentSucceeded !== (durableState.report?.stage === 'finalized')) {
+    throw ApplicationFailure.nonRetryable(
+      'The report terminal state conflicts with persisted metrics.',
+      'CorruptedSessionError',
+      [{ checkCode: 'report-stage-metrics-divergence' }],
+    );
+  }
+
+  if (durableState.report?.stage === 'draft') {
+    const draftValidation = await validateDraftProgress(deliverablesPath, durableState.report);
+    if (draftValidation === 'invalid-model') {
+      await rollbackInvalidReportDraft(
+        {
+          webUrl: expectedUrl,
+          repoPath: expectedRepoPath,
+          workflowId: session.session.originalWorkflowId ?? session.session.id,
+          sessionId: workspaceName,
+          ...(deliverablesSubdir !== undefined && { deliverablesSubdir }),
+        },
+        durableState.report,
+      );
+      durableState = {
+        ...durableState,
+        report: {
+          stage: 'pending',
+          renumber_failed_classes: [...durableState.report.renumber_failed_classes],
+          partial_reasons: [...durableState.report.partial_reasons],
+        },
+      };
+    } else if (draftValidation === 'invalid-canonical') {
+      throw ApplicationFailure.nonRetryable('The canonical report checkpoint is invalid.', 'CorruptedSessionError', [
+        { checkCode: 'report-canonical-checkpoint-invalid' },
+      ]);
+    }
+  }
+  if (
+    durableState.report?.stage === 'finalized' &&
+    !(await finalProgressIsCoherent(deliverablesPath, durableState.report))
+  ) {
+    throw ApplicationFailure.nonRetryable('The terminal report checkpoint proof is invalid.', 'CorruptedSessionError', [
+      { checkCode: 'report-final-proof-invalid' },
+    ]);
+  }
+
+  for (const agentName of durableState.expected_agents) {
+    if (agentName === 'report') {
+      if (durableState.report?.stage === 'finalized') completedAgents.push(agentName);
+      continue;
+    }
     const agentData = agents[agentName];
     if (!agentData || agentData.status !== 'success') {
       continue;
@@ -975,6 +1593,13 @@ export async function loadResumeState(
   const checkpoints = completedAgents
     .map((name) => agents[name]?.checkpoint)
     .filter((hash): hash is string => hash != null);
+  if (durableState.report?.stage === 'draft') {
+    checkpoints.push(durableState.report.model_checkpoint);
+    if (durableState.report.canonical_checkpoint !== undefined) {
+      checkpoints.push(durableState.report.canonical_checkpoint);
+    }
+  }
+  if (durableState.report?.stage === 'finalized') checkpoints.push(durableState.report.final_checkpoint);
 
   if (checkpoints.length === 0) {
     const successAgents = Object.entries(agents)
@@ -993,7 +1618,6 @@ export async function loadResumeState(
   }
 
   // 5. Find the most recent checkpoint commit
-  const deliverablesPath = deliverablesDir(expectedRepoPath, deliverablesSubdir);
   const checkpointHash = await findLatestCommit(deliverablesPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
 
@@ -1011,52 +1635,35 @@ export async function loadResumeState(
     completedAgents,
     checkpointHash,
     originalWorkflowId,
+    expectedAgents: [...durableState.expected_agents],
+    participatingClasses: [...durableState.participating_classes],
+    exploit: durableState.exploit,
+    ...(durableState.report !== undefined && { reportProgress: structuredClone(durableState.report) }),
+    ...(durableState.miscellaneous_outcome !== undefined && {
+      miscellaneousOutcome: durableState.miscellaneous_outcome,
+    }),
   };
 }
 
-/** First run records scope into session.json; resume runs throw if it differs. */
+/** Transitional workflow signature backed by the durable initializer, never by static reconstruction. */
 export async function persistOrValidateRunScope(
   input: ActivityInput,
   vulnClasses: VulnClass[],
   exploit: boolean,
 ): Promise<void> {
-  const sessionMetadata = buildSessionMetadata(input);
-  const auditSession = new AuditSession(sessionMetadata);
-  await auditSession.initialize(input.workflowId);
-
-  const sessionPath = generateSessionJsonPath(sessionMetadata);
-  let session: SessionJson;
   try {
-    session = await readJson<SessionJson>(sessionPath);
+    assertFixedAnalysisScope(vulnClasses);
   } catch (error) {
-    const rawMessage = error instanceof Error ? error.message : String(error);
+    throw runStateFailure(error);
+  }
+  if (input.stateContext === undefined) {
     throw ApplicationFailure.nonRetryable(
-      `Corrupted session.json in workspace ${input.sessionId}: ${rawMessage}`,
-      'CorruptedSessionError',
+      'The workflow must identify fresh or resume initialization explicitly.',
+      'IncompatibleWorkspaceError',
+      [{ checkCode: 'state-context-missing' }],
     );
   }
-
-  if (session.session.scope) {
-    const recorded = session.session.scope;
-    const sameClasses =
-      recorded.vulnClasses.length === vulnClasses.length &&
-      recorded.vulnClasses.every((c) => vulnClasses.includes(c)) &&
-      vulnClasses.every((c) => recorded.vulnClasses.includes(c));
-
-    if (!sameClasses || recorded.exploit !== exploit) {
-      throw ApplicationFailure.nonRetryable(
-        `Resume scope mismatch for workspace ${input.sessionId}.\n` +
-          `  Original: vuln_classes=[${recorded.vulnClasses.join(', ')}], exploit=${recorded.exploit}\n` +
-          `  Provided: vuln_classes=[${vulnClasses.join(', ')}], exploit=${exploit}\n` +
-          `Resume requires the same scope as the original run. Start a new workspace if you want different scope.`,
-        'ScopeMismatchError',
-      );
-    }
-    return;
-  }
-
-  session.session.scope = { vulnClasses: [...vulnClasses], exploit };
-  await atomicWrite(sessionPath, session);
+  await initializeDurableScanState(input, exploit, input.stateContext);
 }
 
 async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise<string> {
@@ -1092,7 +1699,48 @@ export async function restoreGitCheckpoint(
   checkpointHash: string,
   incompleteAgents: AgentName[],
   deliverablesSubdir?: string,
+  durable?: {
+    readonly expectedAgents: readonly AgentName[];
+    readonly participatingClasses: readonly ReconciliationClass[];
+    readonly reportProgress?: ReportProgress;
+  },
 ): Promise<void> {
+  // Restore membership must come from the durable scan-state record, never be reconstructed
+  // from the caller's own agent list, so a corrupted or stale caller can never make this
+  // activity delete deliverables that are still needed.
+  if (durable === undefined) {
+    throw ApplicationFailure.nonRetryable(
+      'Persisted restore membership is required before workspace mutation.',
+      'IncompatibleWorkspaceError',
+      [{ checkCode: 'restore-durable-membership-missing' }],
+    );
+  }
+  const expectedAgents = durable.expectedAgents;
+  const exploitOff = initialExpectedAgents(false);
+  const exploitOn = initialExpectedAgents(true);
+  const expectedSetIsValid =
+    arraysEqual(expectedAgents, exploitOff) ||
+    arraysEqual(expectedAgents, exploitOn) ||
+    arraysEqual(expectedAgents, [...exploitOn, 'miscellaneous-exploit']);
+  const participatingClasses = durable.participatingClasses;
+  const participatingSetIsValid =
+    arraysEqual(participatingClasses, FIXED_ANALYSIS_CLASSES) ||
+    arraysEqual(participatingClasses, [...FIXED_ANALYSIS_CLASSES, 'miscellaneous']);
+  const miscellaneousAdmissionIsValid =
+    !expectedAgents.includes('miscellaneous-exploit') || participatingClasses.includes('miscellaneous');
+  if (
+    !expectedSetIsValid ||
+    !participatingSetIsValid ||
+    !miscellaneousAdmissionIsValid ||
+    (durable.reportProgress !== undefined && !isReportProgress(durable.reportProgress, participatingClasses))
+  ) {
+    throw ApplicationFailure.nonRetryable(
+      'Persisted restore membership or report state is malformed.',
+      'CorruptedSessionError',
+      [{ checkCode: 'restore-durable-input-malformed' }],
+    );
+  }
+
   const deliverablesPath = deliverablesDir(repoPath, deliverablesSubdir);
   const logger = createActivityLogger();
   logger.info(`Restoring deliverables to ${checkpointHash}...`);
@@ -1119,12 +1767,16 @@ export async function restoreGitCheckpoint(
   // Scope the untracked clean so a completed agent's deliverables survive: exclude every
   // completed agent's paths, cleaning only leftovers from the incomplete agents being re-run.
   const incompleteSet = new Set<AgentName>(incompleteAgents);
-  const completedPaths = ALL_AGENTS.filter((name) => !incompleteSet.has(name)).flatMap(getAgentGitPaths);
+  if (durable?.reportProgress?.stage === 'draft' || durable?.reportProgress?.stage === 'finalized') {
+    incompleteSet.delete('report');
+  }
+  const completedPaths = expectedAgents.filter((name) => !incompleteSet.has(name)).flatMap(getAgentGitPaths);
   const cleanArgs = ['git', 'clean', '-fd', ...completedPaths.flatMap((completedPath) => ['-e', completedPath])];
   await executeGitCommandWithRetry(cleanArgs, deliverablesPath, 'clean untracked deliverables');
 
   // Explicitly delete partial deliverables for incomplete agents
   for (const agentName of incompleteAgents) {
+    if (agentName === 'report' && !incompleteSet.has('report')) continue;
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
     const deliverablePath = path.join(deliverablesPath, deliverableFilename);
     try {
@@ -1229,35 +1881,28 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
     }
   }
 
-  // 4. Build cumulative summary with cross-run totals
+  // 4. Build cumulative totals: session.json carries cross-run agent spend only, so this
+  // run's operational (Capella/reconciliation) entries are added on top instead of being
+  // silently replaced by agent-only session totals.
+  const operationalEntries = Object.entries(agentMetrics).filter(
+    ([name]) => sessionData.metrics.agents[name] === undefined,
+  );
+  const operationalCostUsd = operationalEntries.reduce((sum, [, metrics]) => sum + (metrics.costUsd ?? 0), 0);
+  const operationalDurationMs = operationalEntries.reduce((sum, [, metrics]) => sum + metrics.durationMs, 0);
   const cumulativeSummary: WorkflowSummary = {
     ...summary,
-    totalDurationMs: sessionData.metrics.total_duration_ms,
-    totalCostUsd: sessionData.metrics.total_cost_usd,
+    totalDurationMs: sessionData.metrics.total_duration_ms + operationalDurationMs,
+    totalCostUsd: sessionData.metrics.total_cost_usd + operationalCostUsd,
     agentMetrics,
   };
 
   // 5. Write completion entry to workflow.log
   await auditSession.logWorkflowComplete(cumulativeSummary);
 
-  // 6. Surface the final report at the run root. Done here (not in the report phase)
-  // so it also runs when a resume skips an already-complete report phase. A partial
-  // run still assembles a report (only some classes were not assessed), so surface it too.
-  if (summary.status === 'completed' || summary.status === 'partial') {
-    try {
-      await copyReportToRunRoot(
-        input.repoPath,
-        input.deliverablesSubdir,
-        generateAuditPath(sessionMetadata),
-        createActivityLogger(),
-      );
-    } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error);
-      console.warn(`Failed to surface report at run root: ${detail}`);
-    }
-  }
-
-  // 7. Drop the authenticated browser session
+  // 6. Drop the authenticated browser session. auth-state.json holds live cookies/storage for
+  // the lifetime of the scan only; leaving it on disk past workflow end would let a session
+  // outlive the run that created it. The removal is best-effort: a failure here is logged and
+  // swallowed rather than failing a scan that otherwise completed successfully.
   try {
     await fs.rm(authStateFile(sessionMetadata), { force: true });
   } catch (error) {
@@ -1265,7 +1910,7 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
     console.warn(`Failed to clean up auth-state.json: ${detail}`);
   }
 
-  // 8. Clean up container
+  // 7. Clean up container
   removeContainer(workflowId);
 }
 
@@ -1308,23 +1953,4 @@ export async function saveCheckpoint(
   };
 
   return container.checkpointProvider.onAgentComplete(agentName, phase, state, context);
-}
-
-/**
- * Generate an optional additional output alongside the assembled markdown report.
- *
- * Delegates to the ReportOutputProvider registered in the DI container.
- * Default: no-op. Consumers can override this activity at the worker level
- * to emit derived outputs from the final report.
- */
-export async function generateReportOutputActivity(input: ActivityInput): Promise<void> {
-  const container = getContainer(input.workflowId);
-  if (!container?.reportOutputProvider) return;
-
-  const logger = createActivityLogger();
-
-  const result = await container.reportOutputProvider.generate(input, logger);
-  if (result.outputPath) {
-    logger.info(`Report output written to ${result.outputPath}`);
-  }
 }

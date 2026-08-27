@@ -21,6 +21,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
+import { providerFailureSentence } from '../../services/error-handling.js';
 import type { ProviderFailure } from '../../types/errors.js';
 import { type ModelHost, modelHost } from '../model-host.js';
 import type { ModelSelection } from '../models.js';
@@ -481,7 +482,7 @@ class StandaloneTaskFormationExecutor implements TaskFormationExecutor {
         const failure = classifyModelFailure(this.host, error);
         throw new TaskFormationExecutorError({
           code: 'MODEL_SELECTION_FAILURE',
-          message: failure.message,
+          message: providerFailureSentence(failure),
           retryable: failure.retryable,
           failureKind: 'model',
           ...(failure.retryable && { fallbackReason: 'retryable_model_failure' }),
@@ -675,14 +676,14 @@ class StandaloneTaskFormationExecutor implements TaskFormationExecutor {
     if (failure.type === 'ConfigurationError') {
       return new TaskFormationExecutorError({
         code: 'MODEL_CONFIGURATION_FAILURE',
-        message: failure.message,
+        message: providerFailureSentence(failure),
         retryable: false,
         failureKind: 'input',
       });
     }
     return new TaskFormationExecutorError({
       code: failure.type === 'AuthenticationError' ? 'PROVIDER_AUTHENTICATION_FAILURE' : 'MODEL_SESSION_FAILURE',
-      message: failure.message,
+      message: providerFailureSentence(failure),
       retryable: failure.retryable,
       failureKind: 'model',
       ...(failure.retryable && { fallbackReason: 'retryable_model_failure' }),
@@ -736,7 +737,7 @@ class StandaloneTaskFormationExecutor implements TaskFormationExecutor {
       const failure = classifyModelFailure(this.host, outcome.pendingProviderError);
       throw new TaskFormationExecutorError({
         code: 'PROVIDER_FAILURE',
-        message: failure.message,
+        message: providerFailureSentence(failure),
         retryable: failure.retryable,
         failureKind: 'model',
         ...(failure.retryable && { fallbackReason: 'retryable_model_failure' }),
@@ -754,7 +755,7 @@ class StandaloneTaskFormationExecutor implements TaskFormationExecutor {
       const failure = classifyModelFailure(this.host, outcome.promptError);
       throw new TaskFormationExecutorError({
         code: 'MODEL_SESSION_FAILURE',
-        message: failure.message,
+        message: providerFailureSentence(failure),
         retryable: failure.retryable,
         failureKind: 'model',
         ...(failure.retryable && { fallbackReason: 'retryable_model_failure' }),

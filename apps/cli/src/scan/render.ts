@@ -10,9 +10,8 @@
 import { BOLD, DIM, GOLD, paint, RED, YELLOW } from '../colors.js';
 import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
-import { agentError, deriveAgentStates, isTerminal, phaseGlyphState, type RunState, scanElapsedMs } from './derive.js';
-import { inlineFailureReason } from './failure.js';
-import { PIPELINE, type PipelineState } from './pipeline.js';
+import { derivePipeline, isTerminal, type RunState, scanElapsedMs } from './derive.js';
+import type { PipelineState } from './pipeline.js';
 
 export interface RenderInput {
   readonly workspace: string;
@@ -95,6 +94,12 @@ const STATE_COLOR: Record<RunState, string> = {
   skipped: COLORS.dim,
 };
 
+/** Column width for an agent or background-work label inside a phase. */
+const AGENT_LABEL_WIDTH = 18;
+
+/** Inline budget for a failure sentence, wide enough to carry a whole first sentence. */
+const FAILURE_DETAIL_WIDTH = 120;
+
 /** Braille spinner frames for running agents — the clack loader style. */
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const;
 
@@ -112,13 +117,14 @@ function statusBadge(input: RenderInput, opts: RenderOptions): string {
   const workflowStatus = input.state?.status;
   if (!isTerminal(input.temporalStatus)) return paint('running', COLORS.gold, opts.color);
   if (workflowStatus === 'partial') return paint('partial', COLORS.yellow, opts.color);
+  if (workflowStatus === 'cancelled') return paint('cancelled', COLORS.yellow, opts.color);
   if (input.temporalStatus === 'COMPLETED') return paint('completed', COLORS.gold, opts.color);
   if (input.temporalStatus === 'TERMINATED') return paint('stopped', COLORS.yellow, opts.color);
   if (input.temporalStatus === 'CANCELLED' || input.temporalStatus === 'CANCELED') {
     return paint('cancelled', COLORS.yellow, opts.color);
   }
   if (input.temporalStatus === 'TIMED_OUT') return paint('timed out', COLORS.red, opts.color);
-  return paint('FAILED', COLORS.red, opts.color);
+  return paint('failed', COLORS.red, opts.color);
 }
 
 // === Line builders ===
@@ -129,6 +135,7 @@ function agentMeta(
   runner: RunningAgent | undefined,
   error: string | undefined,
   opts: RenderOptions,
+  step?: string,
 ): string {
   if (state === 'completed') {
     const duration = metrics?.durationMs != null ? formatDuration(metrics.durationMs) : 'done';
@@ -136,12 +143,13 @@ function agentMeta(
   }
   if (state === 'running') {
     const parts = ['running'];
+    if (step !== undefined) parts.push(step);
     if (runner?.startedAt !== undefined) parts.push(formatDuration(opts.now - runner.startedAt));
     if (runner && runner.attempt > 1) parts.push(`retry ${runner.attempt}`);
     return paint(parts.join(' · '), COLORS.gold, opts.color);
   }
   if (state === 'failed') {
-    const detail = error ? ` · ${truncate(error, 46)}` : '';
+    const detail = error ? ` · ${truncate(error, FAILURE_DETAIL_WIDTH)}` : '';
     return paint(`failed${detail}`, COLORS.red, opts.color);
   }
   if (state === 'skipped') return paint('skipped', COLORS.dim, opts.color);
@@ -163,18 +171,20 @@ function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolea
 /** Render the full progress frame as one string (no trailing newline). */
 export function renderScan(input: RenderInput, opts: RenderOptions): string {
   const byAgent = new Map(input.running.map((r) => [r.agent, r]));
-  const stateMap = deriveAgentStates(input);
+  const phases = derivePipeline(input, opts.now);
   const lines: string[] = ['', ...headerLines(input, opts), ''];
 
-  const metaFor = (name: string, state: RunState): string =>
-    agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
   // Only agents that have actually entered play are shown; pending/skipped ones stay hidden.
   const inPlay = (s: RunState): boolean => s === 'running' || s === 'completed' || s === 'failed';
 
-  for (const phase of PIPELINE) {
-    const states = phase.agents.map((a) => stateMap.get(a.name) ?? 'pending');
+  for (const phase of phases) {
+    const states = phase.agents.map((agent) => agent.state);
     const playing = states.filter(inPlay).length;
-    const phaseRunState: RunState = phaseGlyphState(states);
+    const phaseRunState = phase.state;
+    const metaFor = (agent: (typeof phase.agents)[number]): string => {
+      const metrics = agent.durationMs === null ? undefined : { durationMs: agent.durationMs };
+      return agentMeta(agent.state, metrics, byAgent.get(agent.name), agent.error, opts, agent.detail);
+    };
 
     // A single-agent phase carries that agent's own duration/cost on the phase line once it
     // starts; a parallel phase gets a "k/N done" summary over the agents in play.
@@ -182,7 +192,7 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
     const firstState = states[0];
     const phaseMetaStr =
       !phase.parallel && first && firstState && inPlay(firstState)
-        ? metaFor(first.name, firstState)
+        ? metaFor(first)
         : phaseMeta(states, playing, phase.parallel, opts);
     lines.push(`  ${glyph(phaseRunState, opts)}  ${phase.label.padEnd(26)}${phaseMetaStr}`);
 
@@ -191,7 +201,9 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
       const agent = phase.agents[i];
       const state = states[i];
       if (!agent || !state || !inPlay(state)) continue;
-      lines.push(`       ${glyph(state, opts)} ${agent.label.padEnd(18)}${metaFor(agent.name, state)}`);
+      // Two trailing spaces before padding, so a label wider than the column still separates
+      // from its meta text; a label inside the column pads to the same width as before.
+      lines.push(`       ${glyph(state, opts)} ${`${agent.label}  `.padEnd(AGENT_LABEL_WIDTH)}${metaFor(agent)}`);
     }
   }
 
@@ -223,15 +235,44 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
 
   if (isTerminal(input.temporalStatus) && input.state?.summary) {
     const wall = formatDuration(input.state.summary.totalDurationMs);
-    return ['', `  Time Taken   ${wall}`];
+    const lines = ['', `  Time Taken   ${wall}`];
+
+    // A partial scan names each durable degradation reason through its safe message,
+    // so the operator never has to guess why the badge is not "completed".
+    const reasons = input.state.partialReasons ?? [];
+    if (reasons.length > 0) {
+      lines.push('', `  ${paint('Why this scan is partial:', COLORS.yellow, opts.color)}`);
+      for (const reason of reasons) {
+        lines.push(paint(`    - ${reason.message}`, COLORS.dim, opts.color));
+      }
+      // The safe message names what degraded; these three name the agentic-SAST failure
+      // behind it, under the same labels the scan log and worker output use.
+      const agenticSast = input.state.agenticSast;
+      if (agenticSast?.status === 'failed') {
+        if (agenticSast.failedStageLabel !== undefined) {
+          lines.push(paint(`    Agentic SAST stopped at: ${agenticSast.failedStageLabel}`, COLORS.dim, opts.color));
+        }
+        if (agenticSast.error !== undefined) {
+          lines.push(paint(`    What happened: ${agenticSast.error}`, COLORS.dim, opts.color));
+        }
+        if (agenticSast.errorCode !== undefined) {
+          lines.push(paint(`    Reference code (for a bug report): ${agenticSast.errorCode}`, COLORS.dim, opts.color));
+        }
+      }
+    }
+    if (input.state.summary.usageAccountingComplete === false) {
+      lines.push(
+        paint('  Cost is incomplete — some background work is not included in this total.', COLORS.dim, opts.color),
+      );
+    }
+    return lines;
   }
 
   const logsValue = `${prefix} logs ${input.workspace}`;
   const temporalValue = temporalDashboardUrl(input.workflowId);
 
   if (isTerminal(input.temporalStatus)) {
-    const rawReason = input.failureMessage ?? input.state?.error;
-    const reason = rawReason ? inlineFailureReason(rawReason) : 'no result recorded';
+    const reason = input.failureMessage ?? input.state?.error ?? 'no result recorded';
     return [
       footerDivider(opts),
       paint(

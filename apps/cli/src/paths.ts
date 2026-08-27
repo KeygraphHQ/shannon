@@ -43,6 +43,12 @@ export const INTERNAL_DIR = '.shannon';
 export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
 
 /**
+ * Customer-facing Markdown report name at the run root.
+ * Must match FINAL_REPORT_MD_FILENAME in the worker package.
+ */
+export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
+
+/**
  * Resolve a run-directory file (e.g. session.json, workflow.log), preferring the
  * current INTERNAL_DIR location and falling back to the legacy run-root location
  * so pre-restructure workspaces keep working. Returns the INTERNAL_DIR path when

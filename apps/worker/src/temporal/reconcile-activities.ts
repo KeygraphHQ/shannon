@@ -11,6 +11,8 @@ import { type ModelHost, modelHost } from '../ai/model-host.js';
 import { createPiStructuredGenerationPort } from '../ai/pi/structured-generation.js';
 import {
   createTaskFormationExecutor,
+  TASK_FORMATION_FALLBACK_REASONS,
+  type TaskFormationExecutionContext,
   TaskFormationExecutorError,
   type TaskFormationFallbackReason,
 } from '../ai/pi/task-formation-executor.js';
@@ -49,8 +51,11 @@ import type {
   PrepareResult,
 } from '../ai/reconciliation/stage-contracts.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
+import { renderSafeMessage } from '../types/run-state.js';
 import { createActivityLogger } from './activity-logger.js';
 import {
+  ACCEPTED_TASK_FORMATION_FALLBACK_REASONS,
   type EnrichClassSastObservationsActivityInput,
   type FormClassExploitTasksActivityInput,
   type FormClassExploitTasksActivityResult,
@@ -66,9 +71,20 @@ import {
   type ReconciliationStableFailureType,
   resolveReconciliationActivityBudget,
   type SeedEmptyProducerQueueActivityInput,
+  TASK_FORMATION_EXECUTOR_TIMEOUT_MARGIN_MS,
 } from './reconcile-activity-types.js';
 
 const STABLE_FAILURE_TYPES: ReadonlySet<string> = new Set(RECONCILIATION_STABLE_FAILURE_TYPES);
+
+// The workflow validates fallback reasons against its bundle-safe mirror; fail fast at worker
+// startup if the mirror ever drifts from the executor's authoritative closed set.
+{
+  const mirror = [...ACCEPTED_TASK_FORMATION_FALLBACK_REASONS].sort();
+  const authoritative = [...TASK_FORMATION_FALLBACK_REASONS].sort();
+  if (mirror.length !== authoritative.length || mirror.some((reason, index) => reason !== authoritative[index])) {
+    throw new Error('The workflow fallback-reason mirror does not match the task-formation executor contract');
+  }
+}
 
 const DEFAULT_RETRYABILITY: Readonly<Record<ReconciliationStableFailureType, boolean>> = Object.freeze({
   TaskFormationModelError: true,
@@ -83,17 +99,26 @@ const DEFAULT_RETRYABILITY: Readonly<Record<ReconciliationStableFailureType, boo
   KeySetDivergence: false,
 });
 
+/**
+ * One sentence per stable failure type, written for the reader rather than for the
+ * reconciliation design. `{Class}` and `{class}` are substituted from the failing class,
+ * which every reconciliation activity carries in its input.
+ */
 const SAFE_FAILURE_MESSAGES: Readonly<Record<ReconciliationStableFailureType, string>> = Object.freeze({
-  TaskFormationModelError: 'Task formation did not produce an accepted result.',
-  SastEnrichmentModelError: 'SAST enrichment did not produce an accepted result.',
-  ReconciliationArtifactNotFound: 'A reconciliation artifact is not currently visible.',
+  TaskFormationModelError: 'Shannon could not group {class} findings into test cases.',
+  SastEnrichmentModelError: 'Shannon could not add code context to the {class} findings from static analysis.',
+  ReconciliationArtifactNotFound:
+    'A saved {class} result could not be read back. Re-running this workspace retries it.',
   ReconciliationIoError: 'A reconciliation filesystem or Git operation failed.',
   ConfigurationError: 'Reconciliation activity configuration is invalid.',
   SastEnrichmentInputError: 'The supplied SAST reference is invalid.',
-  ArtifactIntegrityError: 'Reconciliation artifact integrity validation failed.',
-  PublicationConflict: 'The durable class publication conflicts with committed state.',
-  UnmappableSurvivor: 'A report-facing survivor cannot be mapped to the class task set.',
-  KeySetDivergence: 'Reconciliation report-facing key sets disagree.',
+  ArtifactIntegrityError: 'A saved {class} result failed its integrity check and was not used.',
+  PublicationConflict:
+    "{Class} results were already published by an earlier run, and this run's results differ. Nothing was overwritten.",
+  UnmappableSurvivor:
+    'Shannon could not match a finding in the report back to the test case it came from. {Class} results were not published.',
+  KeySetDivergence:
+    'Shannon found two disagreeing sets of findings for {class} and stopped rather than publish either.',
 });
 
 interface ReconciliationHeartbeatDetails {
@@ -107,6 +132,10 @@ export interface ReconciliationActivityRuntime {
   readonly attempt: number;
   readonly cancellationSignal: AbortSignal;
   readonly logger: ActivityLogger;
+  /** Temporal's granted per-attempt execution budget, from the activity info. */
+  readonly startToCloseTimeoutMs?: number;
+  /** Bounded per-attempt correlation identifier (run id + activity id). */
+  readonly executionKey?: string;
   heartbeat(details: ReconciliationHeartbeatDetails): void;
 }
 
@@ -114,6 +143,9 @@ interface ReconciliationStageRuntime {
   readonly signal: AbortSignal;
   readonly logger: ActivityLogger;
   readonly modelHost: ModelHost;
+  /** Remaining granted budget minus the deterministic margin, evaluated at call time. */
+  readonly executorTimeoutMsFor?: () => number | undefined;
+  readonly executionContextFor?: () => TaskFormationExecutionContext | undefined;
 }
 
 export interface ReconciliationStageBindings {
@@ -166,6 +198,8 @@ function defaultRuntime(): ReconciliationActivityRuntime {
     attempt: context.info.attempt,
     cancellationSignal: context.cancellationSignal,
     logger: createActivityLogger(),
+    startToCloseTimeoutMs: context.info.startToCloseTimeoutMs,
+    executionKey: `${context.info.workflowExecution.runId}:${context.info.activityId}`,
     heartbeat,
   };
 }
@@ -188,10 +222,11 @@ function applicationFailure(
   type: ReconciliationStableFailureType,
   retryable: boolean,
   stage: ReconciliationActivityName,
+  vulnerabilityClass: ReconciliationClass,
   details: StableFailureDetails = {},
 ): ApplicationFailure {
   return ApplicationFailure.create({
-    message: SAFE_FAILURE_MESSAGES[type],
+    message: renderSafeMessage(SAFE_FAILURE_MESSAGES[type], { vulnerabilityClass }),
     type,
     nonRetryable: !retryable,
     details: [
@@ -204,12 +239,33 @@ function applicationFailure(
   });
 }
 
-function cancellationFrom(error: unknown, signal: AbortSignal): CancelledFailure | undefined {
-  if (error instanceof CancelledFailure) return error;
+const CANCELLATION_CHAIN_DEPTH = 8;
 
-  const errorName = error instanceof Error ? error.name : undefined;
-  const cancelledByName = errorName === 'CancelledFailure' || errorName === 'AbortError';
-  if (!signal.aborted && !cancelledByName) return undefined;
+/**
+ * A failure counts as cancellation only when the activity signal is aborted AND its bounded
+ * cause chain carries a real cancellation (the signal's own reason, a `CancelledFailure`, or
+ * a cancellation-named abort raised under the aborted signal). A provider timeout, an
+ * abort-shaped provider error with the signal unset, a cleanup failure, or any infrastructure
+ * fault therefore stays an ordinary typed failure and is never manufactured into cancellation.
+ */
+function chainContainsRealCancellation(error: unknown, signal: AbortSignal): boolean {
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  for (let depth = 0; depth < CANCELLATION_CHAIN_DEPTH; depth++) {
+    if (current === undefined || current === null || seen.has(current)) return false;
+    if (current === signal.reason) return true;
+    if (current instanceof CancelledFailure) return true;
+    if (current instanceof Error && (current.name === 'CancelledFailure' || current.name === 'AbortError')) return true;
+    seen.add(current);
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
+}
+
+function cancellationFrom(error: unknown, signal: AbortSignal): CancelledFailure | undefined {
+  if (!signal.aborted) return undefined;
+  // A proactive check before any stage work has an aborted signal and no failure to inspect.
+  if (error !== undefined && error !== null && !chainContainsRealCancellation(error, signal)) return undefined;
 
   const reason = signal.reason;
   if (reason instanceof CancelledFailure) return reason;
@@ -222,27 +278,32 @@ function cancellationFrom(error: unknown, signal: AbortSignal): CancelledFailure
  * error) onto the closed set of stable failure types. Cancellation is checked first and
  * always wins, since a stage aborted for cancellation is not a stage that failed.
  */
-function normalizeFailure(error: unknown, stage: ReconciliationActivityName, signal: AbortSignal): never {
+function normalizeFailure(
+  error: unknown,
+  stage: ReconciliationActivityName,
+  vulnerabilityClass: ReconciliationClass,
+  signal: AbortSignal,
+): never {
   const cancellation = cancellationFrom(error, signal);
   if (cancellation !== undefined) throw cancellation;
 
   if (error instanceof TaskFormationModelError) {
-    throw applicationFailure('TaskFormationModelError', error.retryable, stage, {
+    throw applicationFailure('TaskFormationModelError', error.retryable, stage, vulnerabilityClass, {
       metrics: failureMetrics(error),
       ...(error.fallbackReason !== undefined && { fallbackReason: error.fallbackReason }),
     });
   }
   if (error instanceof SastEnrichmentModelError) {
-    throw applicationFailure('SastEnrichmentModelError', error.retryable, stage, {
+    throw applicationFailure('SastEnrichmentModelError', error.retryable, stage, vulnerabilityClass, {
       metrics: failureMetrics(error),
     });
   }
   if (error instanceof ReconciliationError) {
-    throw applicationFailure(error.failureType, error.retryable, stage);
+    throw applicationFailure(error.failureType, error.retryable, stage, vulnerabilityClass);
   }
   if (error instanceof TaskFormationExecutorError) {
     if (error.failureKind === 'model') {
-      throw applicationFailure('TaskFormationModelError', error.retryable, stage, {
+      throw applicationFailure('TaskFormationModelError', error.retryable, stage, vulnerabilityClass, {
         metrics: {
           costUsd: error.usage.costUsd,
           modelCalls: error.modelCalls,
@@ -252,47 +313,54 @@ function normalizeFailure(error: unknown, stage: ReconciliationActivityName, sig
         ...(error.fallbackReason !== undefined && { fallbackReason: error.fallbackReason }),
       });
     }
+    // Retryable executor infrastructure faults (session setup, transient IO) must stay
+    // retryable IO at the boundary instead of colliding with terminal ConfigurationError.
+    if (error.failureKind === 'infrastructure') {
+      throw applicationFailure('ReconciliationIoError', error.retryable, stage, vulnerabilityClass);
+    }
     const type = error.failureKind === 'confinement' ? 'ArtifactIntegrityError' : 'ConfigurationError';
-    throw applicationFailure(type, error.retryable, stage);
+    throw applicationFailure(type, error.retryable, stage, vulnerabilityClass);
   }
   if (error instanceof ApplicationFailure) {
     const errorType = error.type;
     if (typeof errorType === 'string' && isStableFailureType(errorType)) {
-      throw applicationFailure(errorType, !error.nonRetryable, stage);
+      throw applicationFailure(errorType, !error.nonRetryable, stage, vulnerabilityClass);
     }
-    throw applicationFailure('ReconciliationIoError', true, stage);
+    throw applicationFailure('ReconciliationIoError', true, stage, vulnerabilityClass);
   }
   if (error instanceof Error && isStableFailureType(error.name)) {
     const retryable =
       'retryable' in error && typeof error.retryable === 'boolean' ? error.retryable : DEFAULT_RETRYABILITY[error.name];
-    throw applicationFailure(error.name, retryable, stage);
+    throw applicationFailure(error.name, retryable, stage, vulnerabilityClass);
   }
 
   // Unknown failures remain retryable. A generic error name is not evidence that the fault is terminal.
-  throw applicationFailure('ReconciliationIoError', true, stage);
+  throw applicationFailure('ReconciliationIoError', true, stage, vulnerabilityClass);
 }
 
 /** Refuse to schedule a class's remaining reconciliation stages once its 12-hour budget is spent. */
 function assertActivityCanRun(
   activityName: ReconciliationClassActivityName,
   classDeadlineMs: number,
+  vulnerabilityClass: ReconciliationClass,
   nowMs: number,
 ): ReturnType<typeof resolveReconciliationActivityBudget> {
   try {
     const budget = resolveReconciliationActivityBudget(activityName, classDeadlineMs, nowMs);
     if (!budget.shouldSchedule) {
-      throw applicationFailure('ConfigurationError', false, activityName);
+      throw applicationFailure('ConfigurationError', false, activityName, vulnerabilityClass);
     }
     return budget;
   } catch (error) {
     if (error instanceof ApplicationFailure) throw error;
-    throw applicationFailure('ConfigurationError', false, activityName);
+    throw applicationFailure('ConfigurationError', false, activityName, vulnerabilityClass);
   }
 }
 
 async function runReconciliationStage<T>(
   activityName: ReconciliationClassActivityName,
   classDeadlineMs: number,
+  vulnerabilityClass: ReconciliationClass,
   runtime: ReconciliationActivityRuntime,
   now: () => number,
   stage: (runtime: ReconciliationStageRuntime) => Promise<T>,
@@ -301,7 +369,7 @@ async function runReconciliationStage<T>(
   const cancellation = cancellationFrom(undefined, runtime.cancellationSignal);
   if (cancellation !== undefined) throw cancellation;
 
-  const budget = assertActivityCanRun(activityName, classDeadlineMs, now());
+  const budget = assertActivityCanRun(activityName, classDeadlineMs, vulnerabilityClass, now());
   const profile = RECONCILIATION_ACTIVITY_PROFILES[activityName];
   const startedAt = now();
   let heartbeatInterval: ReturnType<typeof setInterval> | undefined;
@@ -318,10 +386,30 @@ async function runReconciliationStage<T>(
     }, budget.heartbeatIntervalMs);
   }
 
+  // The executor's own timer must expire before Temporal's activity timeout, so the
+  // metrics-bearing model-stage-timeout failure stays reachable. Evaluate the remaining
+  // granted budget at call time because jail materialization can consume minutes first.
+  const grantedBudgetMs = runtime.startToCloseTimeoutMs;
+  const executorTimeoutMsFor = (): number | undefined => {
+    if (grantedBudgetMs === undefined || grantedBudgetMs <= 0) return undefined;
+    const remainingMs = startedAt + grantedBudgetMs - now();
+    return Math.max(1_000, remainingMs - TASK_FORMATION_EXECUTOR_TIMEOUT_MARGIN_MS);
+  };
+  const executionContextFor = (): TaskFormationExecutionContext | undefined => ({
+    attempt: runtime.attempt,
+    ...(runtime.executionKey !== undefined && { executionKey: runtime.executionKey }),
+  });
+
   try {
-    return await stage({ signal: runtime.cancellationSignal, logger: runtime.logger, modelHost: activityModelHost });
+    return await stage({
+      signal: runtime.cancellationSignal,
+      logger: runtime.logger,
+      modelHost: activityModelHost,
+      executorTimeoutMsFor,
+      executionContextFor,
+    });
   } catch (error) {
-    return normalizeFailure(error, activityName, runtime.cancellationSignal);
+    return normalizeFailure(error, activityName, vulnerabilityClass, runtime.cancellationSignal);
   } finally {
     if (heartbeatInterval !== undefined) clearInterval(heartbeatInterval);
   }
@@ -334,7 +422,7 @@ async function runSeedStage<T>(runtime: ReconciliationActivityRuntime, stage: ()
   try {
     return await stage();
   } catch (error) {
-    return normalizeFailure(error, 'seedEmptyProducerQueue', runtime.cancellationSignal);
+    return normalizeFailure(error, 'seedEmptyProducerQueue', 'miscellaneous', runtime.cancellationSignal);
   }
 }
 
@@ -356,6 +444,8 @@ function defaultStages(workspacesDir: string): ReconciliationStageBindings {
         workspacesDir,
         signalFor: () => runtime.signal,
         logger: runtime.logger,
+        ...(runtime.executorTimeoutMsFor !== undefined && { executorTimeoutMsFor: runtime.executorTimeoutMsFor }),
+        ...(runtime.executionContextFor !== undefined && { executionContextFor: runtime.executionContextFor }),
       })(input),
     materializeClassExploitTasks: materializeClassExploitTasksStage,
     publishClassReconciliationOss: publishClassReconciliationOssStage,
@@ -412,6 +502,7 @@ export function createReconciliationActivityRegistry(
     const result = await runReconciliationStage(
       'prepareClassReconciliation',
       input.classDeadlineMs,
+      input.vulnerabilityClass,
       runtime,
       now,
       () =>
@@ -439,6 +530,7 @@ export function createReconciliationActivityRegistry(
     const result = await runReconciliationStage(
       'enrichClassSastObservations',
       input.classDeadlineMs,
+      input.vulnerabilityClass,
       runtime,
       now,
       (stageRuntime) =>
@@ -462,6 +554,7 @@ export function createReconciliationActivityRegistry(
     const result = await runReconciliationStage(
       'formClassExploitTasks',
       input.classDeadlineMs,
+      input.vulnerabilityClass,
       runtime,
       now,
       (stageRuntime) =>
@@ -486,6 +579,7 @@ export function createReconciliationActivityRegistry(
     const result = await runReconciliationStage(
       'materializeClassExploitTasks',
       input.classDeadlineMs,
+      input.vulnerabilityClass,
       runtime,
       now,
       () =>
@@ -507,6 +601,7 @@ export function createReconciliationActivityRegistry(
     const result = await runReconciliationStage(
       'publishClassReconciliationOss',
       input.classDeadlineMs,
+      input.vulnerabilityClass,
       runtime,
       now,
       () =>

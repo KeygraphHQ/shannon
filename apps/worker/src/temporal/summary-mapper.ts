@@ -29,14 +29,29 @@ export function toWorkflowSummary(
     throw new Error('toWorkflowSummary: state.summary must be set before calling');
   }
 
+  // The failure detail is one of the child workflow's fixed safe sentences, so it carries no
+  // provider, prompt, repository, or path content and travels with the stable code.
+  const agenticSastFailure = state.agenticSast.status === 'failed' ? state.agenticSast : undefined;
+  const agenticSastErrorCode = agenticSastFailure?.errorCode;
+  const agenticSastFailureMessage = agenticSastFailure?.error;
+  const agenticSastFailedStage = agenticSastFailure?.failedStageLabel;
   return {
     status,
     totalDurationMs: summary.totalDurationMs,
     totalCostUsd: summary.totalCostUsd,
     completedAgents: state.completedAgents,
+    skippedAgents: state.skippedAgents,
     agentMetrics: Object.fromEntries(
-      Object.entries(state.agentMetrics).map(([name, m]) => [name, { durationMs: m.durationMs, costUsd: m.costUsd }]),
+      [...Object.entries(state.agentMetrics), ...Object.entries(state.operationalMetrics)].map(([name, metrics]) => [
+        name,
+        { durationMs: metrics.durationMs, costUsd: metrics.costUsd },
+      ]),
     ),
+    partialReasons: state.partialReasons,
+    usageAccountingComplete: summary.usageAccountingComplete,
+    ...(agenticSastFailedStage !== undefined && { agenticSastFailedStage }),
+    ...(agenticSastFailureMessage !== undefined && { agenticSastFailureMessage }),
+    ...(agenticSastErrorCode !== undefined && { agenticSastErrorCode }),
     ...(state.error && { error: state.error }),
   };
 }

@@ -10,6 +10,7 @@ import type { ExploitationDecision } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
 import { err, ok, type Result } from '../types/result.js';
+import { renderSafeMessage } from '../types/run-state.js';
 import { asyncPipe } from '../utils/functional.js';
 import { PentestError } from './error-handling.js';
 
@@ -39,6 +40,7 @@ interface FileExistence {
 interface ExistenceContext {
   existence: FileExistence;
   deliverableRequired: boolean;
+  vulnerabilityClass: ReconciliationClass;
 }
 
 interface PathsBase {
@@ -145,20 +147,21 @@ const fileExistenceRules: readonly ValidationRule[] = Object.freeze([
   ),
 ]);
 
-// Generate appropriate error message based on which files are missing
-function getExistenceErrorMessage({ existence, deliverableRequired }: ExistenceContext): string {
-  const { deliverableExists, queueExists } = existence;
+const NO_RESULTS_MESSAGE =
+  '{Class} analysis did not produce results. Re-running this workspace retries just that class.';
+const PARTIAL_RESULTS_MESSAGE =
+  '{Class} analysis produced only part of its results, so it could not be exploited. Re-running this workspace retries just that class.';
 
-  if (!deliverableRequired) {
-    return 'Analysis failed: Queue file missing. A queue is required.';
-  }
-  if (!deliverableExists && !queueExists) {
-    return 'Analysis failed: Neither deliverable nor queue file exists. Both are required.';
-  }
-  if (!queueExists) {
-    return 'Analysis incomplete: Deliverable exists but queue file missing. Both are required.';
-  }
-  return 'Analysis incomplete: Queue exists but deliverable file missing. Both are required.';
+/**
+ * Name the outcome the reader can act on rather than the files behind it: nothing landed at
+ * all, or only some of what the class owes. The analysis-less `other` class has no
+ * deliverable, so its queue alone decides which of the two applies.
+ */
+function getExistenceErrorMessage({ existence, deliverableRequired, vulnerabilityClass }: ExistenceContext): string {
+  const { deliverableExists, queueExists } = existence;
+  const nothingProduced = deliverableRequired ? !deliverableExists && !queueExists : !queueExists;
+  const template = nothingProduced ? NO_RESULTS_MESSAGE : PARTIAL_RESULTS_MESSAGE;
+  return renderSafeMessage(template, { vulnerabilityClass });
 }
 
 // Pure function to create file paths
@@ -214,7 +217,7 @@ const validateExistenceRules = (
 
   const { existence, vulnType } = pathsWithExistence;
   const { deliverableRequired } = VULN_TYPE_CONFIG[vulnType];
-  const context: ExistenceContext = { existence, deliverableRequired };
+  const context: ExistenceContext = { existence, deliverableRequired, vulnerabilityClass: vulnType };
 
   // Find the first rule that fails
   const failedRule = fileExistenceRules.find((rule) => !rule.predicate(context));
@@ -225,7 +228,7 @@ const validateExistenceRules = (
 
     return {
       error: new PentestError(
-        `${message} (${vulnType})`,
+        message,
         'validation',
         failedRule.retryable,
         {

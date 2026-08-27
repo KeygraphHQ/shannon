@@ -15,7 +15,13 @@ import { type RenderInput, renderScan } from '../scan/render.js';
 import { toStatusJson } from '../scan/status-json.js';
 import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
-import { describeScan, getTerminalOutcome, queryProgress, type ScanDescription } from '../temporal-client.js';
+import {
+  ActivityMirrorError,
+  describeScan,
+  getTerminalOutcome,
+  queryProgress,
+  type ScanDescription,
+} from '../temporal-client.js';
 import { stdoutIsTerminal, supportsColor } from '../tty.js';
 import { getVersion } from '../version.js';
 
@@ -28,6 +34,24 @@ const POLL_MS = 1200;
 /** Terminal = anything other than an open, running execution. */
 function isTerminalStatus(status: string): boolean {
   return status !== 'RUNNING' && status !== 'UNSPECIFIED';
+}
+
+/**
+ * Read one scan description, telling the two failure modes apart. A stale activity mirror
+ * carries its own message and needs a CLI update; anything else is a read that did not reach
+ * a usable answer, which is most often Temporal being down.
+ */
+async function readScanDescription(workflowId: string): Promise<ScanDescription | null> {
+  try {
+    return await describeScan(workflowId);
+  } catch (error) {
+    if (error instanceof ActivityMirrorError) fail(error.message);
+    fail(
+      "Could not read this scan's progress.",
+      'If Temporal is not running, start a scan to bring it up. If it is running, this build of the CLI',
+      'does not recognise part of the scan and needs updating.',
+    );
+  }
 }
 
 // Match SGR color escapes (ESC[…m) so a line's on-screen width excludes them. Built from the ESC
@@ -128,7 +152,7 @@ async function watch(workspace: string, workflowId: string): Promise<never> {
   }, RENDER_MS);
 
   for (;;) {
-    const desc = await describeScan(workflowId);
+    const desc = await readScanDescription(workflowId);
     if (!desc) {
       clearInterval(ticker);
       fail(`Scan "${workspace}" is no longer in Temporal.`);
@@ -158,12 +182,7 @@ export async function status(workspace: string, opts: { readonly json: boolean }
   // follows the current resume, not the superseded original. Fresh scans: the name is the id.
   const workflowId = resolveWorkflowId(workspace) ?? workspace;
 
-  let desc: ScanDescription | null;
-  try {
-    desc = await describeScan(workflowId);
-  } catch {
-    fail('Could not reach Temporal at 127.0.0.1:7233.', 'Start Temporal (it comes up with a scan) and try again.');
-  }
+  const desc = await readScanDescription(workflowId);
 
   if (!desc) {
     fail(

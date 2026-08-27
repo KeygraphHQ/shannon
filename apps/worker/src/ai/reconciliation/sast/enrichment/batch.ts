@@ -1,7 +1,11 @@
 /** One bounded structured-generation request for one nonempty class batch. */
 
 import type { ReconciliationClass } from '../../../../types/reconciliation.js';
-import type { StructuredGenerationPort, StructuredGenerationRequest } from '../../../structured-generation.js';
+import type {
+  StructuredGenerationPort,
+  StructuredGenerationRequest,
+  StructuredGenerationResult,
+} from '../../../structured-generation.js';
 import { SAST_ENRICHMENT_TOOL_DESCRIPTION, sastEnrichmentToolSchema } from './schema.js';
 import { extractVulnerabilities } from './validate.js';
 
@@ -27,8 +31,8 @@ export interface SastEnrichmentBatchRequest {
 // `terminal` marks a failure the stage should not retry. It is set only when the provider itself
 // reported a non-retryable failure; an incomplete or empty response defaults to non-terminal so
 // Temporal drives another attempt.
-function isTerminalProviderFailure(message: string | undefined): boolean {
-  return message?.startsWith('AuthenticationError:') === true || message?.startsWith('ConfigurationError:') === true;
+function isTerminalProviderFailure(result: StructuredGenerationResult): boolean {
+  return result.providerFailure?.retryable === false;
 }
 
 export async function runSastEnrichmentBatch<TModelContext>(
@@ -69,7 +73,7 @@ export async function runSastEnrichmentBatch<TModelContext>(
       status: 'failed',
       usage,
       message: 'SAST enrichment did not return one complete submit_result call',
-      terminal: isTerminalProviderFailure(result.errorMessage),
+      terminal: isTerminalProviderFailure(result),
     };
   }
 

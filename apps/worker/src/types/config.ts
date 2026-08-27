@@ -67,11 +67,15 @@ export interface Authentication {
   success_condition: SuccessCondition;
 }
 
+export interface AgenticSastConfig {
+  enabled: 'true' | 'false';
+}
+
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   description?: string;
-  vuln_classes?: VulnClass[];
+  agentic_sast?: AgenticSastConfig;
   exploit?: 'true' | 'false';
   report?: ReportConfig;
   rules_of_engagement?: string;
@@ -85,7 +89,8 @@ export interface DistributedConfig {
   focus: Rule[];
   authentication: Authentication | null;
   description: string;
-  vuln_classes: VulnClass[];
+  /** Present only when Capella is enabled. */
+  agenticSast?: true;
   exploit: boolean;
   report: DistributedReportConfig;
   rules_of_engagement: string;

@@ -42,8 +42,11 @@ Source-build equivalent:
 # Describe your target environment.
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment; .env files contain local-only credentials."
 
-# Limit which vulnerability classes run end-to-end.
-# vuln_classes: [injection, xss, auth, authz, ssrf]
+# Every scan runs all five vulnerability classes.
+
+# Agentic static analysis. `enabled` is its only setting.
+# agentic_sast:
+#   enabled: "true"
 
 # Skip the exploitation phase.
 # exploit: "false"
@@ -102,6 +105,25 @@ rules:
 #   sarif: "false"
 ```
 
+## Analysis Scope and Agentic SAST
+
+Every scan runs all five analysis classes: Injection, Cross-Site Scripting, Authentication, Authorization, and
+Server-Side Request Forgery. The class set is fixed and has no configuration selector.
+
+Agentic static analysis is opt-in:
+
+```yaml
+agentic_sast:
+  enabled: "true"
+```
+
+`enabled` is the only setting. Omitting the block, or setting `enabled: "false"`, turns agentic static analysis off;
+`"true"` turns it on. Either way, all five vulnerability classes still run.
+
+Agentic static analysis reads the repository for vulnerabilities before the pentest and passes what it finds into the
+exploitation phase. It adds model time and cost. If it fails, the pentest continues without its findings and the scan
+finishes as "partial".
+
 ## Report Options
 
 | Key | Effect |
@@ -122,7 +144,9 @@ report:
   sarif: "false"
 ```
 
-Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`, and `shannon/other` for findings outside those classes) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+
+If the SARIF log cannot be written, the JSON and Markdown reports are still produced and the scan finishes as "partial".
 
 The log is written only for exploitative runs. `sarif` is ignored when `exploit` is `"false"`.
 

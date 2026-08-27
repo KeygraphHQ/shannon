@@ -8,6 +8,7 @@
 
 import type { DerivedPhase } from './derive.js';
 import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
+import type { PartialReasonView } from './pipeline.js';
 import type { RenderInput } from './render.js';
 
 /** Coarse scan status token, mirroring the human status badge in machine-friendly form. */
@@ -27,6 +28,12 @@ export interface StatusJson {
   readonly endedAt?: string;
   /** Failure text when a failed scan left no readable state. */
   readonly failureMessage?: string;
+  /** Ordered durable degradation reasons with safe messages; present only when non-empty. */
+  readonly partialReasons?: readonly PartialReasonView[];
+  /** Agentic SAST outcome, with the worker's sanitized failure sentence and bounded code. */
+  readonly agenticSast?: { readonly status: string; readonly error?: string; readonly errorCode?: string };
+  /** False when operational (Capella/reconciliation) spend is known to be incomplete. */
+  readonly usageAccountingComplete?: boolean;
   readonly phases: readonly DerivedPhase[];
 }
 
@@ -34,6 +41,7 @@ export interface StatusJson {
 function deriveStatus(input: RenderInput): ScanStatus {
   if (!isTerminal(input.temporalStatus)) return 'running';
   if (input.state?.status === 'partial') return 'partial';
+  if (input.state?.status === 'cancelled') return 'cancelled';
 
   switch (input.temporalStatus) {
     case 'COMPLETED':
@@ -53,6 +61,9 @@ function deriveStatus(input: RenderInput): ScanStatus {
 /** Build the JSON snapshot for a scan at instant `now`. */
 export function toStatusJson(input: RenderInput, now: number): StatusJson {
   const elapsedMs = scanElapsedMs(input, now);
+  const partialReasons = input.state?.partialReasons ?? [];
+  const agenticSast = input.state?.agenticSast;
+  const usageAccountingComplete = input.state?.summary?.usageAccountingComplete;
 
   return {
     workspace: input.workspace,
@@ -63,6 +74,17 @@ export function toStatusJson(input: RenderInput, now: number): StatusJson {
     ...(input.startedAt !== undefined && { startedAt: new Date(input.startedAt).toISOString() }),
     ...(input.endedAt !== undefined && { endedAt: new Date(input.endedAt).toISOString() }),
     ...(input.failureMessage !== undefined && { failureMessage: input.failureMessage }),
+    ...(partialReasons.length > 0 && { partialReasons }),
+    // Present only when agentic SAST actually ran; a disabled scan omits the key entirely.
+    ...(agenticSast !== undefined &&
+      agenticSast.status !== 'disabled' && {
+        agenticSast: {
+          status: agenticSast.status,
+          ...(agenticSast.error !== undefined && { error: agenticSast.error }),
+          ...(agenticSast.errorCode !== undefined && { errorCode: agenticSast.errorCode }),
+        },
+      }),
+    ...(usageAccountingComplete !== undefined && { usageAccountingComplete }),
     phases: derivePipeline(input, now),
   };
 }

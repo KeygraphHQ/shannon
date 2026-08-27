@@ -6,6 +6,7 @@
 
 /** Workflow-safe reconciliation activity signatures and scheduling policy. */
 
+import type { TaskFormationFallbackReason } from '../ai/pi/task-formation-executor.js';
 import type { ArtifactRef } from '../ai/reconciliation/contracts.js';
 import type { StageMetrics } from '../ai/reconciliation/stage-contracts.js';
 import type { SarifRef } from '../ai/sast/types.js';
@@ -16,6 +17,37 @@ const HOUR_MS = 60 * MINUTE_MS;
 
 export const RECONCILIATION_CLASS_BUDGET_MS = 12 * HOUR_MS;
 export const RECONCILIATION_LATER_STAGE_RESERVE_MS = 5 * MINUTE_MS;
+
+/**
+ * Deterministic safety margin subtracted from the granted activity budget before it is passed
+ * to the Pass 1 executor timer, so the executor's own timeout always fires before Temporal's
+ * activity timeout and the metrics-bearing model-stage-timeout path stays reachable.
+ */
+export const TASK_FORMATION_EXECUTOR_TIMEOUT_MARGIN_MS = MINUTE_MS;
+
+/**
+ * Workflow-safe mirror of Agent A's closed fallback-reason set. The executor module itself is
+ * not bundle-safe, so the workflow validates deserialized failure details against this frozen
+ * copy; the `satisfies` clause and the exhaustiveness check keep the two sets identical at
+ * compile time, and the activity boundary re-asserts equality at module load.
+ */
+export const ACCEPTED_TASK_FORMATION_FALLBACK_REASONS = Object.freeze([
+  'retryable_model_failure',
+  'missing_accepted_submission',
+  'model_stage_timeout',
+] as const satisfies readonly TaskFormationFallbackReason[]);
+
+type UnlistedFallbackReason = Exclude<
+  TaskFormationFallbackReason,
+  (typeof ACCEPTED_TASK_FORMATION_FALLBACK_REASONS)[number]
+>;
+const _everyFallbackReasonIsListed: UnlistedFallbackReason extends never ? true : never = true;
+void _everyFallbackReasonIsListed;
+
+/** Validate one deserialized fallback reason against the closed set. */
+export function isAcceptedTaskFormationFallbackReason(value: unknown): value is TaskFormationFallbackReason {
+  return (ACCEPTED_TASK_FORMATION_FALLBACK_REASONS as readonly unknown[]).includes(value);
+}
 
 export interface ReconciliationActivityDeadline {
   /** Fixed workflow-derived deadline for this class, measured as Unix epoch milliseconds. */
