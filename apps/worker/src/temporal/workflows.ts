@@ -175,6 +175,20 @@ const MAX_CONCURRENT_PIPELINES = 5;
 const MAX_PIPELINE_ERROR_MESSAGE_LENGTH = 2000;
 const MAX_NON_FATAL_FAILURES = 32;
 
+const CAPELLA_OPERATION_KEY = 'agentic-sast';
+const CAPELLA_OPERATION_LABEL = 'Agentic SAST';
+const CAPELLA_INFRASTRUCTURE_FAILURE = 'Agentic SAST infrastructure failed before producing a usable result.';
+const CAPELLA_UNFINISHED = 'Agentic SAST had not finished when the scan stopped.';
+
+/**
+ * The single Capella outcome every vulnerability class joins on. Agentic SAST overlaps the
+ * pentest, so its result is settled once and read by all five classes: a usable SARIF, no
+ * SARIF, or the original cancellation that every waiter rethrows unchanged.
+ */
+type CapellaSettlement =
+  | { readonly outcome: 'settled'; readonly sarif?: SarifRef }
+  | { readonly outcome: 'cancelled'; readonly error: unknown };
+
 function truncatePipelineErrorMessage(message: string): string {
   if (message.length <= MAX_PIPELINE_ERROR_MESSAGE_LENGTH) return message;
   return `${message.slice(0, MAX_PIPELINE_ERROR_MESSAGE_LENGTH - 20)}\n[truncated]`;
@@ -426,6 +440,13 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
   let resumeState: ResumeState | null = null;
   let miscellaneousOutcome: MiscellaneousOutcome | undefined;
+  // The one shared Capella settlement, once analysis has started it. The terminal paths read
+  // it so a stopping run can account for a child that is still working.
+  let capellaSettlement: Promise<CapellaSettlement> | null = null;
+  // Latched when a stopped run has recorded the terminal Capella state. The hard-failure path
+  // does not wait for the child, so the child can still return while the terminal activity
+  // yields; from that point the recorded state is final and no continuation may rewrite it.
+  let capellaTerminallyProjected = false;
 
   function applyDurableSummary(summary: DurableStateSummary): void {
     state.expectedAgents = [...summary.expectedAgents];
@@ -666,7 +687,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     vulnType: VulnType,
     runVulnAgent: () => Promise<AgentMetrics>,
     runExploitAgent: () => Promise<AgentMetrics>,
-    effectiveSarif?: SarifRef,
+    capella: Promise<CapellaSettlement>,
   ): Promise<VulnExploitPipelineResult> {
     const vulnAgentName = `${vulnType}-vuln` as AgentName;
     const exploitAgentName = `${vulnType}-exploit` as AgentName;
@@ -684,8 +705,13 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
       }
 
+      // The class joins the shared Capella outcome here: reconciliation needs the settled
+      // SARIF, and every class awaits the same promise, so no class waits on another class.
+      const settled = await capella;
+      if (settled.outcome === 'cancelled') throw settled.error;
+
       reconciliationStarted = true;
-      await reconcileClass(vulnType, effectiveSarif);
+      await reconcileClass(vulnType, settled.sarif);
       reconciliationCompleted = true;
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
       let exploitMetrics: AgentMetrics | null = null;
@@ -787,6 +813,36 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   /**
+   * The failed projection shared by every Capella outcome that produced no usable result:
+   * an infrastructure failure, and a parent that stopped while the child was still running.
+   * `startedAt` is the operation's real start, so a projection made after the status already
+   * moved on still records the true duration.
+   */
+  function projectCapellaWorkflowFailure(message: string, startedAt: number): void {
+    if (capellaTerminallyProjected) return;
+    state.agenticSast = {
+      status: 'failed',
+      failedStage: 'workflow',
+      failedStageLabel: capellaStageDisplayName('workflow'),
+      error: message,
+      completedStages: [],
+      durationMs: Date.now() - startedAt,
+    };
+    failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, new Error(message));
+  }
+
+  /**
+   * The one recovery for a Capella failure that returned no result of its own: the failed
+   * projection, its single durable reason, and one non-fatal entry.
+   */
+  function projectCapellaInfrastructureFailure(startedAt: number): void {
+    if (capellaTerminallyProjected) return;
+    projectCapellaWorkflowFailure(CAPELLA_INFRASTRUCTURE_FAILURE, startedAt);
+    addPartialReason({ code: 'agentic_sast_failed', stage: 'workflow' });
+    addNonFatal({ phase: 'agentic-sast', error: CAPELLA_INFRASTRUCTURE_FAILURE });
+  }
+
+  /**
    * Run Capella as a child workflow when agentic SAST is configured, or pass through a
    * pre-supplied SARIF report unchanged when it is not. Every outcome this function can observe,
    * whether success, reduced coverage, a Capella-reported failure, or an escaped exception, is
@@ -800,9 +856,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       return input.sastSarif;
     }
 
-    const key = 'agentic-sast';
-    const label = 'Agentic SAST';
-    const startedAt = startOperation(key, label);
+    const startedAt = startOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL);
     state.agenticSast = { status: 'running', startedAt };
     const auditRoot = (input.auditDir ?? '/app/workspaces').replace(/\/+$/, '');
     const capellaInput: CapellaWorkflowInput = {
@@ -824,6 +878,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         workflowId: `${workflowId}-capella`,
         args: [capellaInput],
       });
+      // A run that already stopped owns the terminal Capella state. Its projection is made
+      // while this child is still working, so a late result must write nothing: not the
+      // status, not the operational stage, not the metrics the summary was computed from.
+      if (capellaTerminallyProjected) return undefined;
+
       const metricKey = result.status === 'succeeded' ? 'agentic-sast:export' : `agentic-sast:${result.failedStage}`;
       state.operationalMetrics[metricKey] = capellaMetrics(result, input.agenticSast.modelSpec);
       if (result.status === 'succeeded') {
@@ -835,7 +894,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           warnings: [...result.warnings],
           durationMs: result.durationMs,
         };
-        completeOperation(key, label, startedAt);
+        completeOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt);
         if (result.coverage === 'reduced') {
           addPartialReason({ code: 'agentic_sast_reduced' });
           addNonFatal({ phase: 'agentic-sast', error: 'Agentic SAST completed with reduced coverage.' });
@@ -853,7 +912,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         durationMs: result.durationMs,
       };
       addPartialReason({ code: 'agentic_sast_failed', stage: result.failedStage });
-      failOperation(key, label, startedAt, new Error(result.error));
+      failOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt, new Error(result.error));
       addNonFatal({
         phase: 'agentic-sast',
         error: result.errorCode === undefined ? result.error : `${result.error} [${result.errorCode}]`,
@@ -861,20 +920,71 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       return undefined;
     } catch (error) {
       if (hasCancellationInCauseChain(error)) throw error;
-      const message = 'Agentic SAST infrastructure failed before producing a usable result.';
-      state.agenticSast = {
-        status: 'failed',
-        failedStage: 'workflow',
-        failedStageLabel: capellaStageDisplayName('workflow'),
-        error: message,
-        completedStages: [],
-        durationMs: Date.now() - startedAt,
-      };
-      addPartialReason({ code: 'agentic_sast_failed', stage: 'workflow' });
-      failOperation(key, label, startedAt, new Error(message));
-      addNonFatal({ phase: 'agentic-sast', error: message });
+      projectCapellaInfrastructureFailure(startedAt);
       return undefined;
     }
+  }
+
+  /**
+   * Start the one shared Capella settlement. The returned promise is total: the classes that
+   * join it later must never observe a background rejection, so a non-cancellation failure
+   * resolves as the shared no-SARIF outcome and only cancellation is carried through.
+   */
+  async function settleCapella(): Promise<CapellaSettlement> {
+    try {
+      const sarif = await runCapella();
+      if (sarif === undefined) return { outcome: 'settled' };
+      return { outcome: 'settled', sarif };
+    } catch (error) {
+      if (hasCancellationInCauseChain(error)) return { outcome: 'cancelled', error };
+      // `runCapella` projects every failure it can see, so an escape means that projection
+      // itself failed partway; only the part it never reached is recovered here, and it is one
+      // shared Capella outcome, never five separate class failures. Nothing in this recovery
+      // may reject: on some paths no class ever joins, and an unobserved rejection in the
+      // workflow VM is escalated rather than dropped.
+      const running = state.agenticSast;
+      try {
+        if (running.status === 'running') projectCapellaInfrastructureFailure(running.startedAt);
+      } catch (projectionError) {
+        try {
+          log.warn('Capella failure projection did not complete', {
+            error: projectionError instanceof Error ? projectionError.message : String(projectionError),
+          });
+        } catch {
+          // Even the warning is best-effort. A log that cannot be written must not turn the
+          // settlement every class joins into a rejected promise.
+        }
+      }
+      return { outcome: 'settled' };
+    }
+  }
+
+  /**
+   * The Capella child runs under wait-for-cancellation, so a cancelled parent observes its
+   * settlement before projecting the terminal state. Waiting never replaces the cancellation
+   * this path is already reporting.
+   */
+  async function awaitCapellaSettlement(settlement: Promise<CapellaSettlement>): Promise<void> {
+    try {
+      await settlement;
+    } catch (waitError) {
+      log.warn('Capella settlement did not resolve while the scan was stopping', {
+        error: waitError instanceof Error ? waitError.message : String(waitError),
+      });
+    }
+  }
+
+  /**
+   * A Capella child that never returned recorded no complete operational metric, so a run that
+   * stops while it is still running reports the stage as failed and its spend as incomplete
+   * rather than inventing either. A stopped run carries no partial reasons, so none is added.
+   */
+  function projectUnfinishedCapella(): void {
+    const running = state.agenticSast;
+    if (running.status !== 'running') return;
+    projectCapellaWorkflowFailure(CAPELLA_UNFINISHED, running.startedAt);
+    capellaTerminallyProjected = true;
+    operationalSpendMissing = true;
   }
 
   /**
@@ -929,6 +1039,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         error: message,
       });
     }
+  }
+
+  /**
+   * The sixth exploitation lane. It joins the same settled Capella SARIF the five fixed classes
+   * join and runs concurrently with them, rather than trailing them serially. Only cancellation
+   * escapes; runMiscellaneousPipeline reports every other outcome as durable state and non-fatal reasons.
+   */
+  async function runMiscellaneousExploitLane(capella: Promise<CapellaSettlement>): Promise<void> {
+    const settled = await capella;
+    if (settled.outcome === 'cancelled') throw settled.error;
+    if (settled.sarif !== undefined) await runMiscellaneousPipeline(settled.sarif);
   }
 
   function recordAssemblyOmissions(failedClasses: readonly ReconciliationClass[]): void {
@@ -1149,7 +1270,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // run. An invalid draft is rolled back to `pending` during resume, so it still re-runs here.
     const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
-      const effectiveSarif = await runCapella();
+      // Agentic SAST overlaps the pentest: it starts here and is joined per class before
+      // reconciliation, so preliminary analysis and reconnaissance never wait on it.
+      const settlement = settleCapella();
+      capellaSettlement = settlement;
       await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
       await runSequentialPhase('recon', 'recon', a.runReconAgent);
 
@@ -1157,15 +1281,20 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.currentAgent = 'pipelines';
       await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
       const pipelineThunks = buildPipelineConfigs().map(
-        (config) => () => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit, effectiveSarif),
+        (config) => () => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit, settlement),
       );
+      // Launch the Miscellaneous lane concurrently with the five fixed classes; it shares the same
+      // settled SARIF and joins the common barrier below.
+      const miscellaneousLane = runMiscellaneousExploitLane(settlement);
       const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
+      // Join the sixth lane before aggregation so its outcome is always observed (never a
+      // dropped rejection in the workflow VM) and a cancellation from either path propagates.
+      await miscellaneousLane;
       aggregatePipelineResults(pipelineResults);
       if (state.failedPipelines.length > 0) {
         activityInput.failedClasses = state.failedPipelines.map((failure) => failure.vulnType);
       }
       await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
-      if (effectiveSarif !== undefined) await runMiscellaneousPipeline(effectiveSarif);
     }
 
     await finalizeReportPipeline();
@@ -1182,6 +1311,10 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     return state;
   } catch (error) {
     if (hasCancellationInCauseChain(error)) {
+      // A cancelled parent lets the child settle first; its cancellation is only complete once
+      // the child's own promise settles. The cancellation being reported is unchanged by it.
+      if (capellaSettlement !== null) await awaitCapellaSettlement(capellaSettlement);
+      projectUnfinishedCapella();
       state.status = 'cancelled';
       state.error = `Cancelled during phase: ${state.currentPhase ?? 'unknown'}`;
       state.summary = computeSummary(state, usageAccountingComplete());
@@ -1197,6 +1330,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       return state;
     }
 
+    // A hard failure does not wait for the child; parent-close termination is its cleanup.
+    projectUnfinishedCapella();
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
     state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent);
