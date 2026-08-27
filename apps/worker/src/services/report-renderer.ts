@@ -12,6 +12,7 @@
  * report agent previously wrote by hand. No LLM in the loop.
  */
 
+import { BRAND_LOCKUP } from '../branding.js';
 import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
 import type { VulnClass } from '../types/config.js';
 
@@ -211,6 +212,8 @@ export function renderReport(data: ReportData): string {
 
   // 1. Executive Summary
   sections.push('# Security Assessment Report');
+  sections.push('');
+  sections.push(`*${BRAND_LOCKUP}*`);
   sections.push('');
   sections.push('## Executive Summary');
   sections.push(`- Target: ${report_meta.target}`);
