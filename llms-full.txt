@@ -877,7 +877,7 @@ This guide covers platform-specific notes and Docker networking behavior.
 
 ## Windows
 
-Shannon on Windows is supported through WSL2. Native Windows, including Git Bash, is not supported.
+Shannon on Windows is supported through WSL2, which behaves like Linux for everything below. Native Windows, including Git Bash, is community-supported: contributions are welcome, but Keygraph does not actively develop or test against it.
 
 ### Ensure WSL2
 
