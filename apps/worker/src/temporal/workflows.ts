@@ -49,6 +49,7 @@ import {
   type PartialReason,
   partialReasonFromReduction,
   projectPartialReasons,
+  reductionIsTolerable,
   renderSafeMessage,
   reportIsAuthored,
 } from '../types/run-state.js';
@@ -939,28 +940,35 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       const metricKey = result.status === 'succeeded' ? 'agentic-sast:export' : `agentic-sast:${result.failedStage}`;
       state.operationalMetrics[metricKey] = capellaMetrics(result, input.agenticSast.modelSpec);
       if (result.status === 'succeeded') {
+        // Only reductions that lost real coverage or a whole finding make the run partial;
+        // hygiene reductions (malformed model output, salvage, rejected duplicates) are recorded
+        // as evidence but tolerated. Display coverage follows the same split so `shannon status`
+        // agrees with the terminal state, while `reductions` still carries the full list.
+        const nonTolerableReductions = (result.reductions ?? []).filter(
+          (reduction) => !reductionIsTolerable(reduction),
+        );
         state.agenticSast = {
           status: 'succeeded',
           findingCount: result.findingCount,
           sarifSha256: result.sarif.sha256,
-          coverage: result.coverage,
+          coverage: nonTolerableReductions.length > 0 ? 'reduced' : 'complete',
           warnings: [...result.warnings],
           durationMs: result.durationMs,
           ...(result.reductions !== undefined && { reductions: result.reductions }),
           ...(result.recoveredFailure !== undefined && { recoveredFailure: result.recoveredFailure }),
         };
         completeOperation(CAPELLA_OPERATION_KEY, CAPELLA_OPERATION_LABEL, startedAt);
-        if (result.coverage === 'reduced') {
-          // One durable reason per reduction (research before export); each renders its own
-          // bounded safe message. A reduced run with no structured reduction keeps the bare code.
-          const reasons: PartialReason[] =
-            result.reductions === undefined || result.reductions.length === 0
-              ? [{ code: 'agentic_sast_reduced' }]
-              : result.reductions.map(partialReasonFromReduction);
-          for (const reason of reasons) {
-            addPartialReason(reason);
-            addNonFatal({ phase: 'agentic-sast', error: projectPartialReasons([reason])[0]?.message ?? '' });
-          }
+        // One durable reason per non-tolerable reduction (research before export); each renders
+        // its own bounded safe message. A child that reports reduced coverage without any
+        // structured reduction keeps the bare code, so an unclassified coverage loss is never
+        // silently accepted.
+        const coverageReducedWithoutDetail = result.coverage === 'reduced' && (result.reductions ?? []).length === 0;
+        const reasons = coverageReducedWithoutDetail
+          ? [{ code: 'agentic_sast_reduced' } satisfies PartialReason]
+          : nonTolerableReductions.map(partialReasonFromReduction);
+        for (const reason of reasons) {
+          addPartialReason(reason);
+          addNonFatal({ phase: 'agentic-sast', error: projectPartialReasons([reason])[0]?.message ?? '' });
         }
         return result.sarif;
       }

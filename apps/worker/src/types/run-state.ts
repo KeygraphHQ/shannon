@@ -655,6 +655,42 @@ function renderIncompleteResearchReduction(
   return `Agentic SAST reviewed ${String(consideredCount)} planned ${fileLabel} during research. ${triageClause}${salvagedClause} The scan continued with reduced static-analysis coverage.`;
 }
 
+/**
+ * Whether a Capella reduction is tolerable — recorded as evidence but not cause for a partial
+ * run. A reduction is tolerable when all of its genuine coverage- or finding-loss counts are
+ * zero; salvage counts (work recovered after a turn/session limit) and rejection counts
+ * (duplicate or unexpected verdicts thrown out) are hygiene, never loss. Architecture and plan
+ * reductions only ever drop malformed model output, so they are always tolerable. A stage that
+ * failed outright (`failed_stage_fallback`) or an exported finding dropped whole
+ * (`malformed_findings`) is never tolerable. The switch is exhaustive so a new reduction reason
+ * fails the type-check until its loss counts are classified here.
+ */
+export function reductionIsTolerable(reduction: AgenticSastReduction): boolean {
+  switch (reduction.reason) {
+    case 'invalid_architecture_items':
+    case 'invalid_investigations':
+      return true;
+    case 'incomplete_research':
+      return reduction.triageOmittedCount === 0;
+    case 'incomplete_dedupe':
+      return reduction.unreadableCount === 0;
+    case 'incomplete_review':
+      return reduction.missingCount + reduction.unreadableCount + reduction.quarantinedCount === 0;
+    case 'incomplete_critic':
+    case 'incomplete_confirm':
+    case 'incomplete_calibrate':
+      return reduction.missingCount + reduction.unreadableCount === 0;
+    case 'failed_stage_fallback':
+    case 'malformed_findings':
+      return false;
+    default: {
+      const _exhaustive: never = reduction;
+      void _exhaustive;
+      return false;
+    }
+  }
+}
+
 /** Build the durable partial reason for one Capella reduction. Export keeps bounded omission detail. */
 export function partialReasonFromReduction(reduction: AgenticSastReduction): PartialReason {
   const { reason, ...details } = reduction;
