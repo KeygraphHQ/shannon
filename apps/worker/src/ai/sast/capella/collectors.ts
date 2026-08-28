@@ -55,7 +55,7 @@ import {
   type TriageChecklist,
   type TriageRuleKey,
 } from './finding-types.js';
-import { isNormalizedRepositoryPath, parseCodePath } from './paths.js';
+import { isValidPrimaryCodePath, parseCodePath } from './paths.js';
 
 // === Result Helpers ===
 
@@ -265,8 +265,7 @@ export function validateCodePaths(
       error: `code_paths[0] must be a sink location "<path>:<line>", not a URL (got ${JSON.stringify(first)}).`,
     };
   }
-  const parsed = parseCodePath(first);
-  if (!parsed || !isNormalizedRepositoryPath(parsed.file)) {
+  if (!isValidPrimaryCodePath(first)) {
     return {
       ok: false,
       error:
@@ -274,6 +273,10 @@ export function validateCodePaths(
         `(got ${JSON.stringify(first)}). It becomes the finding's SARIF location, so it cannot be absolute, ` +
         'contain traversal, be a bare file, a symbol or an offset.',
     };
+  }
+  const parsed = parseCodePath(first);
+  if (!parsed) {
+    return { ok: false, error: 'code_paths[0] must be a "<path>:<line>" locator.' };
   }
   return { ok: true, codePaths, file: parsed.file, line: parsed.line };
 }

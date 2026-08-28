@@ -22,7 +22,7 @@ import type { AgenticSastOmission, AgenticSastReduction, SarifRef } from '../typ
 import { atomicPublishBytes, sha256Bytes, stableJson } from './artifacts.js';
 import { SastContractError } from './errors.js';
 import type { CapellaFinding, CapellaSeverity } from './finding-types.js';
-import { isExcludedCodePath, isNormalizedRepositoryPath, parseCodePath } from './paths.js';
+import { isExcludedCodePath, isNormalizedRepositoryPath, isValidPrimaryCodePath, parseCodePath } from './paths.js';
 import { renderCapellaReport } from './report.js';
 import type { AtomicPublishOptions } from './types.js';
 import { isCapellaFinding } from './validation.js';
@@ -102,14 +102,15 @@ function classifyExportCandidate(
   if (!isCapellaFinding(value)) {
     return { omission: buildOmission(value, 'invalid_finding_record') };
   }
-  if (value.code_paths.length === 0) {
+  const primary = value.code_paths[0];
+  if (value.code_paths.length === 0 || primary === undefined) {
     return { omission: buildOmission(value, 'missing_code_path') };
   }
-  const codePathsAreValid = value.code_paths.every((entry) => {
-    const parsed = parseCodePath(entry);
-    return parsed !== undefined && isNormalizedRepositoryPath(parsed.file);
-  });
-  if (!codePathsAreValid) {
+  // Only the primary (sink) must be a `file:line` locator: it becomes the SARIF location.
+  // Trace steps are held to no such rule at submit time, and `buildResult` already drops any
+  // that are not `file:line`, so gating on them here would discard a whole finding for a
+  // malformed step the two ends never agreed to require.
+  if (!isValidPrimaryCodePath(primary)) {
     return { omission: buildOmission(value, 'invalid_code_path') };
   }
   return { finding: value };

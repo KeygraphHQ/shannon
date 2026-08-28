@@ -22,6 +22,17 @@ export function parseCodePath(entry: string): ParsedCodePath | undefined {
 }
 
 /**
+ * The primary (sink) code-path contract, shared by the submit-time collector and the
+ * export gate so the two ends enforce the same rule and cannot drift. `code_paths[0]`
+ * becomes the finding's SARIF location, so it must be a normalized repository-relative
+ * `file:line`. Trace steps are held to no such requirement on either side.
+ */
+export function isValidPrimaryCodePath(entry: string): boolean {
+  const parsed = parseCodePath(entry);
+  return parsed !== undefined && isNormalizedRepositoryPath(parsed.file);
+}
+
+/**
  * The normalized repository-relative POSIX path contract shared by SARIF
  * locations and code-path scoping. Rejects absolute, drive-letter, encoded,
  * traversal, and non-canonical forms so the same string keys comparisons on
