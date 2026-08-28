@@ -58,7 +58,7 @@ These are the models `npx @keygraph/shannon setup` offers, best-first. They are 
 | --- | --- |
 | `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
 | `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
-| `xai` | `grok-4.5` |
+| `xai` | `grok-4.6`, `grok-4.5` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
@@ -163,6 +163,24 @@ Before running a pentest, review the [cyber safeguards requirements](#cyber-safe
 4. In npx mode, run `npx @keygraph/shannon start ...` from the same shell. In source-build mode, add the two variables to `.env` and run `./shannon start ...`.
 
 Supported Codex models are `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.4`.
+
+## xAI (Grok subscription)
+
+An xAI subscription can run Shannon. Shannon reuses a login created by Pi.
+
+1. Install Pi by following the instructions at [pi.dev](https://pi.dev).
+2. Log in with your subscription using Pi's [subscription authentication guide](https://pi.dev/docs/latest/providers#subscriptions). This creates `~/.pi/agent/auth.json` with an `xai` entry.
+
+3. Select an xAI model and enable Pi authentication:
+
+   ```bash
+   export SHANNON_USE_PI_AUTH=1
+   export SHANNON_AI_MODEL=xai:grok-4.6
+   ```
+
+4. In npx mode, run `npx @keygraph/shannon start ...` from the same shell. In source-build mode, add the two variables to `.env` and run `./shannon start ...`.
+
+Suggested Grok models are `grok-4.6` and `grok-4.5`.
 
 ## Claude Code subscription
 

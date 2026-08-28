@@ -102,7 +102,11 @@ async function generate(host: ModelHost, request: StructuredGenerationRequest): 
     };
   }
 
-  if (response.stopReason === 'error') {
+  // `pending` and `deferred` are non-final provider states: completeSimple resolves only on a
+  // finished response and Shannon never requests a deferred one, so neither can carry a usable
+  // submission. Classify them the way a rejected request is classified, so the caller retries
+  // instead of reading an empty response as a successful generation.
+  if (response.stopReason === 'error' || response.stopReason === 'pending' || response.stopReason === 'deferred') {
     const failure = host.classify(response);
     return {
       stopReason: 'error',
