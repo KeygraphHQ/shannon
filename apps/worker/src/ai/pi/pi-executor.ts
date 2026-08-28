@@ -49,7 +49,7 @@ import { PI_RETRY_SETTINGS } from './retry-settings.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 import { createTaskTool } from './task-tool.js';
 import { TraceEmitter } from './trace-emitter.js';
-import { providerTurnError } from './turn-error.js';
+import { providerTurnError, type SafeProviderTurnDetails, safeProviderTurnDetails } from './turn-error.js';
 
 declare global {
   var SHANNON_DISABLE_LOADER: boolean | undefined;
@@ -163,6 +163,7 @@ async function writeErrorLog(
   duration: number,
   turns: number,
   retryable: boolean,
+  providerDetails?: SafeProviderTurnDetails,
 ): Promise<void> {
   try {
     const errorLog = {
@@ -172,6 +173,7 @@ async function writeErrorLog(
       duration,
       turns,
       retryable,
+      ...(providerDetails !== undefined && { provider: providerDetails }),
     };
     const logPath = path.join(deliverablesDir(sourceDir), 'error.log');
     await fs.appendFile(logPath, `${JSON.stringify(errorLog)}\n`);
@@ -310,6 +312,9 @@ export async function runPiPrompt(
 
   let turnCount = 0;
   let pendingError: PentestError | null = null;
+  // Bounded, non-sensitive facts about the failed turn, captured alongside pendingError so the
+  // error log can distinguish a safeguard/refusal from a transport or tool-call lifecycle fault.
+  let pendingProviderDetails: SafeProviderTurnDetails | null = null;
   // Declared out here so the catch can bill spend accrued before a failure.
   let session: AgentSession | undefined;
 
@@ -359,6 +364,8 @@ export async function runPiPrompt(
           }
           if (msg.role === 'assistant' && msg.stopReason === 'error') {
             pendingError = pendingError ?? providerTurnError(msg, 'Agent error', selection.model.contextWindow);
+            pendingProviderDetails =
+              pendingProviderDetails ?? safeProviderTurnDetails(msg, selection.model.contextWindow);
           }
           break;
         }
@@ -438,7 +445,10 @@ export async function runPiPrompt(
     await traceEmitter?.flush();
     progress.stop();
     outputLines(formatErrorOutput(safeError, execContext, duration, turnCount, retryable));
-    await writeErrorLog(sourceDir, safeError, duration, turnCount, retryable);
+    if (pendingProviderDetails) {
+      console.log(`  provider-turn: ${JSON.stringify(pendingProviderDetails)}`);
+    }
+    await writeErrorLog(sourceDir, safeError, duration, turnCount, retryable, pendingProviderDetails ?? undefined);
 
     // A failed agent still spent money — on its own turns and, since Shannon's
     // prompts delegate the heavy work, mostly on `task` sub-agents. Both count
