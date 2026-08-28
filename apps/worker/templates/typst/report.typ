@@ -442,9 +442,11 @@
   ]
 ]
 
-== Critical Findings
+#if s.criticalFindings.len() > 0 [
+  == Critical Findings
 
-#enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+  #enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+]
 
 // ---------- FINDINGS OVERVIEW -----------------------------------------------
 = Findings Overview
