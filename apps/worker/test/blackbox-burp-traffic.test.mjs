@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -290,6 +291,50 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
   await scopedFetch('http://host.docker.internal:9876', { headers: { 'X-Test': 'kept' } });
   assert.equal(forwardedHeaders.get('host'), '127.0.0.1:9876');
   assert.equal(forwardedHeaders.get('x-test'), 'kept');
+});
+
+test('host override reaches a real HTTP server for SSE GET and JSON POST', async (t) => {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    requests.push({ method: request.method, host: request.headers.host, body: Buffer.concat(chunks).toString('utf8') });
+
+    if (request.method === 'GET') {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end('data: ready\n\n');
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end('{}');
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  const scopedFetch = createHostHeaderFetch(`configured.test:${port}`);
+
+  const sseResponse = await scopedFetch(`http://127.0.0.1:${port}/sse`);
+  assert.equal(sseResponse.status, 200);
+  assert.equal(await sseResponse.text(), 'data: ready\n\n');
+
+  const postResponse = await scopedFetch(`http://127.0.0.1:${port}/rpc`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: '{"jsonrpc":"2.0"}',
+  });
+  assert.equal(postResponse.status, 200);
+  assert.equal(await postResponse.text(), '{}');
+
+  assert.deepEqual(requests, [
+    { method: 'GET', host: `configured.test:${port}`, body: '' },
+    { method: 'POST', host: `configured.test:${port}`, body: '{"jsonrpc":"2.0"}' },
+  ]);
 });
 
 test('Burp adapter aborts and closes a client stuck establishing the SSE transport', async () => {

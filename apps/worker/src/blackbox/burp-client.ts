@@ -5,6 +5,9 @@
 // as published by the Free Software Foundation.
 
 import { createHash } from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
+import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport, type SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
 import type { Rules } from '../types/config.js';
@@ -88,7 +91,51 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+async function fetchWithNodeHttp(hostHeader: string, input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const request = new Request(input, init);
+  const url = new URL(request.url);
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new TypeError(`Unsupported URL protocol for Burp MCP: ${url.protocol}`);
+  }
+
+  const headers: Record<string, string> = {};
+  for (const [name, value] of request.headers) headers[name] = value;
+  headers.host = hostHeader;
+
+  const requestBody = request.body ? Buffer.from(await request.arrayBuffer()) : undefined;
+  const requestFunction = url.protocol === 'https:' ? https.request : http.request;
+  return new Promise<Response>((resolve, reject) => {
+    const nodeRequest = requestFunction(
+      url,
+      { method: request.method, headers, signal: request.signal },
+      (nodeResponse) => {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(nodeResponse.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) responseHeaders.append(name, item);
+          } else if (value !== undefined) {
+            responseHeaders.set(name, value);
+          }
+        }
+        resolve(
+          new Response(Readable.toWeb(nodeResponse), {
+            status: nodeResponse.statusCode ?? 500,
+            statusText: nodeResponse.statusMessage ?? '',
+            headers: responseHeaders,
+          }),
+        );
+      },
+    );
+    nodeRequest.once('error', reject);
+    if (requestBody) nodeRequest.end(requestBody);
+    else nodeRequest.end();
+  });
+}
+
 export function createHostHeaderFetch(hostHeader: string, fetchImpl: typeof fetch = fetch): typeof fetch {
+  if (fetchImpl === globalThis.fetch) {
+    return (input, init) => fetchWithNodeHttp(hostHeader, input, init);
+  }
   return (input, init) => {
     const headers = new Headers(init?.headers);
     headers.set('Host', hostHeader);
