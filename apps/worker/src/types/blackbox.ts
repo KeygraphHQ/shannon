@@ -145,16 +145,29 @@ export interface CandidateProof {
   readonly provenance: EvidenceProvenance;
 }
 
-export interface VerificationResult {
+interface VerificationResultBase {
   readonly verificationId: string;
   readonly candidateId: string;
-  readonly verdict: 'verified' | 'disproved' | 'blocked';
   readonly freshStateRefs: readonly { readonly identity: string; readonly stateRef: string }[];
   readonly replayActionIds: readonly string[];
   readonly replayExchangeIds: readonly string[];
   readonly observation: DeterministicProofObservation | null;
   readonly failureReason: string | null;
 }
+
+export type VerificationResult =
+  | (VerificationResultBase & {
+      readonly verdict: 'verified';
+      readonly demonstratedAction: string;
+      readonly concreteEffect: string;
+      readonly affectedParty: 'customer' | 'application' | 'users';
+    })
+  | (VerificationResultBase & {
+      readonly verdict: 'disproved' | 'blocked';
+      readonly demonstratedAction?: never;
+      readonly concreteEffect?: never;
+      readonly affectedParty?: never;
+    });
 
 export interface PlannerTask {
   readonly taskId: string;
@@ -164,6 +177,8 @@ export interface PlannerTask {
   readonly identityLease: string | 'anonymous' | null;
   readonly hypothesisId: string | null;
   readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'rejected';
+  readonly proofCondition?: ProofCondition;
+  readonly sourceExchangeId?: string;
 }
 
 export interface WorkerContribution {

@@ -29,7 +29,7 @@ import type { ActivityLogger } from '../../types/activity-logger.js';
 import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { formatTimestamp } from '../../utils/formatting.js';
 import { Timer } from '../../utils/metrics.js';
-import { createAuditLogger } from '../audit-logger.js';
+import { type AuditLogger, createAuditLogger } from '../audit-logger.js';
 import { resolveModelSelection } from '../models.js';
 import {
   detectExecutionContext,
@@ -39,6 +39,7 @@ import {
   formatToolCall,
 } from '../output-formatters.js';
 import { createProgressManager } from '../progress-manager.js';
+import { redactSensitive, type SensitiveTelemetryPolicy } from '../sensitive-redaction.js';
 import type { CapturedSubmitTool } from '../submit-tool.js';
 import { permissionSystemConfigExists, permissionSystemPackageDir } from './permission-system.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
@@ -51,7 +52,88 @@ declare global {
 }
 
 /** Built-in pi tools enabled for every agent (custom tool names are appended). */
-const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'];
+const BUILTIN_TOOLS = ['read', 'bash', 'edit', 'write', 'grep', 'find', 'ls'] as const;
+
+export interface PiToolPolicy {
+  readonly builtinTools?: readonly (typeof BUILTIN_TOOLS)[number][];
+  readonly includeTask?: boolean;
+  readonly includeTodo?: boolean;
+  readonly includeGlob?: boolean;
+  readonly includeBrowserSkill?: boolean;
+}
+
+export const DEFAULT_PI_TOOL_POLICY: Readonly<Required<PiToolPolicy>> = {
+  builtinTools: [...BUILTIN_TOOLS],
+  includeTask: true,
+  includeTodo: true,
+  includeGlob: true,
+  includeBrowserSkill: false,
+};
+
+function resolvePiToolPolicy(policy: PiToolPolicy | undefined): Readonly<Required<PiToolPolicy>> {
+  if (!policy) return DEFAULT_PI_TOOL_POLICY;
+  return {
+    builtinTools: policy.builtinTools ?? [],
+    includeTask: policy.includeTask ?? false,
+    includeTodo: policy.includeTodo ?? false,
+    includeGlob: policy.includeGlob ?? false,
+    includeBrowserSkill: policy.includeBrowserSkill ?? false,
+  };
+}
+
+export function resolvePiToolNames(
+  policy: PiToolPolicy | undefined,
+  customToolNames: readonly string[],
+): readonly string[] {
+  const resolved = resolvePiToolPolicy(policy);
+  const names: string[] = [...new Set(resolved.builtinTools)];
+  if (resolved.includeTask) names.push('task');
+  if (resolved.includeTodo) names.push('todo_write');
+  if (resolved.includeGlob) names.push('glob');
+  for (const name of customToolNames) {
+    if (!names.includes(name)) names.push(name);
+  }
+  return names;
+}
+
+export interface PiSessionToolConfiguration {
+  readonly tools: string[];
+  readonly customTools: ToolDefinition[];
+}
+
+export function resolvePiSessionToolConfiguration(
+  policy: PiToolPolicy | undefined,
+  childTasks: boolean | undefined,
+  customTools: readonly ToolDefinition[],
+): PiSessionToolConfiguration {
+  const resolved = resolvePiToolPolicy(policy);
+  const effective = {
+    ...resolved,
+    includeTask: resolved.includeTask && childTasks !== false,
+  };
+  const disabledHelpers = new Set<string>();
+  if (!effective.includeTask) disabledHelpers.add('task');
+  if (!effective.includeTodo) disabledHelpers.add('todo_write');
+  if (!effective.includeGlob) disabledHelpers.add('glob');
+  const permittedCustomTools = customTools.filter(({ name }) => !disabledHelpers.has(name));
+  return {
+    tools: [
+      ...resolvePiToolNames(
+        effective,
+        permittedCustomTools.map(({ name }) => name),
+      ),
+    ],
+    customTools: permittedCustomTools,
+  };
+}
+
+export type { SensitiveTelemetryPolicy } from '../sensitive-redaction.js';
+
+export interface PiExecutionOptions {
+  readonly toolPolicy?: PiToolPolicy;
+  readonly sensitiveTelemetryPolicy?: SensitiveTelemetryPolicy;
+  readonly childTasks?: boolean;
+}
 
 /** Build the playwright-cli Skill object injected for browser-using agents. */
 function buildPlaywrightSkill(): Skill {
@@ -74,6 +156,7 @@ async function buildResourceLoader(
   cwd: string,
   logger: ActivityLogger,
   agentName: string | null,
+  toolPolicy?: PiToolPolicy,
 ): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
   const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
@@ -92,7 +175,7 @@ async function buildResourceLoader(
     cwd,
     agentDir: getAgentDir(),
     ...(additionalExtensionPaths.length > 0 && { additionalExtensionPaths }),
-    ...(isBrowserAgent(agentName)
+    ...((toolPolicy ? (toolPolicy.includeBrowserSkill ?? false) : isBrowserAgent(agentName))
       ? {
           skillsOverride: (base) => ({
             skills: [buildPlaywrightSkill()],
@@ -158,13 +241,29 @@ async function writeErrorLog(
   sourceDir: string,
   fullPrompt: string,
   duration: number,
+  sensitiveTelemetryPolicy?: SensitiveTelemetryPolicy,
 ): Promise<void> {
   try {
+    const safeError = sensitiveTelemetryPolicy
+      ? (redactSensitive(err, sensitiveTelemetryPolicy) as Error & { code?: string; status?: number })
+      : err;
+    const safePrompt = sensitiveTelemetryPolicy ? redactSensitive(fullPrompt, sensitiveTelemetryPolicy) : fullPrompt;
+    const safeSourceDir = sensitiveTelemetryPolicy ? redactSensitive(sourceDir, sensitiveTelemetryPolicy) : sourceDir;
     const errorLog = {
       timestamp: formatTimestamp(),
       agent: 'pi-executor',
-      error: { name: err.constructor.name, message: err.message, code: err.code, status: err.status, stack: err.stack },
-      context: { sourceDir, prompt: `${fullPrompt.slice(0, 200)}...`, retryable: isRetryableFailure(err) },
+      error: {
+        name: safeError.constructor.name,
+        message: safeError.message,
+        code: safeError.code,
+        status: safeError.status,
+        stack: safeError.stack,
+      },
+      context: {
+        sourceDir: String(safeSourceDir),
+        prompt: `${String(safePrompt).slice(0, 200)}...`,
+        retryable: isRetryableFailure(err),
+      },
       duration,
     };
     const logPath = path.join(deliverablesDir(sourceDir), 'error.log');
@@ -230,22 +329,36 @@ export async function runPiPrompt(
   deliverablesSubdir?: string,
   cancellationSignal?: AbortSignal,
   submitTool?: CapturedSubmitTool,
+  executionOptions?: PiExecutionOptions,
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt. A submit tool appends its directive so the
   //    instruction to call it lives with the tool, not in every prompt file.
-  const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
+  const telemetryPolicy = executionOptions?.sensitiveTelemetryPolicy;
+  const safe = <T>(value: T): T => (telemetryPolicy ? redactSensitive(value, telemetryPolicy) : value) as T;
+  const safeDescription = String(safe(description));
+  const safeSourceDir = String(safe(sourceDir));
+  const timer = new Timer(`agent-${safeDescription.toLowerCase().replace(/\s+/g, '-')}`);
   const basePrompt = context ? `${context}\n\n${prompt}` : prompt;
   const fullPrompt = submitTool?.directive ? basePrompt + submitTool.directive : basePrompt;
 
   // 2. Set up progress and audit infrastructure
   const execContext = detectExecutionContext(description);
   const progress = createProgressManager(
-    { description, useCleanOutput: execContext.useCleanOutput },
+    { description: safeDescription, useCleanOutput: execContext.useCleanOutput },
     global.SHANNON_DISABLE_LOADER ?? false,
   );
-  const auditLogger = createAuditLogger(auditSession);
+  const baseAuditLogger = createAuditLogger(auditSession);
+  const auditLogger: AuditLogger = telemetryPolicy
+    ? {
+        logLlmResponse: (turn, content) => baseAuditLogger.logLlmResponse(turn, safe(content)),
+        logToolStart: (toolName, parameters) => baseAuditLogger.logToolStart(toolName, safe(parameters)),
+        logToolEnd: (result) => baseAuditLogger.logToolEnd(safe(result)),
+        logError: (error, duration, turns) => baseAuditLogger.logError(safe(error), duration, turns),
+        logNote: (category, message) => baseAuditLogger.logNote(category, safe(message)),
+      }
+    : baseAuditLogger;
 
-  logger.info(`Running pi agent: ${description}...`);
+  logger.info(`Running pi agent: ${safeDescription}...`);
 
   // 3. Expose bash-invoked CLI tooling (playwright-cli, save-deliverable) to the
   //    environment pi's bash tool inherits. These are constant per container, so
@@ -258,32 +371,43 @@ export async function runPiPrompt(
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
   const selection = await resolveModelSelection();
-  const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName);
+  const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName, executionOptions?.toolPolicy);
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
   const childUsage: ChildUsage = { cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };
+  const resolvedPolicy = resolvePiToolPolicy(executionOptions?.toolPolicy);
+  const includeTask = resolvedPolicy.includeTask && executionOptions?.childTasks !== false;
   const customTools: ToolDefinition[] = [
-    createTaskTool({
-      model: selection.model,
-      modelRuntime: selection.modelRuntime,
-      cwd: sourceDir,
-      onUsage: (usage) => {
-        childUsage.cost += usage.cost;
-        childUsage.inputTokens += usage.inputTokens;
-        childUsage.outputTokens += usage.outputTokens;
-        childUsage.cacheReadTokens += usage.cacheReadTokens;
-        childUsage.cacheWriteTokens += usage.cacheWriteTokens;
-      },
-      resourceLoader,
-      ...(cancellationSignal && { cancellationSignal }),
-    }),
-    createTodoWriteTool(auditLogger),
-    createGlobTool(sourceDir),
+    ...(includeTask
+      ? [
+          createTaskTool({
+            model: selection.model,
+            modelRuntime: selection.modelRuntime,
+            cwd: sourceDir,
+            onUsage: (usage) => {
+              childUsage.cost += usage.cost;
+              childUsage.inputTokens += usage.inputTokens;
+              childUsage.outputTokens += usage.outputTokens;
+              childUsage.cacheReadTokens += usage.cacheReadTokens;
+              childUsage.cacheWriteTokens += usage.cacheWriteTokens;
+            },
+            resourceLoader,
+            ...(cancellationSignal && { cancellationSignal }),
+          }),
+        ]
+      : []),
+    ...(resolvedPolicy.includeTodo ? [createTodoWriteTool(auditLogger)] : []),
+    ...(resolvedPolicy.includeGlob ? [createGlobTool(sourceDir)] : []),
     ...(callerTools ?? []),
     ...(submitTool ? [submitTool.tool] : []),
   ];
-  // pi's `tools` allowlist gates custom tools too — list every custom name.
-  const tools = [...BUILTIN_TOOLS, ...customTools.map((t) => t.name)];
+  // This exact object is spread into createAgentSession so the tested policy
+  // seam controls both the allowlist and registered custom tools.
+  const sessionToolConfiguration = resolvePiSessionToolConfiguration(
+    executionOptions?.toolPolicy,
+    executionOptions?.childTasks,
+    customTools,
+  );
 
   let turnCount = 0;
   let pendingError: PentestError | null = null;
@@ -304,8 +428,7 @@ export async function runPiPrompt(
     ({ session } = await createAgentSession({
       cwd: sourceDir,
       model: selection.model,
-      tools,
-      customTools,
+      ...sessionToolConfiguration,
       modelRuntime: selection.modelRuntime,
       sessionManager: SessionManager.inMemory(),
       // Temporal owns agent restarts, pi absorbs transport faults (see
@@ -330,9 +453,9 @@ export async function runPiPrompt(
           const msg = event.message;
           const text = extractAssistantText(msg);
           if (text.trim()) {
-            void auditLogger.logLlmResponse(turnCount, text);
+            void auditLogger.logLlmResponse(turnCount, safe(text));
             progress.stop();
-            outputLines(formatAssistantOutput(text, execContext, turnCount, description));
+            outputLines(formatAssistantOutput(safe(text), execContext, turnCount, safeDescription));
             progress.start();
           }
           if (msg.role === 'assistant' && msg.stopReason === 'error') {
@@ -341,12 +464,13 @@ export async function runPiPrompt(
           break;
         }
         case 'tool_execution_start': {
-          void auditLogger.logToolStart(event.toolName, event.args);
+          const safeArgs = safe(event.args);
+          void auditLogger.logToolStart(event.toolName, safeArgs);
           const toolLines = formatToolCall(
             event.toolName,
-            event.args as Record<string, unknown>,
+            safeArgs as Record<string, unknown>,
             execContext,
-            description,
+            safeDescription,
           );
           if (toolLines.length > 0) {
             progress.stop();
@@ -356,7 +480,7 @@ export async function runPiPrompt(
           break;
         }
         case 'tool_execution_end':
-          void auditLogger.logToolEnd(event.result);
+          void auditLogger.logToolEnd(safe(event.result));
           break;
         case 'compaction_end':
           if (!event.aborted && !event.willRetry && event.errorMessage) {
@@ -382,14 +506,14 @@ export async function runPiPrompt(
     const result = session.getLastAssistantText() ?? null;
 
     const duration = timer.stop();
-    progress.finish(formatCompletionMessage(execContext, description, turnCount, duration));
+    progress.finish(formatCompletionMessage(execContext, safeDescription, turnCount, duration));
 
     // Capture the submit tool's structured payload so callers read it off the
     // result instead of holding a reference to the tool.
     const structuredOutput = submitTool?.getCaptured();
 
     return {
-      result,
+      result: safe(result),
       success: true,
       duration,
       turns: turnCount,
@@ -405,10 +529,13 @@ export async function runPiPrompt(
     // 10. Handle errors — log, write error file, return failure
     const duration = timer.stop();
     const err = error as Error & { code?: string; status?: number };
-    await auditLogger.logError(err, duration, turnCount);
+    const safeError = safe(err) as Error & { code?: string; status?: number };
+    await auditLogger.logError(safeError, duration, turnCount);
     progress.stop();
-    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableFailure(err)));
-    await writeErrorLog(err, sourceDir, fullPrompt, duration);
+    outputLines(
+      formatErrorOutput(safeError, execContext, safeDescription, duration, safeSourceDir, isRetryableFailure(err)),
+    );
+    await writeErrorLog(err, sourceDir, fullPrompt, duration, telemetryPolicy);
 
     // A failed agent still spent money — on its own turns and, since Shannon's
     // prompts delegate the heavy work, mostly on `task` sub-agents. Both count
@@ -416,9 +543,9 @@ export async function runPiPrompt(
     const usage = totalUsage(session, childUsage);
 
     return {
-      error: err.message,
-      errorType: err instanceof PentestError && err.code ? err.code : err.constructor.name,
-      prompt: `${fullPrompt.slice(0, 100)}...`,
+      error: safeError.message,
+      errorType: String(safe(err instanceof PentestError && err.code ? err.code : err.constructor.name)),
+      prompt: `${String(safe(fullPrompt)).slice(0, 100)}...`,
       success: false,
       duration,
       turns: turnCount,

@@ -1,0 +1,536 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import path from 'node:path';
+import test from 'node:test';
+import { fileURLToPath } from 'node:url';
+
+import Ajv from 'ajv';
+import { Value } from 'typebox/value';
+
+import {
+  BLACKBOX_AGENTS,
+  PLANNER_BATCH_SCHEMA,
+  VERIFICATION_RESULT_SCHEMA,
+  WORKER_CONTRIBUTION_SCHEMA,
+} from '../dist/blackbox/agents.js';
+import { BlackboxAgentRunner } from '../dist/blackbox/agent-runner.js';
+import { redactSensitive } from '../dist/ai/sensitive-redaction.js';
+import { createBlackboxSubmitTool, createBlackboxTools } from '../dist/blackbox/tools.js';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const IMPACT_INVARIANT = 'An observation is not a finding';
+
+const VALID = {
+  planner: {
+    baseRevision: 0,
+    tasks: [],
+    stop: false,
+  },
+  contribution: {
+    taskId: 'recon-1',
+    baseRevision: 0,
+    role: 'blackbox-recon',
+    exchanges: [],
+    resources: [],
+    transitions: [],
+  },
+  verification: {
+    verificationId: 'verification-1',
+    candidateId: 'candidate-1',
+    verdict: 'blocked',
+    freshStateRefs: [{ identity: 'attacker', stateRef: 'bb-verify-candidate-1-attacker' }],
+    replayActionIds: [],
+    replayExchangeIds: [],
+    observation: null,
+    failureReason: 'No replay evidence',
+  },
+};
+
+function logger() {
+  const entries = [];
+  return {
+    entries,
+    info(message, attrs) { entries.push(['info', message, attrs]); },
+    warn(message, attrs) { entries.push(['warn', message, attrs]); },
+    error(message, attrs) { entries.push(['error', message, attrs]); },
+  };
+}
+
+function audit() {
+  const calls = [];
+  return {
+    calls,
+    async startAgent(...args) { calls.push(['startAgent', ...args]); },
+    async logEvent(...args) { calls.push(['logEvent', ...args]); },
+  };
+}
+
+function runnerInput(kind = 'planner', overrides = {}) {
+  return {
+    kind,
+    ...(kind === 'blackbox-verifier' ? { candidateId: 'candidate-1' } : {}),
+    targetOrigin: 'https://target.example',
+    task: null,
+    snapshot: {
+      revision: 0,
+      routes: [],
+      identities: [{ name: 'attacker', role: 'ordinary user' }],
+      resources: [],
+      ownershipLinks: [],
+      transitions: [],
+      hypotheses: [],
+      actionOutcomes: [],
+      candidateProofs: [],
+      verifierFailureReasons: [],
+    },
+    identity: null,
+    customTools: [],
+    auditSession: audit(),
+    logger: logger(),
+    ...overrides,
+  };
+}
+
+test('black-box contracts are separate from white-box execution order', () => {
+  assert.deepEqual(Object.keys(BLACKBOX_AGENTS).sort(), [
+    'blackbox-action',
+    'blackbox-analysis',
+    'blackbox-recon',
+    'blackbox-verifier',
+    'planner',
+  ]);
+  const whitebox = ['pre-recon', 'recon', 'injection-vuln', 'xss-vuln', 'auth-vuln', 'ssrf-vuln', 'authz-vuln'];
+  assert.equal(Object.keys(BLACKBOX_AGENTS).some((name) => whitebox.includes(name)), false);
+  for (const [kind, definition] of Object.entries(BLACKBOX_AGENTS)) {
+    const promptKind = kind.replace('blackbox-', '');
+    assert.match(definition.promptFile, new RegExp(`blackbox-${promptKind}\\.txt$`));
+    assert.ok(['planner', 'contribution', 'verification'].includes(definition.submitTool));
+  }
+});
+
+test('each role prompt states the impact invariant and its boundary', async () => {
+  const expected = {
+    planner: ['ownership', 'transition', 'no_demonstrated_impact', 'never claim'],
+    'blackbox-recon': ['one assigned workflow', 'leased identity', 'object', 'state change', 'arbitrary target'],
+    'blackbox-analysis': ['compare', 'falsifiable', 'do not send'],
+    'blackbox-action': ['assigned replay', 'proof condition', 'observed outcomes', 'severity'],
+    'blackbox-verifier': ['recreate', 'verified', 'disproved', 'blocked', 'severity', 'confidence'],
+  };
+  for (const [kind, definition] of Object.entries(BLACKBOX_AGENTS)) {
+    const prompt = await readFile(path.join(ROOT, 'prompts', definition.promptFile), 'utf8');
+    assert.match(prompt, new RegExp(IMPACT_INVARIANT, 'i'));
+    assert.match(prompt, /As an attacker, I could/i);
+    for (const phrase of expected[kind]) assert.match(prompt, new RegExp(phrase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), `${kind}: ${phrase}`);
+  }
+});
+
+test('submit schemas reject unknown properties at every top level', () => {
+  const schemas = [PLANNER_BATCH_SCHEMA, WORKER_CONTRIBUTION_SCHEMA, VERIFICATION_RESULT_SCHEMA];
+  for (const schema of schemas) {
+    assert.equal(schema.additionalProperties, false);
+    const valid = VALID[schema === PLANNER_BATCH_SCHEMA ? 'planner' : schema === WORKER_CONTRIBUTION_SCHEMA ? 'contribution' : 'verification'];
+    assert.equal(Value.Check(schema, valid), true);
+    const candidate = { ...valid, unexpected: true };
+    assert.equal(Value.Check(schema, candidate), false);
+    const ajv = new Ajv({ allErrors: true, strict: false });
+    assert.equal(ajv.compile(schema)(candidate), false);
+  }
+
+  const exchange = {
+    exchangeId: 'exchange-1',
+    routeSignature: 'GET /objects/{id}',
+    identity: 'attacker',
+    captureSequence: 1,
+    method: 'GET',
+    origin: 'https://target.example',
+    path: '/objects/1',
+    queryKeys: [],
+    bodyShape: 'none',
+    requestContentType: null,
+    responseStatus: 200,
+    responseContentType: 'application/json',
+    responseFingerprint: 'sha256:response',
+    candidateObjectReferences: ['1'],
+    rawRecordRef: 'raw/exchange-1.json',
+    provenance: { actor: 'blackbox-recon', taskId: 'recon-1', baseRevision: 0 },
+  };
+  assert.equal(Value.Check(WORKER_CONTRIBUTION_SCHEMA, { ...VALID.contribution, exchanges: [exchange] }), true);
+  assert.equal(
+    Value.Check(WORKER_CONTRIBUTION_SCHEMA, {
+      ...VALID.contribution,
+      exchanges: [{ ...exchange, unexpected: true }],
+    }),
+    false,
+  );
+});
+
+test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {
+  const secret = 'bootstrap-password-123';
+  const value = {
+    prompt: `password=${secret}`,
+    args: ['Authorization: Bearer ${secret}', { cookie: `session=${secret}` }],
+    assistant: `csrf_token=${secret}`,
+    nested: { toolResult: secret, thrown: new Error(`boom ${secret}`) },
+  };
+  const redacted = redactSensitive(value, { sensitiveValues: [secret], redactAuthenticationSyntax: true });
+  const serialized = JSON.stringify(redacted);
+  assert.equal(serialized.includes(secret), false);
+  assert.match(serialized, /<redacted>/i);
+  assert.equal(value.nested.thrown.message.includes(secret), true);
+});
+
+test('sensitive redaction handles unknown credential values and cyclic errors', () => {
+  class ProviderError extends Error {}
+  const thrown = new ProviderError('Authorization: Bearer runtime-value');
+  thrown.cause = thrown;
+  const value = {
+    authorization: 'Bearer runtime-authorization',
+    cookie: 'session=runtime-cookie',
+    password: 'runtime-password',
+    csrfToken: 'runtime-csrf',
+    thrown,
+  };
+
+  const redacted = redactSensitive(value, { sensitiveValues: [], redactAuthenticationSyntax: true });
+
+  assert.equal(redacted.authorization, '<redacted>');
+  assert.equal(redacted.cookie, '<redacted>');
+  assert.equal(redacted.password, '<redacted>');
+  assert.equal(redacted.csrfToken, '<redacted>');
+  assert.equal(redacted.thrown.cause, '<circular>');
+  assert.equal(redacted.thrown instanceof ProviderError, true);
+  assert.doesNotMatch(redacted.thrown.message, /runtime-value/);
+  assert.doesNotThrow(() => JSON.stringify(redacted));
+});
+
+test('BlackboxAgentRunner returns only one schema-valid submission from injected Pi execution', async () => {
+  const calls = [];
+  const auditSession = audit();
+  const agentLogger = logger();
+  const submission = { ...VALID.planner };
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      calls.push(args);
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      if (submit) await submit.tool.execute('submit-1', submission);
+      return { success: true, structuredOutput: submission, result: 'ignored model text', cost: 0, duration: 1 };
+    },
+  });
+  const result = await runner.run(runnerInput('planner', { auditSession, logger: agentLogger }));
+
+  assert.deepEqual(result, submission);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].some((value) => value && value.childTasks === false), true);
+  assert.equal(auditSession.calls.filter(([name]) => name === 'startAgent').length, 1);
+  assert.equal(auditSession.calls.some(([, ...values]) => values.some((value) => JSON.stringify(value).includes('bootstrap-password'))), false);
+});
+
+test('runner rejects a captured submission that contains leased credential material', async () => {
+  const secret = 'bootstrap-password-123';
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-1', { ...VALID.planner, stopReason: `blocked by ${secret}` });
+      return {
+        success: true,
+        structuredOutput: { ...VALID.planner, stopReason: 'blocked by <redacted>' },
+        result: 'done',
+        cost: 0,
+        duration: 1,
+      };
+    },
+  });
+
+  await assert.rejects(
+    runner.run(runnerInput('planner', {
+      identity: {
+        name: 'attacker',
+        role: 'ordinary user',
+        loginInstructions: 'Sign in',
+        credentials: { password: secret },
+      },
+    })),
+    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
+  );
+
+  const dynamicTokenRunner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      const submission = { ...VALID.planner, stopReason: 'Authorization: Bearer runtime-session-token' };
+      await submit.tool.execute('submit-1', submission);
+      return { success: true, structuredOutput: submission, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+  await assert.rejects(
+    dynamicTokenRunner.run(runnerInput('planner')),
+    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
+  );
+});
+
+test('runner distinguishes missing and invalid structured submissions and does not return Pi output', async () => {
+  for (const [returnValue, code] of [
+    [{ success: true, result: 'text only', cost: 0, duration: 1 }, 'missing_submission'],
+    [{ success: true, structuredOutput: { unexpected: true }, cost: 0, duration: 1 }, 'invalid_submission'],
+  ]) {
+    const runner = new BlackboxAgentRunner({ runPiPrompt: async () => returnValue });
+    await assert.rejects(
+      runner.run(runnerInput('planner')),
+      (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === code && !('prompt' in error.failure),
+    );
+  }
+});
+
+test('runner converts prompt and audit setup failures to its safe failure contract', async () => {
+  const missingPromptRunner = new BlackboxAgentRunner({ promptDirectory: path.join(ROOT, 'missing-prompts') });
+  await assert.rejects(
+    missingPromptRunner.run(runnerInput('planner')),
+    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'agent_failed',
+  );
+
+  const auditFailureRunner = new BlackboxAgentRunner();
+  await assert.rejects(
+    auditFailureRunner.run(runnerInput('planner', {
+      auditSession: {
+        ...audit(),
+        async startAgent() { throw new Error('bootstrap-password-123'); },
+      },
+    })),
+    (error) =>
+      error?.name === 'BlackboxAgentError' &&
+      error.failure?.code === 'agent_failed' &&
+      !error.message.includes('bootstrap-password-123'),
+  );
+});
+
+test('runner binds contribution submission to the assigned worker role', async () => {
+  let rejectedWrongRole = false;
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      try {
+        await submit.tool.execute('submit-1', {
+          taskId: 'analysis-1',
+          role: 'blackbox-action',
+          baseRevision: 0,
+          actions: [],
+        });
+      } catch {
+        rejectedWrongRole = true;
+      }
+      return { success: false, retryable: false, error: 'stopped', cost: 0, duration: 1 };
+    },
+  });
+
+  await assert.rejects(
+    runner.run(runnerInput('blackbox-analysis', {
+      task: {
+        taskId: 'analysis-1',
+        kind: 'analysis',
+        objective: 'Compare identities',
+        evidence: [],
+        identityLease: null,
+        hypothesisId: null,
+        status: 'running',
+      },
+    })),
+    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'agent_failed',
+  );
+  assert.equal(rejectedWrongRole, true);
+
+  const analysisSubmit = createBlackboxSubmitTool('blackbox-analysis');
+  await assert.rejects(
+    analysisSubmit.tool.execute('submit-empty-action', {
+      taskId: 'analysis-1',
+      role: 'blackbox-analysis',
+      baseRevision: 0,
+      actions: [],
+    }),
+    /cannot|invalid|action/i,
+  );
+});
+
+test('verified submissions require independently stated concrete impact', async () => {
+  const submit = createBlackboxSubmitTool('blackbox-verifier');
+  await assert.rejects(
+    submit.tool.execute('submit-1', {
+      ...VALID.verification,
+      verdict: 'verified',
+      failureReason: null,
+    }),
+    /impact|action|effect|affected/i,
+  );
+
+  await assert.rejects(
+    submit.tool.execute('submit-2', {
+      ...VALID.verification,
+      verdict: 'verified',
+      failureReason: null,
+      demonstratedAction: 'read another user record',
+      concreteEffect: 'disclosure of private data',
+      affectedParty: 'users',
+    }),
+    /proof|observation|replay/i,
+  );
+});
+
+test('worker prompts contain only evidence linked to their assignment', async () => {
+  const cases = [
+    {
+      kind: 'blackbox-recon',
+      taskKind: 'recon',
+      tools: createBlackboxTools({ role: 'blackbox-recon', readTargetHistory: async () => [] })
+        .filter(({ name }) => name === 'read_target_history'),
+    },
+    { kind: 'blackbox-analysis', taskKind: 'analysis', tools: [] },
+    {
+      kind: 'blackbox-action',
+      taskKind: 'action',
+      tools: createBlackboxTools({
+        role: 'blackbox-action',
+        task: {
+          taskId: 'linked', kind: 'action', objective: 'Replay linked', evidence: [],
+          identityLease: 'attacker', hypothesisId: 'linked-hypothesis', status: 'running',
+        },
+        replayTargetRequest: async () => ({ status: 'completed' }),
+      }).filter(({ name }) => name === 'replay_target_request'),
+    },
+  ];
+
+  for (const { kind, taskKind, tools } of cases) {
+    let prompt = '';
+    const runner = new BlackboxAgentRunner({
+      runPiPrompt: async (...args) => {
+        prompt = args[0];
+        const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+        const contribution = { taskId: 'linked', role: kind, baseRevision: 0 };
+        await submit.tool.execute('submit-1', contribution);
+        return { success: true, structuredOutput: contribution, result: 'done', cost: 0, duration: 1 };
+      },
+    });
+    const task = {
+      taskId: 'linked',
+      kind: taskKind,
+      objective: 'Inspect linked evidence',
+      evidence: [{ id: 'linked-exchange', kind: 'exchange' }],
+      identityLease: taskKind === 'analysis' ? null : 'attacker',
+      hypothesisId: taskKind === 'action' ? 'linked-hypothesis' : null,
+      status: 'running',
+      sourceExchangeId: taskKind === 'action' ? 'linked-exchange' : undefined,
+      proofCondition: taskKind === 'action' ? { type: 'body_contains', marker: 'linked-marker' } : undefined,
+    };
+    await runner.run(runnerInput(kind, {
+      task,
+      customTools: tools,
+      snapshot: {
+        ...runnerInput().snapshot,
+        routes: [
+          { exchangeId: 'linked-exchange', identity: 'attacker', responseFingerprint: 'linked-fingerprint' },
+          { exchangeId: 'unrelated-exchange', identity: 'victim', responseFingerprint: 'UNRELATED-SENTINEL' },
+        ],
+        resources: [
+          { resourceId: 'linked-exchange', ownerIdentity: 'attacker' },
+          { resourceId: 'unrelated-resource', ownerIdentity: 'victim', detail: 'UNRELATED-SENTINEL' },
+        ],
+        ownershipLinks: [],
+        transitions: [],
+        hypotheses: [
+          { hypothesisId: 'linked-hypothesis', summary: 'linked' },
+          { hypothesisId: 'unrelated-hypothesis', summary: 'UNRELATED-SENTINEL' },
+        ],
+      },
+    }));
+    assert.match(prompt, /linked-exchange/, `${kind} must receive linked evidence`);
+    if (kind === 'blackbox-analysis') assert.match(prompt, /"name": "attacker"/);
+    assert.doesNotMatch(prompt, /UNRELATED-SENTINEL/, `${kind} received unrelated evidence`);
+  }
+});
+
+test('verifier prompt omits claimant hypotheses and prior verifier conclusions', async () => {
+  let prompt = '';
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      prompt = args[0];
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-1', VALID.verification);
+      return { success: true, structuredOutput: VALID.verification, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+  const customTools = createBlackboxTools({
+    role: 'blackbox-verifier',
+    candidateId: 'candidate-1',
+    replayVerificationRequest: async () => ({ status: 'verified' }),
+  }).filter(({ name }) => name === 'replay_verification_request');
+
+  await runner.run(runnerInput('blackbox-verifier', {
+    customTools,
+    snapshot: {
+      ...runnerInput().snapshot,
+      hypotheses: [{ summary: 'CLAIMANT-HYPOTHESIS-SENTINEL' }],
+      candidateProofs: [{
+        candidateId: 'candidate-1',
+        actionId: 'action-1',
+        victimIdentity: 'victim',
+        attackerIdentity: 'attacker',
+        victimResourceId: 'resource-1',
+        baselineExchangeId: 'exchange-baseline',
+        verificationSourceExchangeId: 'exchange-verify',
+        demonstratedAction: 'CLAIMANT-ACTION-SENTINEL',
+        concreteEffect: 'CLAIMANT-EFFECT-SENTINEL',
+        affectedParty: 'users',
+      }, {
+        candidateId: 'candidate-unrelated',
+        actionId: 'action-unrelated',
+        victimIdentity: 'victim',
+        attackerIdentity: 'attacker',
+        victimResourceId: 'resource-unrelated',
+        baselineExchangeId: 'exchange-unrelated',
+        verificationSourceExchangeId: 'exchange-unrelated',
+      }],
+      actionOutcomes: [{
+        actionId: 'action-1',
+        hypothesisId: 'hypothesis-1',
+        sequence: { proofCondition: 'ACTION-REPRODUCTION-SENTINEL' },
+        title: 'CLAIMANT-TITLE-SENTINEL',
+        severity: 'CLAIMANT-SEVERITY-SENTINEL',
+        verdict: 'CLAIMANT-VERDICT-SENTINEL',
+      }, {
+        actionId: 'action-unrelated',
+        hypothesisId: 'hypothesis-unrelated',
+        sequence: { proofCondition: 'UNRELATED-VERIFIER-INPUT-SENTINEL' },
+      }],
+      verifierFailureReasons: ['PRIOR-VERIFIER-CONCLUSION-SENTINEL'],
+    },
+  }));
+
+  assert.match(prompt, /ACTION-REPRODUCTION-SENTINEL/);
+  assert.doesNotMatch(prompt, /CLAIMANT-HYPOTHESIS-SENTINEL/);
+  assert.doesNotMatch(prompt, /PRIOR-VERIFIER-CONCLUSION-SENTINEL/);
+  assert.doesNotMatch(prompt, /CLAIMANT-(?:TITLE|SEVERITY|VERDICT)-SENTINEL/);
+  assert.doesNotMatch(prompt, /CLAIMANT-(?:ACTION|EFFECT)-SENTINEL/);
+  assert.doesNotMatch(prompt, /UNRELATED-VERIFIER-INPUT-SENTINEL/);
+});
+
+test('verifier rejects planner task prose', async () => {
+  const runner = new BlackboxAgentRunner({ runPiPrompt: async () => VALID.verification });
+  const customTools = createBlackboxTools({
+    role: 'blackbox-verifier',
+    candidateId: 'candidate-1',
+    replayVerificationRequest: async () => ({ status: 'verified' }),
+  }).filter(({ name }) => name === 'replay_verification_request');
+
+  await assert.rejects(
+    runner.run(runnerInput('blackbox-verifier', {
+      task: {
+        taskId: 'verifier-task',
+        kind: 'action',
+        objective: 'Critical confirmed vulnerability',
+        evidence: [],
+        identityLease: null,
+        hypothesisId: null,
+        status: 'running',
+      },
+      customTools,
+    })),
+    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
+  );
+});
