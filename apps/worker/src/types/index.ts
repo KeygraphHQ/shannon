@@ -11,6 +11,7 @@
 export * from './activity-logger.js';
 export * from './agents.js';
 export * from './audit.js';
+export * from './blackbox.js';
 export * from './config.js';
 export * from './deliverables.js';
 export * from './errors.js';
