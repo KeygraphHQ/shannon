@@ -27,23 +27,25 @@ const HELP_OPTION: readonly [string, string] = ['-h, --help', 'Show this help'];
  */
 export const START_OPTIONS: readonly (readonly [string, string])[] = [
   ['-u, --url <url>', 'Target URL (required)'],
-  ['-r, --repo <path>', 'Repository path (required)'],
-  ['-c, --config <path>', 'Configuration file (YAML)'],
+  ['-r, --repo <path>', 'Repository path (required unless --blackbox)'],
+  ['-c, --config <path>', 'Configuration file (required with --blackbox)'],
   ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
   ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
   ['-f, --follow', 'Stream the scan log until it finishes'],
+  ['--blackbox', 'Run source-hidden black-box authorization hunting'],
   ['--pipeline-testing', 'Use minimal prompts for fast testing'],
   ['--keep-container', 'Preserve the worker container after exit for log inspection'],
 ];
 
 const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
   start: {
-    usage: ['start -u <url> -r <path> [options]'],
+    usage: ['start -u <url> -r <path> [options]', 'start --blackbox -u <url> -c <config> [options]'],
     description: 'Start a pentest scan.',
     examples: [
       'start -u https://example.com -r ./my-repo',
       'start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit',
       'start -u https://example.com -r ./my-repo --follow',
+      'start --blackbox -u https://example.com -c blackbox.yaml',
     ],
   },
   stop: {

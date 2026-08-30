@@ -33,13 +33,14 @@ import { tailUntilComplete } from './logs.js';
 
 export interface StartArgs {
   url: string;
-  repo: string;
+  repo?: string;
   config?: string;
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
   keepContainer: boolean;
   follow: boolean;
+  blackbox: boolean;
   version: string;
 }
 
@@ -78,7 +79,7 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // 3. Resolve paths
-  const repo = resolveRepo(args.repo);
+  const repo = args.blackbox ? undefined : resolveRepo(args.repo ?? fail('Repository path is required'));
   const config = args.config ? resolveConfig(args.config) : undefined;
 
   // Inputs are valid — identify the run before the Docker/Temporal setup work.
@@ -119,21 +120,37 @@ export async function start(args: StartArgs): Promise<void> {
   const internalPath = path.join(workspacePath, INTERNAL_DIR);
   fs.mkdirSync(workspacePath, { recursive: true });
   fs.chmodSync(workspacePath, 0o777);
-  migrateLegacyWorkspaceLayout(workspacePath);
-  fs.mkdirSync(internalPath, { recursive: true });
-  fs.chmodSync(internalPath, 0o777);
-  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright']) {
-    const dirPath = path.join(internalPath, dir);
-    fs.mkdirSync(dirPath, { recursive: true });
-    fs.chmodSync(dirPath, 0o777);
-  }
+  const targetRootPath = path.join(internalPath, 'blackbox-target');
+  if (args.blackbox) {
+    fs.mkdirSync(internalPath, { recursive: true });
+    fs.chmodSync(internalPath, 0o777);
+    for (const dirPath of [
+      targetRootPath,
+      path.join(targetRootPath, '.shannon', 'blackbox', 'raw'),
+      path.join(targetRootPath, '.shannon', 'deliverables'),
+      path.join(targetRootPath, '.playwright'),
+    ]) {
+      fs.mkdirSync(dirPath, { recursive: true });
+      fs.chmodSync(dirPath, 0o777);
+    }
+  } else {
+    migrateLegacyWorkspaceLayout(workspacePath);
+    fs.mkdirSync(internalPath, { recursive: true });
+    fs.chmodSync(internalPath, 0o777);
+    if (!repo) fail('Repository path is required');
+    for (const dir of ['deliverables', 'scratchpad', '.playwright-cli', '.playwright']) {
+      const dirPath = path.join(internalPath, dir);
+      fs.mkdirSync(dirPath, { recursive: true });
+      fs.chmodSync(dirPath, 0o777);
+    }
 
-  // 9. Pre-create overlay mount points (:ro mounts can't auto-create them)
-  const shannonDir = path.join(repo.hostPath, '.shannon');
-  for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
-    fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+    // Pre-create overlay mount points (:ro mounts can't auto-create them).
+    const shannonDir = path.join(repo.hostPath, '.shannon');
+    for (const dir of ['deliverables', 'scratchpad', '.playwright-cli']) {
+      fs.mkdirSync(path.join(shannonDir, dir), { recursive: true });
+    }
+    fs.mkdirSync(path.join(repo.hostPath, '.playwright'), { recursive: true });
   }
-  fs.mkdirSync(path.join(repo.hostPath, '.playwright'), { recursive: true });
 
   // 10. Resolve output directory
   const outputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
@@ -146,9 +163,12 @@ export async function start(args: StartArgs): Promise<void> {
 
   // 12. Spawn worker container
   const proc = spawnWorker({
+    mode: args.blackbox ? 'blackbox' : 'whitebox',
     version: args.version,
     url: args.url,
-    repo,
+    ...(repo && { repo }),
+    ...(args.blackbox && { targetRoot: { hostPath: targetRootPath, containerPath: '/target' as const } }),
+    workspacePath,
     workspacesDir,
     taskQueue,
     containerName,
@@ -226,7 +246,7 @@ export async function start(args: StartArgs): Promise<void> {
       if (ready) {
         started = true;
         spinner.stop(`Scan started — ${workspace}`);
-        printInfo(args, workspace, repo.hostPath, workspacesDir);
+        printInfo(args, workspace, repo?.hostPath, workspacesDir);
         if (args.follow) {
           await followScan(workspace, workspacesDir);
         }
@@ -304,7 +324,7 @@ function printPreservedContainerHint(containerName: string): void {
   console.log('');
 }
 
-function printInfo(args: StartArgs, workspace: string, repoPath: string, workspacesDir: string): void {
+function printInfo(args: StartArgs, workspace: string, repoPath: string | undefined, workspacesDir: string): void {
   const interactive = stdoutIsTerminal();
 
   if (interactive && !args.follow) {
@@ -313,12 +333,16 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
   }
 
   console.log(`  Target:     ${args.url}`);
-  console.log(`  Repository: ${interactive ? repoPath : path.basename(repoPath)}`);
+  if (repoPath) {
+    console.log(`  Repository: ${interactive ? repoPath : path.basename(repoPath)}`);
+  }
   console.log(`  Workspace:  ${workspace}`);
   if (args.config) {
     console.log(`  Config:     ${interactive ? path.resolve(args.config) : path.basename(args.config)}`);
   }
-  if (args.pipelineTesting) {
+  if (args.blackbox) {
+    console.log('  Mode:       black-box');
+  } else if (args.pipelineTesting) {
     console.log('  Mode:       Pipeline Testing');
   }
 

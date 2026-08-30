@@ -9,13 +9,15 @@
  * in the current working directory.
  */
 
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
 import { reset } from './commands/reset.js';
 import { scans } from './commands/scans.js';
 import { setup } from './commands/setup.js';
-import { start } from './commands/start.js';
+import { type StartArgs, start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
 import { crash, fail, failUsage } from './errors.js';
@@ -25,6 +27,9 @@ import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
 import { stdoutIsTerminal } from './tty.js';
 import { getVersion, getVersionLine } from './version.js';
+
+export { buildWorkerDockerArgs } from './docker.js';
+export { buildEnvFlags } from './env.js';
 
 function blockSudo(): void {
   const isSudo = !!process.env.SUDO_USER;
@@ -59,7 +64,8 @@ function renderStartOptions(): string {
 function renderUsage(prefix: string, mode: Mode): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
     ...(mode === 'local' ? [] : [[`${prefix} setup`, 'Configure credentials'] as const]),
-    [`${prefix} start --url <url> --repo <path> [options]`, 'Start a pentest scan'],
+    [`${prefix} start -u <url> -r <path> [options]`, 'Start a white-box scan'],
+    [`${prefix} start --blackbox -u <url> -c <config> [options]`, 'Start a black-box authorization hunt'],
     [`${prefix} stop <workspace> [--yes]`, 'Stop one scan'],
     [`${prefix} stop --all [--yes]`, 'Stop all scans (Temporal stays up)'],
     [`${prefix} reset`, 'Stop everything and wipe all Temporal data'],
@@ -91,6 +97,7 @@ ${renderStartOptions()}
 Examples:
   ${prefix} start -u https://example.com -r ./my-repo
   ${prefix} start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit
+  ${prefix} start --blackbox -u https://example.com -c blackbox.yaml
   ${prefix} logs q1-audit
   ${prefix} stop q1-audit
   ${prefix} reset
@@ -101,18 +108,9 @@ Docs & source: https://github.com/KeygraphHQ/shannon
 `);
 }
 
-interface ParsedStartArgs {
-  url: string;
-  repo: string;
-  config?: string;
-  workspace?: string;
-  output?: string;
-  pipelineTesting: boolean;
-  keepContainer: boolean;
-  follow: boolean;
-}
+export type ParsedStartArgs = Omit<StartArgs, 'version'>;
 
-function parseStartArgs(argv: string[]): ParsedStartArgs {
+export function parseStartArgs(argv: string[]): ParsedStartArgs {
   const { flags, values } = parseArgs(argv, {
     values: {
       url: ['-u', '--url'],
@@ -122,6 +120,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       workspace: ['-w', '--workspace'],
     },
     booleans: {
+      blackbox: ['--blackbox'],
       pipelineTesting: ['--pipeline-testing'],
       keepContainer: ['--keep-container'],
       follow: ['-f', '--follow'],
@@ -129,23 +128,34 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
   });
 
   const url = values.url ?? '';
-  const repo = values.repo ?? '';
-  if (!url || !repo) {
-    failUsage('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
+  if (!url) {
+    throw new ArgError('--url is required');
   }
 
   try {
     new URL(url);
   } catch {
-    failUsage(`invalid --url: ${url}`);
+    throw new ArgError(`invalid --url: ${url}`);
+  }
+  if (values.workspace && !/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(values.workspace)) {
+    throw new ArgError(`invalid --workspace: ${values.workspace}`);
+  }
+
+  const blackbox = !!flags.blackbox;
+  if (blackbox) {
+    if (values.repo) throw new ArgError('--repo is not allowed with --blackbox');
+    if (!values.config) throw new ArgError('--config is required with --blackbox');
+  } else if (!values.repo) {
+    throw new ArgError('--repo is required unless --blackbox is set');
   }
 
   return {
     url,
-    repo,
+    blackbox,
     pipelineTesting: !!flags.pipelineTesting,
     keepContainer: !!flags.keepContainer,
     follow: !!flags.follow,
+    ...(values.repo && { repo: values.repo }),
     ...(values.config && { config: values.config }),
     ...(values.workspace && { workspace: values.workspace }),
     ...(values.output && { output: values.output }),
@@ -267,9 +277,15 @@ async function main(): Promise<void> {
   }
 }
 
-main().catch((err) => {
-  if (err instanceof ArgError) {
-    failUsage(err.message, `Run "${commandPrefix()} help" for usage`);
-  }
-  crash(err);
-});
+const entryPath = process.argv[1];
+const isDirectExecution =
+  entryPath !== undefined && pathToFileURL(path.resolve(entryPath)).href === import.meta.url;
+
+if (isDirectExecution) {
+  main().catch((err) => {
+    if (err instanceof ArgError) {
+      failUsage(err.message, `Run "${commandPrefix()} help" for usage`);
+    }
+    crash(err);
+  });
+}

@@ -283,27 +283,29 @@ function forwardEtcHostsFlags(): string[] {
 }
 
 export interface WorkerOptions {
-  version: string;
-  url: string;
-  repo: { hostPath: string; containerPath: string };
-  workspacesDir: string;
-  taskQueue: string;
-  containerName: string;
-  envFlags: string[];
-  config?: { hostPath: string; containerPath: string };
-  promptsDir?: string;
-  outputDir?: string;
-  workspace: string;
-  pipelineTesting?: boolean;
-  keepContainer?: boolean;
-  piAuthHostPath?: string;
+  readonly mode: 'whitebox' | 'blackbox';
+  readonly version: string;
+  readonly url: string;
+  readonly repo?: { hostPath: string; containerPath: string };
+  readonly targetRoot?: { hostPath: string; containerPath: '/target' };
+  readonly workspacePath: string;
+  readonly workspacesDir: string;
+  readonly taskQueue: string;
+  readonly containerName: string;
+  readonly envFlags: string[];
+  readonly config?: { hostPath: string; containerPath: string };
+  readonly promptsDir?: string;
+  readonly outputDir?: string;
+  readonly workspace: string;
+  readonly pipelineTesting?: boolean;
+  readonly keepContainer?: boolean;
+  readonly piAuthHostPath?: string;
 }
 
 /**
- * Spawn the worker container in detached mode and return the process.
- * When `opts.keepContainer` is true, omits `--rm` so the container persists for log inspection.
+ * Build the worker's Docker argument vector without starting a process.
  */
-export function spawnWorker(opts: WorkerOptions): ChildProcess {
+export function buildWorkerDockerArgs(opts: WorkerOptions): string[] {
   const args = ['run', '-d'];
   if (!opts.keepContainer) {
     args.push('--rm');
@@ -324,17 +326,32 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
     args.push('-e', `SHANNON_HOST_UID=${process.getuid()}`, '-e', `SHANNON_HOST_GID=${process.getgid()}`);
   }
 
-  // Volume mounts
-  args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
-  args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
+  let targetPath: string;
+  if (opts.mode === 'blackbox') {
+    const targetRoot = opts.targetRoot;
+    if (!targetRoot) {
+      throw new Error('Blackbox worker options require a synthetic target root');
+    }
+    args.push('-v', `${opts.workspacePath}:/app/workspaces/${opts.workspace}`);
+    args.push('-v', `${targetRoot.hostPath}:${targetRoot.containerPath}`);
+    targetPath = targetRoot.containerPath;
+  } else {
+    const repo = opts.repo;
+    if (!repo) {
+      throw new Error('Whitebox worker options require a repository mount');
+    }
+    args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
+    args.push('-v', `${repo.hostPath}:${repo.containerPath}:ro`);
 
-  // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed
-  // dirs, nested under the run's INTERNAL_DIR. Container paths are unchanged.
-  const internalPath = path.join(opts.workspacesDir, opts.workspace, INTERNAL_DIR);
-  args.push('-v', `${path.join(internalPath, 'deliverables')}:${opts.repo.containerPath}/.shannon/deliverables`);
-  args.push('-v', `${path.join(internalPath, 'scratchpad')}:${opts.repo.containerPath}/.shannon/scratchpad`);
-  args.push('-v', `${path.join(internalPath, '.playwright-cli')}:${opts.repo.containerPath}/.shannon/.playwright-cli`);
-  args.push('-v', `${path.join(internalPath, '.playwright')}:${opts.repo.containerPath}/.playwright`);
+    // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed
+    // dirs, nested under the run's INTERNAL_DIR. Container paths are unchanged.
+    const internalPath = path.join(opts.workspacesDir, opts.workspace, INTERNAL_DIR);
+    args.push('-v', `${path.join(internalPath, 'deliverables')}:${repo.containerPath}/.shannon/deliverables`);
+    args.push('-v', `${path.join(internalPath, 'scratchpad')}:${repo.containerPath}/.shannon/scratchpad`);
+    args.push('-v', `${path.join(internalPath, '.playwright-cli')}:${repo.containerPath}/.shannon/.playwright-cli`);
+    args.push('-v', `${path.join(internalPath, '.playwright')}:${repo.containerPath}/.playwright`);
+    targetPath = repo.containerPath;
+  }
 
   // Local mode: mount prompts for live editing
   if (opts.promptsDir) {
@@ -365,7 +382,10 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push(getWorkerImage(opts.version));
 
   // Worker command
-  args.push('node', 'apps/worker/dist/temporal/worker.js', opts.url, opts.repo.containerPath);
+  args.push('node', 'apps/worker/dist/temporal/worker.js', opts.url, targetPath);
+  if (opts.mode === 'blackbox') {
+    args.push('--blackbox');
+  }
   args.push('--task-queue', opts.taskQueue);
   if (opts.config) {
     args.push('--config', opts.config.containerPath);
@@ -377,6 +397,16 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   if (opts.pipelineTesting) {
     args.push('--pipeline-testing');
   }
+
+  return args;
+}
+
+/**
+ * Spawn the worker container in detached mode and return the process.
+ * When `opts.keepContainer` is true, omits `--rm` so the container persists for log inspection.
+ */
+export function spawnWorker(opts: WorkerOptions): ChildProcess {
+  const args = buildWorkerDockerArgs(opts);
 
   // Inherit stderr so `docker run` daemon errors surface to the user;
   // ignore stdin/stdout (the container ID is noise).
