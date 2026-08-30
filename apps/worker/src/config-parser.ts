@@ -13,9 +13,14 @@ import { PentestError } from './services/error-handling.js';
 import {
   ALL_VULN_CLASSES,
   type Authentication,
+  type BlackboxConfig,
+  type BlackboxIdentity,
   type Config,
+  type ConfigMode,
   type DistributedConfig,
+  type NormalizedBlackboxConfig,
   type Rule,
+  type Rules,
 } from './types/config.js';
 import { ErrorCode } from './types/errors.js';
 
@@ -175,7 +180,7 @@ function formatAjvErrors(errors: ErrorObject[]): string[] {
   return errors.map(formatAjvError);
 }
 
-export const parseConfig = async (configPath: string): Promise<Config> => {
+export const parseConfig = async (configPath: string, mode: ConfigMode = 'whitebox'): Promise<Config> => {
   try {
     // 1. Verify file exists
     if (!(await fs.pathExists(configPath))) {
@@ -245,7 +250,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
     }
 
     // 6. Validate schema, security rules, and return
-    validateConfig(config as Config);
+    validateConfig(config as Config, mode);
 
     return config as Config;
   } catch (error) {
@@ -270,7 +275,7 @@ export const parseConfig = async (configPath: string): Promise<Config> => {
  * Same validation as parseConfig but accepts a string instead of a file path.
  * Used when config YAML is passed inline (e.g., from a parent workflow).
  */
-export const parseConfigYAML = (yamlContent: string): Config => {
+export const parseConfigYAML = (yamlContent: string, mode: ConfigMode = 'whitebox'): Config => {
   if (!yamlContent.trim()) {
     throw new PentestError(
       'Configuration YAML string is empty',
@@ -308,7 +313,7 @@ export const parseConfigYAML = (yamlContent: string): Config => {
     );
   }
 
-  validateConfig(config as Config);
+  validateConfig(config as Config, mode);
   return config as Config;
 };
 
@@ -345,7 +350,7 @@ function checkDeprecatedFields(config: Config): void {
   }
 }
 
-const validateConfig = (config: Config): void => {
+const validateConfig = (config: Config, mode: ConfigMode): void => {
   if (!config || typeof config !== 'object') {
     throw new PentestError(
       'Configuration must be a valid object',
@@ -381,11 +386,13 @@ const validateConfig = (config: Config): void => {
     );
   }
 
+  validateMode(config, mode);
   performSecurityValidation(config);
 
   const hasAnySteering =
     !!config.rules ||
     !!config.authentication ||
+    !!config.identities ||
     !!config.description ||
     !!config.vuln_classes ||
     config.exploit !== undefined ||
@@ -398,54 +405,69 @@ const validateConfig = (config: Config): void => {
   }
 };
 
-const performSecurityValidation = (config: Config): void => {
-  if (config.authentication) {
-    const auth = config.authentication;
-
-    // Check login_url for dangerous patterns (AJV's "uri" format allows javascript: per RFC 3986)
-    if (auth.login_url) {
-      for (const pattern of DANGEROUS_PATTERNS) {
-        if (pattern.test(auth.login_url)) {
-          throw new PentestError(
-            `authentication.login_url contains potentially dangerous pattern: ${pattern.source}`,
-            'config',
-            false,
-            { field: 'login_url', pattern: pattern.source },
-            ErrorCode.CONFIG_VALIDATION_FAILED,
-          );
-        }
-      }
+const validateMode = (config: Config, mode: ConfigMode): void => {
+  if (mode === 'whitebox') {
+    if (config.identities !== undefined) {
+      throwConfigValidation('identities is only allowed in blackbox mode', { field: 'identities', mode });
     }
+    return;
+  }
 
-    if (auth.credentials) {
-      for (const pattern of DANGEROUS_PATTERNS) {
-        if (pattern.test(auth.credentials.username)) {
-          throw new PentestError(
-            `authentication.credentials.username contains potentially dangerous pattern: ${pattern.source}`,
-            'config',
-            false,
-            { field: 'credentials.username', pattern: pattern.source },
-            ErrorCode.CONFIG_VALIDATION_FAILED,
-          );
-        }
-      }
-    }
+  const identities = config.identities;
+  if (!identities) {
+    throwConfigValidation('identities is required in blackbox mode', { field: 'identities', mode });
+    return;
+  }
+  if (config.authentication !== undefined) {
+    throwConfigValidation('authentication is not allowed in blackbox mode; use identities', {
+      field: 'authentication',
+      mode,
+    });
+  }
 
-    if (auth.login_flow) {
-      auth.login_flow.forEach((step, index) => {
-        for (const pattern of DANGEROUS_PATTERNS) {
-          if (pattern.test(step)) {
-            throw new PentestError(
-              `authentication.login_flow[${index}] contains potentially dangerous pattern: ${pattern.source}`,
-              'config',
-              false,
-              { field: `login_flow[${index}]`, pattern: pattern.source },
-              ErrorCode.CONFIG_VALIDATION_FAILED,
-            );
-          }
-        }
+  const names = new Set<string>();
+  for (const identity of identities) {
+    if (names.has(identity.name)) {
+      throwConfigValidation(`Duplicate blackbox identity name: ${identity.name}`, {
+        field: 'identities.name',
+        identityName: identity.name,
       });
     }
+    names.add(identity.name);
+  }
+
+  const codePathRule = [...(config.rules?.avoid ?? []), ...(config.rules?.focus ?? [])].find(
+    (rule) => rule.type === 'code_path',
+  );
+  if (codePathRule) {
+    throwConfigValidation('code_path rules are not allowed in blackbox mode', {
+      field: 'rules',
+      ruleType: codePathRule.type,
+    });
+  }
+  if (config.exploit === 'false') {
+    throwConfigValidation('exploit must be "true" in blackbox mode', { field: 'exploit' });
+  }
+  if (config.vuln_classes && (config.vuln_classes.length !== 1 || config.vuln_classes[0] !== 'authz')) {
+    throwConfigValidation('blackbox mode supports only the authz vulnerability class', {
+      field: 'vuln_classes',
+      vulnerabilityClasses: config.vuln_classes,
+    });
+  }
+};
+
+const throwConfigValidation = (message: string, context: Record<string, unknown>): never => {
+  throw new PentestError(message, 'config', false, context, ErrorCode.CONFIG_VALIDATION_FAILED);
+};
+
+const performSecurityValidation = (config: Config): void => {
+  if (config.authentication) {
+    validateAuthenticationSecurity(config.authentication, 'authentication');
+  }
+  if (config.identities) {
+    config.identities.forEach((identity, index) => {
+      validateAuthenticationSecurity(identity.authentication, `identities[${index}].authentication`);
+    });
   }
 
   if (config.rules) {
@@ -498,6 +520,35 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
   }
+};
+
+const validateAuthenticationSecurity = (auth: Authentication, fieldPrefix: string): void => {
+  // AJV's "uri" format allows non-HTTP schemes, so reject the established dangerous patterns here.
+  for (const pattern of DANGEROUS_PATTERNS) {
+    if (pattern.test(auth.login_url)) {
+      throwConfigValidation(`${fieldPrefix}.login_url contains potentially dangerous pattern: ${pattern.source}`, {
+        field: `${fieldPrefix}.login_url`,
+        pattern: pattern.source,
+      });
+    }
+    if (pattern.test(auth.credentials.username)) {
+      throwConfigValidation(
+        `${fieldPrefix}.credentials.username contains potentially dangerous pattern: ${pattern.source}`,
+        { field: `${fieldPrefix}.credentials.username`, pattern: pattern.source },
+      );
+    }
+  }
+
+  auth.login_flow?.forEach((step, index) => {
+    for (const pattern of DANGEROUS_PATTERNS) {
+      if (pattern.test(step)) {
+        throwConfigValidation(
+          `${fieldPrefix}.login_flow[${index}] contains potentially dangerous pattern: ${pattern.source}`,
+          { field: `${fieldPrefix}.login_flow[${index}]`, pattern: pattern.source },
+        );
+      }
+    }
+  });
 };
 
 const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
@@ -727,3 +778,26 @@ const sanitizeAuthentication = (auth: Authentication): Authentication => {
     },
   };
 };
+
+export function normalizeBlackboxConfig(config: Config): NormalizedBlackboxConfig {
+  validateMode(config, 'blackbox');
+
+  const rules: Rules = {};
+  if (config.rules?.avoid) rules.avoid = config.rules.avoid.map(sanitizeRule);
+  if (config.rules?.focus) rules.focus = config.rules.focus.map(sanitizeRule);
+
+  return {
+    identities: (config as BlackboxConfig).identities.map(
+      (identity): BlackboxIdentity => ({
+        name: identity.name.trim(),
+        role: identity.role.trim(),
+        authentication: sanitizeAuthentication(identity.authentication),
+      }),
+    ),
+    rules,
+    description: config.description?.trim() ?? '',
+    vulnClasses: ['authz'],
+    exploit: true,
+    rulesOfEngagement: config.rules_of_engagement?.trim() ?? '',
+  };
+}

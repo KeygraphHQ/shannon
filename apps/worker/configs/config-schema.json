@@ -102,6 +102,32 @@
       "required": ["login_type", "login_url", "credentials", "success_condition"],
       "additionalProperties": false
     },
+    "identities": {
+      "type": "array",
+      "description": "Named identities used for black-box authorization testing",
+      "items": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_-]{0,31}$"
+          },
+          "role": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "pattern": "\\S"
+          },
+          "authentication": {
+            "$ref": "#/properties/authentication"
+          }
+        },
+        "required": ["name", "role", "authentication"],
+        "additionalProperties": false
+      },
+      "minItems": 2,
+      "maxItems": 5
+    },
     "rules": {
       "type": "object",
       "description": "Testing rules that define what to focus on or avoid during penetration testing",
@@ -190,6 +216,7 @@
   },
   "anyOf": [
     { "required": ["authentication"] },
+    { "required": ["identities"] },
     { "required": ["rules"] },
     { "required": ["authentication", "rules"] },
     { "required": ["description"] },

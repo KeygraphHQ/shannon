@@ -67,14 +67,39 @@ export interface Authentication {
   success_condition: SuccessCondition;
 }
 
+export type ConfigMode = 'whitebox' | 'blackbox';
+
+export interface BlackboxIdentity {
+  readonly name: string;
+  readonly role: string;
+  readonly authentication: Authentication;
+}
+
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
+  identities?: BlackboxIdentity[];
   description?: string;
   vuln_classes?: VulnClass[];
   exploit?: 'true' | 'false';
   report?: ReportConfig;
   rules_of_engagement?: string;
+}
+
+export interface BlackboxConfig extends Config {
+  readonly identities: BlackboxIdentity[];
+  readonly authentication?: never;
+  readonly vuln_classes?: ['authz'];
+  readonly exploit?: 'true';
+}
+
+export interface NormalizedBlackboxConfig {
+  readonly identities: readonly BlackboxIdentity[];
+  readonly rules: Rules;
+  readonly description: string;
+  readonly vulnClasses: readonly ['authz'];
+  readonly exploit: true;
+  readonly rulesOfEngagement: string;
 }
 
 /** Report config after coercion. The YAML form of `sarif` is a string (see ReportConfig). */
