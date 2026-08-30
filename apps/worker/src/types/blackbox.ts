@@ -117,6 +117,18 @@ export interface ReplaySequence extends ReplayPlan {
 export interface DeterministicProofObservation {
   readonly condition: ProofCondition;
   readonly passed: boolean;
+  /** Present on host-generated replay evidence. Optional only for pre-upgrade workspaces. */
+  readonly baselineExchangeId?: string;
+  /** Whether the same proof condition held in the captured baseline response. */
+  readonly baselinePassed?: boolean;
+  /** Pre-action, cross-identity baseline controls evaluated by the replay host. */
+  readonly controlExchangeIds?: readonly string[];
+  /** Whether the proof condition also held in any evaluated control. */
+  readonly controlPassed?: boolean;
+  /** Identity-insensitive digest of the captured proof-source request. */
+  readonly proofSourceRequestDigest?: string;
+  /** Identity-insensitive digest of the request actually sent for the proof. */
+  readonly proofSentRequestDigest?: string;
   readonly observedMarkerDigest: string | null;
   readonly observedTransitionId: string | null;
   readonly verificationExchangeId: string | null;
@@ -146,6 +158,23 @@ export interface CandidateProof {
   readonly affectedParty: 'customer' | 'application' | 'users';
   readonly preconditions: readonly string[];
   readonly provenance: EvidenceProvenance;
+}
+
+export interface VerifiedBlackboxFinding {
+  readonly findingId: string;
+  readonly hypothesisId: string;
+  readonly victimIdentity: string;
+  readonly attackerIdentity: string | 'anonymous';
+  readonly baselineExchangeId: string;
+  readonly attackExchangeIds: readonly string[];
+  readonly verificationExchangeIds: readonly string[];
+  readonly replaySequence: ReplaySequence;
+  readonly demonstratedAction: string;
+  readonly concreteEffect: string;
+  readonly affectedParty: 'customer' | 'application' | 'users';
+  readonly impactStatement: string;
+  readonly preconditions: readonly string[];
+  readonly verifierResultId: string;
 }
 
 interface VerificationResultBase {

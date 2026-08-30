@@ -261,6 +261,7 @@ async function makeDeps(t, root, options = {}) {
         },
       };
     },
+    ...(options.publishArtifacts ? { publishArtifacts: options.publishArtifacts } : {}),
   };
   t.after(() => rm(root, { recursive: true, force: true }));
   return { deps, board, agents, burpCalls, browserCalls, replayCalls };
@@ -819,7 +820,13 @@ test('action executes the persisted replay plan and derives its result from the 
   const observation = {
     condition: persistedTask.replayPlan.proofCondition,
     passed: true,
-    observedMarkerDigest: 'sha256:marker',
+    baselineExchangeId: source.exchangeId,
+    baselinePassed: true,
+    controlExchangeIds: [],
+    controlPassed: false,
+    proofSourceRequestDigest: 'a'.repeat(64),
+    proofSentRequestDigest: 'a'.repeat(64),
+    observedMarkerDigest: createHash('sha256').update('victim-private-marker').digest('hex'),
     observedTransitionId: null,
     verificationExchangeId: replayed.exchangeId,
   };
@@ -941,6 +948,32 @@ test('action executes the persisted replay plan and derives its result from the 
 
   deps.createReplayService = () => ({
     async replay() {
+      return {
+        status: 'completed',
+        exchanges: [replayed],
+        comparison: {
+          baselineExchangeId: source.exchangeId,
+          observedExchangeId: replayed.exchangeId,
+          baselineStatus: 200,
+          observedStatus: 200,
+          statusChanged: false,
+          baselineFingerprint: 'sha256:source',
+          observedFingerprint: 'sha256:action',
+          fingerprintChanged: true,
+        },
+        observation: { ...observation, controlPassed: true },
+      };
+    },
+  });
+  const nondiscriminating = await createBlackboxActivities(deps).runBlackboxAction({
+    ...input(root),
+    task: persistedTask,
+    revision: 7,
+  });
+  assert.equal(nondiscriminating.candidateProofs, undefined);
+
+  deps.createReplayService = () => ({
+    async replay() {
       return { status: 'delivery_unknown', reason: 'dispatch outcome is unknown' };
     },
   });
@@ -1001,7 +1034,13 @@ test('verifier replays the approved sequence under fresh identity state and deri
   const actionObservation = {
     condition: replayPlan.proofCondition,
     passed: true,
-    observedMarkerDigest: 'sha256:marker',
+    baselineExchangeId: source.exchangeId,
+    baselinePassed: true,
+    controlExchangeIds: [],
+    controlPassed: false,
+    proofSourceRequestDigest: 'a'.repeat(64),
+    proofSentRequestDigest: 'a'.repeat(64),
+    observedMarkerDigest: createHash('sha256').update('victim-private-marker').digest('hex'),
     observedTransitionId: null,
     verificationExchangeId: actionExchange.exchangeId,
   };
@@ -1329,5 +1368,198 @@ test('control activities redact failures, evaluate persisted progress, and final
   assert.equal(finalized.status, 'incomplete');
   assert.equal(finalized.revision, 11);
   assert.equal(finalized.failure.includes(SECRET), false);
+  assert.equal(finalized.findingCount, 0);
+  assert.deepEqual(finalized.artifactNames, [
+    'traffic_inventory.json',
+    'blackbox_blackboard.json',
+    'blackbox_authz_findings.json',
+    'blackbox_authz_evidence.md',
+  ]);
   assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'incomplete');
+});
+
+test('artifact publication failure records incomplete and never returns partial success', async (t) => {
+  const root = await tempRoot(t);
+  let publishCalls = 0;
+  const { deps, board } = await makeDeps(t, root, {
+    publishArtifacts: async () => {
+      publishCalls += 1;
+      assert.equal(board.calls.some(([name]) => name === 'setRunStatus'), false);
+      throw new Error('third artifact write failed');
+    },
+  });
+  board.seed({ revision: 4 });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).finalizeBlackboxRun({
+      ...input(root),
+      revision: 4,
+      status: 'complete',
+      operationKey: 'workflow-1:2:finalize:',
+    }),
+    /artifact write failed/,
+  );
+
+  assert.equal(publishCalls, 1);
+  assert.deepEqual(
+    board.calls.filter(([name]) => name === 'setRunStatus').map(([, revision, operationKey, status]) => [
+      revision,
+      operationKey,
+      status,
+    ]),
+    [[4, 'workflow-1:2:finalize::incomplete', 'incomplete']],
+  );
+});
+
+test('finalization publishes and counts only a replay-verified impact finding', async (t) => {
+  const root = await tempRoot(t);
+  let published;
+  const { deps, board } = await makeDeps(t, root, {
+    publishArtifacts: async (_repoPath, artifacts) => {
+      published = artifacts;
+      return [
+        'traffic_inventory.json',
+        'blackbox_blackboard.json',
+        'blackbox_authz_findings.json',
+        'blackbox_authz_evidence.md',
+      ];
+    },
+  });
+  const marker = 'victim-object-marker';
+  const digest = createHash('sha256').update(marker).digest('hex');
+  const proofCondition = { type: 'body_contains', marker };
+  const replayPlan = {
+    steps: [{
+      stepId: 'read-victim-object',
+      sourceExchangeId: 'ex-baseline-control',
+      actor: 'attacker',
+      mutations: [{ type: 'set_path', path: '/api/items/object-1' }],
+    }],
+    proofCondition,
+  };
+  const observation = (exchangeId) => ({
+    condition: proofCondition,
+    passed: true,
+    baselineExchangeId: 'ex-baseline-control',
+    baselinePassed: true,
+    controlExchangeIds: [],
+    controlPassed: false,
+    proofSourceRequestDigest: 'a'.repeat(64),
+    proofSentRequestDigest: 'a'.repeat(64),
+    observedMarkerDigest: digest,
+    observedTransitionId: null,
+    verificationExchangeId: exchangeId,
+  });
+  board.seed({
+    revision: 12,
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [
+      normalizedExchange('ex-baseline-control', {
+        routeSignature: 'route_control',
+        identity: 'victim',
+        candidateObjectReferences: ['object-1'],
+      }),
+      normalizedExchange('ex-action-control', {
+        routeSignature: 'route_control',
+        identity: 'attacker',
+        captureSequence: 2,
+        candidateObjectReferences: ['object-1'],
+        provenance: { actor: 'blackbox-action', taskId: 'action-control', baseRevision: 10 },
+      }),
+      normalizedExchange('ex-verify-control', {
+        routeSignature: 'route_control',
+        identity: 'attacker',
+        captureSequence: 3,
+        candidateObjectReferences: ['object-1'],
+        provenance: { actor: 'blackbox-verifier', taskId: 'verification-control', baseRevision: 11 },
+      }),
+    ],
+    resources: [{
+      resourceId: 'resource-control',
+      resourceType: 'private item',
+      objectReferences: ['object-1'],
+      ownerIdentity: 'victim',
+      visibility: 'private',
+      evidence: [{ id: 'ex-baseline-control', kind: 'exchange' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'recon-control', baseRevision: 2 },
+    }],
+    hypotheses: [{
+      hypothesisId: 'hypothesis-control',
+      kind: 'horizontal',
+      summary: 'Cross-user object read',
+      preconditions: ['two accounts'],
+      attackerCapability: 'read another user object',
+      evidence: [{ id: 'resource-control', kind: 'resource' }],
+      priority: 'high',
+      status: 'verified',
+      provenance: { actor: 'blackbox-analysis', taskId: 'analysis-control', baseRevision: 4 },
+    }],
+    actions: [{
+      actionId: 'action-control',
+      hypothesisId: 'hypothesis-control',
+      sequence: { actionId: 'action-control', ...replayPlan },
+      status: 'completed',
+      exchangeIds: ['ex-action-control'],
+      observation: observation('ex-action-control'),
+      provenance: { actor: 'blackbox-action', taskId: 'action-control', baseRevision: 10 },
+    }],
+    candidateProofs: [{
+      candidateId: 'candidate-control',
+      hypothesisId: 'hypothesis-control',
+      victimIdentity: 'victim',
+      attackerIdentity: 'attacker',
+      victimResourceId: 'resource-control',
+      baselineExchangeId: 'ex-baseline-control',
+      actionId: 'action-control',
+      verificationSourceExchangeId: 'ex-action-control',
+      demonstratedAction: 'read a victim-owned item',
+      concreteEffect: 'loss of confidentiality for the private item',
+      affectedParty: 'users',
+      preconditions: ['ordinary attacker account'],
+      provenance: { actor: 'blackbox-action', taskId: 'action-control', baseRevision: 10 },
+    }],
+    verifications: [{
+      verificationId: 'verification-control',
+      candidateId: 'candidate-control',
+      verdict: 'verified',
+      freshStateRefs: [{
+        identity: 'attacker',
+        stateRef: '.shannon/blackbox/verification-runs/verification-control/.shannon/blackbox/identities/attacker/storage-state.json',
+      }],
+      replayActionIds: ['action-control'],
+      replayExchangeIds: ['ex-verify-control'],
+      observation: observation('ex-verify-control'),
+      failureReason: null,
+      demonstratedAction: 'retrieve the private item through another account',
+      concreteEffect: 'loss of confidentiality for victim-owned content',
+      affectedParty: 'users',
+    }],
+    tasks: [{
+      taskId: 'action-control',
+      kind: 'action',
+      objective: 'Replay the victim item request as the attacker',
+      evidence: [{ id: 'ex-baseline-control', kind: 'exchange' }],
+      identityLease: 'attacker',
+      hypothesisId: 'hypothesis-control',
+      status: 'completed',
+      replayPlan,
+    }],
+  });
+
+  const finalized = await createBlackboxActivities(deps).finalizeBlackboxRun({
+    ...input(root),
+    revision: 12,
+    status: 'complete',
+    operationKey: 'workflow-1:3:finalize:',
+  });
+
+  assert.equal(finalized.findingCount, 1);
+  assert.equal(finalized.verifiedCandidateIds[0], 'candidate-control');
+  assert.equal(JSON.parse(published['blackbox_authz_findings.json']).length, 1);
+  assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'complete');
 });

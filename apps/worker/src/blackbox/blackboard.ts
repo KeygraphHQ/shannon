@@ -374,6 +374,12 @@ function validateObservation(
 ): void {
   if (!observation) return;
   validateProofCondition(observation.condition, indexes, context);
+  if (observation.baselineExchangeId) {
+    assertKnown(indexes.exchange, observation.baselineExchangeId, 'exchange', context);
+  }
+  for (const exchangeId of observation.controlExchangeIds ?? []) {
+    assertKnown(indexes.exchange, exchangeId, 'exchange', context);
+  }
   if (observation.observedTransitionId) {
     assertKnown(indexes.transition, observation.observedTransitionId, 'transition', context);
   }

@@ -68,7 +68,7 @@ const BASELINE_RESPONSE = [
   'HTTP/1.1 200 OK',
   'Content-Type: application/json',
   '',
-  JSON.stringify({ object_id: '100', owner: 'victim' }),
+  JSON.stringify({ object_id: '100', owner: 'victim', marker: 'victim-private-marker' }),
 ].join('\r\n');
 
 function response(body, status = 200, headers = []) {
@@ -232,7 +232,10 @@ function harness({ burpResults, rules = {}, exchanges, records, rawStore: inject
     exchanges ??
     [
       exchange('ex_source', 'victim'),
-      exchange('ex_attacker_latest', 'attacker', 'route_users', { captureSequence: 9 }),
+      exchange('ex_attacker_latest', 'attacker', 'route_users', {
+        captureSequence: 9,
+        candidateObjectReferences: ['200'],
+      }),
     ];
   const rawStore =
     injectedRawStore ??
@@ -240,7 +243,13 @@ function harness({ burpResults, rules = {}, exchanges, records, rawStore: inject
       records ??
         new Map([
           ['ex_source', raw(SOURCE_REQUEST)],
-          ['ex_attacker_latest', raw(ACTOR_REQUEST)],
+          [
+            'ex_attacker_latest',
+            raw(
+              ACTOR_REQUEST,
+              response(JSON.stringify({ object_id: '200', owner: 'attacker', marker: 'attacker-private-marker' })),
+            ),
+          ],
         ]),
     );
   const client = new FakeBurpClient(
@@ -770,6 +779,14 @@ test('service derives body, JSON, and persistent-state proof observations itself
   const bodyOutcome = await bodyHarness.service.replay(replayCommand('act_body_false'));
   assert.equal(bodyOutcome.status, 'completed');
   assert.equal(bodyOutcome.observation.passed, false);
+  assert.equal(bodyOutcome.observation.baselineExchangeId, 'ex_source');
+  assert.equal(bodyOutcome.observation.baselinePassed, true);
+  assert.deepEqual(bodyOutcome.observation.controlExchangeIds, ['ex_attacker_latest']);
+  assert.equal(bodyOutcome.observation.controlPassed, false);
+  assert.notEqual(
+    bodyOutcome.observation.proofSourceRequestDigest,
+    bodyOutcome.observation.proofSentRequestDigest,
+  );
 
   const jsonHarness = harness({ burpResults: [response('{"result":{"owner":"victim"}}')] });
   const jsonOutcome = await jsonHarness.service.replay(
@@ -779,6 +796,24 @@ test('service derives body, JSON, and persistent-state proof observations itself
   );
   assert.equal(jsonOutcome.status, 'completed');
   assert.equal(jsonOutcome.observation.passed, true);
+  assert.equal(jsonOutcome.observation.baselineExchangeId, 'ex_source');
+  assert.equal(jsonOutcome.observation.baselinePassed, false);
+  assert.deepEqual(jsonOutcome.observation.controlExchangeIds, ['ex_attacker_latest']);
+  assert.equal(jsonOutcome.observation.controlPassed, false);
+
+  const identityOnly = harness();
+  const identityOnlyOutcome = await identityOnly.service.replay(
+    replayCommand('act_identity_only_proof', {
+      steps: [{ ...replayCommand().steps[0], mutations: [] }],
+    }),
+  );
+  assert.equal(identityOnlyOutcome.status, 'completed');
+  assert.equal(identityOnlyOutcome.observation.passed, true);
+  assert.match(identityOnlyOutcome.observation.proofSourceRequestDigest, /^[a-f0-9]{64}$/);
+  assert.equal(
+    identityOnlyOutcome.observation.proofSourceRequestDigest,
+    identityOnlyOutcome.observation.proofSentRequestDigest,
+  );
 
   const verifyRequest = 'GET /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n';
   const persistent = harness({
@@ -792,7 +827,11 @@ test('service derives body, JSON, and persistent-state proof observations itself
       ['ex_attacker_latest', raw(ACTOR_REQUEST)],
       ['ex_verify', raw(verifyRequest)],
     ]),
-    burpResults: [response('{"changed":true}'), response('{"state":"persisted-marker"}')],
+    burpResults: [
+      response('{"state":"absent"}'),
+      response('{"changed":true}'),
+      response('{"state":"persisted-marker"}'),
+    ],
   });
   const persistentOutcome = await persistent.service.replay(
     replayCommand('act_persistent', {
@@ -804,9 +843,66 @@ test('service derives body, JSON, and persistent-state proof observations itself
     }),
   );
   assert.equal(persistentOutcome.status, 'completed');
-  assert.equal(persistentOutcome.exchanges.length, 2);
+  assert.equal(persistentOutcome.exchanges.length, 3);
   assert.equal(persistentOutcome.observation.passed, true);
-  assert.equal(persistentOutcome.observation.verificationExchangeId, persistentOutcome.exchanges[1].exchangeId);
+  assert.equal(persistentOutcome.observation.baselineExchangeId, persistentOutcome.exchanges[0].exchangeId);
+  assert.equal(persistentOutcome.observation.baselinePassed, false);
+  assert.deepEqual(persistentOutcome.observation.controlExchangeIds, []);
+  assert.equal(persistentOutcome.observation.controlPassed, false);
+  assert.equal(persistentOutcome.observation.verificationExchangeId, persistentOutcome.exchanges[2].exchangeId);
+
+  const alreadyChanged = harness({
+    exchanges: [
+      exchange('ex_source', 'victim'),
+      exchange('ex_attacker_latest', 'attacker', 'route_users', { captureSequence: 9 }),
+      exchange('ex_verify', 'anonymous', 'route_verify', { method: 'GET', path: '/api/users/{id}' }),
+    ],
+    records: new Map([
+      ['ex_source', raw(SOURCE_REQUEST)],
+      ['ex_attacker_latest', raw(ACTOR_REQUEST)],
+      ['ex_verify', raw(verifyRequest)],
+    ]),
+    burpResults: [
+      response('{"state":"persisted-marker"}'),
+      response('{"changed":false}'),
+      response('{"state":"persisted-marker"}'),
+    ],
+  });
+  const alreadyChangedOutcome = await alreadyChanged.service.replay(
+    replayCommand('act_persistent_preexisting', {
+      proofCondition: {
+        type: 'persistent_state',
+        verificationSourceExchangeId: 'ex_verify',
+        marker: 'persisted-marker',
+      },
+    }),
+  );
+  assert.equal(alreadyChangedOutcome.status, 'precondition_failed');
+  assert.equal(alreadyChangedOutcome.exchanges.length, 1);
+  assert.equal(alreadyChangedOutcome.observation.baselinePassed, true);
+  assert.equal(alreadyChangedOutcome.observation.passed, false);
+  assert.equal(alreadyChanged.client.calls.length, 1);
+});
+
+test('host marks a read proof as nondiscriminating when a captured cross-identity control also passes', async () => {
+  const generic = response('Welcome');
+  const { service } = harness({
+    records: new Map([
+      ['ex_source', raw(SOURCE_REQUEST, generic)],
+      ['ex_attacker_latest', raw(ACTOR_REQUEST, generic)],
+    ]),
+    burpResults: [generic],
+  });
+
+  const outcome = await service.replay(
+    replayCommand('act_generic_control', { proofCondition: { type: 'body_contains', marker: 'Welcome' } }),
+  );
+
+  assert.equal(outcome.status, 'completed');
+  assert.equal(outcome.observation.passed, true);
+  assert.equal(outcome.observation.baselinePassed, true);
+  assert.deepEqual(outcome.observation.controlExchangeIds, ['ex_attacker_latest']);
+  assert.equal(outcome.observation.controlPassed, true);
 });
 
 test('completed and uncertain actions are idempotent and invalid responses never become proof', async () => {

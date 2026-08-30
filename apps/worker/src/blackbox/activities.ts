@@ -24,6 +24,7 @@ import type {
   EvidenceRef,
   NormalizedExchange,
   PlannerTask,
+  ProofCondition,
   ReplaySequence,
   VerificationResult,
   WorkerContribution,
@@ -31,6 +32,12 @@ import type {
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
 import { BlackboxAgentRunner, type RedactedBlackboxSlice, type RedactedIdentityContext } from './agent-runner.js';
 import type { PlannerBatch } from './agents.js';
+import {
+  BLACKBOX_ARTIFACT_NAMES,
+  type BlackboxArtifactName,
+  publishBlackboxArtifacts,
+  renderBlackboxArtifacts,
+} from './artifacts.js';
 import { FileBlackboardStore } from './blackboard.js';
 import {
   BurpMcpClient,
@@ -39,6 +46,7 @@ import {
   type HistorySnapshot,
   readTargetHistory,
 } from './burp-client.js';
+import { collectVerifiedFindings } from './finding-validator.js';
 import { type CaptureIndexEntry, FileIdentityStateResolver, type IdentityStateResolver } from './identity-state.js';
 import {
   FileReplayRawStore,
@@ -62,6 +70,7 @@ const DEFAULT_BURP_MCP_URL = 'http://host.docker.internal:9876';
 const DEFAULT_BURP_MCP_HOST_HEADER = '127.0.0.1:9876';
 const AUTH_SUCCESS_MARKER = '__SHANNON_AUTH_OK__';
 const AUTH_FAILURE_MARKER = '__SHANNON_AUTH_FAILED__';
+const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -152,6 +161,7 @@ export interface BlackboxActivityDependencies {
   readonly createIdentityStateResolver: (repoPath: string, identities: readonly string[]) => BlackboxIdentityState;
   readonly createReplayRawStore: (repoPath: string) => ReplayRawStore;
   readonly createReplayService: (options: ReplayServiceOptions) => BlackboxReplayServiceLike;
+  readonly publishArtifacts: typeof publishBlackboxArtifacts;
 }
 
 export type BlackboxWorkflowInput = BlackboxActivityInput;
@@ -234,6 +244,8 @@ export interface BlackboxWorkflowResult {
   readonly revision: number;
   readonly failure: string | null;
   readonly verifiedCandidateIds: readonly string[];
+  readonly findingCount: number;
+  readonly artifactNames: readonly BlackboxArtifactName[];
 }
 
 export interface BlackboxActivityApi {
@@ -297,6 +309,7 @@ const DEFAULT_DEPENDENCIES: BlackboxActivityDependencies = {
     new FileIdentityStateResolver({ targetRoot: repoPath, identities }),
   createReplayRawStore: (repoPath) => new FileReplayRawStore(rawDirectory(repoPath)),
   createReplayService: (options) => new ReplayService(options),
+  publishArtifacts: publishBlackboxArtifacts,
 };
 
 function collectStrings(value: unknown, result: string[] = []): string[] {
@@ -570,15 +583,42 @@ function replaySequence(task: PlannerTask, actionId = task.taskId): ReplaySequen
 }
 
 function actionStatus(outcome: ReplayOutcome): BlackboxActionResult['status'] {
-  return outcome.status;
+  return outcome.status === 'precondition_failed' ? 'failed' : outcome.status;
 }
 
 function replayExchanges(outcome: ReplayOutcome): readonly NormalizedExchange[] {
-  return outcome.status === 'completed' ? outcome.exchanges : [];
+  return outcome.status === 'completed' || outcome.status === 'precondition_failed' ? outcome.exchanges : [];
 }
 
 function replayObservation(outcome: ReplayOutcome): BlackboxActionResult['observation'] {
-  return outcome.status === 'completed' ? outcome.observation : null;
+  return outcome.status === 'completed' || outcome.status === 'precondition_failed' ? outcome.observation : null;
+}
+
+function supportsFindingCandidate(
+  observation: BlackboxActionResult['observation'],
+  condition: ProofCondition,
+  finalExchangeId: string | undefined,
+): boolean {
+  if (
+    !observation?.passed ||
+    !finalExchangeId ||
+    observation.verificationExchangeId !== finalExchangeId ||
+    observation.baselinePassed !== (condition.type !== 'persistent_state') ||
+    observation.controlPassed !== false ||
+    !observation.controlExchangeIds ||
+    new Set(observation.controlExchangeIds).size !== observation.controlExchangeIds.length ||
+    !isDeepStrictEqual(observation.condition, condition) ||
+    typeof observation.proofSourceRequestDigest !== 'string' ||
+    typeof observation.proofSentRequestDigest !== 'string' ||
+    !SHA256_DIGEST.test(observation.proofSourceRequestDigest) ||
+    observation.proofSourceRequestDigest !== observation.proofSentRequestDigest ||
+    typeof observation.observedMarkerDigest !== 'string' ||
+    !SHA256_DIGEST.test(observation.observedMarkerDigest) ||
+    observation.observedTransitionId !== null
+  ) {
+    return false;
+  }
+  return typeof observation.baselineExchangeId === 'string' && observation.baselineExchangeId.length > 0;
 }
 
 function captureSequenceOffset(exchanges: readonly NormalizedExchange[], identity: string): number {
@@ -1396,7 +1436,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
       };
       const candidateProofs =
-        finalOutcome.status === 'completed' && finalOutcome.observation.passed && submitted
+        finalOutcome.status === 'completed' &&
+        supportsFindingCandidate(
+          finalOutcome.observation,
+          sequence.proofCondition,
+          observedExchanges.at(-1)?.exchangeId,
+        ) &&
+        submitted
           ? namespaceContributionRecords(submitted, task.taskId).candidateProofs?.map((candidate) => ({
               ...candidate,
               actionId: task.taskId,
@@ -1432,7 +1478,11 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const candidate = snapshot.candidateProofs.find(({ candidateId }) => candidateId === input.candidateId);
     if (!candidate) throw new Error(`Unknown verification candidate ${input.candidateId}`);
     const action = snapshot.actions.find(({ actionId }) => actionId === candidate.actionId);
-    if (!action || action.status !== 'completed' || !action.observation?.passed) {
+    if (
+      !action ||
+      action.status !== 'completed' ||
+      !supportsFindingCandidate(action.observation, action.sequence.proofCondition, action.exchangeIds.at(-1))
+    ) {
       throw new Error(`Candidate ${input.candidateId} has no completed passing action`);
     }
     const task = snapshot.tasks.find(({ taskId }) => taskId === action.actionId);
@@ -1837,17 +1887,59 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
   const finalizeBlackboxRun = async (input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> => {
     const context = await loadTargetContext(dependencies, input);
-    const { store } = await initializeStore(input, context);
-    const next = await store.setRunStatus(input.revision, input.operationKey, input.status);
-    return {
-      status: input.status,
-      revision: next.revision,
-      failure: input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null,
-      verifiedCandidateIds: next.verifications
-        .filter(({ verdict }) => verdict === 'verified')
-        .map(({ candidateId }) => candidateId)
-        .sort(),
+    const { store, snapshot } = await initializeStore(input, context);
+    const failure = input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null;
+    const result = (findings: ReturnType<typeof collectVerifiedFindings>, revision: number): BlackboxWorkflowResult => {
+      const verifierResultIds = new Set(findings.map(({ verifierResultId }) => verifierResultId));
+      return {
+        status: input.status,
+        revision,
+        failure,
+        verifiedCandidateIds: snapshot.verifications
+          .filter(({ verificationId }) => verifierResultIds.has(verificationId))
+          .map(({ candidateId }) => candidateId)
+          .sort(),
+        findingCount: findings.length,
+        artifactNames: [...BLACKBOX_ARTIFACT_NAMES],
+      };
     };
+
+    if (snapshot.runStatus !== 'running') {
+      const completedOperation = snapshot.operationReceipts?.some(
+        ({ operationKey }) => operationKey === input.operationKey,
+      );
+      if (snapshot.runStatus === input.status && completedOperation) {
+        return result(collectVerifiedFindings(snapshot, context.targetOrigin), snapshot.revision);
+      }
+      throw new Error(`Blackboard is already terminal with status ${snapshot.runStatus}`);
+    }
+
+    try {
+      const findings = collectVerifiedFindings(snapshot, context.targetOrigin);
+      const rendered = renderBlackboxArtifacts({
+        snapshot,
+        findings,
+        status: input.status,
+        failure,
+        configuredSecrets: context.configuredSecrets,
+      });
+      const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
+      if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
+        throw new Error('Black-box artifact publisher returned an incomplete manifest');
+      }
+      const next = await store.setRunStatus(input.revision, input.operationKey, input.status);
+      return result(findings, next.revision);
+    } catch (error) {
+      try {
+        await store.setRunStatus(input.revision, `${input.operationKey}:incomplete`, 'incomplete');
+      } catch (statusError) {
+        throw new AggregateError(
+          [error, statusError],
+          'Black-box artifact publication failed and the blackboard could not record incomplete',
+        );
+      }
+      throw error;
+    }
   };
 
   return {

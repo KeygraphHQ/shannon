@@ -50,6 +50,12 @@ export type ReplayOutcome =
       readonly comparison: ResponseComparison;
       readonly observation: DeterministicProofObservation;
     }
+  | {
+      readonly status: 'precondition_failed';
+      readonly exchanges: readonly NormalizedExchange[];
+      readonly comparison: ResponseComparison;
+      readonly observation: DeterministicProofObservation;
+    }
   | { readonly status: 'needs_fresh_actor_request'; readonly stepId: string; readonly routeSignature: string }
   | { readonly status: 'delivery_unknown'; readonly reason: string };
 
@@ -308,6 +314,8 @@ interface PreparedRequest {
   readonly actor: string | 'anonymous';
   readonly source: NormalizedExchange;
   readonly request: MutableRequest;
+  readonly sourceRequestDigest: string;
+  readonly sentRequestDigest: string;
 }
 
 interface TerminalAttempt {
@@ -346,6 +354,50 @@ function cloneRequest(request: MutableRequest): MutableRequest {
     headers: request.headers.map(({ name, value }) => ({ name, value })),
     body: request.body,
   };
+}
+
+function requestBindingDigest(request: MutableRequest): string {
+  const query = [...request.target.searchParams.entries()]
+    .filter(([name]) => !isIdentityBoundName(name))
+    .sort(
+      ([leftName, leftValue], [rightName, rightValue]) =>
+        leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue),
+    );
+  const headers = request.headers
+    .filter(({ name }) => {
+      const normalized = name.toLowerCase();
+      return (
+        !['authorization', 'proxy-authorization', 'cookie', 'host', 'origin', 'content-length'].includes(normalized) &&
+        !isIdentityBoundName(name)
+      );
+    })
+    .map(({ name, value }) => [name.toLowerCase(), value] as const)
+    .sort(
+      ([leftName, leftValue], [rightName, rightValue]) =>
+        leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue),
+    );
+
+  let body: unknown = request.body;
+  if (isFormRequest(request)) {
+    body = [...parseFormBody(request).entries()]
+      .filter(([name]) => !isIdentityBoundName(name))
+      .sort(
+        ([leftName, leftValue], [rightName, rightValue]) =>
+          leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue),
+      );
+  } else if (isJsonRequest(request)) {
+    body = structuredClone(parseJsonBody(request));
+    const paths = collectBoundJsonPaths(body).sort((left, right) => right.length - left.length);
+    for (const path_ of paths) deleteJsonPath(body, path_);
+  }
+
+  return digest({
+    method: request.method.toUpperCase(),
+    path: request.target.pathname,
+    query,
+    headers,
+    body,
+  });
 }
 
 function removeHeaders(request: MutableRequest, predicate: (name: string) => boolean): void {
@@ -689,11 +741,10 @@ function pointerValue(value: unknown, pointer: string): { readonly found: boolea
   return { found: true, value: current };
 }
 
-function evaluateProof(
+function evaluateProofResponse(
   condition: ProofCondition,
   response: ParsedHttpResponse,
-  exchangeId: string,
-): DeterministicProofObservation {
+): { readonly passed: boolean; readonly observedMarkerDigest: string | null } {
   let passed = false;
   let observedMarkerDigest: string | null = null;
   switch (condition.type) {
@@ -719,10 +770,32 @@ function evaluateProof(
       throw new ReplayValidationError(`Unsupported proof condition ${(exhaustive as ProofCondition).type}`);
     }
   }
+  return { passed, observedMarkerDigest };
+}
+
+function evaluateProof(
+  condition: ProofCondition,
+  baselineResponse: ParsedHttpResponse,
+  baselineExchangeId: string,
+  controlExchangeIds: readonly string[],
+  controlPassed: boolean,
+  proofSourceRequestDigest: string,
+  proofSentRequestDigest: string,
+  response: ParsedHttpResponse,
+  exchangeId: string,
+): DeterministicProofObservation {
+  const baseline = evaluateProofResponse(condition, baselineResponse);
+  const observed = evaluateProofResponse(condition, response);
   return {
     condition: structuredClone(condition),
-    passed,
-    observedMarkerDigest,
+    passed: condition.type === 'persistent_state' ? !baseline.passed && observed.passed : observed.passed,
+    baselineExchangeId,
+    baselinePassed: baseline.passed,
+    controlExchangeIds: [...controlExchangeIds],
+    controlPassed,
+    proofSourceRequestDigest,
+    proofSentRequestDigest,
+    observedMarkerDigest: observed.observedMarkerDigest,
     observedTransitionId: null,
     verificationExchangeId: exchangeId,
   };
@@ -769,7 +842,7 @@ function validateStoredAction(value: unknown, actionId: string): StoredReplayAct
     typeof value.commandDigest !== 'string' ||
     !/^[a-f0-9]{64}$/.test(value.commandDigest) ||
     !isRecord(value.outcome) ||
-    !['completed', 'delivery_unknown'].includes(String(value.outcome.status))
+    !['completed', 'precondition_failed', 'delivery_unknown'].includes(String(value.outcome.status))
   ) {
     throw new ReplayValidationError(`Stored replay action ${actionId} is malformed`);
   }
@@ -859,6 +932,55 @@ export class ReplayService {
     return exchange;
   }
 
+  private async proofControls(
+    condition: ProofCondition,
+    baseline: NormalizedExchange,
+  ): Promise<{ readonly exchangeIds: readonly string[]; readonly passed: boolean }> {
+    if (condition.type === 'persistent_state' || baseline.candidateObjectReferences.length === 0) {
+      return { exchangeIds: [], passed: false };
+    }
+    // A different actor viewing a different object on the same route is a
+    // negative control. A capture of the victim object may already expose the
+    // vulnerability, so it must not make the marker look generic.
+    const baselineReferences = new Set(baseline.candidateObjectReferences);
+    const candidates = [...this.exchanges.values()]
+      .filter(
+        (exchange) =>
+          exchange.exchangeId !== baseline.exchangeId &&
+          exchange.origin === this.targetOrigin &&
+          exchange.routeSignature === baseline.routeSignature &&
+          exchange.identity !== baseline.identity &&
+          exchange.provenance.actor === 'blackbox-recon' &&
+          exchange.responseStatus >= 200 &&
+          exchange.responseStatus < 300 &&
+          exchange.candidateObjectReferences.length > 0 &&
+          exchange.candidateObjectReferences.every((reference) => !baselineReferences.has(reference)),
+      )
+      .sort((left, right) => left.exchangeId.localeCompare(right.exchangeId));
+
+    const exchangeIds: string[] = [];
+    let passed = false;
+    for (const candidate of candidates) {
+      const record = await this.rawStore.readExchange(candidate.exchangeId);
+      if (
+        !record ||
+        record.response.length === 0 ||
+        record.response === BURP_NO_RESPONSE ||
+        record.response.endsWith(BURP_TRUNCATION_MARKER)
+      ) {
+        continue;
+      }
+      try {
+        const evaluation = evaluateProofResponse(condition, parseHttpResponse(record.response));
+        exchangeIds.push(candidate.exchangeId);
+        passed ||= evaluation.passed;
+      } catch {
+        // An unreadable control is not evidence either for or against the proof.
+      }
+    }
+    return { exchangeIds, passed };
+  }
+
   private nextCaptureSequence(identity: string): number {
     const sequence = (this.captureSequences.get(identity) ?? 0) + 1;
     if (!Number.isSafeInteger(sequence)) throw new ReplayValidationError('Replay capture sequence exhausted');
@@ -901,6 +1023,7 @@ export class ReplayService {
       throw new ReplayValidationError(`Raw replay exchange ${step.sourceExchangeId} does not match its metadata`);
     }
     const originalHadCookie = headerEntries(request, 'cookie').length > 0;
+    const sourceRequestDigest = requestBindingDigest(request);
     const needsEquivalent = this.sourceNeedsEquivalent(request);
     const anonymous = step.actor === 'anonymous';
 
@@ -966,7 +1089,17 @@ export class ReplayService {
     }
     applyMutations(prepared, step.mutations);
     assertRequestInScope(parseHttpRequest(serializeHttp1(prepared)), this.targetOrigin, this.rules);
-    return { status: 'ready', request: { stepId: step.stepId, actor: step.actor, source, request: prepared } };
+    return {
+      status: 'ready',
+      request: {
+        stepId: step.stepId,
+        actor: step.actor,
+        source,
+        request: prepared,
+        sourceRequestDigest,
+        sentRequestDigest: requestBindingDigest(prepared),
+      },
+    };
   }
 
   private async persistTerminal(
@@ -1008,26 +1141,55 @@ export class ReplayService {
       return structuredClone(existing.outcome);
     }
 
-    const prepared: PreparedRequest[] = [];
+    const explicitRequests: PreparedRequest[] = [];
     for (const step of command.steps) {
       const result = await this.prepare(step);
       if (result.status !== 'ready') return result;
-      prepared.push(result.request);
+      explicitRequests.push(result.request);
     }
 
-    let verificationBaseline: NormalizedExchange | null = null;
+    const persistentProof = command.proofCondition.type === 'persistent_state';
+    let prepared = [...explicitRequests];
+    let capturedProofBaseline = explicitRequests.at(-1)?.source ?? null;
+    let capturedProofBaselineResponse: ParsedHttpResponse | null = null;
     if (command.proofCondition.type === 'persistent_state') {
-      verificationBaseline = this.exchange(command.proofCondition.verificationSourceExchangeId);
-      const verificationStep: ReplayStep = {
-        stepId: `verify_${command.actionId}`,
-        sourceExchangeId: command.proofCondition.verificationSourceExchangeId,
-        actor: verificationBaseline.identity,
+      const verificationSourceExchangeId = command.proofCondition.verificationSourceExchangeId;
+      const verificationSource = this.exchange(verificationSourceExchangeId);
+      if (!['GET', 'HEAD'].includes(verificationSource.method.toUpperCase())) {
+        throw new ReplayValidationError('Persistent-state verification requires a read-only source request');
+      }
+      const verificationStep = (phase: 'before' | 'after'): ReplayStep => ({
+        stepId: `verify_${phase}_${command.actionId}`,
+        sourceExchangeId: verificationSourceExchangeId,
+        actor: verificationSource.identity,
         mutations: [],
-      };
-      const result = await this.prepare(verificationStep, true);
-      if (result.status !== 'ready') return result;
-      prepared.push(result.request);
+      });
+      const before = await this.prepare(verificationStep('before'), true);
+      if (before.status !== 'ready') return before;
+      const after = await this.prepare(verificationStep('after'), true);
+      if (after.status !== 'ready') return after;
+      prepared = [before.request, ...explicitRequests, after.request];
+      capturedProofBaseline = verificationSource;
     }
+
+    if (!capturedProofBaseline) throw new ReplayValidationError('Replay has no proof baseline');
+    if (!persistentProof) {
+      const proofBaselineRecord = await this.rawStore.readExchange(capturedProofBaseline.exchangeId);
+      if (
+        !proofBaselineRecord ||
+        proofBaselineRecord.response.length === 0 ||
+        proofBaselineRecord.response === BURP_NO_RESPONSE ||
+        proofBaselineRecord.response.endsWith(BURP_TRUNCATION_MARKER)
+      ) {
+        throw new ReplayValidationError('Replay proof baseline response is unavailable');
+      }
+      try {
+        capturedProofBaselineResponse = parseHttpResponse(proofBaselineRecord.response);
+      } catch {
+        throw new ReplayValidationError('Replay proof baseline response is malformed');
+      }
+    }
+    const proofControls = await this.proofControls(command.proofCondition, capturedProofBaseline);
 
     const exchanges: NormalizedExchange[] = [];
     const responses: ParsedHttpResponse[] = [];
@@ -1145,19 +1307,60 @@ export class ReplayService {
       }
       exchanges.push(normalized);
       responses.push(parsedResponse);
+
+      if (persistentProof && index === 0 && evaluateProofResponse(command.proofCondition, parsedResponse).passed) {
+        const outcome: ReplayOutcome = {
+          status: 'precondition_failed',
+          exchanges: [normalized],
+          comparison: comparison(normalized, normalized),
+          observation: evaluateProof(
+            command.proofCondition,
+            parsedResponse,
+            normalized.exchangeId,
+            [],
+            false,
+            preparedRequest.sourceRequestDigest,
+            preparedRequest.sentRequestDigest,
+            parsedResponse,
+            normalized.exchangeId,
+          ),
+        };
+        try {
+          await this.rawStore.writeAction({ schemaVersion: 1, actionId: command.actionId, commandDigest, outcome });
+        } catch {
+          return this.persistTerminal(
+            command.actionId,
+            commandDigest,
+            'Replay precondition outcome persistence failed after dispatch',
+          );
+        }
+        return structuredClone(outcome);
+      }
     }
 
     const observed = exchanges.at(-1);
     const observedResponse = responses.at(-1);
-    const baseline = verificationBaseline ?? prepared.at(-1)?.source;
-    if (!observed || !observedResponse || !baseline) {
+    const proofRequest = prepared.at(-1);
+    const proofBaseline = persistentProof ? exchanges[0] : capturedProofBaseline;
+    const proofBaselineResponse = persistentProof ? responses[0] : capturedProofBaselineResponse;
+    if (!observed || !observedResponse || !proofRequest || !proofBaseline || !proofBaselineResponse) {
       throw new ReplayValidationError('Replay produced no observable response');
     }
     const outcome: ReplayOutcome = {
       status: 'completed',
       exchanges,
-      comparison: comparison(baseline, observed),
-      observation: evaluateProof(command.proofCondition, observedResponse, observed.exchangeId),
+      comparison: comparison(proofBaseline, observed),
+      observation: evaluateProof(
+        command.proofCondition,
+        proofBaselineResponse,
+        proofBaseline.exchangeId,
+        proofControls.exchangeIds,
+        proofControls.passed,
+        proofRequest.sourceRequestDigest,
+        proofRequest.sentRequestDigest,
+        observedResponse,
+        observed.exchangeId,
+      ),
     };
     try {
       await this.rawStore.writeAction({ schemaVersion: 1, actionId: command.actionId, commandDigest, outcome });
