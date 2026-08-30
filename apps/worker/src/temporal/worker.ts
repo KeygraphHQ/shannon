@@ -34,7 +34,14 @@ import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
-import { parseConfig } from '../config-parser.js';
+import * as blackboxActivities from '../blackbox/activities.js';
+import type {
+  BlackboxWorkflowInput,
+  BlackboxWorkflowResult,
+} from '../blackbox/activities.js';
+import type { BlackboxWorkflowProgress } from './blackbox-workflow.js';
+import { createBlackboxRunScope } from '../blackbox/scope-guard.js';
+import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
 import {
   ASSEMBLED_REPORT_PDF_FILENAME,
   deliverablesDir,
@@ -42,27 +49,25 @@ import {
   resolveSessionJsonPath,
 } from '../paths.js';
 import type { VulnClass } from '../types/config.js';
+import type { BlackboxRunScope } from '../types/blackbox.js';
 import { fileExists, readJson } from '../utils/file-io.js';
-import * as activities from './activities.js';
+import * as whiteboxActivities from './activities.js';
 import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js';
+import {
+  assertResumeCompatible,
+  type CliArgs,
+  deriveWorkflowId,
+  enforceResumeTerminationFailure,
+  parseCliArgs,
+  workflowNameFor,
+} from './worker-cli.js';
 
 dotenv.config();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const PROGRESS_QUERY = 'getProgress';
-
-// === CLI Argument Parsing ===
-
-interface CliArgs {
-  webUrl: string;
-  repoPath: string;
-  taskQueue: string;
-  configPath?: string;
-  outputPath?: string;
-  pipelineTestingMode: boolean;
-  resumeFromWorkspace?: string;
-}
+const registeredActivities = { ...whiteboxActivities, ...blackboxActivities };
 
 function showUsage(): void {
   console.log('\nShannon Worker');
@@ -71,83 +76,10 @@ function showUsage(): void {
   console.log('  node dist/temporal/worker.js <webUrl> <repoPath> --task-queue <name> [options]\n');
   console.log('Options:');
   console.log('  --task-queue <name>    Task queue name (required)');
+  console.log('  --blackbox             Run the black-box authorization workflow');
   console.log('  --config <path>        Configuration file path');
   console.log('  --workspace <name>     Resume from existing workspace');
   console.log('  --pipeline-testing     Use minimal prompts for fast testing\n');
-}
-
-function parseCliArgs(argv: string[]): CliArgs {
-  if (argv.includes('--help') || argv.includes('-h') || argv.length === 0) {
-    showUsage();
-    process.exit(0);
-  }
-
-  let webUrl: string | undefined;
-  let repoPath: string | undefined;
-  let taskQueue: string | undefined;
-  let configPath: string | undefined;
-  let outputPath: string | undefined;
-  let pipelineTestingMode = false;
-  let resumeFromWorkspace: string | undefined;
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i];
-    if (arg === '--task-queue') {
-      const nextArg = argv[i + 1];
-      if (nextArg && !nextArg.startsWith('-')) {
-        taskQueue = nextArg;
-        i++;
-      }
-    } else if (arg === '--config') {
-      const nextArg = argv[i + 1];
-      if (nextArg && !nextArg.startsWith('-')) {
-        configPath = nextArg;
-        i++;
-      }
-    } else if (arg === '--output') {
-      const nextArg = argv[i + 1];
-      if (nextArg && !nextArg.startsWith('-')) {
-        outputPath = nextArg;
-        i++;
-      }
-    } else if (arg === '--workspace') {
-      const nextArg = argv[i + 1];
-      if (nextArg && !nextArg.startsWith('-')) {
-        resumeFromWorkspace = nextArg;
-        i++;
-      }
-    } else if (arg === '--pipeline-testing') {
-      pipelineTestingMode = true;
-    } else if (arg && !arg.startsWith('-')) {
-      if (!webUrl) {
-        webUrl = arg;
-      } else if (!repoPath) {
-        repoPath = arg;
-      }
-    }
-  }
-
-  if (!webUrl || !repoPath) {
-    console.error('Error: webUrl and repoPath are required');
-    showUsage();
-    process.exit(1);
-  }
-
-  if (!taskQueue) {
-    console.error('Error: --task-queue is required');
-    showUsage();
-    process.exit(1);
-  }
-
-  return {
-    webUrl,
-    repoPath,
-    taskQueue,
-    pipelineTestingMode,
-    ...(configPath && { configPath }),
-    ...(outputPath && { outputPath }),
-    ...(resumeFromWorkspace && { resumeFromWorkspace }),
-  };
 }
 
 // === Workspace Resolution ===
@@ -156,6 +88,8 @@ interface SessionJson {
   session: {
     id: string;
     webUrl: string;
+    mode?: 'whitebox' | 'blackbox';
+    blackboxScope?: BlackboxRunScope;
     originalWorkflowId?: string;
     resumeAttempts?: Array<{ workflowId: string }>;
   };
@@ -175,7 +109,11 @@ interface WorkspaceResolution {
   terminatedWorkflows: string[];
 }
 
-async function terminateExistingWorkflows(client: Client, workspaceName: string): Promise<string[]> {
+async function terminateExistingWorkflows(
+  client: Client,
+  workspaceName: string,
+  mode: CliArgs['mode'],
+): Promise<string[]> {
   const sessionPath = resolveSessionJsonPath(path.join('./workspaces', workspaceName));
 
   if (!(await fileExists(sessionPath))) {
@@ -208,6 +146,7 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
       if (error instanceof WorkflowNotFoundError) {
         console.log(`Scan not found (already cleaned up): ${wfId}`);
       } else {
+        enforceResumeTerminationFailure(mode, wfId, error);
         console.log(`Failed to terminate ${wfId}: ${error}`);
       }
     }
@@ -216,10 +155,14 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
   return terminated;
 }
 
-async function resolveWorkspace(client: Client, args: CliArgs): Promise<WorkspaceResolution> {
+async function resolveWorkspace(
+  client: Client,
+  args: CliArgs,
+  blackboxScope?: BlackboxRunScope,
+): Promise<WorkspaceResolution> {
   if (!args.resumeFromWorkspace) {
     const hostname = sanitizeHostname(args.webUrl);
-    const workflowId = `${hostname}_shannon-${Date.now()}`;
+    const workflowId = deriveWorkflowId(hostname, 'new');
     return {
       workflowId,
       sessionId: workflowId,
@@ -236,21 +179,16 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
     console.log('=== RESUME MODE ===');
     console.log(`Workspace: ${workspace}\n`);
 
-    const terminatedWorkflows = await terminateExistingWorkflows(client, workspace);
+    const session = await readJson<SessionJson>(sessionPath);
+    assertResumeCompatible(session, args, blackboxScope);
+
+    const terminatedWorkflows = await terminateExistingWorkflows(client, workspace, args.mode);
     if (terminatedWorkflows.length > 0) {
       console.log(`Terminated ${terminatedWorkflows.length} previous scan(s)\n`);
     }
 
-    const session = await readJson<SessionJson>(sessionPath);
-    if (session.session.webUrl !== args.webUrl) {
-      console.error('ERROR: URL mismatch with workspace');
-      console.error(`  Workspace URL: ${session.session.webUrl}`);
-      console.error(`  Provided URL:  ${args.webUrl}`);
-      process.exit(1);
-    }
-
     return {
-      workflowId: `${workspace}_resume_${Date.now()}`,
+      workflowId: deriveWorkflowId(workspace, 'resume'),
       sessionId: workspace,
       isResume: true,
       terminatedWorkflows,
@@ -258,17 +196,16 @@ async function resolveWorkspace(client: Client, args: CliArgs): Promise<Workspac
   }
 
   if (!isValidWorkspaceName(workspace)) {
-    console.error(`ERROR: Invalid workspace name: "${workspace}"`);
-    console.error('  Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric');
-    process.exit(1);
+    throw new Error(
+      `Invalid workspace name: "${workspace}". ` +
+        'Must be 1-128 characters, alphanumeric/hyphens/underscores, starting with alphanumeric',
+    );
   }
 
   console.log('=== NEW NAMED WORKSPACE ===');
   console.log(`Workspace: ${workspace}\n`);
 
-  // If the workspace name already looks like a CLI-generated ID
-  // (ends with _shannon-<digits>), use it directly to avoid double _shannon- suffixes
-  const workflowId = /_shannon-\d+$/.test(workspace) ? workspace : `${workspace}_shannon-${Date.now()}`;
+  const workflowId = deriveWorkflowId(workspace, 'new');
 
   return {
     workflowId,
@@ -287,20 +224,21 @@ interface OrchestrationConfig {
 
 async function loadOrchestrationConfig(configPath: string | undefined): Promise<OrchestrationConfig> {
   if (!configPath) return {};
-  try {
-    const config = await parseConfig(configPath);
+  const config = await parseConfig(configPath);
+  return {
+    ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
+    ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
+  };
+}
 
-    return {
-      ...(config.vuln_classes && config.vuln_classes.length > 0 && { vulnClasses: [...config.vuln_classes] }),
-      ...(config.exploit !== undefined && { exploit: config.exploit === 'true' }),
-    };
-  } catch (error) {
-    // A broken config must fail the run, not silently fall back to empty
-    // defaults that quietly change scope (vuln classes, exploit, retries).
-    const message = error instanceof Error ? error.message : String(error);
-    console.error(`Failed to parse config ${configPath}: ${message}`);
-    process.exit(1);
-  }
+async function loadBlackboxRunScope(args: CliArgs): Promise<BlackboxRunScope> {
+  if (!args.configPath) throw new Error('--config is required with --blackbox');
+  const config = normalizeBlackboxConfig(await parseConfig(args.configPath, 'blackbox'));
+  return createBlackboxRunScope(
+    args.webUrl,
+    config.identities.map(({ name }) => name),
+    process.env,
+  );
 }
 
 function buildPipelineInput(
@@ -319,6 +257,25 @@ function buildPipelineInput(
     ...(workspace.terminatedWorkflows.length > 0 && { terminatedWorkflows: workspace.terminatedWorkflows }),
     ...(orchestration.vulnClasses && { vulnClasses: orchestration.vulnClasses }),
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
+  };
+}
+
+function buildBlackboxInput(args: CliArgs, workspace: WorkspaceResolution): BlackboxWorkflowInput {
+  if (!args.configPath) throw new Error('--config is required with --blackbox');
+  return {
+    webUrl: args.webUrl,
+    repoPath: args.repoPath,
+    configPath: args.configPath,
+    workspace: workspace.sessionId,
+    workflowId: workspace.workflowId,
+    auditDir: './workspaces',
+    ...(args.outputPath ? { outputPath: args.outputPath } : {}),
+    ...(workspace.isResume && args.resumeFromWorkspace
+      ? { resumeFromWorkspace: args.resumeFromWorkspace }
+      : {}),
+    ...(workspace.terminatedWorkflows.length > 0
+      ? { terminatedWorkflows: workspace.terminatedWorkflows }
+      : {}),
   };
 }
 
@@ -369,6 +326,30 @@ async function waitForWorkflowResult(
   }
 }
 
+async function waitForBlackboxWorkflowResult(
+  handle: WorkflowHandle<(input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>>,
+): Promise<BlackboxWorkflowResult> {
+  const progressInterval = setInterval(async () => {
+    try {
+      const progress = await handle.query<BlackboxWorkflowProgress>(PROGRESS_QUERY);
+      const completed = progress.tasks.filter(({ status }) => status === 'completed').length;
+      console.log(
+        `Black-box wave ${progress.wave} | revision ${progress.revision} | completed ${completed}/${progress.tasks.length}`,
+      );
+    } catch {
+      // Workflow may have completed.
+    }
+  }, 30000);
+
+  try {
+    const result = await handle.result();
+    console.log(`\nBlack-box run finished: ${result.status} (${result.findingCount} finding(s))`);
+    return result;
+  } finally {
+    clearInterval(progressInterval);
+  }
+}
+
 // === Deliverables Copy ===
 
 function copyDeliverables(repoPath: string, outputPath: string): void {
@@ -406,7 +387,14 @@ function copyDeliverables(repoPath: string, outputPath: string): void {
 
 async function run(): Promise<void> {
   // 1. Parse CLI args
-  const args = parseCliArgs(process.argv.slice(2));
+  const argv = process.argv.slice(2);
+  if (argv.length === 0 || argv.includes('--help') || argv.includes('-h')) {
+    showUsage();
+    return;
+  }
+  const args = parseCliArgs(argv);
+  const blackboxScope = args.mode === 'blackbox' ? await loadBlackboxRunScope(args) : undefined;
+  const orchestration = args.mode === 'whitebox' ? await loadOrchestrationConfig(args.configPath) : {};
 
   // 2. Connect to Temporal server
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
@@ -427,40 +415,47 @@ async function run(): Promise<void> {
       connection,
       namespace: 'default',
       workflowBundle,
-      activities,
+      activities: registeredActivities,
       taskQueue: args.taskQueue,
       maxConcurrentActivityTaskExecutions: 25,
     });
 
     // 4. Resolve workspace and build pipeline input
-    const workspace = await resolveWorkspace(client, args);
-    const orchestration = await loadOrchestrationConfig(args.configPath);
-    const input = buildPipelineInput(args, workspace, orchestration);
+    const workspace = await resolveWorkspace(client, args, blackboxScope);
 
     // 5. Start worker polling in the background
     const workerDone = worker.run();
 
-    // 6. Submit workflow to the same task queue
-    const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
-      'pentestPipelineWorkflow',
-      {
-        taskQueue: args.taskQueue,
-        workflowId: workspace.workflowId,
-        args: [input],
-      },
-    );
-
-    // 7. Wait for workflow result
-    await waitForWorkflowResult(handle, workspace);
-
-    // 8. Copy deliverables to output directory
-    if (args.outputPath) {
-      copyDeliverables(args.repoPath, args.outputPath);
+    try {
+      // 6. Submit workflow to the same task queue
+      if (args.mode === 'blackbox') {
+        const input = buildBlackboxInput(args, workspace);
+        const handle = await client.workflow.start<
+          (input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>
+        >(workflowNameFor(args.mode), {
+          taskQueue: args.taskQueue,
+          workflowId: workspace.workflowId,
+          args: [input],
+        });
+        await waitForBlackboxWorkflowResult(handle);
+      } else {
+        const input = buildPipelineInput(args, workspace, orchestration);
+        const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(
+          workflowNameFor(args.mode),
+          {
+            taskQueue: args.taskQueue,
+            workflowId: workspace.workflowId,
+            args: [input],
+          },
+        );
+        await waitForWorkflowResult(handle, workspace);
+        if (args.outputPath) copyDeliverables(args.repoPath, args.outputPath);
+      }
+    } finally {
+      // Stop polling even when workflow startup, result handling, or artifact copying fails.
+      worker.shutdown();
+      await workerDone;
     }
-
-    // 9. Shut down worker gracefully
-    worker.shutdown();
-    await workerDone;
   } finally {
     await connection.close();
     await clientConnection.close();

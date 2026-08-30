@@ -9,7 +9,7 @@
 
 import { setTimeout as sleep } from 'node:timers/promises';
 import { Client, Connection, WorkflowFailedError, WorkflowNotFoundError } from '@temporalio/client';
-import { ACTIVITY_TO_AGENT, type PipelineState } from './scan/pipeline.js';
+import { ACTIVITY_TO_AGENT, type ScanState } from './scan/pipeline.js';
 
 const ADDRESS = '127.0.0.1:7233';
 const NAMESPACE = 'default';
@@ -44,7 +44,7 @@ export interface ScanDescription {
 }
 
 export type TerminalOutcome =
-  | { readonly kind: 'success'; readonly state: PipelineState }
+  | { readonly kind: 'success'; readonly state: ScanState }
   | { readonly kind: 'failed'; readonly message: string };
 
 let clientPromise: Promise<Client> | null = null;
@@ -91,10 +91,10 @@ export async function describeScan(workflowId: string): Promise<ScanDescription 
 }
 
 /** Live progress of a running scan via the getProgress query. Null if the query can't be served (no worker). */
-export async function queryProgress(workflowId: string): Promise<PipelineState | null> {
+export async function queryProgress(workflowId: string): Promise<ScanState | null> {
   const client = await getClient();
   try {
-    return await client.workflow.getHandle(workflowId).query<PipelineState>('getProgress');
+    return await client.workflow.getHandle(workflowId).query<ScanState>('getProgress');
   } catch {
     // The query needs a live worker; a just-closed scan may have none. Caller falls back to the result.
     return null;
@@ -189,7 +189,7 @@ export async function waitForWorkflowClose(workflowId: string, opts: WatchOption
 export async function getTerminalOutcome(workflowId: string): Promise<TerminalOutcome> {
   const client = await getClient();
   try {
-    const state = (await client.workflow.getHandle(workflowId).result()) as PipelineState;
+    const state = (await client.workflow.getHandle(workflowId).result()) as ScanState;
     return { kind: 'success', state };
   } catch (err) {
     if (err instanceof WorkflowFailedError) {

@@ -70,6 +70,7 @@ function snapshot(overrides = {}) {
       { taskId: 'prior_task', status: 'completed', identityLease: 'attacker', hypothesisId: 'hyp_authz' },
       { taskId: 'active_task', status: 'running', identityLease: 'victim', hypothesisId: null },
     ],
+    deliveryUnknownActions: [],
     rejectedTaskIds: ['prior_rejected'],
     ...overrides,
   };
@@ -284,11 +285,126 @@ test('rejects malformed or insufficient action plans before any replay can run',
 
 test('serialized actions may reuse the same authenticated identity', () => {
   const first = actionTask('action_one');
-  const second = actionTask('action_two');
+  const second = actionTask('action_two', {
+    hypothesisId: 'hyp_info',
+    replayPlan: {
+      ...actionTask().replayPlan,
+      steps: [{
+        ...actionTask().replayPlan.steps[0],
+        mutations: [{ type: 'set_path', path: '/api/users/102' }],
+      }],
+    },
+  });
   const wave = validateAndScheduleWave(batch([first, second]), snapshot({ tasks: [] }));
 
   assert.deepEqual(wave.actions, [first, second]);
   assert.deepEqual(wave.rejected, []);
+});
+
+test('never resends an action whose prior delivery is unknown', () => {
+  const original = actionTask('action_original');
+  const deliveryUnknownActions = [{
+    hypothesisId: original.hypothesisId,
+    replayPlan: original.replayPlan,
+  }];
+  const sameHypothesis = actionTask('action_retry_same_hypothesis', {
+    replayPlan: {
+      ...original.replayPlan,
+      proofCondition: { type: 'body_contains', marker: 'different-proof' },
+    },
+  });
+  const renamedHypothesis = actionTask('action_retry_renamed_hypothesis', {
+    hypothesisId: 'hyp_info',
+    replayPlan: {
+      ...original.replayPlan,
+      steps: original.replayPlan.steps.map((step) => ({ ...step, stepId: `renamed_${step.stepId}` })),
+      proofCondition: { type: 'body_contains', marker: 'renamed-proof' },
+    },
+  });
+
+  const wave = validateAndScheduleWave(
+    batch([sameHypothesis, renamedHypothesis]),
+    snapshot({ tasks: [], deliveryUnknownActions }),
+  );
+
+  assert.deepEqual(wave.actions, []);
+  assert.deepEqual(
+    wave.rejected.map(({ taskId }) => taskId),
+    ['action_retry_same_hypothesis', 'action_retry_renamed_hypothesis'],
+  );
+  for (const { reason } of wave.rejected) assert.match(reason, /delivery.*unknown|unknown.*delivery|resend/i);
+});
+
+test('unknown delivery matching survives recapture under a new exchange ID', () => {
+  const original = actionTask('action_original');
+  const exchanges = snapshot().exchanges.map((exchange) => ({
+    ...exchange,
+    routeSignature: exchange.exchangeId === 'ex_victim' ? 'route_users_item' : `route_${exchange.exchangeId}`,
+  }));
+  exchanges.push({
+    ...exchanges[0],
+    exchangeId: 'ex_victim_recaptured',
+    routeSignature: 'route_users_item',
+  });
+  const recaptured = actionTask('action_recaptured', {
+    hypothesisId: 'hyp_info',
+    evidence: [
+      { id: 'ex_victim_recaptured', kind: 'exchange' },
+      { id: 'ex_verify', kind: 'exchange' },
+      { id: 'resource_100', kind: 'resource' },
+    ],
+    replayPlan: {
+      ...original.replayPlan,
+      steps: original.replayPlan.steps.map((step) => ({
+        ...step,
+        stepId: `recaptured_${step.stepId}`,
+        sourceExchangeId: 'ex_victim_recaptured',
+      })),
+    },
+  });
+
+  const wave = validateAndScheduleWave(
+    batch([recaptured]),
+    snapshot({
+      tasks: [],
+      exchanges,
+      references: [...snapshot().references, { id: 'ex_victim_recaptured', kind: 'exchange' }],
+      deliveryUnknownActions: [{ hypothesisId: original.hypothesisId, replayPlan: original.replayPlan }],
+    }),
+  );
+
+  assert.deepEqual(wave.actions, []);
+  assert.match(wave.rejected[0].reason, /delivery.*unknown|unknown.*delivery|resend/i);
+});
+
+test('rejects same-wave action fallbacks that could resend after an unknown first delivery', () => {
+  const first = actionTask('action_first');
+  const sameHypothesis = actionTask('action_same_hypothesis', {
+    replayPlan: {
+      ...first.replayPlan,
+      proofCondition: { type: 'body_contains', marker: 'alternate-proof' },
+    },
+  });
+  const renamedHypothesis = actionTask('action_same_plan', {
+    hypothesisId: 'hyp_info',
+    replayPlan: {
+      ...first.replayPlan,
+      steps: first.replayPlan.steps.map((step) => ({ ...step, stepId: `renamed_${step.stepId}` })),
+      proofCondition: { type: 'body_contains', marker: 'renamed-proof' },
+    },
+  });
+
+  const wave = validateAndScheduleWave(
+    batch([first, sameHypothesis, renamedHypothesis]),
+    snapshot({ tasks: [] }),
+  );
+
+  assert.deepEqual(wave.actions, [first]);
+  assert.deepEqual(
+    wave.rejected.map(({ taskId }) => taskId),
+    ['action_same_hypothesis', 'action_same_plan'],
+  );
+  for (const { reason } of wave.rejected) assert.match(reason, /same wave|resend|duplicate/i);
 });
 
 test('an identity swap is a valid authorization mutation without an explicit request-field mutation', () => {
@@ -349,6 +465,16 @@ test('deduplicates explicit valid closure IDs and rejects unsafe, unknown, or te
     () => validateAndScheduleWave(batch([task('still_working', 'analysis')], { stop: true, closeHypothesisIds: ['hyp_info'] }), snapshot({ tasks: [] })),
     /close|tasks/i,
   );
+  assert.throws(
+    () => validateAndScheduleWave(
+      batch([], { stop: true, closeHypothesisIds: ['hyp_authz'] }),
+      snapshot({
+        tasks: [],
+        deliveryUnknownActions: [{ hypothesisId: 'hyp_authz', replayPlan: actionTask().replayPlan }],
+      }),
+    ),
+    /unknown delivery|delivery.*unknown/i,
+  );
 });
 
 test('completion requires planner stop with no pending task or open impact hypothesis', () => {
@@ -386,6 +512,17 @@ test('completion requires planner stop with no pending task or open impact hypot
       pendingTasks: 0,
       openImpactHypotheses: 0,
       hitSafetyLimit: true,
+    }),
+    'incomplete',
+  );
+  assert.equal(
+    decideRunCompletion({
+      wave: 4,
+      plannerStop: true,
+      pendingTasks: 0,
+      openImpactHypotheses: 1,
+      unknownDeliveries: 1,
+      hitSafetyLimit: false,
     }),
     'incomplete',
   );

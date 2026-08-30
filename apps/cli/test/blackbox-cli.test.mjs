@@ -219,3 +219,74 @@ test('whitebox Docker args preserve the existing argument vector', () => {
 
   assert.deepEqual(buildWorkerDockerArgs(opts), expected);
 });
+
+test('status rendering handles black-box progress and terminal results without a white-box cast', () => {
+  const renderStatusFrame = exportedFunction('renderStatusFrame');
+  const toStatusJson = exportedFunction('toStatusJson');
+  const isFailedScanState = exportedFunction('isFailedScanState');
+  const progress = {
+    mode: 'blackbox',
+    status: 'running',
+    wave: 2,
+    revision: 9,
+    tasks: [
+      { taskId: 'recon-1', status: 'completed', identityLease: 'attacker' },
+      { taskId: 'analysis-1', status: 'running', identityLease: null },
+    ],
+    identityLeases: [],
+  };
+  const runningInput = {
+    workspace: 'scan-one',
+    workflowId: 'workflow-one',
+    temporalStatus: 'RUNNING',
+    state: progress,
+    running: [],
+    startedAt: 1_000,
+  };
+
+  const frame = renderStatusFrame(runningInput, {
+    now: 3_000,
+    color: false,
+    unicode: false,
+    live: false,
+    frame: 0,
+  });
+  assert.match(frame, /black-box authorization/i);
+  assert.match(frame, /wave:\s*2/i);
+  assert.match(frame, /1\/2 completed/i);
+
+  const terminalInput = {
+    ...runningInput,
+    temporalStatus: 'COMPLETED',
+    endedAt: 4_000,
+    state: {
+      mode: 'blackbox',
+      status: 'findings',
+      revision: 12,
+      findingCount: 2,
+      artifactNames: [
+        'traffic_inventory.json',
+        'blackbox_blackboard.json',
+        'blackbox_authz_findings.json',
+        'blackbox_authz_evidence.md',
+      ],
+      failures: [],
+    },
+  };
+  assert.match(renderStatusFrame(terminalInput, {
+    now: 4_000,
+    color: false,
+    unicode: false,
+    live: false,
+    frame: 0,
+  }), /2 replay-verified findings/i);
+  assert.deepEqual(toStatusJson(terminalInput, 4_000).blackbox, {
+    revision: 12,
+    status: 'findings',
+    findingCount: 2,
+    failures: [],
+  });
+  assert.deepEqual(toStatusJson(terminalInput, 4_000).phases, []);
+  assert.equal(isFailedScanState(terminalInput.state), false);
+  assert.equal(isFailedScanState({ ...terminalInput.state, status: 'incomplete' }), true);
+});

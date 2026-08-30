@@ -28,8 +28,12 @@ export interface BurpMcpSettings {
 }
 
 export interface BurpToolClient {
-  connect(): Promise<void>;
-  call<T extends Record<string, unknown>>(name: AllowedBurpTool, arguments_: T): Promise<unknown>;
+  connect(cancellationSignal?: AbortSignal): Promise<void>;
+  call<T extends Record<string, unknown>>(
+    name: AllowedBurpTool,
+    arguments_: T,
+    cancellationSignal?: AbortSignal,
+  ): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -56,9 +60,13 @@ export interface TrafficCaptureInput {
 }
 
 interface SdkClientLike {
-  connect(transport: unknown): Promise<void>;
-  listTools(): Promise<unknown>;
-  callTool(input: { readonly name: string; readonly arguments: Record<string, unknown> }): Promise<unknown>;
+  connect(transport: unknown, options?: { readonly signal?: AbortSignal }): Promise<void>;
+  listTools(params?: undefined, options?: { readonly signal?: AbortSignal }): Promise<unknown>;
+  callTool(
+    input: { readonly name: string; readonly arguments: Record<string, unknown> },
+    resultSchema?: unknown,
+    options?: { readonly signal?: AbortSignal },
+  ): Promise<unknown>;
   close(): Promise<void>;
 }
 
@@ -129,18 +137,48 @@ export class BurpMcpClient implements BurpToolClient {
     this.fetchImpl = factories.fetch ?? fetch;
   }
 
-  async connect(): Promise<void> {
+  async connect(cancellationSignal?: AbortSignal): Promise<void> {
     if (this.connected) return;
+    cancellationSignal?.throwIfAborted();
 
     const client = this.createClient();
     this.sdkClient = client;
+    let closePromise: Promise<void> | undefined;
+    const closeClient = (): Promise<void> => {
+      closePromise ??= Promise.resolve().then(() => client.close());
+      return closePromise;
+    };
     try {
       const transport = this.createTransport(new URL(this.settings.url), {
         fetch: createHostHeaderFetch(this.settings.hostHeader, this.fetchImpl),
       });
-      await client.connect(transport);
+      const requestOptions = cancellationSignal ? { signal: cancellationSignal } : undefined;
+      const connectPromise = client.connect(transport, requestOptions);
+      if (cancellationSignal) {
+        let abortConnect: (() => void) | undefined;
+        const cancellation = new Promise<never>((_resolve, reject) => {
+          abortConnect = () => {
+            void closeClient().catch(() => undefined);
+            try {
+              cancellationSignal.throwIfAborted();
+            } catch (error) {
+              reject(error);
+            }
+          };
+          cancellationSignal.addEventListener('abort', abortConnect, { once: true });
+          if (cancellationSignal.aborted) abortConnect();
+        });
+        try {
+          await Promise.race([connectPromise, cancellation]);
+        } finally {
+          if (abortConnect) cancellationSignal.removeEventListener('abort', abortConnect);
+        }
+      } else {
+        await connectPromise;
+      }
+      cancellationSignal?.throwIfAborted();
 
-      const tools = await client.listTools();
+      const tools = await client.listTools(undefined, requestOptions);
       const available = new Set(
         isRecord(tools) && Array.isArray(tools.tools)
           ? tools.tools
@@ -156,23 +194,36 @@ export class BurpMcpClient implements BurpToolClient {
       this.connected = true;
     } catch (error) {
       this.sdkClient = undefined;
-      try {
-        await client.close();
-      } catch {
-        // Preserve the connection or tool-validation error.
+      if (cancellationSignal?.aborted) {
+        void closeClient().catch(() => undefined);
+      } else {
+        try {
+          await closeClient();
+        } catch {
+          // Preserve the connection or tool-validation error.
+        }
       }
       throw error;
     }
   }
 
-  async call<T extends Record<string, unknown>>(name: AllowedBurpTool, arguments_: T): Promise<unknown> {
+  async call<T extends Record<string, unknown>>(
+    name: AllowedBurpTool,
+    arguments_: T,
+    cancellationSignal?: AbortSignal,
+  ): Promise<unknown> {
     if (!ALLOWED_BURP_TOOLS.has(name)) {
       throw new Error(`Burp MCP tool is not allowed: ${name}`);
     }
     if (!this.connected || !this.sdkClient) {
       throw new Error('Burp MCP client is not connected');
     }
-    return this.sdkClient.callTool({ name, arguments: arguments_ });
+    cancellationSignal?.throwIfAborted();
+    return this.sdkClient.callTool(
+      { name, arguments: arguments_ },
+      undefined,
+      cancellationSignal ? { signal: cancellationSignal } : undefined,
+    );
   }
 
   async close(): Promise<void> {
@@ -245,13 +296,14 @@ export async function readTargetHistory(
   client: BurpToolClient,
   targetOrigin: string,
   rules: Rules,
+  cancellationSignal?: AbortSignal,
 ): Promise<HistorySnapshot> {
   const records: RawHistoryRecord[] = [];
   const regex = escapedHostRegex(targetOrigin);
   const count = 100;
 
   for (let offset = 0; ; offset += count) {
-    const result = await client.call('get_proxy_http_history_regex', { regex, count, offset });
+    const result = await client.call('get_proxy_http_history_regex', { regex, count, offset }, cancellationSignal);
     const page = parseHistoryText(extractMcpText(result));
     records.push(...page);
     if (page.length < count) break;

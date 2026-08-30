@@ -17,6 +17,14 @@ function requireExport(name) {
 function initialization() {
   return {
     targetOrigin: TARGET_ORIGIN,
+    runScope: {
+      mode: 'blackbox',
+      targetOrigin: TARGET_ORIGIN,
+      identities: ['attacker', 'victim'],
+      burpMcpUrl: 'http://host.docker.internal:9876/',
+      burpMcpHostHeader: '127.0.0.1:9876',
+      burpProxyUrl: 'http://host.docker.internal:18080/',
+    },
     identities: [
       {
         name: 'attacker',
@@ -314,6 +322,7 @@ test('initialization atomically writes a redacted revision-zero document', async
   assert.equal(snapshot.revision, 0);
   assert.deepEqual(snapshot.operationReceipts, []);
   assert.equal(snapshot.targetOrigin, TARGET_ORIGIN);
+  assert.deepEqual(snapshot.runScope, initialization().runScope);
   assert.deepEqual(snapshot.identities.map(({ name, role, authenticated, stateRef }) => ({ name, role, authenticated, stateRef })), [
     { name: 'attacker', role: 'ordinary user', authenticated: true, stateRef: 'state/attacker.json' },
     { name: 'victim', role: 'ordinary user', authenticated: true, stateRef: 'state/victim.json' },
@@ -323,6 +332,159 @@ test('initialization atomically writes a redacted revision-zero document', async
   assert.equal(serialized.includes('bearer-fixture-value'), false);
   assert.equal(serialized.includes('csrf-fixture-value'), false);
   await assert.rejects(readFile(`${boardPath}.tmp`, 'utf8'), /ENOENT/);
+});
+
+test('resume compares the complete black-box scope independent of identity order', async (t) => {
+  const { root, snapshot } = await makeStore(t);
+  const FileBlackboardStore = requireExport('FileBlackboardStore');
+  const resumed = new FileBlackboardStore(root);
+  const reordered = initialization();
+  reordered.identities.reverse();
+  reordered.runScope.identities = ['victim', 'attacker'];
+
+  assert.deepEqual(await resumed.initialize(reordered), snapshot);
+
+  for (const [field, value] of [
+    ['targetOrigin', 'https://other.example'],
+    ['identities', ['attacker', 'backup']],
+    ['burpMcpUrl', 'http://host.docker.internal:9999/'],
+    ['burpMcpHostHeader', '127.0.0.1:9999'],
+    ['burpProxyUrl', 'http://host.docker.internal:19090/'],
+  ]) {
+    const changed = initialization();
+    changed.runScope = { ...changed.runScope, [field]: value };
+    if (field === 'targetOrigin') changed.targetOrigin = value;
+    await assert.rejects(new FileBlackboardStore(root).initialize(changed), /scope|origin|identit/i);
+  }
+});
+
+test('resume atomically recovers interrupted work without resending an action', async (t) => {
+  const state = await makeActionStore(t);
+  let snapshot = await state.store.registerTasks(state.snapshot.revision, {
+    operationKey: 'register:interrupted-workers',
+    accepted: [
+      plannerTask('analysis-interrupted', 'analysis'),
+      plannerTask('analysis-pending', 'analysis'),
+      plannerTask('recon-interrupted', 'recon', { identityLease: 'victim' }),
+      plannerTask('recon-pending', 'recon', { identityLease: 'victim' }),
+      plannerTask('action-pending', 'action', {
+        hypothesisId: 'hyp_action',
+        replayPlan: state.approvedPlan,
+      }),
+    ],
+    rejected: [],
+  });
+  snapshot = await state.store.startTasks(snapshot.revision, 'start:interrupted-workers', [
+    'analysis-interrupted',
+    'recon-interrupted',
+  ]);
+
+  const recovered = await state.store.recoverInterruptedTasks(
+    snapshot.revision,
+    'resume:recover-interrupted',
+  );
+  const statuses = Object.fromEntries(recovered.tasks.map(({ taskId, status }) => [taskId, status]));
+  assert.equal(statuses['action-1'], 'failed');
+  assert.equal(statuses['analysis-interrupted'], 'pending');
+  assert.equal(statuses['analysis-pending'], 'pending');
+  assert.equal(statuses['recon-interrupted'], 'failed');
+  assert.equal(statuses['recon-pending'], 'pending');
+  assert.equal(statuses['action-pending'], 'failed');
+  assert.deepEqual(recovered.actions.find(({ actionId }) => actionId === 'action-1'), {
+    actionId: 'action-1',
+    hypothesisId: 'hyp_action',
+    sequence: { actionId: 'action-1', ...state.approvedPlan },
+    status: 'delivery_unknown',
+    exchangeIds: [],
+    observation: null,
+    provenance: {
+      actor: 'blackbox-action',
+      taskId: 'action-1',
+      baseRevision: snapshot.revision,
+    },
+  });
+  assert.deepEqual(
+    await state.store.recoverInterruptedTasks(recovered.revision, 'resume:recover-interrupted'),
+    recovered,
+  );
+});
+
+test('resume retries an interrupted bootstrap capture as a fresh browser session', async (t) => {
+  const { store } = await makeStore(t);
+  const task = plannerTask('bootstrap-attacker', 'recon', {
+    identityLease: 'attacker',
+    hypothesisId: null,
+  });
+  let snapshot = await store.registerTasks(0, {
+    operationKey: 'register:bootstrap-resume',
+    accepted: [task],
+    rejected: [],
+  });
+  snapshot = await store.startTasks(snapshot.revision, 'start:bootstrap-resume', [task.taskId]);
+
+  const recovered = await store.recoverInterruptedTasks(snapshot.revision, 'recover:bootstrap-resume');
+  assert.equal(recovered.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'pending');
+  assert.equal(recovered.actions.length, 0);
+});
+
+test('host can reopen only a completed configured identity bootstrap for live state refresh', async (t) => {
+  const { store } = await makeStore(t);
+  const task = plannerTask('bootstrap-attacker', 'recon', {
+    identityLease: 'attacker',
+    hypothesisId: null,
+  });
+  let snapshot = await store.registerTasks(0, {
+    operationKey: 'register:bootstrap-refresh',
+    accepted: [task],
+    rejected: [],
+  });
+  snapshot = await store.startTasks(snapshot.revision, 'start:bootstrap-refresh', [task.taskId]);
+  snapshot = await store.settleTasks({
+    operationKey: 'settle:bootstrap-refresh',
+    baseRevision: snapshot.revision,
+    contributions: [{
+      taskId: task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: snapshot.revision,
+    }],
+    failures: [],
+    identityCaptures: [{
+      identity: 'attacker',
+      stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+    }],
+  });
+
+  const refreshed = await store.refreshIdentityCapture(
+    snapshot.revision,
+    'refresh:bootstrap-attacker',
+    'attacker',
+  );
+
+  assert.equal(refreshed.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'pending');
+  assert.equal(refreshed.identities.find(({ name }) => name === 'attacker')?.authenticated, false);
+  assert.deepEqual(
+    await store.refreshIdentityCapture(refreshed.revision, 'refresh:bootstrap-attacker', 'attacker'),
+    refreshed,
+  );
+  await assert.rejects(
+    store.refreshIdentityCapture(refreshed.revision, 'refresh:unknown', 'unknown'),
+    /unknown identity/i,
+  );
+});
+
+test('recovery does not treat planner recon task IDs with a bootstrap prefix as identity capture', async (t) => {
+  const { store, snapshot } = await makeStore(t);
+  const task = plannerTask('bootstrap-followup', 'recon');
+  let current = await store.registerTasks(snapshot.revision, {
+    operationKey: 'register:bootstrap-prefix-recon',
+    accepted: [task],
+    rejected: [],
+  });
+  current = await store.startTasks(current.revision, 'start:bootstrap-prefix-recon', [task.taskId]);
+
+  const recovered = await store.recoverInterruptedTasks(current.revision, 'recover:bootstrap-prefix-recon');
+
+  assert.equal(recovered.tasks.find(({ taskId }) => task.taskId)?.status, 'failed');
 });
 
 test('a keyed transition replays idempotently before stale-revision checks and rejects changed content', async (t) => {
@@ -395,6 +557,60 @@ test('every keyed lifecycle transition is idempotent', async (t) => {
     finalized,
   );
   assert.equal(finalized.operationReceipts.length, 4);
+});
+
+test('planning decisions durably advance the global wave and preserve terminal intent', async (t) => {
+  const { store, snapshot } = await makeStore(t);
+  const continued = await store.recordPlanningDecision(
+    snapshot.revision,
+    'workflow-1:1:evaluate:',
+    1,
+    'continue',
+  );
+  assert.deepEqual(continued.planningDecision, { waveNumber: 1, decision: 'continue' });
+  assert.deepEqual(
+    await store.recordPlanningDecision(snapshot.revision, 'workflow-1:1:evaluate:', 1, 'continue'),
+    continued,
+  );
+
+  const completing = await store.recordPlanningDecision(
+    continued.revision,
+    'workflow-1:4:evaluate:',
+    4,
+    'complete',
+  );
+  assert.deepEqual(completing.planningDecision, { waveNumber: 4, decision: 'complete' });
+  await assert.rejects(
+    store.recordPlanningDecision(completing.revision, 'workflow-1:5:evaluate:', 5, 'continue'),
+    /finalization|terminal.*decision/i,
+  );
+});
+
+test('planning waves are reserved before model work and preserve stop until evaluation', async (t) => {
+  const { store, snapshot } = await makeStore(t);
+  const reserved = await store.reservePlanningWave(snapshot.revision, 'workflow-1:1:reserve:', 1);
+  assert.deepEqual(reserved.planningWave, { waveNumber: 1, phase: 'reserved', plannerStop: null });
+  assert.deepEqual(
+    await store.reservePlanningWave(snapshot.revision, 'workflow-1:1:reserve:', 1),
+    reserved,
+  );
+
+  const registered = await store.registerTasks(reserved.revision, {
+    operationKey: 'workflow-1:1:register:',
+    accepted: [],
+    rejected: [],
+    planningWave: { waveNumber: 1, plannerStop: true },
+  });
+  assert.deepEqual(registered.planningWave, { waveNumber: 1, phase: 'registered', plannerStop: true });
+
+  const evaluated = await store.recordPlanningDecision(
+    registered.revision,
+    'workflow-1:1:evaluate:',
+    1,
+    'complete',
+  );
+  assert.equal(evaluated.planningWave, null);
+  assert.deepEqual(evaluated.planningDecision, { waveNumber: 1, decision: 'complete' });
 });
 
 test('schema-version-one documents written before operation receipts remain readable', async (t) => {

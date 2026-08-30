@@ -12,9 +12,11 @@
  */
 
 import { PentestError } from '../services/error-handling.js';
+import { assertSameBlackboxRunScope } from '../blackbox/scope-guard.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
 import { ErrorCode } from '../types/errors.js';
 import type { AgentEndResult, AgentName } from '../types/index.js';
+import type { BlackboxRunScope } from '../types/blackbox.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
 import { generateSessionJsonPath, type SessionMetadata } from './utils.js';
@@ -71,6 +73,8 @@ interface SessionData {
     completedAt?: string;
     originalWorkflowId?: string; // First workflow that created this workspace
     resumeAttempts?: ResumeAttempt[]; // Track all resume attempts
+    mode?: 'whitebox' | 'blackbox';
+    blackboxScope?: BlackboxRunScope;
   };
   metrics: {
     total_duration_ms: number;
@@ -111,6 +115,7 @@ export class MetricsTracker {
     if (exists) {
       // Load existing data
       this.data = await readJson<SessionData>(this.sessionJsonPath);
+      this.validateRunScope();
     } else {
       // Create new session.json
       this.data = this.createInitialData(workflowId);
@@ -124,6 +129,10 @@ export class MetricsTracker {
    * @param workflowId - Optional workflow ID to set as originalWorkflowId
    */
   private createInitialData(workflowId?: string): SessionData {
+    const mode = this.sessionMetadata.mode ?? 'whitebox';
+    if (mode === 'blackbox' && !this.sessionMetadata.blackboxScope) {
+      throw new Error('Black-box session metadata requires a run scope');
+    }
     const sessionData: SessionData = {
       session: {
         id: this.sessionMetadata.id,
@@ -131,6 +140,8 @@ export class MetricsTracker {
         status: 'in-progress',
         createdAt: (this.sessionMetadata as { createdAt?: string }).createdAt || formatTimestamp(),
         resumeAttempts: [],
+        mode,
+        ...(mode === 'blackbox' && { blackboxScope: this.sessionMetadata.blackboxScope }),
       },
       metrics: {
         total_duration_ms: 0,
@@ -150,6 +161,19 @@ export class MetricsTracker {
       sessionData.session.repoPath = this.sessionMetadata.repoPath;
     }
     return sessionData;
+  }
+
+  private validateRunScope(): void {
+    if (!this.data) return;
+    const expectedMode = this.sessionMetadata.mode ?? 'whitebox';
+    const observedMode = this.data.session.mode ?? 'whitebox';
+    if (expectedMode !== observedMode) {
+      throw new Error(`Session mode mismatch: workspace is ${observedMode}, request is ${expectedMode}`);
+    }
+    if (expectedMode !== 'blackbox') return;
+    if (!this.sessionMetadata.blackboxScope) throw new Error('Black-box session metadata requires a run scope');
+    if (!this.data.session.blackboxScope) throw new Error('Black-box session has no persisted run scope');
+    assertSameBlackboxRunScope(this.data.session.blackboxScope, this.sessionMetadata.blackboxScope);
   }
 
   /**
@@ -293,6 +317,8 @@ export class MetricsTracker {
     if (!this.data.session.resumeAttempts) {
       this.data.session.resumeAttempts = [];
     }
+
+    if (this.data.session.resumeAttempts.some((attempt) => attempt.workflowId === workflowId)) return;
 
     // Add new resume attempt
     const resumeAttempt: ResumeAttempt = {

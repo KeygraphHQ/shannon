@@ -68,3 +68,48 @@ test('buildSettlement rejects an attempt count that cannot be paired determinist
     /exactly one attempt/i,
   );
 });
+
+test('buildSettlement persists a rejected action as delivery unknown instead of allowing a resend', () => {
+  const replayPlan = {
+    steps: [
+      {
+        stepId: 'attacker-replay',
+        sourceExchangeId: 'exchange-1',
+        actor: 'attacker',
+        mutations: [{ type: 'set_path', path: '/api/items/victim-item' }],
+      },
+    ],
+    proofCondition: { type: 'body_contains', marker: 'victim-marker' },
+  };
+  const action = {
+    ...task('action-timeout'),
+    kind: 'action',
+    identityLease: 'attacker',
+    hypothesisId: 'hypothesis-1',
+    replayPlan,
+  };
+
+  const settlement = buildSettlement(
+    WORKFLOW_INPUT,
+    7,
+    [action],
+    [{ status: 'rejected', reason: new Error('activity timed out') }],
+    'workflow-1:1:settle:action-timeout',
+  );
+
+  assert.deepEqual(settlement.failures, []);
+  assert.deepEqual(settlement.contributions, [{
+    taskId: 'action-timeout',
+    role: 'blackbox-action',
+    baseRevision: 7,
+    actions: [{
+      actionId: 'action-timeout',
+      hypothesisId: 'hypothesis-1',
+      sequence: { actionId: 'action-timeout', ...replayPlan },
+      status: 'delivery_unknown',
+      exchangeIds: [],
+      observation: null,
+      provenance: { actor: 'blackbox-action', taskId: 'action-timeout', baseRevision: 7 },
+    }],
+  }]);
+});

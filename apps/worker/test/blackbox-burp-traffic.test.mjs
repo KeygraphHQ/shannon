@@ -78,8 +78,8 @@ class FakeBurpClient {
 
   async connect() {}
 
-  async call(name, arguments_) {
-    this.calls.push({ name, arguments_ });
+  async call(name, arguments_, cancellationSignal) {
+    this.calls.push({ name, arguments_, cancellationSignal });
     return this.handler(name, arguments_);
   }
 
@@ -196,16 +196,21 @@ test('MCP result extraction accepts text only and rejects errors or mixed conten
 test('production Burp adapter verifies tools, restricts calls, and sets the MCP Host header', async () => {
   const events = [];
   const transportInputs = [];
+  let sdkCallOptions;
+  let sdkConnectOptions;
+  let sdkListOptions;
   let adapterFetchHeaders;
   const adapterFetch = async (_input, init) => {
     adapterFetchHeaders = new Headers(init?.headers);
     return new Response('', { status: 200 });
   };
   const sdkClient = {
-    async connect(transport) {
+    async connect(transport, options) {
+      sdkConnectOptions = options;
       events.push(['connect', transport]);
     },
-    async listTools() {
+    async listTools(_params, options) {
+      sdkListOptions = options;
       return {
         tools: [
           { name: 'get_proxy_http_history_regex' },
@@ -215,7 +220,8 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
         ],
       };
     },
-    async callTool(input) {
+    async callTool(input, _schema, options) {
+      sdkCallOptions = options;
       events.push(['call', input]);
       return { content: [{ type: 'text', text: EXPECTED_BURP_END_OF_ITEMS }] };
     },
@@ -236,9 +242,14 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
     },
   );
 
-  await client.connect();
+  const controller = new AbortController();
+  await client.connect(controller.signal);
   await transportInputs[0].options.fetch('data:text/plain,unused', { headers: { 'X-Test': 'kept' } });
-  await client.call('get_proxy_http_history_regex', { regex: 'target', count: 100, offset: 0 });
+  await client.call(
+    'get_proxy_http_history_regex',
+    { regex: 'target', count: 100, offset: 0 },
+    controller.signal,
+  );
   await assert.rejects(client.call('get_proxy_http_history', {}), /not allowed/i);
   await client.close();
   assert.deepEqual(events, [
@@ -255,6 +266,9 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
   assert.equal(transportInputs[0].url.href, 'http://host.docker.internal:9876/');
   assert.equal(adapterFetchHeaders.get('host'), '127.0.0.1:9876');
   assert.equal(adapterFetchHeaders.get('x-test'), 'kept');
+  assert.equal(sdkConnectOptions.signal, controller.signal);
+  assert.equal(sdkListOptions.signal, controller.signal);
+  assert.equal(sdkCallOptions.signal, controller.signal);
 
   const missingSdkClient = {
     ...sdkClient,
@@ -276,6 +290,43 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
   await scopedFetch('http://host.docker.internal:9876', { headers: { 'X-Test': 'kept' } });
   assert.equal(forwardedHeaders.get('host'), '127.0.0.1:9876');
   assert.equal(forwardedHeaders.get('x-test'), 'kept');
+});
+
+test('Burp adapter aborts and closes a client stuck establishing the SSE transport', async () => {
+  let markConnectStarted;
+  const connectStarted = new Promise((resolve) => { markConnectStarted = resolve; });
+  let closeCalls = 0;
+  const sdkClient = {
+    async connect() {
+      markConnectStarted();
+      await new Promise(() => {});
+    },
+    async listTools() {
+      throw new Error('listTools must not run after cancellation');
+    },
+    async callTool() {
+      throw new Error('callTool must not run after cancellation');
+    },
+    async close() {
+      closeCalls += 1;
+    },
+  };
+  const client = new BurpMcpClient(
+    { url: 'http://host.docker.internal:9876', hostHeader: '127.0.0.1:9876' },
+    { createClient: () => sdkClient, createTransport: () => ({ kind: 'stuck-transport' }) },
+  );
+  const controller = new AbortController();
+
+  const connecting = client.connect(controller.signal);
+  await connectStarted;
+  controller.abort();
+  const bounded = Promise.race([
+    connecting,
+    new Promise((_, reject) => setTimeout(() => reject(new Error('connect ignored cancellation')), 100)),
+  ]);
+
+  await assert.rejects(bounded, (error) => error?.name === 'AbortError');
+  assert.equal(closeCalls, 1);
 });
 
 test('history pagination uses only escaped target-host regex pages and exact-origin records', async () => {

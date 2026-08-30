@@ -82,6 +82,7 @@ function runnerInput(kind = 'planner', overrides = {}) {
       actionOutcomes: [],
       candidateProofs: [],
       verifierFailureReasons: [],
+      failedTasks: [],
     },
     identity: null,
     customTools: [],
@@ -579,6 +580,57 @@ test('worker prompts contain only evidence linked to their assignment', async ()
     if (kind === 'blackbox-analysis') assert.match(prompt, /"name": "attacker"/);
     assert.doesNotMatch(prompt, /UNRELATED-SENTINEL/, `${kind} received unrelated evidence`);
   }
+});
+
+test('planner receives bounded failed-task context for replanning interrupted recon', async () => {
+  let prompt = '';
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      prompt = args[0];
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-1', VALID.planner);
+      return { success: true, structuredOutput: VALID.planner, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+
+  await runner.run(runnerInput('planner', {
+    snapshot: {
+      ...runnerInput().snapshot,
+      failedTasks: [{
+        taskId: 'recon-interrupted',
+        kind: 'recon',
+        objective: 'FAILED-RECON-OBJECTIVE',
+        identityLease: 'attacker',
+        hypothesisId: null,
+      }],
+    },
+  }));
+
+  assert.match(prompt, /recon-interrupted/);
+  assert.match(prompt, /FAILED-RECON-OBJECTIVE/);
+});
+
+test('agent runner preserves cancellation and forwards the exact signal to Pi', async () => {
+  const controller = new AbortController();
+  let observedSignal;
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      observedSignal = args[9];
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-1', VALID.planner);
+      return { success: true, structuredOutput: VALID.planner, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+
+  await runner.run(runnerInput('planner', { cancellationSignal: controller.signal }));
+  assert.equal(observedSignal, controller.signal);
+
+  const reason = new Error('activity cancelled');
+  controller.abort(reason);
+  await assert.rejects(
+    runner.run(runnerInput('planner', { cancellationSignal: controller.signal })),
+    (error) => error === reason,
+  );
 });
 
 test('verifier prompt omits claimant hypotheses and prior verifier conclusions', async () => {

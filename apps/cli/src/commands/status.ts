@@ -13,6 +13,7 @@ import { fail } from '../errors.js';
 import { isLocal } from '../mode.js';
 import { type RenderInput, renderScan } from '../scan/render.js';
 import { toStatusJson } from '../scan/status-json.js';
+import { isFailedScanState } from '../scan/pipeline.js';
 import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
 import { describeScan, getTerminalOutcome, queryProgress, type ScanDescription } from '../temporal-client.js';
@@ -49,7 +50,7 @@ function physicalRows(frame: string): number {
 
 function exitCodeFor(input: RenderInput): number {
   if (input.temporalStatus === 'FAILED' || input.temporalStatus === 'TIMED_OUT') return 1;
-  if (input.state?.status === 'failed') return 1;
+  if (isFailedScanState(input.state)) return 1;
   return 0;
 }
 

@@ -14,6 +14,7 @@ import type {
   BlackboxDocument,
   BlackboxHypothesis,
   BlackboxOperationReceipt,
+  BlackboxPlanningWave,
   BlackboxResource,
   BlackboxRunStatus,
   BlackboxSnapshot,
@@ -35,6 +36,8 @@ import type {
 } from '../types/blackbox.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import { atomicWrite, ensureDirectory, fileExists, readJson } from '../utils/file-io.js';
+import { assertSameBlackboxRunScope } from './scope-guard.js';
+import { replayPlansShareDispatchedStep } from './scheduler.js';
 
 const blackboardMutex = new SessionMutex();
 const SAFE_RECORD_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -511,8 +514,54 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
   if (typeof document.targetOrigin !== 'string' || document.targetOrigin.length === 0) {
     throw new BlackboardValidationError('Blackboard targetOrigin is invalid');
   }
+  const runScope = document.runScope as Record<string, unknown> | undefined;
+  if (
+    !runScope ||
+    runScope.mode !== 'blackbox' ||
+    runScope.targetOrigin !== document.targetOrigin ||
+    !Array.isArray(runScope.identities) ||
+    runScope.identities.some((identity) => typeof identity !== 'string' || identity.length === 0) ||
+    typeof runScope.burpMcpUrl !== 'string' ||
+    typeof runScope.burpMcpHostHeader !== 'string' ||
+    typeof runScope.burpProxyUrl !== 'string'
+  ) {
+    throw new BlackboardValidationError('Blackboard runScope is invalid');
+  }
   if (!['running', 'complete', 'incomplete', 'failed'].includes(String(document.runStatus))) {
     throw new BlackboardValidationError('Blackboard runStatus is invalid');
+  }
+  if (document.planningDecision !== undefined && document.planningDecision !== null) {
+    const planningDecision = document.planningDecision as Record<string, unknown>;
+    if (
+      typeof document.planningDecision !== 'object' ||
+      !Number.isSafeInteger(planningDecision.waveNumber) ||
+      Number(planningDecision.waveNumber) < 1 ||
+      Number(planningDecision.waveNumber) > 8 ||
+      !['continue', 'complete', 'incomplete'].includes(String(planningDecision.decision))
+    ) {
+      throw new BlackboardValidationError('Blackboard planningDecision is invalid');
+    }
+  }
+  if (document.planningWave !== undefined && document.planningWave !== null) {
+    const planningWave = document.planningWave as Record<string, unknown>;
+    if (
+      typeof document.planningWave !== 'object' ||
+      !Number.isSafeInteger(planningWave.waveNumber) ||
+      Number(planningWave.waveNumber) < 1 ||
+      Number(planningWave.waveNumber) > 8 ||
+      !['reserved', 'registered'].includes(String(planningWave.phase)) ||
+      (planningWave.phase === 'reserved' && planningWave.plannerStop !== null) ||
+      (planningWave.phase === 'registered' && typeof planningWave.plannerStop !== 'boolean')
+    ) {
+      throw new BlackboardValidationError('Blackboard planningWave is invalid');
+    }
+    const planningDecision = document.planningDecision as Record<string, unknown> | null | undefined;
+    if (
+      planningDecision &&
+      (planningDecision.decision !== 'continue' || Number(planningWave.waveNumber) <= Number(planningDecision.waveNumber))
+    ) {
+      throw new BlackboardValidationError('Blackboard planningWave does not advance its planning decision');
+    }
   }
   for (const field of [
     'identities',
@@ -551,6 +600,17 @@ export class FileBlackboardStore implements BlackboardStore {
       throw new BlackboardValidationError('Blackboard initialization requires configured secrets');
     }
     this.configuredSecrets = new Set(input.configuredSecrets.filter((secret) => secret.length > 0));
+    const runScope = {
+      ...clone(input.runScope),
+      identities: [...input.runScope.identities].sort((left, right) => left.localeCompare(right)),
+    };
+    if (runScope.targetOrigin !== input.targetOrigin) {
+      throw new BlackboardValidationError('Blackboard target origin and run scope do not match');
+    }
+    const inputNames = input.identities.map(({ name }) => name).sort((left, right) => left.localeCompare(right));
+    if (!isDeepStrictEqual(inputNames, runScope.identities)) {
+      throw new BlackboardValidationError('Blackboard identities and run scope do not match');
+    }
     const unlock = await blackboardMutex.lock(this.blackboardPath);
     try {
       await ensureDirectory(path.dirname(this.blackboardPath));
@@ -559,10 +619,14 @@ export class FileBlackboardStore implements BlackboardStore {
         if (existing.targetOrigin !== input.targetOrigin) {
           throw new BlackboardValidationError('Existing blackboard target origin does not match initialization');
         }
-        const existingNames = existing.identities.map(({ name }) => name);
-        const inputNames = input.identities.map(({ name }) => name);
+        const existingNames = existing.identities.map(({ name }) => name).sort((left, right) => left.localeCompare(right));
         if (!isDeepStrictEqual(existingNames, inputNames)) {
           throw new BlackboardValidationError('Existing blackboard identities do not match initialization');
+        }
+        try {
+          assertSameBlackboxRunScope(existing.runScope, runScope);
+        } catch (error) {
+          throw new BlackboardValidationError(error instanceof Error ? error.message : String(error));
         }
         this.assertNoConfiguredSecrets(existing);
         return clone(existing);
@@ -572,6 +636,7 @@ export class FileBlackboardStore implements BlackboardStore {
         schemaVersion: 1,
         revision: 0,
         targetOrigin: input.targetOrigin,
+        runScope,
         identities: input.identities.map(({ name, role, authenticated, stateRef }) => ({
           name,
           role,
@@ -588,6 +653,8 @@ export class FileBlackboardStore implements BlackboardStore {
         tasks: [],
         rejectedTasks: [],
         runStatus: 'running',
+        planningDecision: null,
+        planningWave: null,
         operationReceipts: [],
       };
       validateReferences(document);
@@ -611,6 +678,40 @@ export class FileBlackboardStore implements BlackboardStore {
     });
   }
 
+  async reservePlanningWave(
+    baseRevision: number,
+    operationKey: string,
+    waveNumber: number,
+  ): Promise<BlackboxSnapshot> {
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'reservePlanningWave', waveNumber },
+      (document) => {
+        if (!Number.isSafeInteger(waveNumber) || waveNumber < 1 || waveNumber > 8) {
+          throw new BlackboardValidationError('Planning wave must be between 1 and 8');
+        }
+        if (document.planningDecision && document.planningDecision.decision !== 'continue') {
+          throw new BlackboardValidationError('A terminal finalization decision is already pending');
+        }
+        if (document.planningWave?.phase === 'registered') {
+          throw new BlackboardValidationError('Registered planning wave must be evaluated before reserving another');
+        }
+        const previousWave = Math.max(
+          document.planningDecision?.waveNumber ?? 0,
+          document.planningWave?.waveNumber ?? 0,
+        );
+        if (waveNumber !== previousWave + 1) {
+          throw new BlackboardValidationError('Planning wave reservation must advance by one');
+        }
+        return {
+          ...document,
+          planningWave: { waveNumber, phase: 'reserved', plannerStop: null },
+        };
+      },
+    );
+  }
+
   async registerTasks(baseRevision: number, batch: TaskRegistrationBatch): Promise<BlackboxSnapshot> {
     return this.keyedCompareAndSwap(
       baseRevision,
@@ -621,8 +722,32 @@ export class FileBlackboardStore implements BlackboardStore {
         accepted: batch.accepted,
         rejected: batch.rejected,
         closedHypothesisIds: batch.closedHypothesisIds,
+        planningWave: batch.planningWave,
       },
       (document) => {
+        let planningWave: BlackboxPlanningWave | null = document.planningWave ?? null;
+        if (batch.planningWave) {
+          if (
+            !Number.isSafeInteger(batch.planningWave.waveNumber) ||
+            batch.planningWave.waveNumber < 1 ||
+            batch.planningWave.waveNumber > 8 ||
+            typeof batch.planningWave.plannerStop !== 'boolean'
+          ) {
+            throw new BlackboardValidationError('Registered planning wave is invalid');
+          }
+          if (
+            !planningWave ||
+            planningWave.phase !== 'reserved' ||
+            planningWave.waveNumber !== batch.planningWave.waveNumber
+          ) {
+            throw new BlackboardValidationError('Planning wave was not durably reserved before registration');
+          }
+          planningWave = {
+            waveNumber: batch.planningWave.waveNumber,
+            phase: 'registered',
+            plannerStop: batch.planningWave.plannerStop,
+          };
+        }
         const accepted = batch.accepted.map((task): PlannerTask => ({ ...clone(task), status: 'pending' }));
         const rejected = batch.rejected.map(
           ({ task, reason }): RejectedPlannerTask => ({ task: { ...clone(task), status: 'rejected' }, reason }),
@@ -670,6 +795,7 @@ export class FileBlackboardStore implements BlackboardStore {
 
         const next: BlackboxDocument = {
           ...document,
+          planningWave,
           hypotheses: document.hypotheses.map((hypothesis) => {
             if (closed.has(hypothesis.hypothesisId)) {
               return { ...hypothesis, status: 'no_demonstrated_impact' as const };
@@ -726,6 +852,128 @@ export class FileBlackboardStore implements BlackboardStore {
             selected.has(task.taskId) ? { ...task, status: 'running' as const } : task,
           ),
         };
+      },
+    );
+  }
+
+  async recoverInterruptedTasks(baseRevision: number, operationKey: string): Promise<BlackboxSnapshot> {
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'recoverInterruptedTasks' },
+      (document) => {
+        const running = document.tasks.filter(({ status }) => status === 'running');
+        let actions = [...document.actions];
+        const interruptedActionHypotheses = new Set<string>();
+
+        for (const task of running) {
+          if (task.kind !== 'action') continue;
+          if (!task.hypothesisId || !task.replayPlan) {
+            throw new BlackboardValidationError(`Interrupted action task ${task.taskId} has no approved replay plan`);
+          }
+          const provenance: EvidenceProvenance = {
+            actor: 'blackbox-action',
+            taskId: task.taskId,
+            baseRevision,
+          };
+          actions = mergeRecords(
+            'action',
+            actions,
+            [{
+              actionId: task.taskId,
+              hypothesisId: task.hypothesisId,
+              sequence: { actionId: task.taskId, ...clone(task.replayPlan) },
+              status: 'delivery_unknown',
+              exchangeIds: [],
+              observation: null,
+              provenance,
+            }],
+            ({ actionId }) => actionId,
+            provenance,
+          );
+          interruptedActionHypotheses.add(task.hypothesisId);
+        }
+
+        const bootstrapTaskIds = new Set([
+          'bootstrap-anonymous',
+          ...document.identities.map(({ name }) => `bootstrap-${name}`),
+        ]);
+        const unknownDeliveries = actions.filter(({ status }) => status === 'delivery_unknown');
+        const next = {
+          ...document,
+          actions,
+          tasks: document.tasks.map((task): PlannerTask => {
+            const bootstrap =
+              task.kind === 'recon' &&
+              bootstrapTaskIds.has(task.taskId) &&
+              task.hypothesisId === null;
+            if (task.status === 'running') {
+              if (task.kind === 'analysis' || bootstrap) return { ...task, status: 'pending' };
+              return { ...task, status: 'failed' };
+            }
+            if (
+              task.status === 'pending' &&
+              task.kind === 'action' &&
+              task.hypothesisId !== null &&
+              task.replayPlan !== undefined &&
+              unknownDeliveries.some(
+                (action) =>
+                  action.hypothesisId === task.hypothesisId ||
+                  replayPlansShareDispatchedStep(
+                    action.sequence,
+                    task.replayPlan as NonNullable<PlannerTask['replayPlan']>,
+                    new Map(document.exchanges.map(({ exchangeId, routeSignature }) => [exchangeId, routeSignature])),
+                  ),
+              )
+            ) {
+              return { ...task, status: 'failed' };
+            }
+            return task;
+          }),
+          hypotheses: document.hypotheses.map((hypothesis): BlackboxHypothesis => {
+            if (!interruptedActionHypotheses.has(hypothesis.hypothesisId)) return hypothesis;
+            if (['verified', 'disproved', 'no_demonstrated_impact'].includes(hypothesis.status)) return hypothesis;
+            return { ...hypothesis, status: 'tested' };
+          }),
+        };
+        validateReferences(next);
+        return next;
+      },
+    );
+  }
+
+  async refreshIdentityCapture(
+    baseRevision: number,
+    operationKey: string,
+    identity: string,
+  ): Promise<BlackboxSnapshot> {
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'refreshIdentityCapture', identity },
+      (document) => {
+        const configuredIdentity = document.identities.find(({ name }) => name === identity);
+        if (!configuredIdentity) throw new BlackboardValidationError(`Unknown identity ${identity}`);
+        const taskId = `bootstrap-${identity}`;
+        const task = document.tasks.find((candidate) => candidate.taskId === taskId);
+        if (
+          !task ||
+          task.kind !== 'recon' ||
+          task.identityLease !== identity ||
+          task.hypothesisId !== null ||
+          task.status !== 'completed'
+        ) {
+          throw new BlackboardValidationError(`Identity ${identity} has no completed bootstrap capture to refresh`);
+        }
+        const next = {
+          ...document,
+          identities: document.identities.map((entry) =>
+            entry.name === identity ? { ...entry, authenticated: false } : entry),
+          tasks: document.tasks.map((entry): PlannerTask =>
+            entry.taskId === taskId ? { ...entry, status: 'pending' } : entry),
+        };
+        validateReferences(next);
+        return next;
       },
     );
   }
@@ -940,6 +1188,41 @@ export class FileBlackboardStore implements BlackboardStore {
         const next = { ...document, exchanges, verifications, hypotheses };
         validateReferences(next);
         return next;
+      },
+    );
+  }
+
+  async recordPlanningDecision(
+    baseRevision: number,
+    operationKey: string,
+    waveNumber: number,
+    decision: 'continue' | 'complete' | 'incomplete',
+  ): Promise<BlackboxSnapshot> {
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'recordPlanningDecision', waveNumber, decision },
+      (document) => {
+        if (!Number.isSafeInteger(waveNumber) || waveNumber < 1 || waveNumber > 8) {
+          throw new BlackboardValidationError('Planning wave must be between 1 and 8');
+        }
+        if (!['continue', 'complete', 'incomplete'].includes(decision)) {
+          throw new BlackboardValidationError('Planning decision is invalid');
+        }
+        const previous = document.planningDecision;
+        if (previous && previous.decision !== 'continue') {
+          throw new BlackboardValidationError('A terminal finalization decision is already pending');
+        }
+        if (previous && waveNumber <= previous.waveNumber) {
+          throw new BlackboardValidationError('Planning wave must advance monotonically');
+        }
+        if (
+          document.planningWave &&
+          (document.planningWave.phase !== 'registered' || document.planningWave.waveNumber !== waveNumber)
+        ) {
+          throw new BlackboardValidationError('Planning decision does not match the registered wave');
+        }
+        return { ...document, planningDecision: { waveNumber, decision }, planningWave: null };
       },
     );
   }

@@ -135,11 +135,12 @@ class FakeBurpClient {
 
   async connect() {}
 
-  async call(name, arguments_) {
-    this.calls.push({ name, arguments_ });
+  async call(name, arguments_, cancellationSignal) {
+    this.calls.push({ name, arguments_, cancellationSignal });
     const next = this.results.shift();
     if (next instanceof Error) throw next;
     if (next === undefined) throw new Error('No queued Burp result');
+    if (typeof next === 'function') return next(cancellationSignal);
     return typeof next === 'string' ? mcpResponse(next) : next;
   }
 
@@ -227,7 +228,16 @@ class FakeIdentityStateResolver {
   }
 }
 
-function harness({ burpResults, rules = {}, exchanges, records, rawStore: injectedRawStore, identityState, configuredSecrets } = {}) {
+function harness({
+  burpResults,
+  rules = {},
+  exchanges,
+  records,
+  rawStore: injectedRawStore,
+  identityState,
+  configuredSecrets,
+  cancellationSignal,
+} = {}) {
   const catalog =
     exchanges ??
     [
@@ -265,6 +275,7 @@ function harness({ burpResults, rules = {}, exchanges, records, rawStore: inject
     rawStore,
     identityState: resolver,
     provenance: PROVENANCE,
+    cancellationSignal,
   });
   return { service, client, rawStore, identityState: resolver };
 }
@@ -370,6 +381,44 @@ test('identity-bound replay strips victim state, substitutes the actor, preserve
   for (const secret of CONFIGURED_SECRETS) {
     assert.equal(exposed.includes(secret), false, `replay outcome leaked ${secret}`);
   }
+});
+
+test('replay forwards its cancellation signal to every Burp dispatch', async () => {
+  const controller = new AbortController();
+  const { service, client } = harness({ cancellationSignal: controller.signal });
+
+  const outcome = await service.replay(replayCommand('act_cancel_signal'));
+
+  assert.equal(outcome.status, 'completed');
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].cancellationSignal, controller.signal);
+});
+
+test('replay distinguishes pre-dispatch cancellation from an unknown mid-dispatch outcome', async () => {
+  const beforeDispatch = new AbortController();
+  const beforeReason = new Error('cancelled before dispatch');
+  beforeDispatch.abort(beforeReason);
+  const before = harness({ cancellationSignal: beforeDispatch.signal });
+
+  await assert.rejects(before.service.replay(replayCommand('act_cancel_before')), (error) => error === beforeReason);
+  assert.equal(before.client.calls.length, 0);
+
+  const duringDispatch = new AbortController();
+  const duringReason = new Error('cancelled during dispatch');
+  const during = harness({
+    cancellationSignal: duringDispatch.signal,
+    burpResults: [async (signal) => {
+      duringDispatch.abort(duringReason);
+      signal.throwIfAborted();
+    }],
+  });
+  const command = replayCommand('act_cancel_during');
+  const first = await during.service.replay(command);
+  const second = await during.service.replay(command);
+
+  assert.equal(first.status, 'delivery_unknown');
+  assert.deepEqual(second, first);
+  assert.equal(during.client.calls.length, 1);
 });
 
 test('identity substitution alone can replay a victim request as the attacker', async () => {

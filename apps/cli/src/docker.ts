@@ -84,8 +84,11 @@ function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
 const TEMPORAL_CONTAINER = 'shannon-temporal';
 const TEMPORAL_ADDRESS = 'localhost:7233';
 
-/** Query matching every running pentest scan workflow. */
-const RUNNING_SCAN_QUERY = "ExecutionStatus = 'Running' AND WorkflowType = 'pentestPipelineWorkflow'";
+const SCAN_WORKFLOW_TYPES = ['pentestPipelineWorkflow', 'blackboxAuthzWorkflow'] as const;
+
+function runningScanQuery(workflowType: (typeof SCAN_WORKFLOW_TYPES)[number]): string {
+  return `ExecutionStatus = 'Running' AND WorkflowType = '${workflowType}'`;
+}
 
 /** Build `docker exec` args for a `temporal` CLI command run inside the Temporal container. */
 function temporalCmd(...args: string[]): string[] {
@@ -459,10 +462,12 @@ export function terminateWorkflow(workflowId: string, reason: string): boolean {
  * is unreachable. Requires Temporal to be up (guard with isTemporalReady).
  */
 export function terminateAllWorkflows(reason: string): boolean {
-  return runQuiet(
-    'docker',
-    temporalCmd('workflow', 'terminate', '--query', RUNNING_SCAN_QUERY, '--reason', reason, '--yes'),
-  );
+  return SCAN_WORKFLOW_TYPES.map((workflowType) =>
+    runQuiet(
+      'docker',
+      temporalCmd('workflow', 'terminate', '--query', runningScanQuery(workflowType), '--reason', reason, '--yes'),
+    ),
+  ).every(Boolean);
 }
 
 /**
@@ -481,8 +486,10 @@ export function isWorkflowRunning(workflowId: string): boolean {
  * to isWorkflowRunning. Requires Temporal to be up (guard with isTemporalReady).
  */
 export function anyRunningScanWorkflow(): boolean {
-  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', RUNNING_SCAN_QUERY));
-  return output.includes('pentestPipelineWorkflow');
+  return SCAN_WORKFLOW_TYPES.some((workflowType) => {
+    const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', runningScanQuery(workflowType)));
+    return output.includes(workflowType);
+  });
 }
 
 /**

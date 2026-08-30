@@ -8,7 +8,7 @@
  */
 
 import type { RunningAgent } from '../temporal-client.js';
-import { agentClass, PIPELINE, type PipelineState } from './pipeline.js';
+import { agentClass, isBlackboxState, PIPELINE, type PipelineState } from './pipeline.js';
 import type { RenderInput } from './render.js';
 
 export type RunState = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -74,7 +74,7 @@ function agentError(name: string, state: PipelineState | null, byAgent: Map<stri
 /** Scan wall-clock elapsed ms: recorded duration for a closed scan, live elapsed for a running one. */
 export function scanElapsedMs(input: RenderInput, now: number): number | undefined {
   if (isTerminal(input.temporalStatus)) {
-    if (input.state?.summary) return input.state.summary.totalDurationMs;
+    if (!isBlackboxState(input.state) && input.state?.summary) return input.state.summary.totalDurationMs;
     if (input.endedAt !== undefined && input.startedAt !== undefined) return input.endedAt - input.startedAt;
     return undefined;
   }
@@ -99,19 +99,20 @@ export function phaseGlyphState(states: readonly RunState[]): RunState {
  * class had anything to exploit), not still pending.
  */
 export function deriveAgentStates(input: RenderInput): Map<string, RunState> {
+  const state = isBlackboxState(input.state) ? null : input.state;
   const runningSet = new Set(input.running.map((r) => r.agent));
   const terminal = isTerminal(input.temporalStatus);
 
   let frontier = -1;
   PIPELINE.forEach((phase, idx) => {
-    if (phase.agents.some((a) => isAgentActive(a.name, input.state, runningSet))) frontier = idx;
+    if (phase.agents.some((a) => isAgentActive(a.name, state, runningSet))) frontier = idx;
   });
 
   const states = new Map<string, RunState>();
   for (const [phaseIdx, phase] of PIPELINE.entries()) {
     const resolved = terminal || phaseIdx < frontier;
     for (const agent of phase.agents) {
-      states.set(agent.name, agentState(agent.name, input.state, runningSet, resolved));
+      states.set(agent.name, agentState(agent.name, state, runningSet, resolved));
     }
   }
   return states;
@@ -122,15 +123,16 @@ export function deriveAgentStates(input: RenderInput): Map<string, RunState> {
  * metrics/timing needed to present it, and each phase's collapsed state.
  */
 export function derivePipeline(input: RenderInput, now: number): DerivedPhase[] {
+  const pipelineState = isBlackboxState(input.state) ? null : input.state;
   const states = deriveAgentStates(input);
   const byAgent = new Map(input.running.map((r) => [r.agent, r]));
 
   return PIPELINE.map((phase) => {
     const agents = phase.agents.map((a): DerivedAgent => {
       const state = states.get(a.name) ?? 'pending';
-      const metrics = input.state?.agentMetrics[a.name];
+      const metrics = pipelineState?.agentMetrics[a.name];
       const runner = byAgent.get(a.name);
-      const error = agentError(a.name, input.state, byAgent);
+      const error = agentError(a.name, pipelineState, byAgent);
       return {
         name: a.name,
         label: a.label,

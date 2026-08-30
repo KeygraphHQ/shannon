@@ -82,6 +82,7 @@ export interface ReplayServiceOptions {
   readonly rawStore: ReplayRawStore;
   readonly identityState: IdentityStateResolver;
   readonly provenance: EvidenceProvenance;
+  readonly cancellationSignal?: AbortSignal;
 }
 
 export class ReplayValidationError extends Error {
@@ -900,6 +901,7 @@ export class ReplayService {
   private readonly rawStore: ReplayRawStore;
   private readonly identityState: IdentityStateResolver;
   private readonly provenance: EvidenceProvenance;
+  private readonly cancellationSignal: AbortSignal | undefined;
   private readonly captureSequences = new Map<string, number>();
 
   constructor(options: ReplayServiceOptions) {
@@ -921,6 +923,7 @@ export class ReplayService {
     this.rawStore = options.rawStore;
     this.identityState = options.identityState;
     this.provenance = structuredClone(options.provenance);
+    this.cancellationSignal = options.cancellationSignal;
   }
 
   private exchange(exchangeId: string): NormalizedExchange {
@@ -1205,8 +1208,9 @@ export class ReplayService {
         },
       });
       let result: unknown;
+      this.cancellationSignal?.throwIfAborted();
       try {
-        result = await this.client.call(outbound.name, outbound.arguments_);
+        result = await this.client.call(outbound.name, outbound.arguments_, this.cancellationSignal);
       } catch {
         return this.persistTerminal(
           command.actionId,

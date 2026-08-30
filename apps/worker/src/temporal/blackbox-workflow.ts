@@ -4,7 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import { ApplicationFailure, defineQuery, proxyActivities, setHandler } from '@temporalio/workflow';
+import { ApplicationFailure, defineQuery, isCancellation, proxyActivities, setHandler } from '@temporalio/workflow';
 import type {
   BlackboxActivityApi,
   BlackboxTaskState,
@@ -27,6 +27,7 @@ export type BlackboxControlActivities = Pick<
   | 'settleBlackboxTasks'
   | 'recordBlackboxVerification'
   | 'recordBlackboxVerificationFailure'
+  | 'reserveBlackboxPlanningWave'
   | 'evaluateBlackboxProgress'
   | 'finalizeBlackboxRun'
 >;
@@ -40,16 +41,19 @@ export type BlackboxEffectActivities = Pick<
 
 const controlActivities = proxyActivities<BlackboxControlActivities>({
   startToCloseTimeout: '10 minutes',
+  heartbeatTimeout: '30 seconds',
   retry: { maximumAttempts: 3 },
 });
 
 const safeModelActivities = proxyActivities<BlackboxSafeModelActivities>({
   startToCloseTimeout: '45 minutes',
+  heartbeatTimeout: '30 seconds',
   retry: { maximumAttempts: 2 },
 });
 
 const effectActivities = proxyActivities<BlackboxEffectActivities>({
   startToCloseTimeout: '45 minutes',
+  heartbeatTimeout: '30 seconds',
   retry: { maximumAttempts: 1 },
 });
 
@@ -93,17 +97,45 @@ function isStaleRevisionFailure(error: unknown): boolean {
   return false;
 }
 
+function throwIfCancellation(error: unknown): void {
+  if (isCancellation(error)) throw error;
+}
+
 function compareTaskIds(left: { readonly taskId: string }, right: { readonly taskId: string }): number {
   if (left.taskId < right.taskId) return -1;
   if (left.taskId > right.taskId) return 1;
   return 0;
 }
 
+type SettlementTask = Pick<PlannerTask, 'taskId' | 'kind' | 'hypothesisId' | 'replayPlan'>;
+
+function deliveryUnknownContribution(task: SettlementTask, baseRevision: number): WorkerContribution {
+  if (task.kind !== 'action' || !task.hypothesisId || !task.replayPlan) {
+    throw new Error(`cannot record unknown delivery for malformed action task ${task.taskId}`);
+  }
+  return {
+    taskId: task.taskId,
+    role: 'blackbox-action',
+    baseRevision,
+    actions: [
+      {
+        actionId: task.taskId,
+        hypothesisId: task.hypothesisId,
+        sequence: { actionId: task.taskId, ...task.replayPlan },
+        status: 'delivery_unknown',
+        exchangeIds: [],
+        observation: null,
+        provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision },
+      },
+    ],
+  };
+}
+
 /** Convert ordered worker attempts into one deterministic, atomic settlement request. */
 export function buildSettlement(
   input: BlackboxWorkflowInput,
   baseRevision: number,
-  tasks: readonly PlannerTask[],
+  tasks: readonly SettlementTask[],
   attempts: readonly PromiseSettledResult<WorkerContribution>[],
   operationKey: string,
 ): SettleTasksInput {
@@ -120,12 +152,14 @@ export function buildSettlement(
     if (!task || !attempt) throw new Error('blackbox settlement contains an unpaired task attempt');
 
     if (attempt.status === 'rejected') {
-      failures.push({ taskId: task.taskId, reason: reasonFor(attempt.reason) });
+      if (task.kind === 'action') contributions.push(deliveryUnknownContribution(task, baseRevision));
+      else failures.push({ taskId: task.taskId, reason: reasonFor(attempt.reason) });
       continue;
     }
 
     if (attempt.value.taskId !== task.taskId) {
-      failures.push({ taskId: task.taskId, reason: 'worker contribution task ID does not match its registered task' });
+      if (task.kind === 'action') contributions.push(deliveryUnknownContribution(task, baseRevision));
+      else failures.push({ taskId: task.taskId, reason: 'worker contribution task ID does not match its registered task' });
       continue;
     }
 
@@ -213,28 +247,169 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
       updateTaskState(settled);
       return settled;
     } catch (error) {
+      throwIfCancellation(error);
       if (!isStaleRevisionFailure(error)) throw error;
 
       const current = await controlActivities.readPlannerSnapshot(input);
       updateTaskState(current);
-      const settled = await controlActivities.settleBlackboxTasks({
-        ...input,
-        baseRevision: revision,
-        contributions: [],
-        failures: tasks.map((task) => ({
-          taskId: task.taskId,
-          reason: 'stale revision; worker contribution discarded and task must be replanned',
-        })),
-        operationKey,
-      });
+      const settled = await controlActivities.settleBlackboxTasks(
+        buildSettlement(
+          input,
+          revision,
+          tasks,
+          tasks.map(() => ({
+            status: 'rejected' as const,
+            reason: new Error('stale revision; worker contribution discarded and task must be replanned'),
+          })),
+          operationKey,
+        ),
+      );
       updateTaskState(settled);
       return settled;
     }
   };
 
+  const executePendingTasks = async (tasks: readonly PlannerTask[], waveNumber: number): Promise<void> => {
+    const analysisTasks = tasks.filter(({ kind }) => kind === 'analysis').sort(compareTaskIds);
+    if (analysisTasks.length > 0) {
+      const started = await controlActivities.startBlackboxTasks({
+        ...input,
+        revision,
+        taskIds: analysisTasks.map(({ taskId }) => taskId),
+        operationKey: operationKeyFor(
+          input.workflowId,
+          waveNumber,
+          'start',
+          analysisTasks.map(({ taskId }) => taskId),
+        ),
+      });
+      updateTaskState(started);
+      const baseRevision = revision;
+      const attempts = await Promise.allSettled(
+        analysisTasks.map((task) =>
+          safeModelActivities.runBlackboxAnalysis({ ...input, task, revision: baseRevision }),
+        ),
+      );
+      const cancelled = attempts.find(
+        (attempt): attempt is PromiseRejectedResult => attempt.status === 'rejected' && isCancellation(attempt.reason),
+      );
+      if (cancelled) throw cancelled.reason;
+      await settleGroup(
+        analysisTasks,
+        attempts,
+        operationKeyFor(
+          input.workflowId,
+          waveNumber,
+          'settle',
+          analysisTasks.map(({ taskId }) => taskId),
+        ),
+      );
+    }
+
+    const reconTasks = tasks.filter(({ kind }) => kind === 'recon').sort(compareTaskIds);
+    for (const task of reconTasks) {
+      const started = await controlActivities.startBlackboxTasks({
+        ...input,
+        revision,
+        taskIds: [task.taskId],
+        operationKey: operationKeyFor(input.workflowId, waveNumber, 'start', [task.taskId]),
+      });
+      updateTaskState(started);
+      const baseRevision = revision;
+      const attempt: PromiseSettledResult<WorkerContribution> = await effectActivities
+        .runBlackboxRecon({ ...input, task, revision: baseRevision })
+        .then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (reason: unknown) => ({ status: 'rejected' as const, reason }),
+        );
+      if (attempt.status === 'rejected') throwIfCancellation(attempt.reason);
+      await settleGroup([task], [attempt], operationKeyFor(input.workflowId, waveNumber, 'settle', [task.taskId]));
+    }
+
+    const actionTasks = tasks.filter(({ kind }) => kind === 'action').sort(compareTaskIds);
+    for (const task of actionTasks) {
+      const started = await controlActivities.startBlackboxTasks({
+        ...input,
+        revision,
+        taskIds: [task.taskId],
+        operationKey: operationKeyFor(input.workflowId, waveNumber, 'start', [task.taskId]),
+      });
+      updateTaskState(started);
+      const baseRevision = revision;
+      const actionAttempt: PromiseSettledResult<WorkerContribution> = await effectActivities
+        .runBlackboxAction({ ...input, task, revision: baseRevision })
+        .then(
+          (value) => ({ status: 'fulfilled' as const, value }),
+          (reason: unknown) => ({ status: 'rejected' as const, reason }),
+        );
+      if (actionAttempt.status === 'rejected') throwIfCancellation(actionAttempt.reason);
+      const settled = await settleGroup(
+        [task],
+        [actionAttempt],
+        operationKeyFor(input.workflowId, waveNumber, 'settle', [task.taskId]),
+      );
+
+      for (const candidateId of [...settled.candidateIds].sort()) {
+        let attempt: BlackboxVerificationAttempt;
+        try {
+          attempt = await effectActivities.runBlackboxVerifier({ ...input, candidateId, revision });
+        } catch (error) {
+          throwIfCancellation(error);
+          const recorded = await controlActivities.recordBlackboxVerificationFailure({
+            ...input,
+            revision,
+            candidateId,
+            reason: reasonFor(error),
+            operationKey: operationKeyFor(input.workflowId, waveNumber, 'verify-failure', [candidateId]),
+          });
+          setRevision(revisionFromRecordResult(recorded));
+          continue;
+        }
+        const recorded = await controlActivities.recordBlackboxVerification({
+          ...input,
+          revision,
+          attempt,
+          operationKey: operationKeyFor(input.workflowId, waveNumber, 'verify', [candidateId]),
+        });
+        setRevision(revisionFromRecordResult(recorded));
+      }
+    }
+  };
+
+  const evaluateWave = async (
+    waveNumber: number,
+    plannerStop: boolean,
+  ): Promise<BlackboxWorkflowResult | null> => {
+    const evaluation = await controlActivities.evaluateBlackboxProgress({
+      ...input,
+      revision,
+      waveNumber,
+      plannerStop,
+      operationKey: operationKeyFor(input.workflowId, waveNumber, 'evaluate', []),
+    });
+    setRevision(evaluation.revision);
+    if (evaluation.decision === 'continue') return null;
+    return finalize(evaluation.decision, waveNumber);
+  };
+
   try {
     const preflight = await controlActivities.preflightBlackbox(input);
     setRevision(preflight.revision);
+    progress = { ...progress, wave: preflight.consumedPlanningWaves };
+    if (preflight.terminalResult) {
+      progress = { ...progress, status: preflight.terminalResult.status };
+      return preflight.terminalResult;
+    }
+    if (preflight.unresolvedCandidateIds.length > 0) {
+      return await finalize(
+        'incomplete',
+        preflight.consumedPlanningWaves,
+        'candidate verification outcome was not durably committed before resume',
+      );
+    }
+    if (preflight.finalizationIntent) {
+      return await finalize(preflight.finalizationIntent, preflight.consumedPlanningWaves);
+    }
 
     const anonymousCapture = await effectActivities.captureAnonymous(input);
     setRevision(anonymousCapture.revision);
@@ -247,12 +422,35 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
     }
 
     if (identityCaptures.filter((capture) => capture.authenticated).length < 2) {
-      return await finalize('incomplete', 0, 'fewer than two identities authenticated successfully');
+      return await finalize(
+        'incomplete',
+        preflight.consumedPlanningWaves,
+        'fewer than two identities authenticated successfully',
+      );
     }
 
-    for (let waveNumber = 1; waveNumber <= 8; waveNumber += 1) {
+    await executePendingTasks(preflight.resumedTasks, preflight.consumedPlanningWaves);
+
+    if (preflight.pendingPlanningEvaluation) {
+      const terminal = await evaluateWave(
+        preflight.pendingPlanningEvaluation.waveNumber,
+        preflight.pendingPlanningEvaluation.plannerStop,
+      );
+      if (terminal) return terminal;
+    }
+
+    if (preflight.consumedPlanningWaves >= 8) return await finalize('incomplete', 8);
+
+    for (let waveNumber = preflight.consumedPlanningWaves + 1; waveNumber <= 8; waveNumber += 1) {
       progress = { ...progress, wave: waveNumber };
 
+      const reserved = await controlActivities.reserveBlackboxPlanningWave({
+        ...input,
+        revision,
+        waveNumber,
+        operationKey: operationKeyFor(input.workflowId, waveNumber, 'reserve', []),
+      });
+      updateTaskState(reserved);
       const batch = await safeModelActivities.runBlackboxPlanner(input, revision);
       const snapshot = await controlActivities.readPlannerSnapshot(input);
       if (snapshot.revision !== revision) {
@@ -273,133 +471,38 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
       });
       updateTaskState(registered);
 
-      const analysisTasks = registered.wave.concurrent.filter(({ kind }) => kind === 'analysis');
-      if (analysisTasks.length > 0) {
-        const started = await controlActivities.startBlackboxTasks({
-          ...input,
-          revision,
-          taskIds: analysisTasks.map((task) => task.taskId),
-          operationKey: operationKeyFor(
-            input.workflowId,
-            waveNumber,
-            'start',
-            analysisTasks.map((task) => task.taskId),
-          ),
-        });
-        updateTaskState(started);
-        const baseRevision = revision;
-        const attempts = await Promise.allSettled(
-          analysisTasks.map((task) =>
-            safeModelActivities.runBlackboxAnalysis({ ...input, task, revision: baseRevision }),
-          ),
-        );
-        await settleGroup(
-          analysisTasks,
-          attempts,
-          operationKeyFor(
-            input.workflowId,
-            waveNumber,
-            'settle',
-            analysisTasks.map((task) => task.taskId),
-          ),
-        );
-      }
+      await executePendingTasks([...registered.wave.concurrent, ...registered.wave.actions], waveNumber);
 
-      const reconTasks = registered.wave.concurrent.filter(({ kind }) => kind === 'recon');
-      for (const task of reconTasks) {
-        const started = await controlActivities.startBlackboxTasks({
-          ...input,
-          revision,
-          taskIds: [task.taskId],
-          operationKey: operationKeyFor(input.workflowId, waveNumber, 'start', [task.taskId]),
-        });
-        updateTaskState(started);
-        const baseRevision = revision;
-        const attempt: PromiseSettledResult<WorkerContribution> = await effectActivities
-          .runBlackboxRecon({ ...input, task, revision: baseRevision })
-          .then(
-            (value) => ({ status: 'fulfilled' as const, value }),
-            (reason: unknown) => ({ status: 'rejected' as const, reason }),
-          );
-        await settleGroup([task], [attempt], operationKeyFor(input.workflowId, waveNumber, 'settle', [task.taskId]));
-      }
-
-      for (const task of registered.wave.actions) {
-        const started = await controlActivities.startBlackboxTasks({
-          ...input,
-          revision,
-          taskIds: [task.taskId],
-          operationKey: operationKeyFor(input.workflowId, waveNumber, 'start', [task.taskId]),
-        });
-        updateTaskState(started);
-        const baseRevision = revision;
-        const actionAttempt: PromiseSettledResult<WorkerContribution> = await effectActivities
-          .runBlackboxAction({ ...input, task, revision: baseRevision })
-          .then(
-            (value) => ({ status: 'fulfilled' as const, value }),
-            (reason: unknown) => ({ status: 'rejected' as const, reason }),
-          );
-        const settled = await settleGroup(
-          [task],
-          [actionAttempt],
-          operationKeyFor(input.workflowId, waveNumber, 'settle', [task.taskId]),
-        );
-
-        for (const candidateId of [...settled.candidateIds].sort()) {
-          let attempt: BlackboxVerificationAttempt;
-          try {
-            attempt = await effectActivities.runBlackboxVerifier({ ...input, candidateId, revision });
-          } catch (error) {
-            const recorded = await controlActivities.recordBlackboxVerificationFailure({
-              ...input,
-              revision,
-              candidateId,
-              reason: reasonFor(error),
-              operationKey: operationKeyFor(input.workflowId, waveNumber, 'verify-failure', [candidateId]),
-            });
-            setRevision(revisionFromRecordResult(recorded));
-            continue;
-          }
-          const recorded = await controlActivities.recordBlackboxVerification({
-            ...input,
-            revision,
-            attempt,
-            operationKey: operationKeyFor(input.workflowId, waveNumber, 'verify', [candidateId]),
-          });
-          setRevision(revisionFromRecordResult(recorded));
-        }
-      }
-
-      const evaluation = await controlActivities.evaluateBlackboxProgress({
-        ...input,
-        revision,
-        waveNumber,
-        plannerStop: batch.stop,
-      });
-      setRevision(evaluation.revision);
-      if (evaluation.decision !== 'continue') return await finalize(evaluation.decision, waveNumber);
+      const terminal = await evaluateWave(waveNumber, batch.stop);
+      if (terminal) return terminal;
     }
 
     return await finalize('incomplete', 8);
   } catch (error) {
+    throwIfCancellation(error);
     const failure = `black-box workflow component failed (${error instanceof Error ? error.name : 'unknown error'})`;
     try {
       const current = await controlActivities.readPlannerSnapshot(input);
       updateTaskState(current);
       const runningTasks = current.tasks.filter(({ status }) => status === 'running');
       if (runningTasks.length > 0) {
-        const settled = await controlActivities.settleBlackboxTasks({
-          ...input,
-          baseRevision: revision,
-          contributions: [],
-          failures: runningTasks.map(({ taskId }) => ({ taskId, reason: 'workflow component failed' })),
-          operationKey: operationKeyFor(
-            input.workflowId,
-            progress.wave,
-            'settle',
-            runningTasks.map(({ taskId }) => taskId),
+        const settled = await controlActivities.settleBlackboxTasks(
+          buildSettlement(
+            input,
+            revision,
+            runningTasks,
+            runningTasks.map(() => ({
+              status: 'rejected' as const,
+              reason: new Error('workflow component failed'),
+            })),
+            operationKeyFor(
+              input.workflowId,
+              progress.wave,
+              'settle',
+              runningTasks.map(({ taskId }) => taskId),
+            ),
           ),
-        });
+        );
         updateTaskState(settled);
       }
       return await finalize('incomplete', progress.wave, failure);

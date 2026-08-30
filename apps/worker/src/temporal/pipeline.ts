@@ -7,6 +7,12 @@
 
 export type { ActivityInput } from './activities.js';
 export type {
+  BlackboxTerminalStatus,
+  BlackboxWorkflowInput,
+  BlackboxWorkflowResult,
+} from '../blackbox/activities.js';
+export type { BlackboxWorkflowProgress } from './blackbox-workflow.js';
+export type {
   AgentMetrics,
   PipelineInput,
   PipelineState,
@@ -14,4 +20,4 @@ export type {
   ResumeState,
   VulnExploitPipelineResult,
 } from './shared.js';
-export { pentestPipeline } from './workflows.js';
+export { blackboxAuthzWorkflow, pentestPipeline } from './workflows.js';

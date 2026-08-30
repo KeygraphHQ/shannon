@@ -12,7 +12,14 @@ import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
 import { agentError, deriveAgentStates, isTerminal, phaseGlyphState, type RunState, scanElapsedMs } from './derive.js';
 import { inlineFailureReason } from './failure.js';
-import { PIPELINE, type PipelineState } from './pipeline.js';
+import {
+  type BlackboxProgressState,
+  type BlackboxState,
+  isBlackboxState,
+  PIPELINE,
+  type PipelineState,
+  type ScanState,
+} from './pipeline.js';
 
 export interface RenderInput {
   readonly workspace: string;
@@ -21,7 +28,7 @@ export interface RenderInput {
   /** Temporal WorkflowExecutionStatusName: RUNNING | COMPLETED | FAILED | CANCELLED | TERMINATED | … */
   readonly temporalStatus: string;
   /** Progress (live) or result (terminal). Null when unavailable, e.g. a hard failure with no result. */
-  readonly state: PipelineState | null;
+  readonly state: ScanState | null;
   readonly running: readonly RunningAgent[];
   readonly startedAt?: number;
   readonly endedAt?: number;
@@ -111,6 +118,11 @@ function glyph(state: RunState, opts: RenderOptions): string {
 function statusBadge(input: RenderInput, opts: RenderOptions): string {
   const workflowStatus = input.state?.status;
   if (!isTerminal(input.temporalStatus)) return paint('running', COLORS.gold, opts.color);
+  if (isBlackboxState(input.state)) {
+    if (workflowStatus === 'incomplete') return paint('incomplete', COLORS.yellow, opts.color);
+    if (workflowStatus === 'findings') return paint('findings', COLORS.gold, opts.color);
+    return paint('no findings', COLORS.gold, opts.color);
+  }
   if (workflowStatus === 'partial') return paint('partial', COLORS.yellow, opts.color);
   if (input.temporalStatus === 'COMPLETED') return paint('completed', COLORS.gold, opts.color);
   if (input.temporalStatus === 'TERMINATED') return paint('stopped', COLORS.yellow, opts.color);
@@ -162,12 +174,20 @@ function phaseMeta(states: readonly RunState[], inPlay: number, parallel: boolea
 
 /** Render the full progress frame as one string (no trailing newline). */
 export function renderScan(input: RenderInput, opts: RenderOptions): string {
+  if (isBlackboxState(input.state)) return renderBlackboxScan(input, input.state, opts);
+  const whiteboxInput = input as RenderInput & { readonly state: PipelineState | null };
   const byAgent = new Map(input.running.map((r) => [r.agent, r]));
-  const stateMap = deriveAgentStates(input);
+  const stateMap = deriveAgentStates(whiteboxInput);
   const lines: string[] = ['', ...headerLines(input, opts), ''];
 
   const metaFor = (name: string, state: RunState): string =>
-    agentMeta(state, input.state?.agentMetrics[name], byAgent.get(name), agentError(name, input.state, byAgent), opts);
+    agentMeta(
+      state,
+      whiteboxInput.state?.agentMetrics[name],
+      byAgent.get(name),
+      agentError(name, whiteboxInput.state, byAgent),
+      opts,
+    );
   // Only agents that have actually entered play are shown; pending/skipped ones stay hidden.
   const inPlay = (s: RunState): boolean => s === 'running' || s === 'completed' || s === 'failed';
 
@@ -199,6 +219,39 @@ export function renderScan(input: RenderInput, opts: RenderOptions): string {
   return lines.join('\n');
 }
 
+function isBlackboxProgress(state: BlackboxState): state is BlackboxProgressState {
+  return 'tasks' in state;
+}
+
+function renderBlackboxScan(input: RenderInput, state: BlackboxState, opts: RenderOptions): string {
+  const lines = ['', ...headerLines(input, opts), '', `  ${paint('Black-box authorization', COLORS.bold, opts.color)}`];
+  if (isBlackboxProgress(state)) {
+    const completed = state.tasks.filter(({ status }) => status === 'completed').length;
+    const running = state.tasks.filter(({ status }) => status === 'running').length;
+    const failed = state.tasks.filter(({ status }) => status === 'failed' || status === 'rejected').length;
+    lines.push(
+      `  Wave: ${state.wave} · Revision: ${state.revision}`,
+      `  Tasks: ${completed}/${state.tasks.length} completed · ${running} running · ${failed} failed`,
+    );
+  } else {
+    const label = state.findingCount === 1 ? 'finding' : 'findings';
+    lines.push(
+      `  Result: ${state.status}`,
+      `  ${state.findingCount} replay-verified ${label} · Revision: ${state.revision}`,
+    );
+    if (state.failures.length > 0) lines.push(`  Failure: ${truncate(state.failures.join('; '), 240)}`);
+  }
+
+  if (!isTerminal(input.temporalStatus)) {
+    lines.push(
+      footerDivider(opts),
+      footerRow('Logs', `${commandPrefix()} logs ${input.workspace}`, opts),
+      footerRow('Temporal', temporalDashboardUrl(input.workflowId), opts),
+    );
+  }
+  return lines.join('\n');
+}
+
 function headerLines(input: RenderInput, opts: RenderOptions): string[] {
   const elapsedMs = scanElapsedMs(input, opts.now);
   const meta = [statusBadge(input, opts), elapsedMs !== undefined ? formatDuration(elapsedMs) : '—'].join(' · ');
@@ -221,7 +274,7 @@ function footerRow(label: string, value: string, opts: RenderOptions): string {
 function footerLines(input: RenderInput, opts: RenderOptions): string[] {
   const prefix = commandPrefix();
 
-  if (isTerminal(input.temporalStatus) && input.state?.summary) {
+  if (isTerminal(input.temporalStatus) && !isBlackboxState(input.state) && input.state?.summary) {
     const wall = formatDuration(input.state.summary.totalDurationMs);
     return ['', `  Time Taken   ${wall}`];
   }
@@ -230,7 +283,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
   const temporalValue = temporalDashboardUrl(input.workflowId);
 
   if (isTerminal(input.temporalStatus)) {
-    const rawReason = input.failureMessage ?? input.state?.error;
+    const rawReason = input.failureMessage ?? (!isBlackboxState(input.state) ? input.state?.error : undefined);
     const reason = rawReason ? inlineFailureReason(rawReason) : 'no result recorded';
     return [
       footerDivider(opts),

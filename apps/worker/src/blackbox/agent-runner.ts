@@ -36,6 +36,13 @@ export interface RedactedBlackboxSlice {
   readonly actionOutcomes: readonly unknown[];
   readonly candidateProofs: readonly unknown[];
   readonly verifierFailureReasons: readonly unknown[];
+  readonly failedTasks: readonly {
+    readonly taskId: string;
+    readonly kind: PlannerTask['kind'];
+    readonly objective: string;
+    readonly identityLease: PlannerTask['identityLease'];
+    readonly hypothesisId: string | null;
+  }[];
   readonly evidenceExcerpts?: readonly { readonly evidenceId: string; readonly excerpt: string }[];
 }
 
@@ -254,6 +261,7 @@ function boundedSlice(
         hypotheses: structuredClone(snapshot.hypotheses),
         actionOutcomes: structuredClone(snapshot.actionOutcomes),
         verifierFailureReasons: structuredClone(snapshot.verifierFailureReasons),
+        failedTasks: structuredClone(snapshot.failedTasks),
       };
     case 'blackbox-recon':
       return {
@@ -348,6 +356,7 @@ export class BlackboxAgentRunner {
   }
 
   async run(input: BlackboxAgentRunInput): Promise<PlannerBatch | WorkerContribution | VerificationResult> {
+    input.cancellationSignal?.throwIfAborted();
     const definition = BLACKBOX_AGENTS[input.kind];
     if (!definition) throw failure('invalid_submission', 'Unknown black-box agent kind', false);
 
@@ -399,6 +408,7 @@ export class BlackboxAgentRunner {
       const auditPrompt = redactSensitive(prompt, telemetryPolicy);
       await input.auditSession.startAgent(input.kind, String(auditPrompt));
     } catch {
+      input.cancellationSignal?.throwIfAborted();
       throw failure('agent_failed', `${input.kind} agent setup failed`, true);
     }
 
@@ -423,7 +433,9 @@ export class BlackboxAgentRunner {
           childTasks: false,
         },
       );
+      input.cancellationSignal?.throwIfAborted();
     } catch {
+      input.cancellationSignal?.throwIfAborted();
       throw failure('agent_failed', `${input.kind} agent failed`, true);
     }
 

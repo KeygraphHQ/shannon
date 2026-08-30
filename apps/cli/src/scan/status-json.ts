@@ -9,6 +9,7 @@
 import type { DerivedPhase } from './derive.js';
 import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
 import type { RenderInput } from './render.js';
+import { isBlackboxState } from './pipeline.js';
 
 /** Coarse scan status token, mirroring the human status badge in machine-friendly form. */
 export type ScanStatus = 'running' | 'completed' | 'partial' | 'failed' | 'stopped' | 'cancelled' | 'timed_out';
@@ -28,11 +29,21 @@ export interface StatusJson {
   /** Failure text when a failed scan left no readable state. */
   readonly failureMessage?: string;
   readonly phases: readonly DerivedPhase[];
+  readonly blackbox?: {
+    readonly revision: number;
+    readonly status: string;
+    readonly wave?: number;
+    readonly taskCount?: number;
+    readonly completedTaskCount?: number;
+    readonly findingCount?: number;
+    readonly failures?: readonly string[];
+  };
 }
 
 /** Map the raw Temporal status (and workflow status) onto the coarse machine token. */
 function deriveStatus(input: RenderInput): ScanStatus {
   if (!isTerminal(input.temporalStatus)) return 'running';
+  if (isBlackboxState(input.state) && input.state.status === 'incomplete') return 'partial';
   if (input.state?.status === 'partial') return 'partial';
 
   switch (input.temporalStatus) {
@@ -53,6 +64,22 @@ function deriveStatus(input: RenderInput): ScanStatus {
 /** Build the JSON snapshot for a scan at instant `now`. */
 export function toStatusJson(input: RenderInput, now: number): StatusJson {
   const elapsedMs = scanElapsedMs(input, now);
+  const blackbox = isBlackboxState(input.state)
+    ? 'tasks' in input.state
+      ? {
+          revision: input.state.revision,
+          status: input.state.status,
+          wave: input.state.wave,
+          taskCount: input.state.tasks.length,
+          completedTaskCount: input.state.tasks.filter(({ status }) => status === 'completed').length,
+        }
+      : {
+          revision: input.state.revision,
+          status: input.state.status,
+          findingCount: input.state.findingCount,
+          failures: input.state.failures,
+        }
+    : undefined;
 
   return {
     workspace: input.workspace,
@@ -63,6 +90,7 @@ export function toStatusJson(input: RenderInput, now: number): StatusJson {
     ...(input.startedAt !== undefined && { startedAt: new Date(input.startedAt).toISOString() }),
     ...(input.endedAt !== undefined && { endedAt: new Date(input.endedAt).toISOString() }),
     ...(input.failureMessage !== undefined && { failureMessage: input.failureMessage }),
-    phases: derivePipeline(input, now),
+    phases: blackbox ? [] : derivePipeline(input, now),
+    ...(blackbox ? { blackbox } : {}),
   };
 }

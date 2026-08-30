@@ -4,7 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import type { EvidenceRef, HypothesisStatus, PlannerTask, ReplaySequence } from '../types/blackbox.js';
+import type { EvidenceRef, HypothesisStatus, PlannerTask, ReplayPlan, ReplaySequence } from '../types/blackbox.js';
 import type { Rules } from '../types/config.js';
 import type { PlannerBatch } from './agents.js';
 
@@ -12,9 +12,17 @@ const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const TASK_KINDS = new Set(['recon', 'analysis', 'action']);
 const TASK_STATUSES = new Set(['pending', 'running', 'completed', 'failed', 'rejected']);
 const TERMINAL_HYPOTHESIS_STATUSES = new Set<HypothesisStatus>(['verified', 'disproved', 'no_demonstrated_impact']);
-const TRANSITIONS = new Set(['register', 'start', 'settle', 'verify', 'verify-failure', 'finalize']);
+const TRANSITIONS = new Set(['reserve', 'register', 'start', 'settle', 'verify', 'verify-failure', 'evaluate', 'finalize']);
 
-export type BlackboxControlTransition = 'register' | 'start' | 'settle' | 'verify' | 'verify-failure' | 'finalize';
+export type BlackboxControlTransition =
+  | 'reserve'
+  | 'register'
+  | 'start'
+  | 'settle'
+  | 'verify'
+  | 'verify-failure'
+  | 'evaluate'
+  | 'finalize';
 
 export interface BlackboxSchedulerSnapshot {
   readonly revision: number;
@@ -26,6 +34,7 @@ export interface BlackboxSchedulerSnapshot {
   }[];
   readonly exchanges: readonly {
     readonly exchangeId: string;
+    readonly routeSignature: string;
     readonly origin: string;
     readonly path: string;
     readonly identity: string | 'anonymous';
@@ -38,9 +47,15 @@ export interface BlackboxSchedulerSnapshot {
   }[];
   readonly tasks: readonly {
     readonly taskId: string;
+    readonly kind: PlannerTask['kind'];
     readonly status: PlannerTask['status'];
     readonly identityLease: PlannerTask['identityLease'];
     readonly hypothesisId: string | null;
+    readonly replayPlan?: ReplayPlan;
+  }[];
+  readonly deliveryUnknownActions: readonly {
+    readonly hypothesisId: string;
+    readonly replayPlan: ReplayPlan;
   }[];
   readonly rejectedTaskIds: readonly string[];
 }
@@ -61,6 +76,41 @@ export class BlackboxSchedulerValidationError extends Error {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isDeeplyEqual(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return (
+      Array.isArray(left) &&
+      Array.isArray(right) &&
+      left.length === right.length &&
+      left.every((value, index) => isDeeplyEqual(value, right[index]))
+    );
+  }
+  if (!isRecord(left) || !isRecord(right)) return false;
+  const leftKeys = Object.keys(left).sort(compareText);
+  const rightKeys = Object.keys(right).sort(compareText);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key, index) => key === rightKeys[index] && isDeeplyEqual(left[key], right[key]))
+  );
+}
+
+export function replayPlansShareDispatchedStep(
+  left: ReplayPlan,
+  right: ReplayPlan,
+  sourceRouteSignatures?: ReadonlyMap<string, string>,
+): boolean {
+  const sourceKey = (exchangeId: string): string => sourceRouteSignatures?.get(exchangeId) ?? `exchange:${exchangeId}`;
+  return left.steps.some((leftStep) =>
+    right.steps.some(
+      (rightStep) =>
+        sourceKey(leftStep.sourceExchangeId) === sourceKey(rightStep.sourceExchangeId) &&
+        leftStep.actor === rightStep.actor &&
+        isDeeplyEqual(leftStep.mutations, rightStep.mutations),
+    ),
+  );
 }
 
 function isSafeIdentifier(value: unknown): value is string {
@@ -296,7 +346,22 @@ function taskReason(task: PlannerTask, snapshot: BlackboxSchedulerSnapshot): str
 
   if (task.kind === 'action') {
     if (task.hypothesisId === null) return 'Action task requires a hypothesis';
-    return replayPlanReason(task, snapshot);
+    const planFailure = replayPlanReason(task, snapshot);
+    if (planFailure) return planFailure;
+    const priorUnknownDelivery = snapshot.deliveryUnknownActions.find(
+      ({ hypothesisId, replayPlan }) =>
+        hypothesisId === task.hypothesisId ||
+        (task.replayPlan !== undefined &&
+          replayPlansShareDispatchedStep(
+            replayPlan,
+            task.replayPlan,
+            new Map(snapshot.exchanges.map(({ exchangeId, routeSignature }) => [exchangeId, routeSignature])),
+          )),
+    );
+    if (priorUnknownDelivery) {
+      return 'Action cannot be resent because a prior action delivery is unknown';
+    }
+    return null;
   }
   if (task.replayPlan !== undefined) return 'Only action tasks may contain a replay plan';
   return null;
@@ -321,6 +386,9 @@ function closeHypotheses(batch: PlannerBatch, snapshot: BlackboxSchedulerSnapsho
     if (!hypothesis) throw new BlackboxSchedulerValidationError(`Unknown hypothesis ${hypothesisId}`);
     if (TERMINAL_HYPOTHESIS_STATUSES.has(hypothesis.status)) {
       throw new BlackboxSchedulerValidationError(`Cannot close terminal hypothesis ${hypothesisId}`);
+    }
+    if (snapshot.deliveryUnknownActions.some((action) => action.hypothesisId === hypothesisId)) {
+      throw new BlackboxSchedulerValidationError(`Cannot close hypothesis ${hypothesisId} with an unknown delivery`);
     }
     if (
       snapshot.tasks.some(
@@ -387,6 +455,24 @@ export function validateAndScheduleWave(batch: PlannerBatch, snapshot: BlackboxS
       continue;
     }
     if (task.kind === 'action') {
+      const sameWaveAction = actions.find(
+        (action) =>
+          action.hypothesisId === task.hypothesisId ||
+          (action.replayPlan !== undefined &&
+            task.replayPlan !== undefined &&
+            replayPlansShareDispatchedStep(
+              action.replayPlan,
+              task.replayPlan,
+              new Map(snapshot.exchanges.map(({ exchangeId, routeSignature }) => [exchangeId, routeSignature])),
+            )),
+      );
+      if (sameWaveAction) {
+        rejected.push({
+          taskId,
+          reason: `Action conflicts with same-wave action ${sameWaveAction.taskId} and could resend an unknown delivery`,
+        });
+        continue;
+      }
       const actionIdentities = new Set<string>();
       if (task.identityLease !== null) actionIdentities.add(task.identityLease);
       for (const step of task.replayPlan?.steps ?? []) actionIdentities.add(step.actor);
@@ -430,6 +516,7 @@ export function decideRunCompletion(input: {
   readonly plannerStop: boolean;
   readonly pendingTasks: number;
   readonly openImpactHypotheses: number;
+  readonly unknownDeliveries?: number;
   readonly hitSafetyLimit: boolean;
 }): 'continue' | 'complete' | 'incomplete' {
   if (
@@ -438,10 +525,13 @@ export function decideRunCompletion(input: {
     !Number.isSafeInteger(input.pendingTasks) ||
     input.pendingTasks < 0 ||
     !Number.isSafeInteger(input.openImpactHypotheses) ||
-    input.openImpactHypotheses < 0
+    input.openImpactHypotheses < 0 ||
+    !Number.isSafeInteger(input.unknownDeliveries ?? 0) ||
+    (input.unknownDeliveries ?? 0) < 0
   ) {
     throw new BlackboxSchedulerValidationError('Progress counters must be non-negative safe integers');
   }
+  if (input.plannerStop && input.pendingTasks === 0 && (input.unknownDeliveries ?? 0) > 0) return 'incomplete';
   if (input.plannerStop && input.pendingTasks === 0 && input.openImpactHypotheses === 0) return 'complete';
   if (input.hitSafetyLimit || input.wave >= 8) return 'incomplete';
   return 'continue';

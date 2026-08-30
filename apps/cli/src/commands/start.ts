@@ -25,6 +25,7 @@ import {
   resolveRunFile,
 } from '../paths.js';
 import { indentFailureSegments } from '../scan/failure.js';
+import { isFailedScanState } from '../scan/pipeline.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
 import { getTerminalOutcome } from '../temporal-client.js';
@@ -309,6 +310,10 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
       }
       process.exit(1);
     }
+    if (isFailedScanState(outcome.state)) {
+      console.error('\nScan finished incomplete. Review the workflow failures and retained evidence.');
+      process.exit(1);
+    }
     process.exit(0);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
@@ -355,7 +360,11 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string | undefi
     return;
   }
 
-  const reportPath = path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
+  const reportPath = args.blackbox
+    ? args.output
+      ? path.resolve(expandHome(args.output))
+      : path.join(workspacesDir, workspace, INTERNAL_DIR, 'blackbox-target', INTERNAL_DIR, 'deliverables')
+    : path.join(workspacesDir, workspace, FINAL_REPORT_PDF_FILENAME);
 
   // When following, the scan log streams inline next, so the "run these to watch it" hints
   // would only contradict that.
@@ -368,7 +377,7 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string | undefi
   }
 
   console.log('');
-  console.log('  Report (when the scan finishes):');
+  console.log(`  ${args.blackbox ? 'Artifacts' : 'Report'} (when the scan finishes):`);
   console.log(`    ${reportPath}`);
   console.log('');
 }

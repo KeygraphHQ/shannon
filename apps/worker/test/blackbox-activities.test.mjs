@@ -81,7 +81,7 @@ function logger() {
   };
 }
 
-function boardFake() {
+function boardFake(options = {}) {
   let snapshot = {
     schemaVersion: 1,
     revision: 0,
@@ -104,19 +104,39 @@ function boardFake() {
     seed(value) { snapshot = { ...snapshot, ...structuredClone(value) }; },
     async initialize(value) {
       calls.push(['initialize', value]);
+      if (options.boardInitializeError) throw new Error(options.boardInitializeError);
       snapshot = {
         ...snapshot,
         targetOrigin: value.targetOrigin,
+        runScope: value.runScope,
         identities: snapshot.identities.length === 0 ? value.identities : snapshot.identities,
       };
       return structuredClone(snapshot);
     },
     async read() { calls.push(['read']); return structuredClone(snapshot); },
+    async reservePlanningWave(revision, operationKey, waveNumber) {
+      calls.push(['reservePlanningWave', revision, operationKey, waveNumber]);
+      snapshot = {
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        planningWave: { waveNumber, phase: 'reserved', plannerStop: null },
+      };
+      return structuredClone(snapshot);
+    },
     async registerTasks(revision, batch) {
       calls.push(['registerTasks', revision, batch]);
       snapshot = {
         ...snapshot,
         revision: snapshot.revision + 1,
+        ...(batch.planningWave
+          ? {
+              planningWave: {
+                waveNumber: batch.planningWave.waveNumber,
+                phase: 'registered',
+                plannerStop: batch.planningWave.plannerStop,
+              },
+            }
+          : {}),
         tasks: [...snapshot.tasks, ...batch.accepted.map((task) => ({ ...task, status: 'pending' }))],
       };
       return structuredClone(snapshot);
@@ -127,6 +147,29 @@ function boardFake() {
         ...snapshot,
         revision: snapshot.revision + 1,
         tasks: snapshot.tasks.map((task) => taskIds.includes(task.taskId) ? { ...task, status: 'running' } : task),
+      };
+      return structuredClone(snapshot);
+    },
+    async recoverInterruptedTasks(revision, operationKey) {
+      calls.push(['recoverInterruptedTasks', revision, operationKey]);
+      snapshot = {
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        tasks: snapshot.tasks.map((task) => task.status !== 'running'
+          ? task
+          : { ...task, status: task.kind === 'analysis' ? 'pending' : 'failed' }),
+      };
+      return structuredClone(snapshot);
+    },
+    async refreshIdentityCapture(revision, operationKey, identity) {
+      calls.push(['refreshIdentityCapture', revision, operationKey, identity]);
+      snapshot = {
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        identities: snapshot.identities.map((entry) =>
+          entry.name === identity ? { ...entry, authenticated: false } : entry),
+        tasks: snapshot.tasks.map((task) =>
+          task.taskId === `bootstrap-${identity}` ? { ...task, status: 'pending' } : task),
       };
       return structuredClone(snapshot);
     },
@@ -163,6 +206,24 @@ function boardFake() {
       };
       return structuredClone(snapshot);
     },
+    async recordPlanningDecision(revision, operationKey, waveNumber, decision) {
+      calls.push(['recordPlanningDecision', revision, operationKey, waveNumber, decision]);
+      if (snapshot.operationReceipts?.some((receipt) => receipt.operationKey === operationKey)) {
+        return structuredClone(snapshot);
+      }
+      const nextRevision = snapshot.revision + 1;
+      snapshot = {
+        ...snapshot,
+        revision: nextRevision,
+        planningDecision: { waveNumber, decision },
+        planningWave: null,
+        operationReceipts: [
+          ...(snapshot.operationReceipts ?? []),
+          { operationKey, requestDigest: 'a'.repeat(64), revision: nextRevision },
+        ],
+      };
+      return structuredClone(snapshot);
+    },
     async setRunStatus(revision, operationKey, status) {
       calls.push(['setRunStatus', revision, operationKey, status]);
       snapshot = { ...snapshot, revision: snapshot.revision + 1, runStatus: status };
@@ -175,8 +236,8 @@ function burpFake(historyQueue, calls, options = {}, cursor = { index: 0 }) {
   return {
     async connect() { calls.push(['connect']); if (options.connectError) throw new Error(options.connectError); },
     async close() { calls.push(['close']); if (options.closeError) throw new Error(options.closeError); },
-    async call(name, args) {
-      calls.push(['call', name, args]);
+    async call(name, args, cancellationSignal) {
+      calls.push(['call', name, args, cancellationSignal]);
       if (name !== 'get_proxy_http_history_regex') throw new Error(`unexpected Burp tool ${name}`);
       return { content: [{ type: 'text', text: history(historyQueue[Math.min(cursor.index++, historyQueue.length - 1)] ?? []) }] };
     },
@@ -187,8 +248,9 @@ async function makeDeps(t, root, options = {}) {
   const burpCalls = [];
   const browserCalls = [];
   const config = rawConfig(options.identityNames);
-  const board = boardFake();
+  const board = boardFake(options);
   const agents = [];
+  const auditCalls = [];
   const historyCursor = { index: 0 };
   const authCheckCursor = { index: 0 };
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
@@ -247,8 +309,14 @@ async function makeDeps(t, root, options = {}) {
         };
       },
     }),
-    createAuditSession: () => ({ async initialize() {}, async startAgent() {}, async endAgent() {} }),
+    createAuditSession: (_input, scope) => ({
+      async initialize(workflowId) { auditCalls.push(['initialize', workflowId, scope]); },
+      async addResumeAttempt(workflowId, terminated) { auditCalls.push(['resume', workflowId, terminated]); },
+      async startAgent() {},
+      async endAgent() {},
+    }),
     logger: logger(),
+    getCancellationSignal: () => options.cancellationSignal,
     readEnvironment: () => environment,
     fileSystem,
     createReplayRawStore: () => ({}),
@@ -262,9 +330,10 @@ async function makeDeps(t, root, options = {}) {
       };
     },
     ...(options.publishArtifacts ? { publishArtifacts: options.publishArtifacts } : {}),
+    ...(options.copyDeliverables ? { copyDeliverables: options.copyDeliverables } : {}),
   };
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { deps, board, agents, burpCalls, browserCalls, replayCalls };
+  return { deps, board, agents, auditCalls, burpCalls, browserCalls, replayCalls };
 }
 
 async function tempRoot(t) {
@@ -283,6 +352,20 @@ test('missing proxy fails before creating an agent or connecting to Burp', async
   assert.deepEqual(agents, []);
 });
 
+test('persisted scope mismatch fails before Burp, browser, replay, or model effects', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, burpCalls, browserCalls, replayCalls, agents } = await makeDeps(t, root, {
+    boardInitializeError: 'Black-box resume scope mismatch: burpProxyUrl',
+  });
+  const activities = createBlackboxActivities(deps);
+
+  await assert.rejects(activities.preflightBlackbox(input(root)), /scope mismatch.*burpProxyUrl/i);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(replayCalls, []);
+  assert.deepEqual(agents, []);
+});
+
 test('preflight applies black-box Burp defaults, requires history delta, and closes its browser session', async (t) => {
   const root = await tempRoot(t);
   const { deps, board, burpCalls, browserCalls } = await makeDeps(t, root, {
@@ -291,7 +374,7 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
   const activities = createBlackboxActivities(deps);
 
   const result = await activities.preflightBlackbox(input(root));
-  assert.equal(deps.burpSettings.url, 'http://host.docker.internal:9876');
+  assert.equal(deps.burpSettings.url, 'http://host.docker.internal:9876/');
   assert.equal(deps.burpSettings.hostHeader, '127.0.0.1:9876');
   assert.deepEqual(board.calls.slice(0, 2).map(([name]) => name), ['initialize', 'registerTasks']);
   const bootstrapTasks = board.calls[1][2].accepted;
@@ -311,9 +394,376 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
   assert.equal(burpCalls.filter(([name]) => name === 'close').length, 1);
 });
 
+test('activities forward Temporal cancellation to model, browser, and Burp boundaries', async (t) => {
+  const root = await tempRoot(t);
+  const controller = new AbortController();
+  const { deps, board, agents, burpCalls, browserCalls } = await makeDeps(t, root, {
+    cancellationSignal: controller.signal,
+    historyQueue: [[], [{ id: 'preflight' }]],
+    agentHandler: async () => ({ baseRevision: 0, tasks: [], stop: true }),
+  });
+  const activities = createBlackboxActivities(deps);
+
+  const preflight = await activities.preflightBlackbox(input(root));
+  board.seed({ revision: preflight.revision });
+  await activities.runBlackboxPlanner(input(root), preflight.revision);
+
+  assert.equal(
+    burpCalls.filter(([name]) => name === 'call').every((call) => call[3] === controller.signal),
+    true,
+  );
+  const openCall = browserCalls.find(([, args]) => args.includes('open'));
+  assert.equal(openCall[2].signal, controller.signal);
+  const closeCall = browserCalls.find(([, args]) => args.includes('close'));
+  assert.equal('signal' in closeCall[2], false);
+  assert.equal(agents.at(-1).cancellationSignal, controller.signal);
+});
+
+test('resume records its workflow, recovers once, and reuses a completed bootstrap capture', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, auditCalls, burpCalls, browserCalls, agents } = await makeDeps(t, root, {
+    historyQueue: [[], [{ id: 'preflight' }]],
+  });
+  board.seed({
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: name === 'attacker',
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    tasks: [
+      {
+        taskId: 'bootstrap-attacker',
+        kind: 'recon',
+        objective: 'captured before interruption',
+        evidence: [],
+        identityLease: 'attacker',
+        hypothesisId: null,
+        status: 'completed',
+      },
+      {
+        taskId: 'resume-analysis',
+        kind: 'analysis',
+        objective: 'resume analysis',
+        evidence: [],
+        identityLease: null,
+        hypothesisId: null,
+        status: 'pending',
+      },
+      {
+        taskId: 'resume-recon',
+        kind: 'recon',
+        objective: 'resume recon',
+        evidence: [],
+        identityLease: 'attacker',
+        hypothesisId: null,
+        status: 'pending',
+      },
+      {
+        taskId: 'resume-action',
+        kind: 'action',
+        objective: 'resume approved action',
+        evidence: [],
+        identityLease: 'attacker',
+        hypothesisId: 'resume-hypothesis',
+        status: 'pending',
+        replayPlan: {
+          steps: [],
+          proofCondition: { type: 'body_contains', marker: 'resume-marker' },
+        },
+      },
+    ],
+  });
+  const runInput = {
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+    terminatedWorkflows: ['workflow-1'],
+  };
+  const activities = createBlackboxActivities(deps);
+
+  await mkdir(path.dirname(statePathFor(root, 'attacker')), { recursive: true });
+  await writeFile(statePathFor(root, 'attacker'), JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+
+  const preflight = await activities.preflightBlackbox(runInput);
+  const effectCounts = [burpCalls.length, browserCalls.length, agents.length];
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.equal(capture.revision > 0, true);
+  assert.deepEqual(preflight.resumedTasks.map(({ taskId }) => taskId), [
+    'resume-analysis',
+    'resume-recon',
+    'resume-action',
+  ]);
+  assert.equal(burpCalls.length, effectCounts[0]);
+  assert.equal(agents.length, effectCounts[2]);
+  assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('state-load')), true);
+  assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('eval')), true);
+  assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('state-save')), true);
+  assert.equal(board.calls.some(([name]) => name === 'refreshIdentityCapture'), false);
+  assert.equal(board.calls.filter(([name]) => name === 'recoverInterruptedTasks').length, 1);
+  assert.deepEqual(auditCalls.find(([name]) => name === 'resume')?.slice(1), [
+    'workflow-resume',
+    ['workflow-1'],
+  ]);
+});
+
+test('resume returns a committed terminal result without repeating external work', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, auditCalls, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  const artifactNames = [
+    'traffic_inventory.json',
+    'blackbox_blackboard.json',
+    'blackbox_authz_findings.json',
+    'blackbox_authz_evidence.md',
+  ];
+  const artifactDirectory = path.join(root, '.shannon', 'deliverables');
+  const outputPath = path.join(root, 'resumed-output');
+  await mkdir(artifactDirectory, { recursive: true });
+  for (const artifactName of artifactNames) {
+    await writeFile(
+      path.join(artifactDirectory, artifactName),
+      artifactName === 'blackbox_blackboard.json'
+        ? JSON.stringify({
+            revision: 9,
+            targetOrigin: TARGET_ORIGIN,
+            runStatus: 'incomplete',
+            failure: 'planner stopped before coverage completed',
+          })
+        : '{}',
+      'utf8',
+    );
+  }
+  board.seed({
+    revision: 9,
+    runStatus: 'incomplete',
+    operationReceipts: [{
+      operationKey: 'workflow-1:8:finalize:',
+      requestDigest: `sha256:${'a'.repeat(64)}`,
+      revision: 9,
+    }],
+  });
+  const runInput = {
+    ...input(root),
+    outputPath,
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+    terminatedWorkflows: ['workflow-1'],
+  };
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox(runInput);
+
+  assert.deepEqual(preflight.terminalResult, {
+    mode: 'blackbox',
+    status: 'incomplete',
+    revision: 9,
+    findingCount: 0,
+    artifactNames,
+    failures: ['planner stopped before coverage completed'],
+  });
+  for (const artifactName of artifactNames) {
+    assert.equal(await readFile(path.join(outputPath, artifactName), 'utf8'), await readFile(path.join(artifactDirectory, artifactName), 'utf8'));
+  }
+  assert.deepEqual(board.calls.map(([name]) => name), ['initialize']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+  assert.deepEqual(auditCalls.find(([name]) => name === 'resume')?.slice(1), [
+    'workflow-resume',
+    ['workflow-1'],
+  ]);
+});
+
+test('resume rejects a terminal board created by artifact-publication fallback', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  board.seed({
+    revision: 9,
+    runStatus: 'incomplete',
+    operationReceipts: [{
+      operationKey: 'workflow-1:2:finalize::incomplete',
+      requestDigest: `sha256:${'b'.repeat(64)}`,
+      revision: 9,
+    }],
+  });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).preflightBlackbox({
+      ...input(root),
+      workflowId: 'workflow-resume',
+      resumeFromWorkspace: 'run-1',
+    }),
+    /artifact publication.*did not complete|terminal.*artifact/i,
+  );
+  assert.deepEqual(board.calls.map(([name]) => name), ['initialize']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume refreshes a completed bootstrap when persisted identity state is missing', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, agents } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker-refresh' }],
+    ],
+  });
+  board.seed({
+    identities: [{
+      name: 'attacker',
+      role: 'ordinary user',
+      authenticated: true,
+      stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+    }],
+    tasks: [{
+      taskId: 'bootstrap-attacker',
+      kind: 'recon',
+      objective: 'captured before interruption',
+      evidence: [],
+      identityLease: 'attacker',
+      hypothesisId: null,
+      status: 'completed',
+    }],
+  });
+  const runInput = {
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  };
+  const activities = createBlackboxActivities(deps);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.equal(board.calls.filter(([name]) => name === 'refreshIdentityCapture').length, 1);
+  assert.equal(agents.length, 1);
+});
+
+test('resume surfaces candidate proofs whose verifier result was never committed', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root, {
+    historyQueue: [[], [{ id: 'preflight' }]],
+  });
+  board.seed({
+    candidateProofs: [
+      { candidateId: 'candidate-unresolved' },
+      { candidateId: 'candidate-verified' },
+    ],
+    verifications: [{ candidateId: 'candidate-verified', verdict: 'verified' }],
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.deepEqual(preflight.unresolvedCandidateIds, ['candidate-unresolved']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume surfaces a durable finalization decision before external work', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  board.seed({
+    revision: 14,
+    planningDecision: { waveNumber: 5, decision: 'incomplete' },
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.equal(preflight.consumedPlanningWaves, 5);
+  assert.equal(preflight.finalizationIntent, 'incomplete');
+  assert.deepEqual(board.calls.map(([name]) => name), ['initialize']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume finalizes a reserved wave at the safety cap before target traffic', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  board.seed({
+    revision: 14,
+    planningDecision: { waveNumber: 7, decision: 'continue' },
+    planningWave: { waveNumber: 8, phase: 'reserved', plannerStop: null },
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.equal(preflight.consumedPlanningWaves, 8);
+  assert.equal(preflight.finalizationIntent, 'incomplete');
+  assert.deepEqual(board.calls.map(([name]) => name), ['initialize']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume restores the consumed wave from a committed planner registration', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  board.seed({
+    revision: 14,
+    planningDecision: { waveNumber: 5, decision: 'continue' },
+    operationReceipts: [{
+      operationKey: 'prior-workflow:6:register:task-6',
+      requestDigest: 'a'.repeat(64),
+      revision: 13,
+    }],
+    candidateProofs: [{ candidateId: 'candidate-unresolved' }],
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.equal(preflight.consumedPlanningWaves, 6);
+  assert.equal(preflight.finalizationIntent, null);
+  assert.deepEqual(preflight.unresolvedCandidateIds, ['candidate-unresolved']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume returns a registered wave for evaluation with its durable planner stop bit', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root);
+  board.seed({
+    revision: 14,
+    planningDecision: { waveNumber: 4, decision: 'continue' },
+    planningWave: { waveNumber: 5, phase: 'registered', plannerStop: true },
+    candidateProofs: [{ candidateId: 'candidate-unresolved' }],
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.equal(preflight.consumedPlanningWaves, 5);
+  assert.deepEqual(preflight.pendingPlanningEvaluation, { waveNumber: 5, plannerStop: true });
+});
+
 test('planner task IDs are namespaced by evidence revision before scheduling', async (t) => {
   const root = await tempRoot(t);
-  const { deps, board } = await makeDeps(t, root, {
+  const { deps, board, agents } = await makeDeps(t, root, {
     agentHandler: async (runInput) => ({
       baseRevision: 0,
       tasks: [{
@@ -330,7 +780,16 @@ test('planner task IDs are namespaced by evidence revision before scheduling', a
   });
   const activities = createBlackboxActivities(deps);
 
-  board.seed({ revision: 7 });
+  const failedRecon = {
+    taskId: 'recon-interrupted',
+    kind: 'recon',
+    objective: 'Replan the interrupted browser exploration',
+    evidence: [],
+    identityLease: 'attacker',
+    hypothesisId: null,
+    status: 'failed',
+  };
+  board.seed({ revision: 7, tasks: [failedRecon] });
   const first = await activities.runBlackboxPlanner(input(root), 7);
   board.seed({ revision: 8 });
   const second = await activities.runBlackboxPlanner(input(root), 8);
@@ -340,6 +799,13 @@ test('planner task IDs are namespaced by evidence revision before scheduling', a
   assert.notEqual(first.tasks[0].taskId, second.tasks[0].taskId);
   assert.equal(first.baseRevision, 7);
   assert.equal(first.tasks[0].status, 'pending');
+  assert.deepEqual(agents[0].snapshot.failedTasks, [{
+    taskId: failedRecon.taskId,
+    kind: failedRecon.kind,
+    objective: failedRecon.objective,
+    identityLease: failedRecon.identityLease,
+    hypothesisId: failedRecon.hypothesisId,
+  }]);
 });
 
 test('preflight rejects a browser navigation that produces no target history delta', async (t) => {
@@ -1286,6 +1752,7 @@ test('control activities revalidate and atomically register the planner wave', a
     operationKey: 'workflow-1:1:register:analysis-accepted',
   });
   const registration = board.calls.find(([name]) => name === 'registerTasks');
+  assert.deepEqual(registration[2].planningWave, { waveNumber: 1, plannerStop: false });
   assert.deepEqual(registration[2].accepted.map(({ taskId }) => taskId), ['analysis-accepted']);
   assert.deepEqual(registration[2].rejected.map(({ task, reason }) => [task.taskId, reason]), [
     ['recon-invalid-identity', wave.rejected[0].reason],
@@ -1355,19 +1822,38 @@ test('control activities redact failures, evaluate persisted progress, and final
     revision: 10,
     waveNumber: 2,
     plannerStop: true,
+    operationKey: 'workflow-1:2:evaluate:',
   });
-  assert.deepEqual(evaluation, { decision: 'complete', revision: 10 });
+  assert.deepEqual(evaluation, { decision: 'complete', revision: 11 });
+  assert.deepEqual(
+    await activities.evaluateBlackboxProgress({
+      ...input(root),
+      revision: 10,
+      waveNumber: 2,
+      plannerStop: true,
+      operationKey: 'workflow-1:2:evaluate:',
+    }),
+    evaluation,
+  );
+  assert.deepEqual(board.calls.findLast(([name]) => name === 'recordPlanningDecision'), [
+    'recordPlanningDecision',
+    10,
+    'workflow-1:2:evaluate:',
+    2,
+    'complete',
+  ]);
 
   const finalized = await activities.finalizeBlackboxRun({
     ...input(root),
-    revision: 10,
+    revision: 11,
     status: 'incomplete',
     failure: `finalization context ${SECRET}`,
     operationKey: 'workflow-1:2:finalize:',
   });
+  assert.equal(finalized.mode, 'blackbox');
   assert.equal(finalized.status, 'incomplete');
-  assert.equal(finalized.revision, 11);
-  assert.equal(finalized.failure.includes(SECRET), false);
+  assert.equal(finalized.revision, 12);
+  assert.equal(finalized.failures[0].includes(SECRET), false);
   assert.equal(finalized.findingCount, 0);
   assert.deepEqual(finalized.artifactNames, [
     'traffic_inventory.json',
@@ -1401,6 +1887,52 @@ test('artifact publication failure records incomplete and never returns partial 
   );
 
   assert.equal(publishCalls, 1);
+  assert.deepEqual(
+    board.calls.filter(([name]) => name === 'setRunStatus').map(([, revision, operationKey, status]) => [
+      revision,
+      operationKey,
+      status,
+    ]),
+    [[4, 'workflow-1:2:finalize::incomplete', 'incomplete']],
+  );
+});
+
+test('output copy failure records incomplete before the workflow can report success', async (t) => {
+  const root = await tempRoot(t);
+  const outputPath = path.join(root, 'exported');
+  const copyCalls = [];
+  const { deps, board } = await makeDeps(t, root, {
+    publishArtifacts: async () => [
+      'traffic_inventory.json',
+      'blackbox_blackboard.json',
+      'blackbox_authz_findings.json',
+      'blackbox_authz_evidence.md',
+    ],
+    copyDeliverables: async (...args) => {
+      copyCalls.push(args);
+      assert.equal(board.calls.some(([name]) => name === 'setRunStatus'), false);
+      throw new Error('output copy failed');
+    },
+  });
+  board.seed({ revision: 4 });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).finalizeBlackboxRun({
+      ...input(root),
+      outputPath,
+      revision: 4,
+      status: 'complete',
+      operationKey: 'workflow-1:2:finalize:',
+    }),
+    /output copy failed/,
+  );
+
+  assert.deepEqual(copyCalls, [[root, outputPath, [
+    'traffic_inventory.json',
+    'blackbox_blackboard.json',
+    'blackbox_authz_findings.json',
+    'blackbox_authz_evidence.md',
+  ]]]);
   assert.deepEqual(
     board.calls.filter(([name]) => name === 'setRunStatus').map(([, revision, operationKey, status]) => [
       revision,
@@ -1559,7 +2091,9 @@ test('finalization publishes and counts only a replay-verified impact finding', 
   });
 
   assert.equal(finalized.findingCount, 1);
-  assert.equal(finalized.verifiedCandidateIds[0], 'candidate-control');
+  assert.equal(finalized.mode, 'blackbox');
+  assert.equal(finalized.status, 'findings');
+  assert.deepEqual(finalized.failures, []);
   assert.equal(JSON.parse(published['blackbox_authz_findings.json']).length, 1);
   assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'complete');
 });

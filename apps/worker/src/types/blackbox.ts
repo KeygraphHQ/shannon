@@ -229,6 +229,10 @@ export interface TaskRegistrationBatch {
   readonly accepted: readonly PlannerTask[];
   readonly rejected: readonly { readonly task: PlannerTask; readonly reason: string }[];
   readonly closedHypothesisIds?: readonly string[];
+  readonly planningWave?: {
+    readonly waveNumber: number;
+    readonly plannerStop: boolean;
+  };
 }
 
 export interface ContributionBatch {
@@ -248,9 +252,19 @@ export interface RedactedBlackboxIdentity {
 
 export interface BlackboardInitialization {
   readonly targetOrigin: string;
+  readonly runScope: BlackboxRunScope;
   readonly identities: readonly RedactedBlackboxIdentity[];
   /** Used only to reject accidental persistence. Never written to the document. */
   readonly configuredSecrets: readonly string[];
+}
+
+export interface BlackboxRunScope {
+  readonly mode: 'blackbox';
+  readonly targetOrigin: string;
+  readonly identities: readonly string[];
+  readonly burpMcpUrl: string;
+  readonly burpMcpHostHeader: string;
+  readonly burpProxyUrl: string;
 }
 
 export interface RejectedPlannerTask {
@@ -264,6 +278,23 @@ export interface BlackboxOperationReceipt {
   readonly revision: number;
 }
 
+export interface BlackboxPlanningDecision {
+  readonly waveNumber: number;
+  readonly decision: 'continue' | 'complete' | 'incomplete';
+}
+
+export type BlackboxPlanningWave =
+  | {
+      readonly waveNumber: number;
+      readonly phase: 'reserved';
+      readonly plannerStop: null;
+    }
+  | {
+      readonly waveNumber: number;
+      readonly phase: 'registered';
+      readonly plannerStop: boolean;
+    };
+
 export interface BlackboxVerificationAttempt {
   readonly verification: VerificationResult;
   readonly exchanges: readonly NormalizedExchange[];
@@ -273,6 +304,7 @@ export interface BlackboxDocument {
   readonly schemaVersion: 1;
   readonly revision: number;
   readonly targetOrigin: string;
+  readonly runScope: BlackboxRunScope;
   readonly identities: readonly RedactedBlackboxIdentity[];
   readonly exchanges: readonly NormalizedExchange[];
   readonly resources: readonly BlackboxResource[];
@@ -284,6 +316,10 @@ export interface BlackboxDocument {
   readonly tasks: readonly PlannerTask[];
   readonly rejectedTasks: readonly RejectedPlannerTask[];
   readonly runStatus: BlackboxRunStatus;
+  /** Optional for schema-version-1 workspaces created before durable planning decisions existed. */
+  readonly planningDecision?: BlackboxPlanningDecision | null;
+  /** Optional for schema-version-1 workspaces created before durable planning-wave reservations existed. */
+  readonly planningWave?: BlackboxPlanningWave | null;
   /** Optional for schema-version-1 workspaces created before operation receipts existed. */
   readonly operationReceipts?: readonly BlackboxOperationReceipt[];
 }
@@ -294,13 +330,22 @@ export interface BlackboardStore {
   initialize(input: BlackboardInitialization): Promise<BlackboxSnapshot>;
   read(): Promise<BlackboxSnapshot>;
   merge(contribution: WorkerContribution): Promise<BlackboxSnapshot>;
+  reservePlanningWave(baseRevision: number, operationKey: string, waveNumber: number): Promise<BlackboxSnapshot>;
   registerTasks(baseRevision: number, batch: TaskRegistrationBatch): Promise<BlackboxSnapshot>;
   startTasks(baseRevision: number, operationKey: string, taskIds: readonly string[]): Promise<BlackboxSnapshot>;
+  recoverInterruptedTasks(baseRevision: number, operationKey: string): Promise<BlackboxSnapshot>;
+  refreshIdentityCapture(baseRevision: number, operationKey: string, identity: string): Promise<BlackboxSnapshot>;
   settleTasks(batch: ContributionBatch): Promise<BlackboxSnapshot>;
   recordVerification(
     baseRevision: number,
     operationKey: string,
     attempt: BlackboxVerificationAttempt,
+  ): Promise<BlackboxSnapshot>;
+  recordPlanningDecision(
+    baseRevision: number,
+    operationKey: string,
+    waveNumber: number,
+    decision: BlackboxPlanningDecision['decision'],
   ): Promise<BlackboxSnapshot>;
   setRunStatus(baseRevision: number, operationKey: string, status: BlackboxRunStatus): Promise<BlackboxSnapshot>;
 }

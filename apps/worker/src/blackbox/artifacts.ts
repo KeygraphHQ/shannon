@@ -4,8 +4,11 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
+import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { redactSensitive } from '../ai/sensitive-redaction.js';
+import { deliverablesDir } from '../paths.js';
 import type {
   BlackboxRunStatus,
   BlackboxSnapshot,
@@ -46,6 +49,47 @@ const PORTABLE_JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8
 const MIN_GLOBAL_DISCOVERED_SECRET_LENGTH = 12;
 const SENSITIVE_MUTATION_TARGET =
   /(?:^|[-_./])(?:authorization|cookie|password|passwd|pwd|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|csrf(?:[-_]?token)?|xsrf(?:[-_]?token)?|session(?:id)?|x[-_]?auth|token|nonce|state|key|credential)(?:$|[-_./])/i;
+
+function resolveBlackboxDeliverables(
+  repoPath: string,
+  reportedArtifactNames: readonly BlackboxArtifactName[],
+): readonly { readonly name: BlackboxArtifactName; readonly source: string }[] {
+  if (!isDeepStrictEqual(reportedArtifactNames, BLACKBOX_ARTIFACT_NAMES)) {
+    throw new Error('Black-box workflow returned an unexpected artifact manifest');
+  }
+  const sourceDirectory = deliverablesDir(repoPath);
+  return BLACKBOX_ARTIFACT_NAMES.map((name) => {
+    const source = path.join(sourceDirectory, name);
+    let stat: fs.Stats;
+    try {
+      stat = fs.lstatSync(source);
+    } catch {
+      throw new Error(`Missing black-box artifact: ${name}`);
+    }
+    if (stat.isSymbolicLink() || !stat.isFile()) {
+      throw new Error(`Black-box artifact must be a regular file: ${name}`);
+    }
+    return { name, source };
+  });
+}
+
+export function validateBlackboxDeliverables(
+  repoPath: string,
+  reportedArtifactNames: readonly BlackboxArtifactName[] = BLACKBOX_ARTIFACT_NAMES,
+): void {
+  resolveBlackboxDeliverables(repoPath, reportedArtifactNames);
+}
+
+export function copyBlackboxDeliverables(
+  repoPath: string,
+  outputPath: string,
+  reportedArtifactNames: readonly BlackboxArtifactName[] = BLACKBOX_ARTIFACT_NAMES,
+): void {
+  const copies = resolveBlackboxDeliverables(repoPath, reportedArtifactNames);
+
+  fs.mkdirSync(outputPath, { recursive: true });
+  for (const { name, source } of copies) fs.copyFileSync(source, path.join(outputPath, name));
+}
 
 function compareEvidence(left: EvidenceRef, right: EvidenceRef): number {
   return left.kind.localeCompare(right.kind) || left.id.localeCompare(right.id);

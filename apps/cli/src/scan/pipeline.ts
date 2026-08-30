@@ -121,3 +121,38 @@ export interface PipelineState {
   readonly agentMetrics: Record<string, AgentMetrics>;
   readonly summary: PipelineSummary | null;
 }
+
+export interface BlackboxTaskState {
+  readonly taskId: string;
+  readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'rejected';
+  readonly identityLease: string | 'anonymous' | null;
+}
+
+export interface BlackboxProgressState {
+  readonly mode: 'blackbox';
+  readonly status: 'running' | 'findings' | 'no_findings' | 'incomplete';
+  readonly wave: number;
+  readonly revision: number;
+  readonly tasks: readonly BlackboxTaskState[];
+  readonly identityLeases: readonly { readonly identity: string | 'anonymous'; readonly taskId: string }[];
+}
+
+export interface BlackboxResultState {
+  readonly mode: 'blackbox';
+  readonly status: 'findings' | 'no_findings' | 'incomplete';
+  readonly revision: number;
+  readonly findingCount: number;
+  readonly artifactNames: readonly string[];
+  readonly failures: readonly string[];
+}
+
+export type BlackboxState = BlackboxProgressState | BlackboxResultState;
+export type ScanState = PipelineState | BlackboxState;
+
+export function isBlackboxState(state: ScanState | null): state is BlackboxState {
+  return state !== null && 'mode' in state && state.mode === 'blackbox';
+}
+
+export function isFailedScanState(state: ScanState | null): boolean {
+  return isBlackboxState(state) ? state.status === 'incomplete' : state?.status === 'failed';
+}

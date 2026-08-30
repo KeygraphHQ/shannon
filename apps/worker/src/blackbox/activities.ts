@@ -9,16 +9,19 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
+import { Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { redactSensitive } from '../ai/sensitive-redaction.js';
 import { AuditSession } from '../audit/index.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
+import { deliverablesDir } from '../paths.js';
 import { createActivityLogger } from '../temporal/activity-logger.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type {
   BlackboardStore,
   BlackboxActionResult,
   BlackboxRunStatus,
+  BlackboxRunScope,
   BlackboxSnapshot,
   BlackboxVerificationAttempt,
   EvidenceRef,
@@ -34,9 +37,10 @@ import { BlackboxAgentRunner, type RedactedBlackboxSlice, type RedactedIdentityC
 import type { PlannerBatch } from './agents.js';
 import {
   BLACKBOX_ARTIFACT_NAMES,
-  type BlackboxArtifactName,
+  copyBlackboxDeliverables,
   publishBlackboxArtifacts,
   renderBlackboxArtifacts,
+  validateBlackboxDeliverables,
 } from './artifacts.js';
 import { FileBlackboardStore } from './blackboard.js';
 import {
@@ -61,16 +65,15 @@ import {
   type ScheduledWave,
   validateAndScheduleWave,
 } from './scheduler.js';
-import { normalizeTargetOrigin } from './scope-guard.js';
+import { createBlackboxRunScope, normalizeTargetOrigin } from './scope-guard.js';
 import { createBlackboxTools } from './tools.js';
 import { diffHistory, normalizeCapturedTraffic, normalizeRawExchange } from './traffic-normalizer.js';
 
 const execFileAsync = promisify(execFile);
-const DEFAULT_BURP_MCP_URL = 'http://host.docker.internal:9876';
-const DEFAULT_BURP_MCP_HOST_HEADER = '127.0.0.1:9876';
 const AUTH_SUCCESS_MARKER = '__SHANNON_AUTH_OK__';
 const AUTH_FAILURE_MARKER = '__SHANNON_AUTH_FAILED__';
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
+const HEARTBEAT_INTERVAL_MS = 2_000;
 
 type Awaitable<T> = T | Promise<T>;
 
@@ -83,6 +86,8 @@ export interface BlackboxActivityInput {
   readonly auditDir: string;
   readonly outputPath?: string;
   readonly promptDir?: string;
+  readonly resumeFromWorkspace?: string;
+  readonly terminatedWorkflows?: readonly string[];
 }
 
 export interface BlackboxWorkerActivityInput extends BlackboxActivityInput {
@@ -105,6 +110,15 @@ export interface BlackboxPreflightResult {
     readonly role: string;
     readonly stateRef: string;
   }[];
+  readonly resumedTasks: readonly PlannerTask[];
+  readonly unresolvedCandidateIds: readonly string[];
+  readonly consumedPlanningWaves: number;
+  readonly pendingPlanningEvaluation: {
+    readonly waveNumber: number;
+    readonly plannerStop: boolean;
+  } | null;
+  readonly finalizationIntent: 'complete' | 'incomplete' | null;
+  readonly terminalResult: BlackboxWorkflowResult | null;
 }
 
 export interface IdentityCaptureResult {
@@ -137,6 +151,7 @@ interface BlackboxAgentRunnerLike {
 
 interface BlackboxAuditSessionLike {
   initialize(workflowId?: string): Promise<void>;
+  addResumeAttempt(workflowId: string, terminatedWorkflows: string[]): Promise<void>;
 }
 
 interface BlackboxReplayServiceLike {
@@ -151,10 +166,11 @@ export interface BlackboxActivityDependencies {
   readonly runBrowserCommand: (
     file: string,
     arguments_: readonly string[],
-    options: { readonly cwd: string },
+    options: { readonly cwd: string; readonly signal?: AbortSignal },
   ) => Promise<BrowserCommandResult>;
+  readonly getCancellationSignal: () => AbortSignal | undefined;
   readonly createAgentRunner: (input: BlackboxActivityInput) => BlackboxAgentRunnerLike;
-  readonly createAuditSession: (input: BlackboxActivityInput) => BlackboxAuditSessionLike;
+  readonly createAuditSession: (input: BlackboxActivityInput, runScope: BlackboxRunScope) => BlackboxAuditSessionLike;
   readonly logger?: ActivityLogger;
   readonly readEnvironment: () => Readonly<Record<string, string | undefined>>;
   readonly fileSystem: BlackboxFileSystem;
@@ -162,6 +178,7 @@ export interface BlackboxActivityDependencies {
   readonly createReplayRawStore: (repoPath: string) => ReplayRawStore;
   readonly createReplayService: (options: ReplayServiceOptions) => BlackboxReplayServiceLike;
   readonly publishArtifacts: typeof publishBlackboxArtifacts;
+  readonly copyDeliverables: typeof copyBlackboxDeliverables;
 }
 
 export type BlackboxWorkflowInput = BlackboxActivityInput;
@@ -177,6 +194,12 @@ export interface RegisterWaveInput extends BlackboxActivityInput {
   readonly waveNumber: number;
   readonly batch: PlannerBatch;
   readonly wave: ScheduledWave;
+  readonly operationKey: string;
+}
+
+export interface ReservePlanningWaveInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly waveNumber: number;
   readonly operationKey: string;
 }
 
@@ -225,6 +248,7 @@ export interface EvaluateProgressInput extends BlackboxActivityInput {
   readonly revision: number;
   readonly waveNumber: number;
   readonly plannerStop: boolean;
+  readonly operationKey: string;
 }
 
 export interface EvaluateProgressResult {
@@ -239,13 +263,15 @@ export interface FinalizeBlackboxInput extends BlackboxActivityInput {
   readonly operationKey: string;
 }
 
+export type BlackboxTerminalStatus = 'findings' | 'no_findings' | 'incomplete';
+
 export interface BlackboxWorkflowResult {
-  readonly status: Exclude<BlackboxRunStatus, 'running'>;
+  readonly mode: 'blackbox';
+  readonly status: BlackboxTerminalStatus;
   readonly revision: number;
-  readonly failure: string | null;
-  readonly verifiedCandidateIds: readonly string[];
   readonly findingCount: number;
-  readonly artifactNames: readonly BlackboxArtifactName[];
+  readonly artifactNames: typeof BLACKBOX_ARTIFACT_NAMES;
+  readonly failures: readonly string[];
 }
 
 export interface BlackboxActivityApi {
@@ -258,6 +284,7 @@ export interface BlackboxActivityApi {
   runBlackboxAnalysis(input: BlackboxWorkerActivityInput): Promise<WorkerContribution>;
   runBlackboxAction(input: BlackboxWorkerActivityInput): Promise<WorkerContribution>;
   runBlackboxVerifier(input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt>;
+  reserveBlackboxPlanningWave(input: ReservePlanningWaveInput): Promise<TaskTransitionResult>;
   registerPlannedWave(input: RegisterWaveInput): Promise<RegisteredWave>;
   startBlackboxTasks(input: StartTasksInput): Promise<TaskTransitionResult>;
   settleBlackboxTasks(input: SettleTasksInput): Promise<SettledTasksResult>;
@@ -275,16 +302,19 @@ interface TargetContext {
 }
 
 interface RuntimeContext extends TargetContext {
+  readonly runScope: BlackboxRunScope;
   readonly burpSettings: BurpMcpSettings;
   readonly proxyUrl: string;
 }
 
-function productionAuditSession(input: BlackboxActivityInput): AuditSession {
+function productionAuditSession(input: BlackboxActivityInput, runScope: BlackboxRunScope): AuditSession {
   return new AuditSession({
     id: input.workspace,
     webUrl: input.webUrl,
     repoPath: input.repoPath,
     outputPath: input.auditDir,
+    mode: 'blackbox',
+    blackboxScope: runScope,
   });
 }
 
@@ -294,9 +324,13 @@ const DEFAULT_DEPENDENCIES: BlackboxActivityDependencies = {
   writePlaywrightConfig: writePlaywrightStealthConfig,
   createBlackboardStore: (repoPath) => new FileBlackboardStore(repoPath),
   async runBrowserCommand(file, arguments_, options) {
-    const result = await execFileAsync(file, [...arguments_], { cwd: options.cwd });
+    const result = await execFileAsync(file, [...arguments_], {
+      cwd: options.cwd,
+      ...(options.signal ? { signal: options.signal } : {}),
+    });
     return { stdout: String(result.stdout), stderr: String(result.stderr), exitCode: 0 };
   },
+  getCancellationSignal: () => undefined,
   createAgentRunner: (input) =>
     new BlackboxAgentRunner({
       syntheticRoot: input.repoPath,
@@ -310,6 +344,7 @@ const DEFAULT_DEPENDENCIES: BlackboxActivityDependencies = {
   createReplayRawStore: (repoPath) => new FileReplayRawStore(rawDirectory(repoPath)),
   createReplayService: (options) => new ReplayService(options),
   publishArtifacts: publishBlackboxArtifacts,
+  copyDeliverables: copyBlackboxDeliverables,
 };
 
 function collectStrings(value: unknown, result: string[] = []): string[] {
@@ -348,23 +383,6 @@ function validateUrl(value: string, label: string, allowedProtocols: ReadonlySet
   return parsed;
 }
 
-function resolveBurpSettings(environment: Readonly<Record<string, string | undefined>>): {
-  readonly settings: BurpMcpSettings;
-  readonly proxyUrl: string;
-} {
-  const proxyUrl = environment.SHANNON_BURP_PROXY_URL?.trim();
-  if (!proxyUrl) throw new Error('SHANNON_BURP_PROXY_URL is required for black-box mode');
-  validateUrl(proxyUrl, 'SHANNON_BURP_PROXY_URL', new Set(['http:']));
-
-  const url = environment.SHANNON_BURP_MCP_URL?.trim() || DEFAULT_BURP_MCP_URL;
-  validateUrl(url, 'SHANNON_BURP_MCP_URL', new Set(['http:', 'https:']));
-  const hostHeader = environment.SHANNON_BURP_MCP_HOST_HEADER?.trim() || DEFAULT_BURP_MCP_HOST_HEADER;
-  if (/[^\x21-\x7e]/.test(hostHeader) || /[/?#@]/.test(hostHeader)) {
-    throw new Error('SHANNON_BURP_MCP_HOST_HEADER is invalid');
-  }
-  return { settings: { url, hostHeader }, proxyUrl };
-}
-
 async function loadTargetContext(
   dependencies: BlackboxActivityDependencies,
   input: BlackboxActivityInput,
@@ -384,13 +402,23 @@ async function loadRuntimeContext(
   input: BlackboxActivityInput,
 ): Promise<RuntimeContext> {
   const target = await loadTargetContext(dependencies, input);
-  const { settings: burpSettings, proxyUrl } = resolveBurpSettings(dependencies.readEnvironment());
-  return { ...target, burpSettings, proxyUrl };
+  const runScope = createBlackboxRunScope(
+    target.targetUrl,
+    target.config.identities.map(({ name }) => name),
+    dependencies.readEnvironment(),
+  );
+  return {
+    ...target,
+    runScope,
+    burpSettings: { url: runScope.burpMcpUrl, hostHeader: runScope.burpMcpHostHeader },
+    proxyUrl: runScope.burpProxyUrl,
+  };
 }
 
-function initialization(context: TargetContext) {
+function initialization(context: RuntimeContext) {
   return {
     targetOrigin: context.targetOrigin,
+    runScope: context.runScope,
     identities: context.config.identities.map(({ name, role }) => ({
       name,
       role,
@@ -402,8 +430,14 @@ function initialization(context: TargetContext) {
 }
 
 function validateBoardIdentityScope(snapshot: BlackboxSnapshot, context: TargetContext): void {
-  const expected = context.config.identities.map(({ name, role }) => ({ name, role, stateRef: stateRef(name) }));
-  const observed = snapshot.identities.map(({ name, role, stateRef: ref }) => ({ name, role, stateRef: ref }));
+  const byName = (left: { readonly name: string }, right: { readonly name: string }): number =>
+    left.name.localeCompare(right.name);
+  const expected = context.config.identities
+    .map(({ name, role }) => ({ name, role, stateRef: stateRef(name) }))
+    .sort(byName);
+  const observed = snapshot.identities
+    .map(({ name, role, stateRef: ref }) => ({ name, role, stateRef: ref }))
+    .sort(byName);
   if (JSON.stringify(observed) !== JSON.stringify(expected)) {
     throw new Error('Existing blackboard identity scope does not match the black-box configuration');
   }
@@ -450,6 +484,15 @@ function toRedactedSlice(snapshot: BlackboxSnapshot): RedactedBlackboxSlice {
     verifierFailureReasons: snapshot.verifications
       .filter(({ verdict }) => verdict !== 'verified')
       .map(({ verificationId, candidateId, failureReason }) => ({ verificationId, candidateId, failureReason })),
+    failedTasks: snapshot.tasks
+      .filter(({ status }) => status === 'failed')
+      .map(({ taskId, kind, objective, identityLease, hypothesisId }) => ({
+        taskId,
+        kind,
+        objective,
+        identityLease,
+        hypothesisId,
+      })),
   };
 }
 
@@ -462,8 +505,9 @@ function toSchedulerSnapshot(
     targetOrigin: snapshot.targetOrigin,
     rules: structuredClone(rules),
     identities: snapshot.identities.map(({ name, authenticated }) => ({ name, authenticated })),
-    exchanges: snapshot.exchanges.map(({ exchangeId, origin, path: exchangePath, identity }) => ({
+    exchanges: snapshot.exchanges.map(({ exchangeId, routeSignature, origin, path: exchangePath, identity }) => ({
       exchangeId,
+      routeSignature,
       origin,
       path: exchangePath,
       identity,
@@ -477,12 +521,23 @@ function toSchedulerSnapshot(
       ...snapshot.candidateProofs.map(({ candidateId }): EvidenceRef => ({ id: candidateId, kind: 'proof' })),
     ],
     hypotheses: snapshot.hypotheses.map(({ hypothesisId, status }) => ({ hypothesisId, status })),
-    tasks: snapshot.tasks.map(({ taskId, status, identityLease, hypothesisId }) => ({
+    tasks: snapshot.tasks.map(({ taskId, kind, status, identityLease, hypothesisId, replayPlan }) => ({
       taskId,
+      kind,
       status,
       identityLease,
       hypothesisId,
+      ...(replayPlan ? { replayPlan: structuredClone(replayPlan) } : {}),
     })),
+    deliveryUnknownActions: snapshot.actions
+      .filter(({ status }) => status === 'delivery_unknown')
+      .map(({ hypothesisId, sequence }) => ({
+        hypothesisId,
+        replayPlan: {
+          steps: structuredClone(sequence.steps),
+          proofCondition: structuredClone(sequence.proofCondition),
+        },
+      })),
     rejectedTaskIds: snapshot.rejectedTasks.map(({ task }) => task.taskId),
   };
 }
@@ -797,6 +852,78 @@ function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]
   ).slice(0, 500);
 }
 
+async function readTerminalArtifactFailures(
+  fileSystem: BlackboxFileSystem,
+  repoPath: string,
+  snapshot: BlackboxSnapshot,
+  configuredSecrets: readonly string[],
+): Promise<readonly string[]> {
+  const raw = String(
+    await fileSystem.readFile(path.join(deliverablesDir(repoPath), 'blackbox_blackboard.json'), 'utf8'),
+  );
+  const metadata = JSON.parse(raw) as unknown;
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) {
+    throw new Error('Terminal black-box artifact metadata is invalid');
+  }
+  const record = metadata as Record<string, unknown>;
+  if (
+    record.revision !== snapshot.revision ||
+    record.targetOrigin !== snapshot.targetOrigin ||
+    record.runStatus !== snapshot.runStatus
+  ) {
+    throw new Error('Terminal black-box artifact metadata does not match the committed blackboard');
+  }
+  if (record.failure === null) return [];
+  if (typeof record.failure !== 'string') throw new Error('Terminal black-box artifact failure metadata is invalid');
+  return [safeFailureReason(record.failure, configuredSecrets)];
+}
+
+function durablePlanningState(snapshot: BlackboxSnapshot): {
+  readonly consumedPlanningWaves: number;
+  readonly pendingPlanningEvaluation: {
+    readonly waveNumber: number;
+    readonly plannerStop: boolean;
+  } | null;
+  readonly finalizationIntent: 'complete' | 'incomplete' | null;
+} {
+  const evaluatedWave = snapshot.planningDecision?.waveNumber ?? 0;
+  let registeredWave = 0;
+  for (const receipt of snapshot.operationReceipts ?? []) {
+    const match = /^[^:]+:(\d+):register:/.exec(receipt.operationKey);
+    if (!match) continue;
+    const waveNumber = Number(match[1]);
+    if (Number.isSafeInteger(waveNumber) && waveNumber > 0) {
+      registeredWave = Math.max(registeredWave, Math.min(waveNumber, 8));
+    }
+  }
+  const activeWave = snapshot.planningWave?.waveNumber ?? 0;
+  const consumedPlanningWaves = Math.max(evaluatedWave, registeredWave, activeWave);
+  const pendingPlanningEvaluation =
+    snapshot.planningWave?.phase === 'registered'
+      ? {
+          waveNumber: snapshot.planningWave.waveNumber,
+          plannerStop: snapshot.planningWave.plannerStop,
+        }
+      : !snapshot.planningWave && registeredWave > evaluatedWave
+        ? { waveNumber: registeredWave, plannerStop: false }
+        : null;
+  const decision = snapshot.planningDecision?.decision;
+  return {
+    consumedPlanningWaves,
+    pendingPlanningEvaluation,
+    finalizationIntent:
+      decision === 'complete' || decision === 'incomplete'
+        ? decision
+        : snapshot.planningWave?.phase === 'reserved' && snapshot.planningWave.waveNumber >= 8
+          ? 'incomplete'
+          : null,
+  };
+}
+
+function cancellableBrowserOptions(repoPath: string, signal: AbortSignal | undefined) {
+  return signal ? { cwd: repoPath, signal } : { cwd: repoPath };
+}
+
 export function createBlackboxActivities(supplied: Partial<BlackboxActivityDependencies> = {}): BlackboxActivityApi {
   const dependencies: BlackboxActivityDependencies = { ...DEFAULT_DEPENDENCIES, ...supplied };
   const activityLogger = (): ActivityLogger => dependencies.logger ?? createActivityLogger();
@@ -810,7 +937,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     }
   };
 
-  const initializeStore = async (input: BlackboxActivityInput, context: TargetContext) => {
+  const initializeStore = async (input: BlackboxActivityInput, context: RuntimeContext) => {
     const store = dependencies.createBlackboardStore(input.repoPath);
     const snapshot = await store.initialize(initialization(context));
     validateBoardIdentityScope(snapshot, context);
@@ -819,30 +946,131 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
   const preflightBlackbox = async (input: BlackboxActivityInput): Promise<BlackboxPreflightResult> => {
     const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
+    const auditSession = dependencies.createAuditSession(input, context.runScope);
+    await auditSession.initialize(input.workflowId);
+    if (input.resumeFromWorkspace) {
+      await auditSession.addResumeAttempt(input.workflowId, [...(input.terminatedWorkflows ?? [])]);
+    }
+    const initializedStore = await initializeStore(input, context);
+    if (initializedStore.snapshot.runStatus !== 'running') {
+      if (!input.resumeFromWorkspace) {
+        throw new Error(`Blackboard is already terminal with status ${initializedStore.snapshot.runStatus}`);
+      }
+      const terminalReceipt = initializedStore.snapshot.operationReceipts?.find(
+        ({ revision }) => revision === initializedStore.snapshot.revision,
+      );
+      if (!terminalReceipt?.operationKey.endsWith(':finalize:')) {
+        throw new Error('Terminal black-box artifact publication did not complete');
+      }
+      validateBlackboxDeliverables(input.repoPath);
+      const failures = await readTerminalArtifactFailures(
+        dependencies.fileSystem,
+        input.repoPath,
+        initializedStore.snapshot,
+        context.configuredSecrets,
+      );
+      if (input.outputPath) {
+        await dependencies.copyDeliverables(input.repoPath, input.outputPath, BLACKBOX_ARTIFACT_NAMES);
+      }
+      const findings = collectVerifiedFindings(initializedStore.snapshot, context.targetOrigin);
+      return {
+        targetOrigin: context.targetOrigin,
+        targetUrl: context.targetUrl,
+        blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
+        revision: initializedStore.snapshot.revision,
+        identities: initializedStore.snapshot.identities.map(({ name, role, stateRef: ref }) => {
+          if (!ref) throw new Error(`Identity ${name} has no state reference`);
+          return { name, role, stateRef: ref };
+        }),
+        resumedTasks: [],
+        unresolvedCandidateIds: [],
+        ...durablePlanningState(initializedStore.snapshot),
+        terminalResult: {
+          mode: 'blackbox',
+          status:
+            initializedStore.snapshot.runStatus === 'complete'
+              ? findings.length > 0
+                ? 'findings'
+                : 'no_findings'
+              : 'incomplete',
+          revision: initializedStore.snapshot.revision,
+          findingCount: findings.length,
+          artifactNames: BLACKBOX_ARTIFACT_NAMES,
+          failures,
+        },
+      };
+    }
+    const initialPlanningState = durablePlanningState(initializedStore.snapshot);
+    if (initialPlanningState.finalizationIntent) {
+      return {
+        targetOrigin: context.targetOrigin,
+        targetUrl: context.targetUrl,
+        blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
+        revision: initializedStore.snapshot.revision,
+        identities: initializedStore.snapshot.identities.map(({ name, role, stateRef: ref }) => {
+          if (!ref) throw new Error(`Identity ${name} has no state reference`);
+          return { name, role, stateRef: ref };
+        }),
+        resumedTasks: [],
+        unresolvedCandidateIds: [],
+        ...initialPlanningState,
+        terminalResult: null,
+      };
+    }
+    const initialized = input.resumeFromWorkspace
+      ? await initializedStore.store.recoverInterruptedTasks(
+          initializedStore.snapshot.revision,
+          `${input.workflowId}:resume:recover-interrupted`,
+        )
+      : initializedStore.snapshot;
+    const initializedPlanningState = durablePlanningState(initialized);
+    const unresolvedCandidateIds = initialized.candidateProofs
+      .filter(
+        ({ candidateId }) => !initialized.verifications.some((verification) => verification.candidateId === candidateId),
+      )
+      .map(({ candidateId }) => candidateId)
+      .sort();
+    if (unresolvedCandidateIds.length > 0) {
+      return {
+        targetOrigin: context.targetOrigin,
+        targetUrl: context.targetUrl,
+        blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
+        revision: initialized.revision,
+        identities: initialized.identities.map(({ name, role, stateRef: ref }) => {
+          if (!ref) throw new Error(`Identity ${name} has no state reference`);
+          return { name, role, stateRef: ref };
+        }),
+        resumedTasks: [],
+        unresolvedCandidateIds,
+        ...initializedPlanningState,
+        terminalResult: null,
+      };
+    }
     const client = dependencies.createBurpClient(context.burpSettings);
     try {
-      await client.connect();
+      await client.connect(cancellationSignal);
       await dependencies.writePlaywrightConfig(input.repoPath, {
         proxyUrl: context.proxyUrl,
         ignoreHTTPSErrors: true,
         overwrite: true,
       });
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       try {
         await dependencies.runBrowserCommand('playwright-cli', ['-s=blackbox-preflight', 'open', context.targetUrl], {
-          cwd: input.repoPath,
+          ...cancellableBrowserOptions(input.repoPath, cancellationSignal),
         });
       } finally {
         await dependencies.runBrowserCommand('playwright-cli', ['-s=blackbox-preflight', 'close'], {
           cwd: input.repoPath,
         });
       }
-      const after = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       if (diffHistory(before, after).length === 0) {
         throw new Error('Proxied browser navigation produced no target-origin Burp history');
       }
 
-      const { store, snapshot: initialized } = await initializeStore(input, context);
+      const store = initializedStore.store;
       const expected = bootstrapTasks(context.config);
       const existing = new Map(initialized.tasks.map((task) => [task.taskId, task]));
       for (const task of expected) {
@@ -872,6 +1100,12 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           if (!ref) throw new Error(`Identity ${name} has no state reference`);
           return { name, role, stateRef: ref };
         }),
+        resumedTasks: initialized.tasks
+          .filter((task) => task.status === 'pending' && !expected.some(({ taskId }) => taskId === task.taskId))
+          .map((task) => structuredClone(task)),
+        unresolvedCandidateIds,
+        ...durablePlanningState(snapshot),
+        terminalResult: null,
       };
     } finally {
       await closeBurpClient(client);
@@ -883,17 +1117,109 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     actor: string | 'anonymous',
   ): Promise<IdentityCaptureResult> => {
     const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const identity =
       actor === 'anonymous' ? null : (context.config.identities.find(({ name }) => name === actor) ?? null);
     if (actor !== 'anonymous' && !identity) throw new Error(`Unknown black-box identity ${actor}`);
 
-    const { store, snapshot } = await initializeStore(input, context);
+    const initializedStore = await initializeStore(input, context);
+    const store = initializedStore.store;
+    let snapshot = initializedStore.snapshot;
     const taskId = `bootstrap-${actor}`;
-    const task = snapshot.tasks.find((candidate) => candidate.taskId === taskId);
+    let task = snapshot.tasks.find((candidate) => candidate.taskId === taskId);
     if (!task) throw new Error(`Missing bootstrap task ${taskId}; run preflight first`);
-    if (task.status !== 'pending') throw new Error(`Bootstrap task ${taskId} is ${task.status}, not pending`);
     if (task.kind !== 'recon' || task.identityLease !== actor || task.hypothesisId !== null) {
       throw new Error(`Bootstrap task ${taskId} does not match identity ${actor}`);
+    }
+    if (task.status === 'completed') {
+      const capturedIdentity = actor === 'anonymous' ? null : snapshot.identities.find(({ name }) => name === actor);
+      if (actor === 'anonymous') {
+        return {
+          identity: actor,
+          authenticated: false,
+          successEvidence: null,
+          failureReason: null,
+          exchangeIds: snapshot.exchanges
+            .filter(({ provenance }) => provenance.taskId === taskId)
+            .map(({ exchangeId }) => exchangeId)
+            .sort(),
+          revision: snapshot.revision,
+        };
+      }
+
+      const validationSession = `bb-resume-check-${actor}`;
+      let reusable = capturedIdentity?.authenticated === true;
+      try {
+        if (!identity || !reusable) throw new Error('identity state is not marked authenticated');
+        await assertStorageState(dependencies.fileSystem, statePath(input.repoPath, actor), actor);
+        await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${validationSession}`, 'state-load', statePath(input.repoPath, actor)],
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        );
+        await dependencies.runBrowserCommand('playwright-cli', [`-s=${validationSession}`, 'open', context.targetUrl], {
+          ...cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        });
+        const checked = await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${validationSession}`, 'eval', successExpression(identity.authentication.success_condition)],
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        );
+        reusable = checked.stdout.includes(AUTH_SUCCESS_MARKER) && !checked.stdout.includes(AUTH_FAILURE_MARKER);
+        if (reusable) {
+          await dependencies.runBrowserCommand(
+            'playwright-cli',
+            [`-s=${validationSession}`, 'state-save', statePath(input.repoPath, actor)],
+            cancellableBrowserOptions(input.repoPath, cancellationSignal),
+          );
+          await assertStorageState(dependencies.fileSystem, statePath(input.repoPath, actor), actor);
+        }
+      } catch {
+        cancellationSignal?.throwIfAborted();
+        reusable = false;
+      } finally {
+        try {
+          await dependencies.runBrowserCommand('playwright-cli', [`-s=${validationSession}`, 'close'], {
+            cwd: input.repoPath,
+          });
+        } catch (error) {
+          activityLogger().warn(`Unable to close Playwright session ${validationSession}`, {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+        }
+      }
+
+      if (reusable) {
+        return {
+          identity: actor,
+          authenticated: true,
+          successEvidence: 'reused live verified identity state',
+          failureReason: null,
+          exchangeIds: snapshot.exchanges
+            .filter(({ provenance }) => provenance.taskId === taskId)
+            .map(({ exchangeId }) => exchangeId)
+            .sort(),
+          revision: snapshot.revision,
+        };
+      }
+
+      snapshot = await store.refreshIdentityCapture(
+        snapshot.revision,
+        `${input.workflowId}:0:refresh:${taskId}`,
+        actor,
+      );
+      task = snapshot.tasks.find((candidate) => candidate.taskId === taskId);
+      if (!task) throw new Error(`Identity refresh lost bootstrap task ${taskId}`);
+    }
+    if (task.status !== 'pending') {
+      return {
+        identity: actor,
+        authenticated: false,
+        successEvidence: null,
+        failureReason: `bootstrap task ${taskId} is ${task.status} and requires replanning`,
+        exchangeIds: [],
+        revision: snapshot.revision,
+      };
     }
 
     const client = dependencies.createBurpClient(context.burpSettings);
@@ -901,22 +1227,27 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     let taskSettled = false;
     const session = `bb-${actor}`;
     try {
-      await client.connect();
+      await client.connect(cancellationSignal);
       started = await store.startTasks(snapshot.revision, `${input.workflowId}:0:start:${taskId}`, [taskId]);
       const runningTask = started.tasks.find((candidate) => candidate.taskId === taskId);
       if (!runningTask || runningTask.status !== 'running') throw new Error(`Bootstrap task ${taskId} did not start`);
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       let after: HistorySnapshot;
       let submitted: WorkerContribution | null = null;
       let submissionFailure: unknown = null;
       try {
-        const auditSession = dependencies.createAuditSession(input);
+        const auditSession = dependencies.createAuditSession(input, context.runScope);
         await auditSession.initialize(input.workflowId);
         const tools = callerTools(
           createBlackboxTools({
             role: 'blackbox-recon',
             readTargetHistory: async () => {
-              const current = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+              const current = await readTargetHistory(
+                client,
+                context.targetOrigin,
+                context.config.rules,
+                cancellationSignal,
+              );
               return previewTraffic(
                 before,
                 current,
@@ -954,22 +1285,26 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
+        cancellationSignal?.throwIfAborted();
         submissionFailure = error;
         activityLogger().warn(`Recon model failed after browsing as ${actor}; preserving attributable traffic`, {
           error: error instanceof Error ? error.name : 'unknown',
         });
       } finally {
-        after = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       }
 
       let successEvidence: string | null = null;
       if (identity) {
         const storagePath = statePath(input.repoPath, identity.name);
-        await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'state-save', storagePath], {
-          cwd: input.repoPath,
-        });
+        await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${session}`, 'state-save', storagePath],
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        );
         const rawState = String(await dependencies.fileSystem.readFile(storagePath, 'utf8'));
         const parsedState = JSON.parse(rawState) as unknown;
         if (
@@ -983,7 +1318,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
           throw new Error(`Identity ${identity.name} did not satisfy its configured success condition`);
@@ -1049,6 +1384,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         revision: settled.revision,
       };
     } catch (error) {
+      cancellationSignal?.throwIfAborted();
       if (!started) throw error;
       if (taskSettled) throw new Error(`Black-box ${actor} capture could not be committed`);
       const failed = await store.settleTasks({
@@ -1078,16 +1414,17 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   };
 
   const readPlannerSnapshot = async (input: BlackboxActivityInput): Promise<BlackboxSchedulerSnapshot> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { snapshot } = await initializeStore(input, context);
     return toSchedulerSnapshot(snapshot, context.config.rules);
   };
 
   const runBlackboxPlanner = async (input: BlackboxActivityInput, revision: number): Promise<PlannerBatch> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== revision) throw new Error('Planner activity received a stale blackboard revision');
-    const auditSession = dependencies.createAuditSession(input);
+    const auditSession = dependencies.createAuditSession(input, context.runScope);
     await auditSession.initialize(input.workflowId);
     const submitted = (await dependencies.createAgentRunner(input).run({
       kind: 'planner',
@@ -1098,12 +1435,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       customTools: [],
       auditSession: auditSession as AuditSession,
       logger: activityLogger(),
+      ...(cancellationSignal ? { cancellationSignal } : {}),
     })) as PlannerBatch;
     return namespacePlannerBatch(submitted, revision);
   };
 
   const runReconActivity = async (input: BlackboxWorkerActivityInput): Promise<WorkerContribution> => {
     const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== input.revision) throw new Error('blackbox-recon received a stale blackboard revision');
     const persistedTask = snapshot.tasks.find(({ taskId }) => taskId === input.task.taskId);
@@ -1116,36 +1455,43 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     if (actor !== 'anonymous' && !identity) throw new Error(`Unknown black-box identity ${actor}`);
 
     const client = dependencies.createBurpClient(context.burpSettings);
-    await client.connect();
+    await client.connect(cancellationSignal);
     const session = `bb-${actor}`;
     try {
       if (identity) {
         await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'state-load', statePath(input.repoPath, identity.name)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
       }
-      await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', context.targetUrl], {
-        cwd: input.repoPath,
-      });
+      await dependencies.runBrowserCommand(
+        'playwright-cli',
+        [`-s=${session}`, 'open', context.targetUrl],
+        cancellableBrowserOptions(input.repoPath, cancellationSignal),
+      );
       if (identity) {
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
           throw new Error(`Captured state for identity ${identity.name} no longer satisfies its success condition`);
         }
       }
 
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       const tools = callerTools(
         createBlackboxTools({
           role: 'blackbox-recon',
           readTargetHistory: async () => {
-            const current = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+            const current = await readTargetHistory(
+              client,
+              context.targetOrigin,
+              context.config.rules,
+              cancellationSignal,
+            );
             return previewTraffic(
               before,
               current,
@@ -1158,7 +1504,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           },
         }),
       );
-      const auditSession = dependencies.createAuditSession(input);
+      const auditSession = dependencies.createAuditSession(input, context.runScope);
       await auditSession.initialize(input.workflowId);
       let after: HistorySnapshot;
       let submitted: WorkerContribution | null = null;
@@ -1185,8 +1531,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
+        cancellationSignal?.throwIfAborted();
         submissionFailure = error;
         activityLogger().warn(
           `Recon model failed after task ${persistedTask.taskId}; preserving attributable traffic`,
@@ -1195,13 +1543,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           },
         );
       } finally {
-        after = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       }
       if (identity) {
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
           throw new Error(`Captured state for identity ${identity.name} is no longer authenticated`);
@@ -1209,7 +1557,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'state-save', statePath(input.repoPath, identity.name)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
       }
       const exchanges = await normalizeCapturedTraffic({
@@ -1266,6 +1614,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
   const runActionActivity = async (input: BlackboxWorkerActivityInput): Promise<WorkerContribution> => {
     const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== input.revision) throw new Error('blackbox-action received a stale blackboard revision');
     const task = snapshot.tasks.find(({ taskId }) => taskId === input.task.taskId);
@@ -1285,7 +1634,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     let requestedFreshActor: string | 'anonymous' | null = null;
 
     try {
-      await client.connect();
+      await client.connect(cancellationSignal);
       for (const { actor, session } of sessions) {
         const identity = context.config.identities.find(({ name }) => name === actor);
         if (actor !== 'anonymous' && !identity) throw new Error(`Unknown replay actor ${actor}`);
@@ -1293,17 +1642,19 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           await dependencies.runBrowserCommand(
             'playwright-cli',
             [`-s=${session}`, 'state-load', statePath(input.repoPath, identity.name)],
-            { cwd: input.repoPath },
+            cancellableBrowserOptions(input.repoPath, cancellationSignal),
           );
         }
-        await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', context.targetUrl], {
-          cwd: input.repoPath,
-        });
+        await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${session}`, 'open', context.targetUrl],
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        );
         if (identity) {
           const checked = await dependencies.runBrowserCommand(
             'playwright-cli',
             [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-            { cwd: input.repoPath },
+            cancellableBrowserOptions(input.repoPath, cancellationSignal),
           );
           if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
             throw new Error(`Captured state for replay actor ${identity.name} is no longer authenticated`);
@@ -1311,17 +1662,27 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         }
       }
 
-      let historyCheckpoint = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      let historyCheckpoint = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+      );
       const executeApprovedReplay = async (): Promise<ReplayOutcome> => {
         for (const { actor, session } of sessions) {
           if (actor === 'anonymous') continue;
           await dependencies.runBrowserCommand(
             'playwright-cli',
             [`-s=${session}`, 'state-save', statePath(input.repoPath, actor)],
-            { cwd: input.repoPath },
+            cancellableBrowserOptions(input.repoPath, cancellationSignal),
           );
         }
-        const currentHistory = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        const currentHistory = await readTargetHistory(
+          client,
+          context.targetOrigin,
+          context.config.rules,
+          cancellationSignal,
+        );
         if (requestedFreshActor) {
           const captured = await normalizeCapturedTraffic({
             targetOrigin: context.targetOrigin,
@@ -1365,6 +1726,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           rawStore: dependencies.createReplayRawStore(input.repoPath),
           identityState,
           provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         });
         const replayOutcome = await replay.replay(sequence);
         outcome = replayOutcome;
@@ -1390,7 +1752,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           replayTargetRequest: executeApprovedReplay,
         }),
       );
-      const auditSession = dependencies.createAuditSession(input);
+      const auditSession = dependencies.createAuditSession(input, context.runScope);
       await auditSession.initialize(input.workflowId);
       let submitted: WorkerContribution | null = null;
       try {
@@ -1412,8 +1774,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
+        cancellationSignal?.throwIfAborted();
         if (!outcome) throw error;
         activityLogger().warn('Action agent failed after deterministic replay; preserving the replay outcome', {
           error: error instanceof Error ? error.name : 'unknown',
@@ -1473,6 +1837,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
   const runVerifierActivity = async (input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt> => {
     const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== input.revision) throw new Error('blackbox-verifier received a stale blackboard revision');
     const candidate = snapshot.candidateProofs.find(({ candidateId }) => candidateId === input.candidateId);
@@ -1526,10 +1891,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     let outcome: ReplayOutcome | null = null;
     let requestedFreshActor: string | 'anonymous' | null = null;
     try {
-      await client.connect();
+      await client.connect(cancellationSignal);
       for (const { identity, session, storagePath } of sessions) {
         const loginTask = verificationLoginTask(verificationId, identity.name);
-        const auditSession = dependencies.createAuditSession(input);
+        const auditSession = dependencies.createAuditSession(input, context.runScope);
         await auditSession.initialize(input.workflowId);
         const loginTools = callerTools(
           createBlackboxTools({
@@ -1555,8 +1920,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             customTools: loginTools,
             auditSession: auditSession as AuditSession,
             logger: activityLogger(),
+            ...(cancellationSignal ? { cancellationSignal } : {}),
           });
         } catch (error) {
+          cancellationSignal?.throwIfAborted();
           activityLogger().warn(`Fresh verifier login agent for ${identity.name} did not submit cleanly`, {
             error: error instanceof Error ? error.name : 'unknown',
           });
@@ -1565,20 +1932,32 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
           throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
         }
       }
-      let historyCheckpoint = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      let historyCheckpoint = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+      );
       const executeVerificationReplay = async (): Promise<ReplayOutcome> => {
         for (const { session, storagePath } of sessions) {
-          await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'state-save', storagePath], {
-            cwd: input.repoPath,
-          });
+          await dependencies.runBrowserCommand(
+            'playwright-cli',
+            [`-s=${session}`, 'state-save', storagePath],
+            cancellableBrowserOptions(input.repoPath, cancellationSignal),
+          );
         }
-        const currentHistory = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        const currentHistory = await readTargetHistory(
+          client,
+          context.targetOrigin,
+          context.config.rules,
+          cancellationSignal,
+        );
         if (requestedFreshActor) {
           const captured = await normalizeCapturedTraffic({
             targetOrigin: context.targetOrigin,
@@ -1618,6 +1997,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           rawStore: dependencies.createReplayRawStore(input.repoPath),
           identityState,
           provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         });
         const replayOutcome = await replay.replay(sequence);
         outcome = replayOutcome;
@@ -1649,7 +2029,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           replayVerificationRequest: executeVerificationReplay,
         }),
       );
-      const auditSession = dependencies.createAuditSession(input);
+      const auditSession = dependencies.createAuditSession(input, context.runScope);
       await auditSession.initialize(input.workflowId);
       let submitted: VerificationResult | null = null;
       let submissionFailed = false;
@@ -1669,8 +2049,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as VerificationResult;
       } catch (error) {
+        cancellationSignal?.throwIfAborted();
         if (!outcome) throw error;
         submissionFailed = true;
         activityLogger().warn('Verifier model failed after deterministic replay; preserving replay evidence', {
@@ -1684,7 +2066,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
-          { cwd: input.repoPath },
+          cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
           throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
@@ -1746,13 +2128,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   ): Promise<WorkerContribution> => {
     if (kind === 'blackbox-recon') return runReconActivity(input);
     if (kind === 'blackbox-action') return runActionActivity(input);
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
+    const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== input.revision) throw new Error(`${kind} received a stale blackboard revision`);
     const persistedTask = snapshot.tasks.find(({ taskId }) => taskId === input.task.taskId);
     if (!persistedTask || persistedTask.status !== 'running') throw new Error(`${kind} task is not running`);
     if (persistedTask.kind !== 'analysis') throw new Error(`${kind} requires a running analysis task kind`);
-    const auditSession = dependencies.createAuditSession(input);
+    const auditSession = dependencies.createAuditSession(input, context.runScope);
     await auditSession.initialize(input.workflowId);
     const submitted = (await dependencies.createAgentRunner(input).run({
       kind,
@@ -1763,6 +2146,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       customTools: [],
       auditSession: auditSession as AuditSession,
       logger: activityLogger(),
+      ...(cancellationSignal ? { cancellationSignal } : {}),
     })) as WorkerContribution;
     const namespaced = namespaceContributionRecords(submitted, persistedTask.taskId);
     return {
@@ -1773,8 +2157,17 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     };
   };
 
+  const reserveBlackboxPlanningWave = async (
+    input: ReservePlanningWaveInput,
+  ): Promise<TaskTransitionResult> => {
+    const context = await loadRuntimeContext(dependencies, input);
+    const { store } = await initializeStore(input, context);
+    const next = await store.reservePlanningWave(input.revision, input.operationKey, input.waveNumber);
+    return { revision: next.revision, tasks: taskStates(next) };
+  };
+
   const registerPlannedWave = async (input: RegisterWaveInput): Promise<RegisteredWave> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
     if (snapshot.revision === input.revision) {
       const expected = validateAndScheduleWave(input.batch, toSchedulerSnapshot(snapshot, context.config.rules));
@@ -1798,19 +2191,20 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       accepted,
       rejected,
       closedHypothesisIds: input.wave.closedHypothesisIds,
+      planningWave: { waveNumber: input.waveNumber, plannerStop: input.batch.stop },
     });
     return { revision: next.revision, wave: structuredClone(input.wave), tasks: taskStates(next) };
   };
 
   const startBlackboxTasks = async (input: StartTasksInput): Promise<TaskTransitionResult> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store } = await initializeStore(input, context);
     const next = await store.startTasks(input.revision, input.operationKey, input.taskIds);
     return { revision: next.revision, tasks: taskStates(next) };
   };
 
   const settleBlackboxTasks = async (input: SettleTasksInput): Promise<SettledTasksResult> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store } = await initializeStore(input, context);
     const failures = input.failures.map(({ taskId, reason }) => ({
       taskId,
@@ -1833,14 +2227,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   };
 
   const recordBlackboxVerification = async (input: RecordVerificationInput): Promise<number> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store } = await initializeStore(input, context);
     const next = await store.recordVerification(input.revision, input.operationKey, input.attempt);
     return next.revision;
   };
 
   const recordBlackboxVerificationFailure = async (input: RecordVerificationFailureInput): Promise<number> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
     const candidate = snapshot.candidateProofs.find(({ candidateId }) => candidateId === input.candidateId);
     if (!candidate) throw new Error(`Unknown candidate ${input.candidateId}`);
@@ -1862,45 +2256,49 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   };
 
   const evaluateBlackboxProgress = async (input: EvaluateProgressInput): Promise<EvaluateProgressResult> => {
-    const context = await loadTargetContext(dependencies, input);
-    const { snapshot } = await initializeStore(input, context);
-    if (snapshot.revision !== input.revision) {
-      throw new Error(
-        `Progress evaluation received stale revision ${input.revision}; current revision is ${snapshot.revision}`,
-      );
+    const context = await loadRuntimeContext(dependencies, input);
+    const { store, snapshot } = await initializeStore(input, context);
+    if (
+      snapshot.planningWave &&
+      (snapshot.planningWave.phase !== 'registered' ||
+        snapshot.planningWave.waveNumber !== input.waveNumber ||
+        snapshot.planningWave.plannerStop !== input.plannerStop)
+    ) {
+      throw new Error('Progress evaluation does not match the registered planning wave');
     }
     const pendingTasks = snapshot.tasks.filter(({ status }) => status === 'pending' || status === 'running').length;
     const openImpactHypotheses = snapshot.hypotheses.filter(
       ({ status }) => status === 'open' || status === 'queued' || status === 'tested' || status === 'blocked',
     ).length;
-    return {
-      decision: decideRunCompletion({
-        wave: input.waveNumber,
-        plannerStop: input.plannerStop,
-        pendingTasks,
-        openImpactHypotheses,
-        hitSafetyLimit: input.waveNumber >= 8,
-      }),
-      revision: snapshot.revision,
-    };
+    const decision = decideRunCompletion({
+      wave: input.waveNumber,
+      plannerStop: input.plannerStop,
+      pendingTasks,
+      openImpactHypotheses,
+      unknownDeliveries: snapshot.actions.filter(({ status }) => status === 'delivery_unknown').length,
+      hitSafetyLimit: input.waveNumber >= 8,
+    });
+    const next = await store.recordPlanningDecision(
+      input.revision,
+      input.operationKey,
+      input.waveNumber,
+      decision,
+    );
+    return { decision, revision: next.revision };
   };
 
   const finalizeBlackboxRun = async (input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> => {
-    const context = await loadTargetContext(dependencies, input);
+    const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
     const failure = input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null;
     const result = (findings: ReturnType<typeof collectVerifiedFindings>, revision: number): BlackboxWorkflowResult => {
-      const verifierResultIds = new Set(findings.map(({ verifierResultId }) => verifierResultId));
       return {
-        status: input.status,
+        mode: 'blackbox',
+        status: input.status === 'complete' ? (findings.length > 0 ? 'findings' : 'no_findings') : 'incomplete',
         revision,
-        failure,
-        verifiedCandidateIds: snapshot.verifications
-          .filter(({ verificationId }) => verifierResultIds.has(verificationId))
-          .map(({ candidateId }) => candidateId)
-          .sort(),
         findingCount: findings.length,
-        artifactNames: [...BLACKBOX_ARTIFACT_NAMES],
+        artifactNames: BLACKBOX_ARTIFACT_NAMES,
+        failures: failure ? [failure] : [],
       };
     };
 
@@ -1927,6 +2325,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
         throw new Error('Black-box artifact publisher returned an incomplete manifest');
       }
+      if (input.outputPath) {
+        await dependencies.copyDeliverables(input.repoPath, input.outputPath, artifactNames);
+      }
       const next = await store.setRunStatus(input.revision, input.operationKey, input.status);
       return result(findings, next.revision);
     } catch (error) {
@@ -1952,6 +2353,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     runBlackboxAnalysis: (input) => runWorker('blackbox-analysis', input),
     runBlackboxAction: (input) => runWorker('blackbox-action', input),
     runBlackboxVerifier: runVerifierActivity,
+    reserveBlackboxPlanningWave,
     registerPlannedWave,
     startBlackboxTasks,
     settleBlackboxTasks,
@@ -1962,73 +2364,88 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   };
 }
 
-function productionActivities(): BlackboxActivityApi {
-  return createBlackboxActivities();
+async function runProductionActivity<T>(execute: (activities: BlackboxActivityApi) => Promise<T>): Promise<T> {
+  const context = Context.current();
+  const signal = context.cancellationSignal;
+  heartbeat({ mode: 'blackbox' });
+  const heartbeatInterval = setInterval(() => heartbeat({ mode: 'blackbox' }), HEARTBEAT_INTERVAL_MS);
+  try {
+    signal.throwIfAborted();
+    const result = await execute(createBlackboxActivities({ getCancellationSignal: () => signal }));
+    signal.throwIfAborted();
+    return result;
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
 }
 
 export async function preflightBlackbox(input: BlackboxActivityInput): Promise<BlackboxPreflightResult> {
-  return productionActivities().preflightBlackbox(input);
+  return runProductionActivity((activities) => activities.preflightBlackbox(input));
 }
 
 export async function captureAnonymous(input: BlackboxActivityInput): Promise<IdentityCaptureResult> {
-  return productionActivities().captureAnonymous(input);
+  return runProductionActivity((activities) => activities.captureAnonymous(input));
 }
 
 export async function captureIdentity(
   input: BlackboxActivityInput,
   identityName: string,
 ): Promise<IdentityCaptureResult> {
-  return productionActivities().captureIdentity(input, identityName);
+  return runProductionActivity((activities) => activities.captureIdentity(input, identityName));
 }
 
 export async function readPlannerSnapshot(input: BlackboxActivityInput): Promise<BlackboxSchedulerSnapshot> {
-  return productionActivities().readPlannerSnapshot(input);
+  return runProductionActivity((activities) => activities.readPlannerSnapshot(input));
 }
 
 export async function runBlackboxPlanner(input: BlackboxActivityInput, revision: number): Promise<PlannerBatch> {
-  return productionActivities().runBlackboxPlanner(input, revision);
+  return runProductionActivity((activities) => activities.runBlackboxPlanner(input, revision));
 }
 
 export async function runBlackboxRecon(input: BlackboxWorkerActivityInput): Promise<WorkerContribution> {
-  return productionActivities().runBlackboxRecon(input);
+  return runProductionActivity((activities) => activities.runBlackboxRecon(input));
 }
 
 export async function runBlackboxAnalysis(input: BlackboxWorkerActivityInput): Promise<WorkerContribution> {
-  return productionActivities().runBlackboxAnalysis(input);
+  return runProductionActivity((activities) => activities.runBlackboxAnalysis(input));
 }
 
 export async function runBlackboxAction(input: BlackboxWorkerActivityInput): Promise<WorkerContribution> {
-  return productionActivities().runBlackboxAction(input);
+  return runProductionActivity((activities) => activities.runBlackboxAction(input));
 }
 
 export async function runBlackboxVerifier(input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt> {
-  return productionActivities().runBlackboxVerifier(input);
+  return runProductionActivity((activities) => activities.runBlackboxVerifier(input));
+}
+
+export async function reserveBlackboxPlanningWave(input: ReservePlanningWaveInput): Promise<TaskTransitionResult> {
+  return runProductionActivity((activities) => activities.reserveBlackboxPlanningWave(input));
 }
 
 export async function registerPlannedWave(input: RegisterWaveInput): Promise<RegisteredWave> {
-  return productionActivities().registerPlannedWave(input);
+  return runProductionActivity((activities) => activities.registerPlannedWave(input));
 }
 
 export async function startBlackboxTasks(input: StartTasksInput): Promise<TaskTransitionResult> {
-  return productionActivities().startBlackboxTasks(input);
+  return runProductionActivity((activities) => activities.startBlackboxTasks(input));
 }
 
 export async function settleBlackboxTasks(input: SettleTasksInput): Promise<SettledTasksResult> {
-  return productionActivities().settleBlackboxTasks(input);
+  return runProductionActivity((activities) => activities.settleBlackboxTasks(input));
 }
 
 export async function recordBlackboxVerification(input: RecordVerificationInput): Promise<number> {
-  return productionActivities().recordBlackboxVerification(input);
+  return runProductionActivity((activities) => activities.recordBlackboxVerification(input));
 }
 
 export async function recordBlackboxVerificationFailure(input: RecordVerificationFailureInput): Promise<number> {
-  return productionActivities().recordBlackboxVerificationFailure(input);
+  return runProductionActivity((activities) => activities.recordBlackboxVerificationFailure(input));
 }
 
 export async function evaluateBlackboxProgress(input: EvaluateProgressInput): Promise<EvaluateProgressResult> {
-  return productionActivities().evaluateBlackboxProgress(input);
+  return runProductionActivity((activities) => activities.evaluateBlackboxProgress(input));
 }
 
 export async function finalizeBlackboxRun(input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> {
-  return productionActivities().finalizeBlackboxRun(input);
+  return runProductionActivity((activities) => activities.finalizeBlackboxRun(input));
 }

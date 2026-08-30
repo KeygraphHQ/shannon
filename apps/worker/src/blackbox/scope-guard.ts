@@ -5,10 +5,20 @@
 // as published by the Free Software Foundation.
 
 import type { Rule, Rules } from '../types/config.js';
+import type { BlackboxRunScope } from '../types/blackbox.js';
 import type { ParsedHttpRequest } from './http-message.js';
 import { getHeaderValues } from './http-message.js';
 
 const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
+
+export const DEFAULT_BURP_MCP_URL = 'http://host.docker.internal:9876';
+export const DEFAULT_BURP_MCP_HOST_HEADER = '127.0.0.1:9876';
+
+export interface BlackboxScopeEnvironment {
+  readonly SHANNON_BURP_MCP_URL?: string;
+  readonly SHANNON_BURP_MCP_HOST_HEADER?: string;
+  readonly SHANNON_BURP_PROXY_URL?: string;
+}
 
 export interface NormalizedRequestTarget {
   readonly origin: string;
@@ -40,6 +50,66 @@ export function normalizeTargetOrigin(targetOrigin: string): string {
     throw new Error('Target origin must not contain credentials');
   }
   return parsed.origin;
+}
+
+function normalizeEndpoint(value: string, label: string, protocols: ReadonlySet<string>): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`${label} must be a valid URL`);
+  }
+  if (!protocols.has(parsed.protocol) || parsed.hostname.length === 0 || parsed.username || parsed.password) {
+    throw new Error(`${label} is invalid`);
+  }
+  return parsed.href;
+}
+
+export function createBlackboxRunScope(
+  targetUrl: string,
+  identities: readonly string[],
+  environment: BlackboxScopeEnvironment,
+): BlackboxRunScope {
+  const proxy = environment.SHANNON_BURP_PROXY_URL?.trim();
+  if (!proxy) throw new Error('SHANNON_BURP_PROXY_URL is required for black-box mode');
+  const hostHeader = (environment.SHANNON_BURP_MCP_HOST_HEADER?.trim() || DEFAULT_BURP_MCP_HOST_HEADER).toLowerCase();
+  if (/[^!-~]/.test(hostHeader) || /[/?#@]/.test(hostHeader)) {
+    throw new Error('SHANNON_BURP_MCP_HOST_HEADER is invalid');
+  }
+
+  return {
+    mode: 'blackbox',
+    targetOrigin: normalizeTargetOrigin(targetUrl),
+    identities: [...identities].sort((left, right) => left.localeCompare(right)),
+    burpMcpUrl: normalizeEndpoint(
+      environment.SHANNON_BURP_MCP_URL?.trim() || DEFAULT_BURP_MCP_URL,
+      'SHANNON_BURP_MCP_URL',
+      HTTP_PROTOCOLS,
+    ),
+    burpMcpHostHeader: hostHeader,
+    burpProxyUrl: normalizeEndpoint(proxy, 'SHANNON_BURP_PROXY_URL', new Set(['http:'])),
+  };
+}
+
+export function assertSameBlackboxRunScope(
+  existing: BlackboxRunScope,
+  expected: BlackboxRunScope,
+): void {
+  const fields: readonly (keyof BlackboxRunScope)[] = [
+    'mode',
+    'targetOrigin',
+    'identities',
+    'burpMcpUrl',
+    'burpMcpHostHeader',
+    'burpProxyUrl',
+  ];
+  for (const field of fields) {
+    const left = field === 'identities' ? [...existing.identities].sort() : existing[field];
+    const right = field === 'identities' ? [...expected.identities].sort() : expected[field];
+    if (JSON.stringify(left) !== JSON.stringify(right)) {
+      throw new Error(`Black-box resume scope mismatch: ${field}`);
+    }
+  }
 }
 
 function hostValues(request: ParsedHttpRequest): string[] {

@@ -11,11 +11,15 @@
 /**
  * Cross-cutting session metadata used by services, temporal, and audit.
  */
+import type { BlackboxRunScope } from './blackbox.js';
+
 export interface SessionMetadata {
   id: string;
   webUrl: string;
   repoPath?: string;
   outputPath?: string;
+  mode?: 'whitebox' | 'blackbox';
+  blackboxScope?: BlackboxRunScope;
   [key: string]: unknown;
 }
 

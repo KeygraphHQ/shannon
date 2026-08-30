@@ -30,6 +30,9 @@ import { getVersion, getVersionLine } from './version.js';
 
 export { buildWorkerDockerArgs } from './docker.js';
 export { buildEnvFlags } from './env.js';
+export { renderScan as renderStatusFrame } from './scan/render.js';
+export { isFailedScanState } from './scan/pipeline.js';
+export { toStatusJson } from './scan/status-json.js';
 
 function blockSudo(): void {
   const isSudo = !!process.env.SUDO_USER;
