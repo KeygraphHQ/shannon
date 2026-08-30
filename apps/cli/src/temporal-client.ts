@@ -70,11 +70,29 @@ let clientPromise: Promise<Client> | null = null;
 
 function getClient(): Promise<Client> {
   if (!clientPromise) {
-    clientPromise = Connection.connect({ address: ADDRESS }).then(
+    const pending = Connection.connect({ address: ADDRESS }).then(
       (connection) => new Client({ connection, namespace: NAMESPACE }),
     );
+    // A rejected connect must not be cached forever: clear the memo so the next call rebuilds
+    // instead of replaying the same failure. Scoped to `pending` so a later successful reconnect
+    // that replaced the memo is left untouched.
+    pending.catch(() => resetClient(pending));
+    clientPromise = pending;
   }
   return clientPromise;
+}
+
+/**
+ * Drop the memoized client so the next {@link getClient} builds a fresh Connection. The underlying
+ * gRPC channel can wedge such that every reused call fails identically ("Unexpected error while
+ * making gRPC request"), and only a new Connection recovers. Best-effort closes the old channel.
+ * When `only` is given, the memo is cleared only if it still holds that exact promise.
+ */
+function resetClient(only?: Promise<Client>): void {
+  if (only !== undefined && clientPromise !== only) return;
+  const previous = clientPromise;
+  clientPromise = null;
+  previous?.then((client) => client.connection.close()).catch(() => {});
 }
 
 /** Describe a scan: status, timing, and the agents currently running (from pendingActivities). Null if not found. */
@@ -201,6 +219,9 @@ export async function waitForWorkflowClose(workflowId: string, opts: WatchOption
       if (err instanceof WorkflowNotFoundError) {
         return { reason: 'closed' };
       }
+      // Drop the wedged channel so the next poll dials a fresh one; a cached dead channel would
+      // otherwise fail every retry identically and never recover.
+      resetClient();
       connectFailures++;
       lastError = err instanceof Error ? err.message : String(err);
       if (!warned && connectFailures >= warnAfterFailures) {
