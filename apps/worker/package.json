@@ -23,6 +23,7 @@
     "@earendil-works/pi-ai": "^0.84.2",
     "@earendil-works/pi-coding-agent": "^0.84.2",
     "@gotgenes/pi-permission-system": "^10.9.0",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "@temporalio/activity": "^1.11.0",
     "@temporalio/client": "^1.11.0",
     "@temporalio/worker": "^1.11.0",
