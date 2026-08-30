@@ -25,6 +25,7 @@ The first version covers horizontal and vertical authorization failures plus mul
 The following work is out of scope:
 
 - Injection, XSS, SSRF, and broad authentication testing.
+- WebSocket authorization flows; the first version inventories and replays HTTP requests only.
 - Source-code analysis or mounting the target repository.
 - A new intercepting proxy, crawler framework, scanner portfolio, budget harness, or sandbox redesign.
 - Automatic vulnerability-report submission.
@@ -161,7 +162,6 @@ The worker uses the official MCP client SDK to connect to the configured Burp SS
 
 - Read HTTP history for the configured target origin.
 - Send an HTTP/1.1 or HTTP/2 request to the configured target origin.
-- Read target-scoped WebSocket history when present.
 - Create a Repeater tab only for a replay-verified finding.
 
 No worker can read unrelated Burp history, change Burp configuration, toggle interception, or send requests to another origin through these tools. Analysis and planner workers receive read-only normalized evidence rather than raw replay tools.
