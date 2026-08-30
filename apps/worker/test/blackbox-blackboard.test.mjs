@@ -121,12 +121,198 @@ function action(actionId = 'act_001', hypothesisId = 'hyp_001') {
   };
 }
 
+function replayPlan(overrides = {}) {
+  return {
+    steps: [],
+    proofCondition: { type: 'body_contains', marker: 'victim-marker' },
+    ...overrides,
+  };
+}
+
+function resource(resourceId = 'res_victim', overrides = {}) {
+  return {
+    resourceId,
+    resourceType: 'account-record',
+    objectReferences: ['victim-record'],
+    ownerIdentity: 'victim',
+    visibility: 'private',
+    evidence: [{ id: 'ex_victim', kind: 'exchange' }],
+    provenance: UNTRUSTED_PROVENANCE,
+    ...overrides,
+  };
+}
+
+function candidateProof(actionId = 'action-1', hypothesisId = 'hyp_action', overrides = {}) {
+  return {
+    candidateId: 'candidate-1',
+    hypothesisId,
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    victimResourceId: 'res_victim',
+    baselineExchangeId: 'ex_victim',
+    actionId,
+    verificationSourceExchangeId: 'ex_victim',
+    demonstratedAction: 'read a victim-owned record',
+    concreteEffect: 'the victim record was disclosed',
+    affectedParty: 'users',
+    preconditions: ['Two ordinary users exist.'],
+    provenance: UNTRUSTED_PROVENANCE,
+    ...overrides,
+  };
+}
+
+async function makeActionStore(t, planOverrides = {}) {
+  const state = await makeStore(t);
+  let snapshot = await state.store.registerTasks(state.snapshot.revision, {
+    operationKey: 'register:action-fixture-recon',
+    accepted: [
+      plannerTask('recon-attacker', 'recon'),
+      plannerTask('recon-victim', 'recon', { identityLease: 'victim' }),
+    ],
+    rejected: [],
+  });
+  snapshot = await state.store.startTasks(snapshot.revision, 'start:action-fixture-recon', [
+    'recon-attacker',
+    'recon-victim',
+  ]);
+  snapshot = await state.store.settleTasks({
+    operationKey: 'settle:action-fixture-recon',
+    baseRevision: snapshot.revision,
+    contributions: [
+      {
+        taskId: 'recon-attacker',
+        role: 'blackbox-recon',
+        baseRevision: snapshot.revision,
+        exchanges: [exchange('ex_attacker')],
+      },
+      {
+        taskId: 'recon-victim',
+        role: 'blackbox-recon',
+        baseRevision: snapshot.revision,
+        exchanges: [exchange('ex_victim', { identity: 'victim', path: '/api/objects/victim-record' })],
+        resources: [resource()],
+      },
+    ],
+    failures: [],
+  });
+  snapshot = await state.store.registerTasks(snapshot.revision, {
+    operationKey: 'register:action-fixture-analysis',
+    accepted: [plannerTask('analysis-action', 'analysis')],
+    rejected: [],
+  });
+  snapshot = await state.store.startTasks(snapshot.revision, 'start:action-fixture-analysis', ['analysis-action']);
+  snapshot = await state.store.settleTasks({
+    operationKey: 'settle:action-fixture-analysis',
+    baseRevision: snapshot.revision,
+    contributions: [{
+      taskId: 'analysis-action',
+      role: 'blackbox-analysis',
+      baseRevision: snapshot.revision,
+      hypotheses: [hypothesis('hyp_action', [
+        { id: 'ex_attacker', kind: 'exchange' },
+        { id: 'res_victim', kind: 'resource' },
+      ])],
+    }],
+    failures: [],
+  });
+  const approvedPlan = replayPlan({
+    steps: [
+      { stepId: 'victim-baseline', sourceExchangeId: 'ex_victim', actor: 'victim', mutations: [] },
+      {
+        stepId: 'attacker-replay',
+        sourceExchangeId: 'ex_victim',
+        actor: 'attacker',
+        mutations: [{ type: 'set_path', path: '/api/objects/victim-record' }],
+      },
+    ],
+    ...planOverrides,
+  });
+  snapshot = await state.store.registerTasks(snapshot.revision, {
+    operationKey: 'register:action-fixture-action',
+    accepted: [plannerTask('action-1', 'action', {
+      hypothesisId: 'hyp_action',
+      replayPlan: approvedPlan,
+    })],
+    rejected: [],
+  });
+  snapshot = await state.store.startTasks(snapshot.revision, 'start:action-fixture-action', ['action-1']);
+  return { ...state, snapshot, approvedPlan };
+}
+
+function successfulActionContribution(baseRevision, approvedPlan, overrides = {}) {
+  return {
+    taskId: 'action-1',
+    role: 'blackbox-action',
+    baseRevision,
+    exchanges: [exchange('ex_action', { captureSequence: 3 })],
+    actions: [{
+      ...action('action-1', 'hyp_action'),
+      sequence: { actionId: 'action-1', ...approvedPlan },
+      exchangeIds: ['ex_action'],
+      observation: {
+        condition: approvedPlan.proofCondition,
+        passed: true,
+        observedMarkerDigest: 'sha256:observed-marker',
+        observedTransitionId: null,
+        verificationExchangeId: 'ex_action',
+      },
+    }],
+    candidateProofs: [candidateProof()],
+    ...overrides,
+  };
+}
+
+async function makeSettledActionStore(t, planOverrides = {}) {
+  const state = await makeActionStore(t, planOverrides);
+  const snapshot = await state.store.settleTasks({
+    operationKey: 'settle:action-fixture-success',
+    baseRevision: state.snapshot.revision,
+    contributions: [successfulActionContribution(state.snapshot.revision, state.approvedPlan)],
+    failures: [],
+  });
+  return { ...state, snapshot };
+}
+
+function verifiedAttempt(approvedPlan, overrides = {}) {
+  const base = {
+    verification: {
+      verificationId: 'verification-1',
+      candidateId: 'candidate-1',
+      verdict: 'verified',
+      freshStateRefs: [
+        { identity: 'attacker', stateRef: 'verify/attacker/storage-state.json' },
+        { identity: 'victim', stateRef: 'verify/victim/storage-state.json' },
+      ],
+      replayActionIds: ['action-1'],
+      replayExchangeIds: ['ex_verify'],
+      observation: {
+        condition: approvedPlan.proofCondition,
+        passed: true,
+        observedMarkerDigest: 'sha256:verified-marker',
+        observedTransitionId: null,
+        verificationExchangeId: 'ex_verify',
+      },
+      failureReason: null,
+      demonstratedAction: 'read a victim-owned record',
+      concreteEffect: 'the victim record was disclosed',
+      affectedParty: 'users',
+    },
+    exchanges: [exchange('ex_verify', { captureSequence: 4 })],
+  };
+  return {
+    ...base,
+    ...overrides,
+    verification: { ...base.verification, ...(overrides.verification ?? {}) },
+  };
+}
+
 test('initialization atomically writes a redacted revision-zero document', async (t) => {
   const { root, snapshot } = await makeStore(t);
   const boardPath = path.join(root, '.shannon', 'blackbox', 'blackboard.json');
   const serialized = await readFile(boardPath, 'utf8');
 
   assert.equal(snapshot.revision, 0);
+  assert.deepEqual(snapshot.operationReceipts, []);
   assert.equal(snapshot.targetOrigin, TARGET_ORIGIN);
   assert.deepEqual(snapshot.identities.map(({ name, role, authenticated, stateRef }) => ({ name, role, authenticated, stateRef })), [
     { name: 'attacker', role: 'ordinary user', authenticated: true, stateRef: 'state/attacker.json' },
@@ -137,6 +323,433 @@ test('initialization atomically writes a redacted revision-zero document', async
   assert.equal(serialized.includes('bearer-fixture-value'), false);
   assert.equal(serialized.includes('csrf-fixture-value'), false);
   await assert.rejects(readFile(`${boardPath}.tmp`, 'utf8'), /ENOENT/);
+});
+
+test('a keyed transition replays idempotently before stale-revision checks and rejects changed content', async (t) => {
+  const { store } = await makeStore(t);
+  const batch = {
+    operationKey: 'register:idempotent',
+    accepted: [plannerTask('recon-idempotent', 'recon')],
+    rejected: [],
+  };
+
+  const first = await store.registerTasks(0, batch);
+  const reorderedTask = Object.fromEntries(Object.entries(plannerTask('recon-idempotent', 'recon')).reverse());
+  const replay = await store.registerTasks(0, {
+    rejected: [],
+    accepted: [reorderedTask],
+    operationKey: 'register:idempotent',
+  });
+
+  assert.deepEqual(replay, first);
+  assert.equal(first.operationReceipts.length, 1);
+  assert.match(first.operationReceipts[0].requestDigest, /^sha256:[a-f0-9]{64}$/);
+  assert.deepEqual(first.operationReceipts[0], {
+    operationKey: 'register:idempotent',
+    requestDigest: first.operationReceipts[0].requestDigest,
+    revision: 1,
+  });
+
+  await assert.rejects(
+    store.registerTasks(0, {
+      operationKey: 'register:idempotent',
+      accepted: [plannerTask('recon-changed', 'recon')],
+      rejected: [],
+    }),
+    /operation key.*different content/i,
+  );
+  assert.deepEqual(await store.read(), first);
+});
+
+test('every keyed lifecycle transition is idempotent', async (t) => {
+  const { store } = await makeStore(t);
+  let snapshot = await store.registerTasks(0, {
+    operationKey: 'lifecycle:register',
+    accepted: [plannerTask('recon-lifecycle', 'recon')],
+    rejected: [],
+  });
+
+  const started = await store.startTasks(snapshot.revision, 'lifecycle:start', ['recon-lifecycle']);
+  assert.deepEqual(
+    await store.startTasks(snapshot.revision, 'lifecycle:start', ['recon-lifecycle']),
+    started,
+  );
+
+  const settlement = {
+    operationKey: 'lifecycle:settle',
+    baseRevision: started.revision,
+    contributions: [{
+      taskId: 'recon-lifecycle',
+      role: 'blackbox-recon',
+      baseRevision: started.revision,
+      exchanges: [exchange('ex_lifecycle')],
+    }],
+    failures: [],
+  };
+  const settled = await store.settleTasks(settlement);
+  assert.deepEqual(await store.settleTasks(settlement), settled);
+
+  const finalized = await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete');
+  assert.deepEqual(
+    await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete'),
+    finalized,
+  );
+  assert.equal(finalized.operationReceipts.length, 4);
+});
+
+test('schema-version-one documents written before operation receipts remain readable', async (t) => {
+  const { root, store } = await makeStore(t);
+  const boardPath = path.join(root, '.shannon', 'blackbox', 'blackboard.json');
+  const legacy = JSON.parse(await readFile(boardPath, 'utf8'));
+  delete legacy.operationReceipts;
+  await writeFile(boardPath, JSON.stringify(legacy), 'utf8');
+
+  const snapshot = await store.read();
+  assert.equal(snapshot.revision, 0);
+  assert.equal(snapshot.operationReceipts, undefined);
+});
+
+test('task registration queues action hypotheses and closes exhausted hypotheses atomically', async (t) => {
+  const { store, snapshot, taskId } = await makeRunningStore(t, 'analysis');
+  let current = await store.settleTasks({
+    operationKey: 'settle:analysis-lifecycle',
+    baseRevision: snapshot.revision,
+    contributions: [{
+      taskId,
+      role: 'blackbox-analysis',
+      baseRevision: snapshot.revision,
+      hypotheses: [hypothesis('hyp_queue'), hypothesis('hyp_close')],
+    }],
+    failures: [],
+  });
+  const beforeRegistration = current;
+  current = await store.registerTasks(current.revision, {
+    operationKey: 'register:action-lifecycle',
+    accepted: [plannerTask('act_lifecycle', 'action', {
+      hypothesisId: 'hyp_queue',
+      replayPlan: replayPlan(),
+    })],
+    rejected: [],
+    closedHypothesisIds: ['hyp_close'],
+  });
+
+  assert.equal(current.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_queue')?.status, 'queued');
+  assert.equal(
+    current.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_close')?.status,
+    'no_demonstrated_impact',
+  );
+
+  await assert.rejects(
+    store.registerTasks(current.revision, {
+      operationKey: 'register:reopen-closed-hypothesis',
+      accepted: [plannerTask('act_reopen', 'action', {
+        hypothesisId: 'hyp_close',
+        replayPlan: replayPlan(),
+      })],
+      rejected: [],
+    }),
+    /cannot queue.*no_demonstrated_impact/i,
+  );
+  await assert.rejects(
+    store.registerTasks(current.revision, {
+      operationKey: 'register:unknown-closure',
+      accepted: [],
+      rejected: [],
+      closedHypothesisIds: ['hyp_missing'],
+    }),
+    /unknown hypothesis/i,
+  );
+  assert.notDeepEqual(current, beforeRegistration);
+  assert.deepEqual(await store.read(), current);
+});
+
+test('analysis cannot assign orchestrator-owned hypothesis lifecycle states', async (t) => {
+  const { store, snapshot, taskId } = await makeRunningStore(t, 'analysis');
+  const before = await store.read();
+
+  await assert.rejects(
+    store.settleTasks({
+      operationKey: 'settle:analysis-terminal-hypothesis',
+      baseRevision: snapshot.revision,
+      contributions: [{
+        taskId,
+        role: 'blackbox-analysis',
+        baseRevision: snapshot.revision,
+        hypotheses: [{ ...hypothesis('hyp_model_terminal'), status: 'verified' }],
+      }],
+      failures: [],
+    }),
+    /hypothesis.*open|open.*hypothesis|lifecycle/i,
+  );
+  assert.deepEqual(await store.read(), before);
+});
+
+test('queued and blocked hypotheses can be replanned or explicitly closed', async (t) => {
+  await t.test('queued after action activity failure can be replanned', async (t) => {
+    const { store, snapshot, approvedPlan } = await makeActionStore(t);
+    const failed = await store.settleTasks({
+      operationKey: 'settle:action-activity-failure',
+      baseRevision: snapshot.revision,
+      contributions: [],
+      failures: [{ taskId: 'action-1', reason: 'activity failed before replay' }],
+    });
+    assert.equal(failed.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'queued');
+
+    const replanned = await store.registerTasks(failed.revision, {
+      operationKey: 'register:replan-queued',
+      accepted: [plannerTask('action-2', 'action', {
+        hypothesisId: 'hyp_action',
+        replayPlan: approvedPlan,
+      })],
+      rejected: [],
+    });
+    assert.equal(replanned.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'queued');
+  });
+
+  await t.test('blocked verification can be explicitly closed', async (t) => {
+    const { store, snapshot } = await makeSettledActionStore(t);
+    const blocked = await store.recordVerification(snapshot.revision, 'verify:blocked-for-closure', {
+      verification: {
+        verificationId: 'verification-blocked-for-closure',
+        candidateId: 'candidate-1',
+        verdict: 'blocked',
+        freshStateRefs: [],
+        replayActionIds: ['action-1'],
+        replayExchangeIds: [],
+        observation: null,
+        failureReason: 'fresh login could not be established',
+      },
+      exchanges: [],
+    });
+    assert.equal(blocked.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'blocked');
+
+    const closed = await store.registerTasks(blocked.revision, {
+      operationKey: 'register:close-blocked',
+      accepted: [],
+      rejected: [],
+      closedHypothesisIds: ['hyp_action'],
+    });
+    assert.equal(
+      closed.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status,
+      'no_demonstrated_impact',
+    );
+  });
+});
+
+test('action settlement atomically binds replay evidence to its registered task and marks the hypothesis tested', async (t) => {
+  const { store, snapshot, approvedPlan } = await makeActionStore(t);
+  const contribution = successfulActionContribution(snapshot.revision, approvedPlan);
+  const settled = await store.settleTasks({
+    operationKey: 'settle:action-1',
+    baseRevision: snapshot.revision,
+    contributions: [contribution],
+    failures: [],
+  });
+
+  assert.equal(settled.tasks.find(({ taskId }) => taskId === 'action-1')?.status, 'completed');
+  assert.equal(settled.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'tested');
+  assert.equal(settled.exchanges.find(({ exchangeId }) => exchangeId === 'ex_action')?.provenance.taskId, 'action-1');
+  assert.equal(settled.actions[0].actionId, 'action-1');
+  assert.equal(settled.candidateProofs[0].hypothesisId, 'hyp_action');
+  assert.equal(settled.revision, snapshot.revision + 1);
+});
+
+test('a non-completed action outcome is persisted once and fails its task without a failure entry', async (t) => {
+  const { store, snapshot, approvedPlan } = await makeActionStore(t);
+  const contribution = successfulActionContribution(snapshot.revision, approvedPlan, {
+    candidateProofs: [],
+  });
+  contribution.actions = contribution.actions.map((result) => ({
+    ...result,
+    status: 'delivery_unknown',
+    observation: null,
+  }));
+
+  const settled = await store.settleTasks({
+    operationKey: 'settle:action-delivery-unknown',
+    baseRevision: snapshot.revision,
+    contributions: [contribution],
+    failures: [],
+  });
+
+  assert.equal(settled.actions.find(({ actionId }) => actionId === 'action-1')?.status, 'delivery_unknown');
+  assert.equal(settled.tasks.find(({ taskId }) => taskId === 'action-1')?.status, 'failed');
+  assert.equal(settled.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'tested');
+  assert.equal(settled.exchanges.some(({ exchangeId }) => exchangeId === 'ex_action'), true);
+});
+
+test('action settlement rejects an unbound result or candidate without a partial write', async (t) => {
+  for (const [name, mutate, pattern] of [
+    ['missing result', (contribution) => ({ ...contribution, actions: [] }), /exactly one action result/i],
+    ['wrong result ID', (contribution) => ({
+      ...contribution,
+      actions: contribution.actions.map((result) => ({
+        ...result,
+        actionId: 'action-other',
+        sequence: { ...result.sequence, actionId: 'action-other' },
+      })),
+      candidateProofs: contribution.candidateProofs.map((proof) => ({ ...proof, actionId: 'action-other' })),
+    }), /action result.*task/i],
+    ['changed replay plan', (contribution) => ({
+      ...contribution,
+      actions: contribution.actions.map((result) => ({
+        ...result,
+        sequence: { ...result.sequence, proofCondition: { type: 'body_contains', marker: 'changed' } },
+      })),
+    }), /approved replay plan/i],
+    ['changed proof observation', (contribution) => ({
+      ...contribution,
+      actions: contribution.actions.map((result) => ({
+        ...result,
+        observation: {
+          ...result.observation,
+          condition: { type: 'body_contains', marker: 'changed' },
+        },
+      })),
+    }), /observation.*approved proof/i],
+    ['wrong candidate hypothesis', (contribution) => ({
+      ...contribution,
+      candidateProofs: contribution.candidateProofs.map((proof) => ({
+        ...proof,
+        hypothesisId: 'hyp_other',
+      })),
+    }), /candidate.*hypothesis/i],
+    ['unsafe candidate ID', (contribution) => ({
+      ...contribution,
+      candidateProofs: contribution.candidateProofs.map((proof) => ({
+        ...proof,
+        candidateId: 'candidate:1',
+      })),
+    }), /proof ID.*safe identifier/i],
+  ]) {
+    await t.test(name, async (t) => {
+      const { store, snapshot, approvedPlan } = await makeActionStore(t);
+      const before = await store.read();
+      await assert.rejects(
+        store.settleTasks({
+          operationKey: `settle:invalid:${name}`,
+          baseRevision: snapshot.revision,
+          contributions: [mutate(successfulActionContribution(snapshot.revision, approvedPlan))],
+          failures: [],
+        }),
+        pattern,
+      );
+      assert.deepEqual(await store.read(), before);
+    });
+  }
+});
+
+test('verification atomically merges fresh replay evidence and promotes the tested hypothesis', async (t) => {
+  const { store, snapshot, approvedPlan } = await makeSettledActionStore(t);
+  const result = await store.recordVerification(
+    snapshot.revision,
+    'verify:candidate-1',
+    verifiedAttempt(approvedPlan),
+  );
+
+  assert.equal(result.verifications[0].verdict, 'verified');
+  assert.equal(result.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'verified');
+  assert.deepEqual(result.exchanges.find(({ exchangeId }) => exchangeId === 'ex_verify')?.provenance, {
+    actor: 'blackbox-verifier',
+    taskId: 'verification-1',
+    baseRevision: snapshot.revision,
+  });
+  assert.equal(result.revision, snapshot.revision + 1);
+  assert.deepEqual(
+    await store.recordVerification(snapshot.revision, 'verify:candidate-1', verifiedAttempt(approvedPlan)),
+    result,
+  );
+});
+
+test('a later blocked verifier result cannot downgrade an already verified hypothesis', async (t) => {
+  const { store, snapshot, approvedPlan } = await makeSettledActionStore(t);
+  const verified = await store.recordVerification(
+    snapshot.revision,
+    'verify:monotonic-success',
+    verifiedAttempt(approvedPlan),
+  );
+  const afterBlocked = await store.recordVerification(verified.revision, 'verify:monotonic-blocked', {
+    verification: {
+      verificationId: 'verification-later-blocked',
+      candidateId: 'candidate-1',
+      verdict: 'blocked',
+      freshStateRefs: [],
+      replayActionIds: ['action-1'],
+      replayExchangeIds: [],
+      observation: null,
+      failureReason: 'later fresh login failed',
+    },
+    exchanges: [],
+  });
+
+  assert.equal(afterBlocked.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_action')?.status, 'verified');
+});
+
+test('verified results require a passed linked replay from fresh state without partial evidence', async (t) => {
+  for (const [name, mutate, pattern] of [
+    ['failed observation', (attempt) => ({
+      ...attempt,
+      verification: {
+        ...attempt.verification,
+        observation: { ...attempt.verification.observation, passed: false },
+      },
+    }), /verified.*passed observation/i],
+    ['missing original action', (attempt) => ({
+      ...attempt,
+      verification: { ...attempt.verification, replayActionIds: [] },
+    }), /original action/i],
+    ['reused capture state', (attempt) => ({
+      ...attempt,
+      verification: {
+        ...attempt.verification,
+        freshStateRefs: attempt.verification.freshStateRefs.map((ref) =>
+          ref.identity === 'attacker' ? { ...ref, stateRef: 'state/attacker.json' } : ref,
+        ),
+      },
+    }), /fresh state.*attacker|attacker.*capture state/i],
+    ['missing replay actor', (attempt) => ({
+      ...attempt,
+      verification: {
+        ...attempt.verification,
+        freshStateRefs: attempt.verification.freshStateRefs.filter(({ identity }) => identity !== 'victim'),
+      },
+    }), /fresh state.*victim|victim.*fresh state/i],
+  ]) {
+    await t.test(name, async (t) => {
+      const { store, snapshot, approvedPlan } = await makeSettledActionStore(t);
+      const before = await store.read();
+      await assert.rejects(
+        store.recordVerification(
+          snapshot.revision,
+          `verify:invalid:${name}`,
+          mutate(verifiedAttempt(approvedPlan)),
+        ),
+        pattern,
+      );
+      assert.deepEqual(await store.read(), before);
+    });
+  }
+});
+
+test('persistent-state verification requires fresh state for its verification-source identity', async (t) => {
+  const plan = {
+    steps: [{ stepId: 'attacker-replay', sourceExchangeId: 'ex_victim', actor: 'attacker', mutations: [] }],
+    proofCondition: {
+      type: 'persistent_state',
+      verificationSourceExchangeId: 'ex_victim',
+      marker: 'victim-marker',
+    },
+  };
+  const { store, snapshot, approvedPlan } = await makeSettledActionStore(t, plan);
+  const attempt = verifiedAttempt(approvedPlan);
+  attempt.verification.freshStateRefs = attempt.verification.freshStateRefs.filter(
+    ({ identity }) => identity !== 'victim',
+  );
+
+  await assert.rejects(
+    store.recordVerification(snapshot.revision, 'verify:persistent-source', attempt),
+    /fresh state.*victim|victim.*fresh state/i,
+  );
 });
 
 test('task settlement atomically records authenticated identity state without credentials', async (t) => {
@@ -433,6 +1046,27 @@ test('accepted and rejected tasks share one task ID namespace', async (t) => {
     /duplicate task ID/i,
   );
   assert.deepEqual(await store.read(), before);
+});
+
+test('terminal status freezes the blackboard while preserving idempotent finalization retry', async (t) => {
+  const { store } = await makeStore(t);
+  const terminal = await store.setRunStatus(0, 'finalize:complete', 'complete');
+
+  const retried = await store.setRunStatus(0, 'finalize:complete', 'complete');
+  assert.deepEqual(retried, terminal);
+  await assert.rejects(
+    store.registerTasks(terminal.revision, {
+      operationKey: 'register:after-finalize',
+      accepted: [plannerTask('late-task', 'analysis')],
+      rejected: [],
+    }),
+    /terminal|final|running/i,
+  );
+  await assert.rejects(
+    store.setRunStatus(terminal.revision, 'finalize:changed', 'failed'),
+    /terminal|final|running/i,
+  );
+  assert.deepEqual(await store.read(), terminal);
 });
 
 test('concurrent writes serialize and reject one stale writer', async (t) => {

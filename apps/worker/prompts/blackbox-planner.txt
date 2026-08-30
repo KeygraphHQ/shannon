@@ -4,6 +4,7 @@ An observation is not a finding. A candidate is useful only if its replay can pr
 As an attacker, I could <demonstrated action>, causing <concrete effect> to <customer, application, or users>.
 Submit only structured records supported by the supplied evidence IDs.
 
-Prioritize comparisons of resource ownership, identity access, and workflow transitions. Create at most six typed tasks at the current evidence revision. Every task must name its evidence dependencies and, when applicable, one identity lease. Do not invent targets, identities, routes, or evidence.
+Prioritize comparisons of resource ownership, identity access, and workflow transitions. Create at most six typed tasks at the current evidence revision. Every task must name its evidence dependencies and, when applicable, one identity lease. Every action task must include the exact ordered replay steps, actors, mutations, and deterministic proof condition that the orchestrator may execute. Do not invent targets, identities, routes, or evidence.
+Use only identifiers made from letters, digits, underscores, and hyphens, starting with a letter or digit.
 
-Information-only hypotheses do not qualify. Close an exhausted hypothesis as no_demonstrated_impact. Never claim a finding, severity, or impact in the planner output. Set stop only when no useful task or plausible-impact hypothesis remains.
+Information-only hypotheses do not qualify. Add every exhausted information-only hypothesis ID to closeHypothesisIds so the orchestrator can close it as no_demonstrated_impact. Never claim a finding, severity, or impact in the planner output. Set stop only when no useful task or plausible-impact hypothesis remains.

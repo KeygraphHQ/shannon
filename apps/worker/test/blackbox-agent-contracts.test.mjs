@@ -164,6 +164,108 @@ test('submit schemas reject unknown properties at every top level', () => {
   );
 });
 
+test('submit schemas reject stable identifiers that downstream scheduling cannot consume', () => {
+  const provenance = { actor: 'blackbox-analysis', taskId: 'analysis-1', baseRevision: 0 };
+  const evidence = [{ id: 'exchange-1', kind: 'exchange' }];
+  const invalid = 'record:1';
+
+  assert.equal(
+    Value.Check(PLANNER_BATCH_SCHEMA, {
+      ...VALID.planner,
+      tasks: [
+        {
+          taskId: invalid,
+          kind: 'analysis',
+          objective: 'Compare ownership evidence',
+          evidence,
+          identityLease: null,
+          hypothesisId: null,
+          status: 'pending',
+        },
+      ],
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(WORKER_CONTRIBUTION_SCHEMA, {
+      ...VALID.contribution,
+      resources: [
+        {
+          resourceId: invalid,
+          resourceType: 'account',
+          objectReferences: ['1'],
+          ownerIdentity: 'attacker',
+          visibility: 'private',
+          evidence,
+          provenance,
+        },
+      ],
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(WORKER_CONTRIBUTION_SCHEMA, {
+      ...VALID.contribution,
+      transitions: [
+        {
+          transitionId: invalid,
+          identity: 'attacker',
+          fromState: 'before',
+          toState: 'after',
+          triggerExchangeId: 'exchange-1',
+          captureSequence: 1,
+          resourceId: null,
+          provenance,
+        },
+      ],
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(WORKER_CONTRIBUTION_SCHEMA, {
+      ...VALID.contribution,
+      hypotheses: [
+        {
+          hypothesisId: invalid,
+          kind: 'horizontal',
+          summary: 'Another identity may access the account',
+          preconditions: [],
+          attackerCapability: 'ordinary account',
+          evidence,
+          priority: 'high',
+          status: 'open',
+          provenance,
+        },
+      ],
+    }),
+    false,
+  );
+  assert.equal(
+    Value.Check(WORKER_CONTRIBUTION_SCHEMA, {
+      ...VALID.contribution,
+      candidateProofs: [
+        {
+          candidateId: invalid,
+          hypothesisId: 'hypothesis-1',
+          victimIdentity: 'victim',
+          attackerIdentity: 'attacker',
+          victimResourceId: 'resource-1',
+          baselineExchangeId: 'exchange-1',
+          actionId: 'action-1',
+          verificationSourceExchangeId: 'exchange-1',
+          demonstratedAction: 'Read another account',
+          concreteEffect: 'Disclosed private account data',
+          affectedParty: 'customer',
+          preconditions: [],
+          provenance,
+        },
+      ],
+    }),
+    false,
+  );
+  assert.equal(Value.Check(VERIFICATION_RESULT_SCHEMA, { ...VALID.verification, candidateId: invalid }), false);
+});
+
 test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {
   const secret = 'bootstrap-password-123';
   const value = {
@@ -276,6 +378,33 @@ test('runner distinguishes missing and invalid structured submissions and does n
     await assert.rejects(
       runner.run(runnerInput('planner')),
       (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === code && !('prompt' in error.failure),
+    );
+  }
+});
+
+test('analysis can create only open hypotheses; lifecycle status belongs to the orchestrator', () => {
+  const base = {
+    hypothesisId: 'hypothesis-1',
+    kind: 'horizontal',
+    summary: 'Another identity may access the resource.',
+    preconditions: ['two identities'],
+    attackerCapability: 'read another identity resource',
+    evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+    priority: 'high',
+    provenance: { actor: 'blackbox-analysis', taskId: 'analysis-1', baseRevision: 1 },
+  };
+  const contribution = {
+    taskId: 'analysis-1',
+    baseRevision: 1,
+    role: 'blackbox-analysis',
+    hypotheses: [{ ...base, status: 'open' }],
+  };
+  assert.equal(Value.Check(WORKER_CONTRIBUTION_SCHEMA, contribution), true);
+  for (const status of ['queued', 'tested', 'verified', 'disproved', 'blocked', 'no_demonstrated_impact']) {
+    assert.equal(
+      Value.Check(WORKER_CONTRIBUTION_SCHEMA, { ...contribution, hypotheses: [{ ...base, status }] }),
+      false,
+      `analysis must not assign ${status}`,
     );
   }
 });
@@ -415,8 +544,15 @@ test('worker prompts contain only evidence linked to their assignment', async ()
       identityLease: taskKind === 'analysis' ? null : 'attacker',
       hypothesisId: taskKind === 'action' ? 'linked-hypothesis' : null,
       status: 'running',
-      sourceExchangeId: taskKind === 'action' ? 'linked-exchange' : undefined,
-      proofCondition: taskKind === 'action' ? { type: 'body_contains', marker: 'linked-marker' } : undefined,
+      replayPlan: taskKind === 'action' ? {
+        steps: [{
+          stepId: 'linked-step',
+          sourceExchangeId: 'linked-exchange',
+          actor: 'attacker',
+          mutations: [{ type: 'set_path', path: '/linked' }],
+        }],
+        proofCondition: { type: 'body_contains', marker: 'linked-marker' },
+      } : undefined,
     };
     await runner.run(runnerInput(kind, {
       task,
@@ -465,6 +601,18 @@ test('verifier prompt omits claimant hypotheses and prior verifier conclusions',
     customTools,
     snapshot: {
       ...runnerInput().snapshot,
+      routes: [{
+        exchangeId: 'exchange-baseline',
+        routeSignature: 'route-reproduction',
+        identity: 'victim',
+        method: 'PATCH',
+        origin: 'https://target.example',
+        path: '/api/reproduction-source',
+      }, {
+        exchangeId: 'exchange-unrelated',
+        method: 'GET',
+        path: '/UNRELATED-ROUTE-SENTINEL',
+      }],
       hypotheses: [{ summary: 'CLAIMANT-HYPOTHESIS-SENTINEL' }],
       candidateProofs: [{
         candidateId: 'candidate-1',
@@ -503,11 +651,13 @@ test('verifier prompt omits claimant hypotheses and prior verifier conclusions',
   }));
 
   assert.match(prompt, /ACTION-REPRODUCTION-SENTINEL/);
+  assert.match(prompt, /\/api\/reproduction-source/);
   assert.doesNotMatch(prompt, /CLAIMANT-HYPOTHESIS-SENTINEL/);
   assert.doesNotMatch(prompt, /PRIOR-VERIFIER-CONCLUSION-SENTINEL/);
   assert.doesNotMatch(prompt, /CLAIMANT-(?:TITLE|SEVERITY|VERDICT)-SENTINEL/);
   assert.doesNotMatch(prompt, /CLAIMANT-(?:ACTION|EFFECT)-SENTINEL/);
   assert.doesNotMatch(prompt, /UNRELATED-VERIFIER-INPUT-SENTINEL/);
+  assert.doesNotMatch(prompt, /UNRELATED-ROUTE-SENTINEL/);
 });
 
 test('verifier rejects planner task prose', async () => {

@@ -5,3 +5,4 @@ As an attacker, I could <demonstrated action>, causing <concrete effect> to <cus
 Submit only structured records supported by the supplied evidence IDs.
 
 You receive reproduction inputs and proof conditions, not a candidate title, severity, confidence, or claimant verdict. Recreate state using fresh verifier identities and call only the bound replay tool. Decide verified, disproved, or blocked from your own replay evidence. Record concrete action and effect only when the proof demonstrates them. Do not infer severity or confidence from the candidate description.
+Use only identifiers made from letters, digits, underscores, and hyphens, starting with a letter or digit.

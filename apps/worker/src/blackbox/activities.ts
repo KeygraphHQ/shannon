@@ -5,9 +5,10 @@
 // as published by the Free Software Foundation.
 
 import { execFile } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import { promisify } from 'node:util';
+import { isDeepStrictEqual, promisify } from 'node:util';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { redactSensitive } from '../ai/sensitive-redaction.js';
 import { AuditSession } from '../audit/index.js';
@@ -16,9 +17,15 @@ import { createActivityLogger } from '../temporal/activity-logger.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type {
   BlackboardStore,
+  BlackboxActionResult,
+  BlackboxRunStatus,
   BlackboxSnapshot,
+  BlackboxVerificationAttempt,
+  EvidenceRef,
   NormalizedExchange,
   PlannerTask,
+  ReplaySequence,
+  VerificationResult,
   WorkerContribution,
 } from '../types/blackbox.js';
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
@@ -32,7 +39,20 @@ import {
   type HistorySnapshot,
   readTargetHistory,
 } from './burp-client.js';
-import { type CaptureIndexEntry, FileIdentityStateResolver } from './identity-state.js';
+import { type CaptureIndexEntry, FileIdentityStateResolver, type IdentityStateResolver } from './identity-state.js';
+import {
+  FileReplayRawStore,
+  type ReplayOutcome,
+  type ReplayRawStore,
+  ReplayService,
+  type ReplayServiceOptions,
+} from './replay-service.js';
+import {
+  type BlackboxSchedulerSnapshot,
+  decideRunCompletion,
+  type ScheduledWave,
+  validateAndScheduleWave,
+} from './scheduler.js';
 import { normalizeTargetOrigin } from './scope-guard.js';
 import { createBlackboxTools } from './tools.js';
 import { diffHistory, normalizeCapturedTraffic, normalizeRawExchange } from './traffic-normalizer.js';
@@ -95,9 +115,10 @@ export interface BrowserCommandResult {
 
 export interface BlackboxFileSystem {
   readFile(filePath: string, encoding: 'utf8'): Promise<string | Buffer>;
+  mkdir(directoryPath: string, options: { readonly recursive: true }): Promise<unknown>;
 }
 
-interface CaptureIndexWriter {
+interface BlackboxIdentityState extends IdentityStateResolver {
   writeCaptureIndex(identity: string, entries: readonly CaptureIndexEntry[]): Promise<void>;
 }
 
@@ -107,6 +128,10 @@ interface BlackboxAgentRunnerLike {
 
 interface BlackboxAuditSessionLike {
   initialize(workflowId?: string): Promise<void>;
+}
+
+interface BlackboxReplayServiceLike {
+  replay: ReplayService['replay'];
 }
 
 export interface BlackboxActivityDependencies {
@@ -124,17 +149,110 @@ export interface BlackboxActivityDependencies {
   readonly logger?: ActivityLogger;
   readonly readEnvironment: () => Readonly<Record<string, string | undefined>>;
   readonly fileSystem: BlackboxFileSystem;
-  readonly createIdentityStateResolver: (repoPath: string, identities: readonly string[]) => CaptureIndexWriter;
+  readonly createIdentityStateResolver: (repoPath: string, identities: readonly string[]) => BlackboxIdentityState;
+  readonly createReplayRawStore: (repoPath: string) => ReplayRawStore;
+  readonly createReplayService: (options: ReplayServiceOptions) => BlackboxReplayServiceLike;
+}
+
+export type BlackboxWorkflowInput = BlackboxActivityInput;
+
+export interface BlackboxTaskState {
+  readonly taskId: string;
+  readonly status: PlannerTask['status'];
+  readonly identityLease: PlannerTask['identityLease'];
+}
+
+export interface RegisterWaveInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly waveNumber: number;
+  readonly batch: PlannerBatch;
+  readonly wave: ScheduledWave;
+  readonly operationKey: string;
+}
+
+export interface RegisteredWave {
+  readonly revision: number;
+  readonly wave: ScheduledWave;
+  readonly tasks: readonly BlackboxTaskState[];
+}
+
+export interface StartTasksInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly taskIds: readonly string[];
+  readonly operationKey: string;
+}
+
+export interface TaskTransitionResult {
+  readonly revision: number;
+  readonly tasks: readonly BlackboxTaskState[];
+}
+
+export interface SettleTasksInput extends BlackboxActivityInput {
+  readonly baseRevision: number;
+  readonly contributions: readonly WorkerContribution[];
+  readonly failures: readonly { readonly taskId: string; readonly reason: string }[];
+  readonly operationKey: string;
+}
+
+export interface SettledTasksResult extends TaskTransitionResult {
+  readonly candidateIds: readonly string[];
+}
+
+export interface RecordVerificationInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly attempt: BlackboxVerificationAttempt;
+  readonly operationKey: string;
+}
+
+export interface RecordVerificationFailureInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly candidateId: string;
+  readonly reason: string;
+  readonly operationKey: string;
+}
+
+export interface EvaluateProgressInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly waveNumber: number;
+  readonly plannerStop: boolean;
+}
+
+export interface EvaluateProgressResult {
+  readonly decision: 'continue' | 'complete' | 'incomplete';
+  readonly revision: number;
+}
+
+export interface FinalizeBlackboxInput extends BlackboxActivityInput {
+  readonly revision: number;
+  readonly status: Exclude<BlackboxRunStatus, 'running'>;
+  readonly failure?: string;
+  readonly operationKey: string;
+}
+
+export interface BlackboxWorkflowResult {
+  readonly status: Exclude<BlackboxRunStatus, 'running'>;
+  readonly revision: number;
+  readonly failure: string | null;
+  readonly verifiedCandidateIds: readonly string[];
 }
 
 export interface BlackboxActivityApi {
   preflightBlackbox(input: BlackboxActivityInput): Promise<BlackboxPreflightResult>;
   captureAnonymous(input: BlackboxActivityInput): Promise<IdentityCaptureResult>;
   captureIdentity(input: BlackboxActivityInput, identityName: string): Promise<IdentityCaptureResult>;
-  readPlannerSnapshot(input: BlackboxActivityInput): Promise<RedactedBlackboxSlice>;
+  readPlannerSnapshot(input: BlackboxActivityInput): Promise<BlackboxSchedulerSnapshot>;
   runBlackboxPlanner(input: BlackboxActivityInput, revision: number): Promise<PlannerBatch>;
   runBlackboxRecon(input: BlackboxWorkerActivityInput): Promise<WorkerContribution>;
   runBlackboxAnalysis(input: BlackboxWorkerActivityInput): Promise<WorkerContribution>;
+  runBlackboxAction(input: BlackboxWorkerActivityInput): Promise<WorkerContribution>;
+  runBlackboxVerifier(input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt>;
+  registerPlannedWave(input: RegisterWaveInput): Promise<RegisteredWave>;
+  startBlackboxTasks(input: StartTasksInput): Promise<TaskTransitionResult>;
+  settleBlackboxTasks(input: SettleTasksInput): Promise<SettledTasksResult>;
+  recordBlackboxVerification(input: RecordVerificationInput): Promise<number>;
+  recordBlackboxVerificationFailure(input: RecordVerificationFailureInput): Promise<number>;
+  evaluateBlackboxProgress(input: EvaluateProgressInput): Promise<EvaluateProgressResult>;
+  finalizeBlackboxRun(input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult>;
 }
 
 interface TargetContext {
@@ -177,6 +295,8 @@ const DEFAULT_DEPENDENCIES: BlackboxActivityDependencies = {
   fileSystem: fs,
   createIdentityStateResolver: (repoPath, identities) =>
     new FileIdentityStateResolver({ targetRoot: repoPath, identities }),
+  createReplayRawStore: (repoPath) => new FileReplayRawStore(rawDirectory(repoPath)),
+  createReplayService: (options) => new ReplayService(options),
 };
 
 function collectStrings(value: unknown, result: string[] = []): string[] {
@@ -320,6 +440,40 @@ function toRedactedSlice(snapshot: BlackboxSnapshot): RedactedBlackboxSlice {
   };
 }
 
+function toSchedulerSnapshot(
+  snapshot: BlackboxSnapshot,
+  rules: NormalizedBlackboxConfig['rules'],
+): BlackboxSchedulerSnapshot {
+  return {
+    revision: snapshot.revision,
+    targetOrigin: snapshot.targetOrigin,
+    rules: structuredClone(rules),
+    identities: snapshot.identities.map(({ name, authenticated }) => ({ name, authenticated })),
+    exchanges: snapshot.exchanges.map(({ exchangeId, origin, path: exchangePath, identity }) => ({
+      exchangeId,
+      origin,
+      path: exchangePath,
+      identity,
+      inScope: origin === snapshot.targetOrigin,
+    })),
+    references: [
+      ...snapshot.exchanges.map(({ exchangeId }): EvidenceRef => ({ id: exchangeId, kind: 'exchange' })),
+      ...snapshot.resources.map(({ resourceId }): EvidenceRef => ({ id: resourceId, kind: 'resource' })),
+      ...snapshot.transitions.map(({ transitionId }): EvidenceRef => ({ id: transitionId, kind: 'transition' })),
+      ...snapshot.actions.map(({ actionId }): EvidenceRef => ({ id: actionId, kind: 'action' })),
+      ...snapshot.candidateProofs.map(({ candidateId }): EvidenceRef => ({ id: candidateId, kind: 'proof' })),
+    ],
+    hypotheses: snapshot.hypotheses.map(({ hypothesisId, status }) => ({ hypothesisId, status })),
+    tasks: snapshot.tasks.map(({ taskId, status, identityLease, hypothesisId }) => ({
+      taskId,
+      status,
+      identityLease,
+      hypothesisId,
+    })),
+    rejectedTaskIds: snapshot.rejectedTasks.map(({ task }) => task.taskId),
+  };
+}
+
 function callerTools(tools: ReturnType<typeof createBlackboxTools>) {
   return tools.filter(({ name }) => !name.startsWith('submit_'));
 }
@@ -383,6 +537,7 @@ function previewTraffic(
   identity: string | 'anonymous',
   taskId: string,
   baseRevision: number,
+  captureSequenceOffset: number,
 ): readonly NormalizedExchange[] {
   return diffHistory(before, after)
     .map((raw, index) =>
@@ -391,7 +546,7 @@ function previewTraffic(
         rules: context.config.rules,
         identity,
         raw,
-        captureSequence: index + 1,
+        captureSequence: captureSequenceOffset + index + 1,
         configuredSecrets: context.configuredSecrets,
         provenance: { actor: 'blackbox-recon', taskId, baseRevision },
       }),
@@ -406,6 +561,200 @@ function safeSuccessEvidence(value: string, configuredSecrets: readonly string[]
       redactAuthenticationSyntax: true,
     }),
   );
+}
+
+function replaySequence(task: PlannerTask, actionId = task.taskId): ReplaySequence {
+  if (task.kind !== 'action' || !task.replayPlan)
+    throw new Error(`Action task ${task.taskId} has no approved replay plan`);
+  return { actionId, ...structuredClone(task.replayPlan) };
+}
+
+function actionStatus(outcome: ReplayOutcome): BlackboxActionResult['status'] {
+  return outcome.status;
+}
+
+function replayExchanges(outcome: ReplayOutcome): readonly NormalizedExchange[] {
+  return outcome.status === 'completed' ? outcome.exchanges : [];
+}
+
+function replayObservation(outcome: ReplayOutcome): BlackboxActionResult['observation'] {
+  return outcome.status === 'completed' ? outcome.observation : null;
+}
+
+function captureSequenceOffset(exchanges: readonly NormalizedExchange[], identity: string): number {
+  return exchanges.reduce(
+    (maximum, exchange) => (exchange.identity === identity ? Math.max(maximum, exchange.captureSequence) : maximum),
+    0,
+  );
+}
+
+function taskStates(snapshot: BlackboxSnapshot): readonly BlackboxTaskState[] {
+  return snapshot.tasks.map(({ taskId, status, identityLease }) => ({ taskId, status, identityLease }));
+}
+
+function verificationExecutionId(candidateId: string): string {
+  return `verify_${createHash('sha256').update(candidateId).digest('hex').slice(0, 24)}`;
+}
+
+type ModelRecordKind = 'task' | 'resource' | 'transition' | 'hypothesis' | 'candidate';
+
+function namespacedRecordId(kind: ModelRecordKind, namespace: string, submittedId: string): string {
+  const digest = createHash('sha256').update(`${namespace}\0${kind}\0${submittedId}`).digest('hex').slice(0, 24);
+  return `${kind}_${digest}`;
+}
+
+function namespacePlannerBatch(batch: PlannerBatch, revision: number): PlannerBatch {
+  const namespace = `revision-${revision}`;
+  return {
+    ...batch,
+    baseRevision: revision,
+    tasks: batch.tasks.map((task) => ({
+      ...task,
+      taskId: namespacedRecordId('task', namespace, task.taskId),
+      status: 'pending',
+    })),
+  };
+}
+
+function namespaceContributionRecords(contribution: WorkerContribution, taskId: string): WorkerContribution {
+  const resourceIds = new Map(
+    (contribution.resources ?? []).map(({ resourceId }) => [
+      resourceId,
+      namespacedRecordId('resource', taskId, resourceId),
+    ]),
+  );
+  const transitionIds = new Map(
+    (contribution.transitions ?? []).map(({ transitionId }) => [
+      transitionId,
+      namespacedRecordId('transition', taskId, transitionId),
+    ]),
+  );
+  const hypothesisIds = new Map(
+    (contribution.hypotheses ?? []).map(({ hypothesisId }) => [
+      hypothesisId,
+      namespacedRecordId('hypothesis', taskId, hypothesisId),
+    ]),
+  );
+  const candidateIds = new Map(
+    (contribution.candidateProofs ?? []).map(({ candidateId }) => [
+      candidateId,
+      namespacedRecordId('candidate', taskId, candidateId),
+    ]),
+  );
+  const remapEvidence = (evidence: EvidenceRef): EvidenceRef => {
+    const ids =
+      evidence.kind === 'resource'
+        ? resourceIds
+        : evidence.kind === 'transition'
+          ? transitionIds
+          : evidence.kind === 'proof'
+            ? candidateIds
+            : null;
+    return ids?.has(evidence.id) ? { ...evidence, id: ids.get(evidence.id) as string } : evidence;
+  };
+
+  return {
+    ...contribution,
+    ...(contribution.resources
+      ? {
+          resources: contribution.resources.map((resource) => ({
+            ...resource,
+            resourceId: resourceIds.get(resource.resourceId) as string,
+            evidence: resource.evidence.map(remapEvidence),
+          })),
+        }
+      : {}),
+    ...(contribution.transitions
+      ? {
+          transitions: contribution.transitions.map((transition) => ({
+            ...transition,
+            transitionId: transitionIds.get(transition.transitionId) as string,
+            resourceId: transition.resourceId
+              ? (resourceIds.get(transition.resourceId) ?? transition.resourceId)
+              : null,
+          })),
+        }
+      : {}),
+    ...(contribution.hypotheses
+      ? {
+          hypotheses: contribution.hypotheses.map((hypothesis) => ({
+            ...hypothesis,
+            hypothesisId: hypothesisIds.get(hypothesis.hypothesisId) as string,
+            evidence: hypothesis.evidence.map(remapEvidence),
+          })),
+        }
+      : {}),
+    ...(contribution.candidateProofs
+      ? {
+          candidateProofs: contribution.candidateProofs.map((candidate) => ({
+            ...candidate,
+            candidateId: candidateIds.get(candidate.candidateId) as string,
+            hypothesisId: hypothesisIds.get(candidate.hypothesisId) ?? candidate.hypothesisId,
+            victimResourceId: resourceIds.get(candidate.victimResourceId) ?? candidate.victimResourceId,
+          })),
+        }
+      : {}),
+  };
+}
+
+function verificationRoot(repoPath: string, verificationId: string): string {
+  return path.resolve(repoPath, '.shannon', 'blackbox', 'verification-runs', verificationId);
+}
+
+function verificationStateRef(verificationId: string, identity: string): string {
+  return `.shannon/blackbox/verification-runs/${verificationId}/.shannon/blackbox/identities/${identity}/storage-state.json`;
+}
+
+function verificationLoginTask(verificationId: string, identity: string): PlannerTask {
+  return {
+    taskId: `verify_login_${createHash('sha256').update(`${verificationId}\0${identity}`).digest('hex').slice(0, 24)}`,
+    kind: 'recon',
+    objective: `Create fresh isolated verifier state for identity ${identity} and save it without exploring other workflows.`,
+    evidence: [],
+    identityLease: identity,
+    hypothesisId: null,
+    status: 'running',
+  };
+}
+
+function verificationLoginInstructions(
+  identity: NormalizedBlackboxConfig['identities'][number],
+  session: string,
+  storagePath: string,
+): string {
+  const flow = identity.authentication.login_flow?.map((step, index) => `${index + 1}. ${step}`).join('\n') ?? '';
+  return [
+    `Use only Playwright session ${session}.`,
+    `Open ${identity.authentication.login_url} and authenticate as ${identity.name}.`,
+    `Login type: ${identity.authentication.login_type}.`,
+    ...(flow ? ['Configured login flow:', flow] : []),
+    `Verify ${identity.authentication.success_condition.type}: ${identity.authentication.success_condition.value}.`,
+    `Save browser state with: playwright-cli -s=${session} state-save ${storagePath}`,
+    'Do not authenticate as any other identity.',
+  ].join('\n');
+}
+
+async function assertStorageState(fileSystem: BlackboxFileSystem, filePath: string, identity: string): Promise<void> {
+  const rawState = String(await fileSystem.readFile(filePath, 'utf8'));
+  const parsedState = JSON.parse(rawState) as unknown;
+  if (
+    !parsedState ||
+    typeof parsedState !== 'object' ||
+    !Array.isArray((parsedState as Record<string, unknown>).cookies) ||
+    !Array.isArray((parsedState as Record<string, unknown>).origins)
+  ) {
+    throw new Error(`Identity ${identity} produced an invalid storage-state file`);
+  }
+}
+
+function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]): string {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  return String(
+    redactSensitive(message, {
+      sensitiveValues: configuredSecrets,
+      redactAuthenticationSyntax: true,
+    }),
+  ).slice(0, 500);
 }
 
 export function createBlackboxActivities(supplied: Partial<BlackboxActivityDependencies> = {}): BlackboxActivityApi {
@@ -518,7 +867,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       if (!runningTask || runningTask.status !== 'running') throw new Error(`Bootstrap task ${taskId} did not start`);
       const before = await readTargetHistory(client, context.targetOrigin, context.config.rules);
       let after: HistorySnapshot;
-      let submitted: WorkerContribution;
+      let submitted: WorkerContribution | null = null;
+      let submissionFailure: unknown = null;
       try {
         const auditSession = dependencies.createAuditSession(input);
         await auditSession.initialize(input.workflowId);
@@ -527,7 +877,15 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             role: 'blackbox-recon',
             readTargetHistory: async () => {
               const current = await readTargetHistory(client, context.targetOrigin, context.config.rules);
-              return previewTraffic(before, current, context, actor, taskId, started?.revision ?? 0);
+              return previewTraffic(
+                before,
+                current,
+                context,
+                actor,
+                taskId,
+                started?.revision ?? 0,
+                captureSequenceOffset(snapshot.exchanges, actor),
+              );
             },
           }),
         );
@@ -557,6 +915,11 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
         })) as WorkerContribution;
+      } catch (error) {
+        submissionFailure = error;
+        activityLogger().warn(`Recon model failed after browsing as ${actor}; preserving attributable traffic`, {
+          error: error instanceof Error ? error.name : 'unknown',
+        });
       } finally {
         after = await readTargetHistory(client, context.targetOrigin, context.config.rules);
       }
@@ -600,7 +963,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         rawDirectory: rawDirectory(input.repoPath),
         configuredSecrets: context.configuredSecrets,
         provenance: { actor: 'blackbox-recon', taskId, baseRevision: started.revision },
+        captureSequenceOffset: captureSequenceOffset(snapshot.exchanges, actor),
       });
+      if (submissionFailure && exchanges.length === 0) throw submissionFailure;
       if (exchanges.length === 0) throw new Error(`Identity ${actor} produced no attributable target traffic`);
 
       if (identity) {
@@ -618,13 +983,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         );
       }
 
+      const namespaced = submitted ? namespaceContributionRecords(submitted, taskId) : null;
       const contribution: WorkerContribution = {
         taskId,
         role: 'blackbox-recon',
         baseRevision: started.revision,
         exchanges,
-        ...(submitted.resources ? { resources: submitted.resources } : {}),
-        ...(submitted.transitions ? { transitions: submitted.transitions } : {}),
+        ...(namespaced?.resources ? { resources: namespaced.resources } : {}),
+        ...(namespaced?.transitions ? { transitions: namespaced.transitions } : {}),
       };
       const settled = await store.settleTasks({
         operationKey: `${input.workflowId}:0:settle:${taskId}`,
@@ -671,10 +1037,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     }
   };
 
-  const readPlannerSnapshot = async (input: BlackboxActivityInput): Promise<RedactedBlackboxSlice> => {
+  const readPlannerSnapshot = async (input: BlackboxActivityInput): Promise<BlackboxSchedulerSnapshot> => {
     const context = await loadTargetContext(dependencies, input);
     const { snapshot } = await initializeStore(input, context);
-    return toRedactedSlice(snapshot);
+    return toSchedulerSnapshot(snapshot, context.config.rules);
   };
 
   const runBlackboxPlanner = async (input: BlackboxActivityInput, revision: number): Promise<PlannerBatch> => {
@@ -683,7 +1049,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     if (snapshot.revision !== revision) throw new Error('Planner activity received a stale blackboard revision');
     const auditSession = dependencies.createAuditSession(input);
     await auditSession.initialize(input.workflowId);
-    return (await dependencies.createAgentRunner(input).run({
+    const submitted = (await dependencies.createAgentRunner(input).run({
       kind: 'planner',
       targetOrigin: context.targetOrigin,
       task: null,
@@ -693,6 +1059,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       auditSession: auditSession as AuditSession,
       logger: activityLogger(),
     })) as PlannerBatch;
+    return namespacePlannerBatch(submitted, revision);
   };
 
   const runReconActivity = async (input: BlackboxWorkerActivityInput): Promise<WorkerContribution> => {
@@ -739,14 +1106,23 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           role: 'blackbox-recon',
           readTargetHistory: async () => {
             const current = await readTargetHistory(client, context.targetOrigin, context.config.rules);
-            return previewTraffic(before, current, context, actor, persistedTask.taskId, input.revision);
+            return previewTraffic(
+              before,
+              current,
+              context,
+              actor,
+              persistedTask.taskId,
+              input.revision,
+              captureSequenceOffset(snapshot.exchanges, actor),
+            );
           },
         }),
       );
       const auditSession = dependencies.createAuditSession(input);
       await auditSession.initialize(input.workflowId);
       let after: HistorySnapshot;
-      let submitted: WorkerContribution;
+      let submitted: WorkerContribution | null = null;
+      let submissionFailure: unknown = null;
       try {
         submitted = (await dependencies.createAgentRunner(input).run({
           kind: 'blackbox-recon',
@@ -770,10 +1146,26 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
         })) as WorkerContribution;
+      } catch (error) {
+        submissionFailure = error;
+        activityLogger().warn(
+          `Recon model failed after task ${persistedTask.taskId}; preserving attributable traffic`,
+          {
+            error: error instanceof Error ? error.name : 'unknown',
+          },
+        );
       } finally {
         after = await readTargetHistory(client, context.targetOrigin, context.config.rules);
       }
       if (identity) {
+        const checked = await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
+          { cwd: input.repoPath },
+        );
+        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+          throw new Error(`Captured state for identity ${identity.name} is no longer authenticated`);
+        }
         await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'state-save', statePath(input.repoPath, identity.name)],
@@ -789,7 +1181,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         rawDirectory: rawDirectory(input.repoPath),
         configuredSecrets: context.configuredSecrets,
         provenance: { actor: 'blackbox-recon', taskId: persistedTask.taskId, baseRevision: input.revision },
+        captureSequenceOffset: captureSequenceOffset(snapshot.exchanges, actor),
       });
+      if (submissionFailure && exchanges.length === 0) throw submissionFailure;
       if (identity && exchanges.length > 0) {
         const resolver = dependencies.createIdentityStateResolver(
           input.repoPath,
@@ -809,13 +1203,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           })),
         );
       }
+      const namespaced = submitted ? namespaceContributionRecords(submitted, persistedTask.taskId) : null;
       return {
         taskId: persistedTask.taskId,
         role: 'blackbox-recon',
         baseRevision: input.revision,
         exchanges,
-        ...(submitted.resources ? { resources: submitted.resources } : {}),
-        ...(submitted.transitions ? { transitions: submitted.transitions } : {}),
+        ...(namespaced?.resources ? { resources: namespaced.resources } : {}),
+        ...(namespaced?.transitions ? { transitions: namespaced.transitions } : {}),
       };
     } finally {
       try {
@@ -829,11 +1224,478 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     }
   };
 
+  const runActionActivity = async (input: BlackboxWorkerActivityInput): Promise<WorkerContribution> => {
+    const context = await loadRuntimeContext(dependencies, input);
+    const { snapshot } = await initializeStore(input, context);
+    if (snapshot.revision !== input.revision) throw new Error('blackbox-action received a stale blackboard revision');
+    const task = snapshot.tasks.find(({ taskId }) => taskId === input.task.taskId);
+    if (!task || task.status !== 'running') throw new Error('blackbox-action task is not running');
+    if (task.kind !== 'action' || !task.replayPlan) {
+      throw new Error('blackbox-action requires a running action task with an approved replay plan');
+    }
+    if (!task.hypothesisId) throw new Error('blackbox-action requires a linked hypothesis');
+    const sequence = replaySequence(task);
+    const actors = [...new Set(sequence.steps.map(({ actor }) => actor))];
+    const knownIdentities = context.config.identities.map(({ name }) => name);
+    const identityState = dependencies.createIdentityStateResolver(input.repoPath, knownIdentities);
+    const client = dependencies.createBurpClient(context.burpSettings);
+    const sessions = actors.map((actor) => ({ actor, session: `bb-action-${task.taskId}-${actor}` }));
+    const dynamicExchanges: NormalizedExchange[] = [];
+    let outcome: ReplayOutcome | null = null;
+    let requestedFreshActor: string | 'anonymous' | null = null;
+
+    try {
+      await client.connect();
+      for (const { actor, session } of sessions) {
+        const identity = context.config.identities.find(({ name }) => name === actor);
+        if (actor !== 'anonymous' && !identity) throw new Error(`Unknown replay actor ${actor}`);
+        if (identity) {
+          await dependencies.runBrowserCommand(
+            'playwright-cli',
+            [`-s=${session}`, 'state-load', statePath(input.repoPath, identity.name)],
+            { cwd: input.repoPath },
+          );
+        }
+        await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', context.targetUrl], {
+          cwd: input.repoPath,
+        });
+        if (identity) {
+          const checked = await dependencies.runBrowserCommand(
+            'playwright-cli',
+            [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
+            { cwd: input.repoPath },
+          );
+          if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+            throw new Error(`Captured state for replay actor ${identity.name} is no longer authenticated`);
+          }
+        }
+      }
+
+      let historyCheckpoint = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const executeApprovedReplay = async (): Promise<ReplayOutcome> => {
+        for (const { actor, session } of sessions) {
+          if (actor === 'anonymous') continue;
+          await dependencies.runBrowserCommand(
+            'playwright-cli',
+            [`-s=${session}`, 'state-save', statePath(input.repoPath, actor)],
+            { cwd: input.repoPath },
+          );
+        }
+        const currentHistory = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        if (requestedFreshActor) {
+          const captured = await normalizeCapturedTraffic({
+            targetOrigin: context.targetOrigin,
+            rules: context.config.rules,
+            identity: requestedFreshActor,
+            before: historyCheckpoint,
+            after: currentHistory,
+            rawDirectory: rawDirectory(input.repoPath),
+            configuredSecrets: context.configuredSecrets,
+            provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
+            captureSequenceOffset: captureSequenceOffset(
+              [...snapshot.exchanges, ...dynamicExchanges],
+              requestedFreshActor,
+            ),
+          });
+          dynamicExchanges.push(...captured);
+          if (requestedFreshActor !== 'anonymous' && captured.length > 0) {
+            const indexed = new Map(
+              [
+                ...snapshot.exchanges.filter(({ identity }) => identity === requestedFreshActor),
+                ...dynamicExchanges.filter(({ identity }) => identity === requestedFreshActor),
+              ].map((exchange) => [exchange.exchangeId, exchange]),
+            );
+            await identityState.writeCaptureIndex(
+              requestedFreshActor,
+              [...indexed.values()].map(({ exchangeId, routeSignature, captureSequence }) => ({
+                exchangeId,
+                routeSignature,
+                captureSequence,
+              })),
+            );
+          }
+        }
+        historyCheckpoint = currentHistory;
+        const replay = dependencies.createReplayService({
+          targetOrigin: context.targetOrigin,
+          rules: context.config.rules,
+          configuredSecrets: context.configuredSecrets,
+          exchanges: [...snapshot.exchanges, ...dynamicExchanges],
+          client,
+          rawStore: dependencies.createReplayRawStore(input.repoPath),
+          identityState,
+          provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
+        });
+        const replayOutcome = await replay.replay(sequence);
+        outcome = replayOutcome;
+        requestedFreshActor = null;
+        if (replayOutcome.status === 'needs_fresh_actor_request') {
+          const step = sequence.steps.find(({ stepId }) => stepId === replayOutcome.stepId);
+          if (step) requestedFreshActor = step.actor;
+          else {
+            const proofCondition = sequence.proofCondition;
+            if (proofCondition.type !== 'persistent_state') return replayOutcome;
+            requestedFreshActor =
+              snapshot.exchanges.find(({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId)
+                ?.identity ?? null;
+          }
+        }
+        return replayOutcome;
+      };
+
+      const tools = callerTools(
+        createBlackboxTools({
+          role: 'blackbox-action',
+          task,
+          replayTargetRequest: executeApprovedReplay,
+        }),
+      );
+      const auditSession = dependencies.createAuditSession(input);
+      await auditSession.initialize(input.workflowId);
+      let submitted: WorkerContribution | null = null;
+      try {
+        submitted = (await dependencies.createAgentRunner(input).run({
+          kind: 'blackbox-action',
+          targetOrigin: context.targetOrigin,
+          task,
+          snapshot: toRedactedSlice(snapshot),
+          identity: {
+            name: task.identityLease ?? 'anonymous',
+            role: 'approved replay actor',
+            loginInstructions: [
+              'Use only the preloaded action sessions listed below.',
+              ...sessions.map(({ actor, session }) => `${actor}: playwright-cli -s=${session}`),
+              'If replay requests a fresh actor request, exercise only the returned route in that actor session, then retry once.',
+            ].join('\n'),
+            sensitiveValues: context.configuredSecrets,
+          },
+          customTools: tools,
+          auditSession: auditSession as AuditSession,
+          logger: activityLogger(),
+        })) as WorkerContribution;
+      } catch (error) {
+        if (!outcome) throw error;
+        activityLogger().warn('Action agent failed after deterministic replay; preserving the replay outcome', {
+          error: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+      const finalOutcome = outcome as ReplayOutcome | null;
+      if (!finalOutcome) throw new Error('blackbox-action did not execute its approved replay');
+
+      const observedExchanges = replayExchanges(finalOutcome);
+      const allExchanges = new Map(
+        [...dynamicExchanges, ...observedExchanges].map((exchange) => [exchange.exchangeId, exchange]),
+      );
+      const action: BlackboxActionResult = {
+        actionId: task.taskId,
+        hypothesisId: task.hypothesisId,
+        sequence,
+        status: actionStatus(finalOutcome),
+        exchangeIds: observedExchanges.map(({ exchangeId }) => exchangeId),
+        observation: replayObservation(finalOutcome),
+        provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
+      };
+      const candidateProofs =
+        finalOutcome.status === 'completed' && finalOutcome.observation.passed && submitted
+          ? namespaceContributionRecords(submitted, task.taskId).candidateProofs?.map((candidate) => ({
+              ...candidate,
+              actionId: task.taskId,
+              hypothesisId: task.hypothesisId as string,
+            }))
+          : undefined;
+      return {
+        taskId: task.taskId,
+        role: 'blackbox-action',
+        baseRevision: input.revision,
+        exchanges: [...allExchanges.values()],
+        actions: [action],
+        ...(candidateProofs ? { candidateProofs } : {}),
+      };
+    } finally {
+      for (const { session } of sessions) {
+        try {
+          await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'close'], { cwd: input.repoPath });
+        } catch (error) {
+          activityLogger().warn(`Unable to close Playwright session ${session}`, {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+        }
+      }
+      await closeBurpClient(client);
+    }
+  };
+
+  const runVerifierActivity = async (input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt> => {
+    const context = await loadRuntimeContext(dependencies, input);
+    const { snapshot } = await initializeStore(input, context);
+    if (snapshot.revision !== input.revision) throw new Error('blackbox-verifier received a stale blackboard revision');
+    const candidate = snapshot.candidateProofs.find(({ candidateId }) => candidateId === input.candidateId);
+    if (!candidate) throw new Error(`Unknown verification candidate ${input.candidateId}`);
+    const action = snapshot.actions.find(({ actionId }) => actionId === candidate.actionId);
+    if (!action || action.status !== 'completed' || !action.observation?.passed) {
+      throw new Error(`Candidate ${input.candidateId} has no completed passing action`);
+    }
+    const task = snapshot.tasks.find(({ taskId }) => taskId === action.actionId);
+    if (!task || task.kind !== 'action' || !task.replayPlan || task.status !== 'completed') {
+      throw new Error(`Candidate ${input.candidateId} has no persisted approved action task`);
+    }
+    const verificationId = verificationExecutionId(candidate.candidateId);
+    const sequence = replaySequence(task, verificationId);
+    const actors = new Set<string>();
+    for (const { actor } of sequence.steps) if (actor !== 'anonymous') actors.add(actor);
+    const proofCondition = sequence.proofCondition;
+    if (proofCondition.type === 'persistent_state') {
+      const verificationSource = snapshot.exchanges.find(
+        ({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId,
+      );
+      if (verificationSource?.identity && verificationSource.identity !== 'anonymous') {
+        actors.add(verificationSource.identity);
+      }
+    }
+    const identities = [...actors].map((actor) => {
+      const identity = context.config.identities.find(({ name }) => name === actor);
+      if (!identity) throw new Error(`Unknown verification actor ${actor}`);
+      return identity;
+    });
+    const freshRoot = verificationRoot(input.repoPath, verificationId);
+    const identityState = dependencies.createIdentityStateResolver(
+      freshRoot,
+      context.config.identities.map(({ name }) => name),
+    );
+    const sessions = identities.map((identity) => ({
+      identity,
+      session: `bb-verify-${verificationId}-${identity.name}`,
+      storagePath: statePath(freshRoot, identity.name),
+    }));
+    for (const { storagePath } of sessions) {
+      await dependencies.fileSystem.mkdir(path.dirname(storagePath), { recursive: true });
+    }
+
+    const client = dependencies.createBurpClient(context.burpSettings);
+    const dynamicExchanges: NormalizedExchange[] = [];
+    let outcome: ReplayOutcome | null = null;
+    let requestedFreshActor: string | 'anonymous' | null = null;
+    try {
+      await client.connect();
+      for (const { identity, session, storagePath } of sessions) {
+        const loginTask = verificationLoginTask(verificationId, identity.name);
+        const auditSession = dependencies.createAuditSession(input);
+        await auditSession.initialize(input.workflowId);
+        const loginTools = callerTools(
+          createBlackboxTools({
+            role: 'blackbox-recon',
+            readTargetHistory: async () => [],
+          }),
+        );
+        try {
+          await dependencies.createAgentRunner(input).run({
+            kind: 'blackbox-recon',
+            targetOrigin: context.targetOrigin,
+            task: loginTask,
+            snapshot: toRedactedSlice(snapshot),
+            identity: {
+              name: identity.name,
+              role: identity.role,
+              loginInstructions: verificationLoginInstructions(identity, session, storagePath),
+              credentials: structuredClone(identity.authentication.credentials) as unknown as Readonly<
+                Record<string, unknown>
+              >,
+              sensitiveValues: context.configuredSecrets,
+            },
+            customTools: loginTools,
+            auditSession: auditSession as AuditSession,
+            logger: activityLogger(),
+          });
+        } catch (error) {
+          activityLogger().warn(`Fresh verifier login agent for ${identity.name} did not submit cleanly`, {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+        }
+        await assertStorageState(dependencies.fileSystem, storagePath, identity.name);
+        const checked = await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
+          { cwd: input.repoPath },
+        );
+        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+          throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
+        }
+      }
+      let historyCheckpoint = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+      const executeVerificationReplay = async (): Promise<ReplayOutcome> => {
+        for (const { session, storagePath } of sessions) {
+          await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'state-save', storagePath], {
+            cwd: input.repoPath,
+          });
+        }
+        const currentHistory = await readTargetHistory(client, context.targetOrigin, context.config.rules);
+        if (requestedFreshActor) {
+          const captured = await normalizeCapturedTraffic({
+            targetOrigin: context.targetOrigin,
+            rules: context.config.rules,
+            identity: requestedFreshActor,
+            before: historyCheckpoint,
+            after: currentHistory,
+            rawDirectory: rawDirectory(input.repoPath),
+            configuredSecrets: context.configuredSecrets,
+            provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
+            captureSequenceOffset: captureSequenceOffset(
+              [...snapshot.exchanges, ...dynamicExchanges],
+              requestedFreshActor,
+            ),
+          });
+          dynamicExchanges.push(...captured);
+          if (requestedFreshActor !== 'anonymous' && captured.length > 0) {
+            await identityState.writeCaptureIndex(
+              requestedFreshActor,
+              dynamicExchanges
+                .filter(({ identity }) => identity === requestedFreshActor)
+                .map(({ exchangeId, routeSignature, captureSequence }) => ({
+                  exchangeId,
+                  routeSignature,
+                  captureSequence,
+                })),
+            );
+          }
+        }
+        historyCheckpoint = currentHistory;
+        const replay = dependencies.createReplayService({
+          targetOrigin: context.targetOrigin,
+          rules: context.config.rules,
+          configuredSecrets: context.configuredSecrets,
+          exchanges: [...snapshot.exchanges, ...dynamicExchanges],
+          client,
+          rawStore: dependencies.createReplayRawStore(input.repoPath),
+          identityState,
+          provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
+        });
+        const replayOutcome = await replay.replay(sequence);
+        outcome = replayOutcome;
+        requestedFreshActor = null;
+        if (replayOutcome.status === 'needs_fresh_actor_request') {
+          const step = sequence.steps.find(({ stepId }) => stepId === replayOutcome.stepId);
+          if (step) requestedFreshActor = step.actor;
+          else {
+            const proofCondition = sequence.proofCondition;
+            if (proofCondition.type !== 'persistent_state') return replayOutcome;
+            requestedFreshActor =
+              snapshot.exchanges.find(({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId)
+                ?.identity ?? null;
+          }
+        }
+        return replayOutcome;
+      };
+
+      const instructions = [
+        'Fresh verifier states were created in isolated identity sessions. Do not load prior action or capture state.',
+        ...sessions.map(({ identity, session }) => `${identity.name}: use only Playwright session ${session}.`),
+        'Do not authenticate, exchange sessions, or change identities before calling the bound verification replay.',
+        'If replay requests a fresh actor request, exercise only the returned route in that actor session, then retry once.',
+      ].join('\n');
+      const tools = callerTools(
+        createBlackboxTools({
+          role: 'blackbox-verifier',
+          candidateId: candidate.candidateId,
+          replayVerificationRequest: executeVerificationReplay,
+        }),
+      );
+      const auditSession = dependencies.createAuditSession(input);
+      await auditSession.initialize(input.workflowId);
+      let submitted: VerificationResult | null = null;
+      let submissionFailed = false;
+      try {
+        submitted = (await dependencies.createAgentRunner(input).run({
+          kind: 'blackbox-verifier',
+          targetOrigin: context.targetOrigin,
+          candidateId: candidate.candidateId,
+          task: null,
+          snapshot: toRedactedSlice(snapshot),
+          identity: {
+            name: 'fresh-verifier',
+            role: 'independent verifier',
+            loginInstructions: instructions,
+            sensitiveValues: context.configuredSecrets,
+          },
+          customTools: tools,
+          auditSession: auditSession as AuditSession,
+          logger: activityLogger(),
+        })) as VerificationResult;
+      } catch (error) {
+        if (!outcome) throw error;
+        submissionFailed = true;
+        activityLogger().warn('Verifier model failed after deterministic replay; preserving replay evidence', {
+          error: error instanceof Error ? error.name : 'unknown',
+        });
+      }
+      if (!outcome) throw new Error('blackbox-verifier did not execute its approved replay');
+
+      for (const { identity, session, storagePath } of sessions) {
+        await assertStorageState(dependencies.fileSystem, storagePath, identity.name);
+        const checked = await dependencies.runBrowserCommand(
+          'playwright-cli',
+          [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
+          { cwd: input.repoPath },
+        );
+        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+          throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
+        }
+      }
+
+      const observedExchanges = replayExchanges(outcome);
+      const observation = replayObservation(outcome);
+      if (submitted?.verdict === 'verified' && (!observation || !observation.passed)) {
+        throw new Error('Verifier cannot verify a replay without a passing deterministic observation');
+      }
+      const common = {
+        verificationId,
+        candidateId: candidate.candidateId,
+        freshStateRefs: identities.map(({ name }) => ({
+          identity: name,
+          stateRef: verificationStateRef(verificationId, name),
+        })),
+        replayActionIds: [action.actionId],
+        replayExchangeIds: observedExchanges.map(({ exchangeId }) => exchangeId),
+        observation,
+        failureReason: submissionFailed
+          ? 'verifier submission failed after replay'
+          : submitted?.failureReason === null
+            ? null
+            : safeFailureReason(submitted?.failureReason, context.configuredSecrets),
+      };
+      const verification: VerificationResult =
+        submitted?.verdict === 'verified'
+          ? {
+              ...common,
+              verdict: 'verified',
+              demonstratedAction: submitted.demonstratedAction,
+              concreteEffect: submitted.concreteEffect,
+              affectedParty: submitted.affectedParty,
+            }
+          : { ...common, verdict: submitted?.verdict ?? 'blocked' };
+      const allExchanges = new Map(
+        [...dynamicExchanges, ...observedExchanges].map((exchange) => [exchange.exchangeId, exchange]),
+      );
+      return { verification, exchanges: [...allExchanges.values()] };
+    } finally {
+      for (const { session } of sessions) {
+        try {
+          await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'close'], { cwd: input.repoPath });
+        } catch (error) {
+          activityLogger().warn(`Unable to close Playwright session ${session}`, {
+            error: error instanceof Error ? error.name : 'unknown',
+          });
+        }
+      }
+      await closeBurpClient(client);
+    }
+  };
+
   const runWorker = async (
-    kind: 'blackbox-recon' | 'blackbox-analysis',
+    kind: 'blackbox-recon' | 'blackbox-analysis' | 'blackbox-action',
     input: BlackboxWorkerActivityInput,
   ): Promise<WorkerContribution> => {
     if (kind === 'blackbox-recon') return runReconActivity(input);
+    if (kind === 'blackbox-action') return runActionActivity(input);
     const context = await loadTargetContext(dependencies, input);
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== input.revision) throw new Error(`${kind} received a stale blackboard revision`);
@@ -852,11 +1714,139 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       auditSession: auditSession as AuditSession,
       logger: activityLogger(),
     })) as WorkerContribution;
+    const namespaced = namespaceContributionRecords(submitted, persistedTask.taskId);
     return {
       taskId: persistedTask.taskId,
       role: kind,
       baseRevision: input.revision,
-      ...(submitted.hypotheses ? { hypotheses: submitted.hypotheses } : {}),
+      ...(namespaced.hypotheses ? { hypotheses: namespaced.hypotheses } : {}),
+    };
+  };
+
+  const registerPlannedWave = async (input: RegisterWaveInput): Promise<RegisteredWave> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store, snapshot } = await initializeStore(input, context);
+    if (snapshot.revision === input.revision) {
+      const expected = validateAndScheduleWave(input.batch, toSchedulerSnapshot(snapshot, context.config.rules));
+      if (!isDeepStrictEqual(expected, input.wave)) {
+        throw new Error('Registered wave does not match scheduler validation');
+      }
+    }
+
+    const accepted = [...input.wave.concurrent, ...input.wave.actions];
+    const acceptedIds = new Set(accepted.map(({ taskId }) => taskId));
+    const rejectedIds = new Set<string>();
+    const rejected = input.wave.rejected.flatMap(({ taskId, reason }) => {
+      if (acceptedIds.has(taskId) || rejectedIds.has(taskId)) return [];
+      const task = input.batch.tasks.find((candidate) => candidate.taskId === taskId);
+      if (!task) throw new Error(`Rejected task ${taskId} is not present in the planner batch`);
+      rejectedIds.add(taskId);
+      return [{ task, reason }];
+    });
+    const next = await store.registerTasks(input.revision, {
+      operationKey: input.operationKey,
+      accepted,
+      rejected,
+      closedHypothesisIds: input.wave.closedHypothesisIds,
+    });
+    return { revision: next.revision, wave: structuredClone(input.wave), tasks: taskStates(next) };
+  };
+
+  const startBlackboxTasks = async (input: StartTasksInput): Promise<TaskTransitionResult> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store } = await initializeStore(input, context);
+    const next = await store.startTasks(input.revision, input.operationKey, input.taskIds);
+    return { revision: next.revision, tasks: taskStates(next) };
+  };
+
+  const settleBlackboxTasks = async (input: SettleTasksInput): Promise<SettledTasksResult> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store } = await initializeStore(input, context);
+    const failures = input.failures.map(({ taskId, reason }) => ({
+      taskId,
+      reason: safeFailureReason(reason, context.configuredSecrets),
+    }));
+    const next = await store.settleTasks({
+      operationKey: input.operationKey,
+      baseRevision: input.baseRevision,
+      contributions: input.contributions,
+      failures,
+    });
+    const candidateIds = [
+      ...new Set(
+        input.contributions.flatMap(
+          ({ candidateProofs }) => candidateProofs?.map(({ candidateId }) => candidateId) ?? [],
+        ),
+      ),
+    ].sort();
+    return { revision: next.revision, tasks: taskStates(next), candidateIds };
+  };
+
+  const recordBlackboxVerification = async (input: RecordVerificationInput): Promise<number> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store } = await initializeStore(input, context);
+    const next = await store.recordVerification(input.revision, input.operationKey, input.attempt);
+    return next.revision;
+  };
+
+  const recordBlackboxVerificationFailure = async (input: RecordVerificationFailureInput): Promise<number> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store, snapshot } = await initializeStore(input, context);
+    const candidate = snapshot.candidateProofs.find(({ candidateId }) => candidateId === input.candidateId);
+    if (!candidate) throw new Error(`Unknown candidate ${input.candidateId}`);
+    const verification: VerificationResult = {
+      verificationId: verificationExecutionId(candidate.candidateId),
+      candidateId: candidate.candidateId,
+      verdict: 'blocked',
+      freshStateRefs: [],
+      replayActionIds: [candidate.actionId],
+      replayExchangeIds: [],
+      observation: null,
+      failureReason: safeFailureReason(input.reason, context.configuredSecrets),
+    };
+    const next = await store.recordVerification(input.revision, input.operationKey, {
+      verification,
+      exchanges: [],
+    });
+    return next.revision;
+  };
+
+  const evaluateBlackboxProgress = async (input: EvaluateProgressInput): Promise<EvaluateProgressResult> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { snapshot } = await initializeStore(input, context);
+    if (snapshot.revision !== input.revision) {
+      throw new Error(
+        `Progress evaluation received stale revision ${input.revision}; current revision is ${snapshot.revision}`,
+      );
+    }
+    const pendingTasks = snapshot.tasks.filter(({ status }) => status === 'pending' || status === 'running').length;
+    const openImpactHypotheses = snapshot.hypotheses.filter(
+      ({ status }) => status === 'open' || status === 'queued' || status === 'tested' || status === 'blocked',
+    ).length;
+    return {
+      decision: decideRunCompletion({
+        wave: input.waveNumber,
+        plannerStop: input.plannerStop,
+        pendingTasks,
+        openImpactHypotheses,
+        hitSafetyLimit: input.waveNumber >= 8,
+      }),
+      revision: snapshot.revision,
+    };
+  };
+
+  const finalizeBlackboxRun = async (input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> => {
+    const context = await loadTargetContext(dependencies, input);
+    const { store } = await initializeStore(input, context);
+    const next = await store.setRunStatus(input.revision, input.operationKey, input.status);
+    return {
+      status: input.status,
+      revision: next.revision,
+      failure: input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null,
+      verifiedCandidateIds: next.verifications
+        .filter(({ verdict }) => verdict === 'verified')
+        .map(({ candidateId }) => candidateId)
+        .sort(),
     };
   };
 
@@ -868,6 +1858,15 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     runBlackboxPlanner,
     runBlackboxRecon: (input) => runWorker('blackbox-recon', input),
     runBlackboxAnalysis: (input) => runWorker('blackbox-analysis', input),
+    runBlackboxAction: (input) => runWorker('blackbox-action', input),
+    runBlackboxVerifier: runVerifierActivity,
+    registerPlannedWave,
+    startBlackboxTasks,
+    settleBlackboxTasks,
+    recordBlackboxVerification,
+    recordBlackboxVerificationFailure,
+    evaluateBlackboxProgress,
+    finalizeBlackboxRun,
   };
 }
 
@@ -890,7 +1889,7 @@ export async function captureIdentity(
   return productionActivities().captureIdentity(input, identityName);
 }
 
-export async function readPlannerSnapshot(input: BlackboxActivityInput): Promise<RedactedBlackboxSlice> {
+export async function readPlannerSnapshot(input: BlackboxActivityInput): Promise<BlackboxSchedulerSnapshot> {
   return productionActivities().readPlannerSnapshot(input);
 }
 
@@ -904,4 +1903,40 @@ export async function runBlackboxRecon(input: BlackboxWorkerActivityInput): Prom
 
 export async function runBlackboxAnalysis(input: BlackboxWorkerActivityInput): Promise<WorkerContribution> {
   return productionActivities().runBlackboxAnalysis(input);
+}
+
+export async function runBlackboxAction(input: BlackboxWorkerActivityInput): Promise<WorkerContribution> {
+  return productionActivities().runBlackboxAction(input);
+}
+
+export async function runBlackboxVerifier(input: BlackboxVerifierActivityInput): Promise<BlackboxVerificationAttempt> {
+  return productionActivities().runBlackboxVerifier(input);
+}
+
+export async function registerPlannedWave(input: RegisterWaveInput): Promise<RegisteredWave> {
+  return productionActivities().registerPlannedWave(input);
+}
+
+export async function startBlackboxTasks(input: StartTasksInput): Promise<TaskTransitionResult> {
+  return productionActivities().startBlackboxTasks(input);
+}
+
+export async function settleBlackboxTasks(input: SettleTasksInput): Promise<SettledTasksResult> {
+  return productionActivities().settleBlackboxTasks(input);
+}
+
+export async function recordBlackboxVerification(input: RecordVerificationInput): Promise<number> {
+  return productionActivities().recordBlackboxVerification(input);
+}
+
+export async function recordBlackboxVerificationFailure(input: RecordVerificationFailureInput): Promise<number> {
+  return productionActivities().recordBlackboxVerificationFailure(input);
+}
+
+export async function evaluateBlackboxProgress(input: EvaluateProgressInput): Promise<EvaluateProgressResult> {
+  return productionActivities().evaluateBlackboxProgress(input);
+}
+
+export async function finalizeBlackboxRun(input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> {
+  return productionActivities().finalizeBlackboxRun(input);
 }

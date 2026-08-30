@@ -1,16 +1,40 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 import { createBlackboxActivities } from '../dist/blackbox/activities.js';
+import { validateAndScheduleWave } from '../dist/blackbox/scheduler.js';
 
 const TARGET_ORIGIN = 'https://target.example';
 const SECRET = 'password-fixture-secret';
 
 const REQUEST = (id) => `GET /api/items/${id} HTTP/1.1\r\nHost: target.example\r\nAccept: application/json\r\n\r\n`;
 const RESPONSE = (id) => `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":"${id}","owner":"user"}`;
+
+function normalizedExchange(exchangeId, overrides = {}) {
+  return {
+    exchangeId,
+    routeSignature: `GET:/api/items/${exchangeId}`,
+    identity: 'attacker',
+    captureSequence: 1,
+    method: 'GET',
+    origin: TARGET_ORIGIN,
+    path: `/api/items/${exchangeId}`,
+    queryKeys: [],
+    bodyShape: 'none',
+    requestContentType: null,
+    responseStatus: 200,
+    responseContentType: 'application/json',
+    responseFingerprint: `sha256:${exchangeId}`,
+    candidateObjectReferences: [exchangeId],
+    rawRecordRef: `raw/${exchangeId}.json`,
+    provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-attacker', baseRevision: 1 },
+    ...overrides,
+  };
+}
 
 function history(records) {
   return records.map(({ id }) => JSON.stringify({ request: REQUEST(id), response: RESPONSE(id), notes: '' })).join('\n');
@@ -43,6 +67,10 @@ function input(root) {
   };
 }
 
+function statePathFor(root, identity) {
+  return path.join(root, '.shannon', 'blackbox', 'identities', identity, 'storage-state.json');
+}
+
 function logger() {
   const entries = [];
   return {
@@ -73,9 +101,14 @@ function boardFake() {
   const calls = [];
   return {
     calls,
+    seed(value) { snapshot = { ...snapshot, ...structuredClone(value) }; },
     async initialize(value) {
       calls.push(['initialize', value]);
-      snapshot = { ...snapshot, targetOrigin: value.targetOrigin, identities: value.identities };
+      snapshot = {
+        ...snapshot,
+        targetOrigin: value.targetOrigin,
+        identities: snapshot.identities.length === 0 ? value.identities : snapshot.identities,
+      };
       return structuredClone(snapshot);
     },
     async read() { calls.push(['read']); return structuredClone(snapshot); },
@@ -120,6 +153,21 @@ function boardFake() {
       snapshot = { ...snapshot, revision: snapshot.revision + 1, exchanges: [...snapshot.exchanges, ...(contribution.exchanges ?? [])] };
       return structuredClone(snapshot);
     },
+    async recordVerification(revision, operationKey, attempt) {
+      calls.push(['recordVerification', revision, operationKey, attempt]);
+      snapshot = {
+        ...snapshot,
+        revision: snapshot.revision + 1,
+        exchanges: [...snapshot.exchanges, ...attempt.exchanges],
+        verifications: [...snapshot.verifications, attempt.verification],
+      };
+      return structuredClone(snapshot);
+    },
+    async setRunStatus(revision, operationKey, status) {
+      calls.push(['setRunStatus', revision, operationKey, status]);
+      snapshot = { ...snapshot, revision: snapshot.revision + 1, runStatus: status };
+      return structuredClone(snapshot);
+    },
   };
 }
 
@@ -142,8 +190,10 @@ async function makeDeps(t, root, options = {}) {
   const board = boardFake();
   const agents = [];
   const historyCursor = { index: 0 };
+  const authCheckCursor = { index: 0 };
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
-  const fileSystem = { readFile, writeFile, rm };
+  const replayCalls = [];
+  const fileSystem = { readFile, writeFile, mkdir, rm };
   const deps = {
     parseConfig(configPath, mode) {
       assert.equal(configPath, input(root).configPath);
@@ -158,20 +208,34 @@ async function makeDeps(t, root, options = {}) {
     createBlackboardStore: () => board,
     async runBrowserCommand(...args) {
       browserCalls.push(args);
-      const serialized = JSON.stringify(args);
-      if (/state-save/.test(serialized)) {
-        const identity = serialized.match(/bb-([a-z0-9-]+)/i)?.[1];
-        if (identity) {
-          const stateDir = path.join(root, '.shannon', 'blackbox', 'identities', identity);
-          await mkdir(stateDir, { recursive: true });
-          await writeFile(path.join(stateDir, 'storage-state.json'), JSON.stringify({ cookies: [], origins: [] }), 'utf8');
-        }
+      const [, commandArguments] = args;
+      const stateSaveIndex = commandArguments.indexOf('state-save');
+      if (stateSaveIndex >= 0 && commandArguments[stateSaveIndex + 1]) {
+        const stateFile = commandArguments[stateSaveIndex + 1];
+        await mkdir(path.dirname(stateFile), { recursive: true });
+        await writeFile(stateFile, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
       }
-      return { stdout: /eval/.test(serialized) ? '__SHANNON_AUTH_OK__' : '', stderr: '', exitCode: 0 };
+      const serialized = JSON.stringify(args);
+      const isAuthCheck = /eval/.test(serialized);
+      const configuredAuthResult = isAuthCheck
+        ? options.authCheckQueue?.[
+            Math.min(authCheckCursor.index++, Math.max((options.authCheckQueue?.length ?? 1) - 1, 0))
+          ]
+        : undefined;
+      return {
+        stdout: isAuthCheck
+          ? configuredAuthResult === false
+            ? '__SHANNON_AUTH_FAILED__'
+            : '__SHANNON_AUTH_OK__'
+          : '',
+        stderr: '',
+        exitCode: 0,
+      };
     },
     createAgentRunner: () => ({
       async run(runInput) {
         agents.push(runInput);
+        if (options.agentHandler) return options.agentHandler(runInput);
         if (options.agentErrorIdentity === runInput.identity?.name) throw new Error('bootstrap failed');
         return {
           taskId: runInput.task?.taskId ?? `${runInput.identity?.name ?? 'anonymous'}-task`,
@@ -187,9 +251,19 @@ async function makeDeps(t, root, options = {}) {
     logger: logger(),
     readEnvironment: () => environment,
     fileSystem,
+    createReplayRawStore: () => ({}),
+    createReplayService(replayOptions) {
+      return {
+        async replay(command) {
+          replayCalls.push({ command, options: replayOptions });
+          if (options.replayHandler) return options.replayHandler(command, replayOptions, replayCalls.length);
+          return { status: 'needs_fresh_actor_request', stepId: command.steps[0]?.stepId, routeSignature: 'route-1' };
+        },
+      };
+    },
   };
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { deps, board, agents, burpCalls, browserCalls };
+  return { deps, board, agents, burpCalls, browserCalls, replayCalls };
 }
 
 async function tempRoot(t) {
@@ -234,6 +308,37 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
   assert.equal(result.revision, 1);
   assert.equal(burpCalls.filter(([name]) => name === 'connect').length, 1);
   assert.equal(burpCalls.filter(([name]) => name === 'close').length, 1);
+});
+
+test('planner task IDs are namespaced by evidence revision before scheduling', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    agentHandler: async (runInput) => ({
+      baseRevision: 0,
+      tasks: [{
+        taskId: 'task-1',
+        kind: 'analysis',
+        objective: 'Compare ownership evidence',
+        evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+        identityLease: null,
+        hypothesisId: null,
+        status: 'running',
+      }],
+      stop: false,
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+
+  board.seed({ revision: 7 });
+  const first = await activities.runBlackboxPlanner(input(root), 7);
+  board.seed({ revision: 8 });
+  const second = await activities.runBlackboxPlanner(input(root), 8);
+
+  assert.match(first.tasks[0].taskId, /^task_[a-f0-9]{24}$/);
+  assert.notEqual(first.tasks[0].taskId, 'task-1');
+  assert.notEqual(first.tasks[0].taskId, second.tasks[0].taskId);
+  assert.equal(first.baseRevision, 7);
+  assert.equal(first.tasks[0].status, 'pending');
 });
 
 test('preflight rejects a browser navigation that produces no target history delta', async (t) => {
@@ -364,6 +469,192 @@ test('one failed identity returns a safe failure while two successful identities
   assert.equal(JSON.stringify(victim).includes('HTTP/1.1'), false);
 });
 
+test('recon preserves attributable traffic when the model submission fails after browsing', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    agentErrorIdentity: 'attacker',
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'bootstrap-attacker' }],
+      [{ id: 'bootstrap-attacker' }], [{ id: 'bootstrap-attacker' }, { id: 'later-recon' }],
+    ],
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+  await activities.preflightBlackbox(runInput);
+
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+  assert.equal(capture.authenticated, true);
+  assert.equal(capture.exchangeIds.length, 1);
+
+  const reconTask = {
+    taskId: 'recon-after-model-failure',
+    kind: 'recon',
+    objective: 'Exercise another observed route',
+    evidence: [{ id: capture.exchangeIds[0], kind: 'exchange' }],
+    identityLease: 'attacker',
+    hypothesisId: null,
+    status: 'running',
+  };
+  board.seed({ revision: capture.revision, tasks: [reconTask] });
+  const contribution = await activities.runBlackboxRecon({
+    ...runInput,
+    task: reconTask,
+    revision: capture.revision,
+  });
+  assert.equal(contribution.exchanges?.length, 1);
+  assert.equal(contribution.resources, undefined);
+  assert.equal(contribution.transitions, undefined);
+});
+
+test('model-created recon record IDs are task-namespaced and internal references follow them', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'anonymous' }],
+      [{ id: 'preflight' }, { id: 'anonymous' }], [{ id: 'preflight' }, { id: 'anonymous' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      resources: [{
+        resourceId: 'resource-1',
+        resourceType: 'account',
+        objectReferences: ['1'],
+        ownerIdentity: runInput.identity.name === 'anonymous' ? null : runInput.identity.name,
+        visibility: 'private',
+        evidence: [],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+      transitions: [{
+        transitionId: 'transition-1',
+        identity: runInput.identity.name,
+        fromState: 'before',
+        toState: 'after',
+        triggerExchangeId: 'exchange-1',
+        captureSequence: 1,
+        resourceId: 'resource-1',
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  await activities.captureAnonymous(runInput);
+  await activities.captureIdentity(runInput, 'attacker');
+
+  const contributions = board.calls
+    .filter(([name]) => name === 'settleTasks')
+    .flatMap(([, batch]) => batch.contributions)
+    .filter(({ resources }) => resources?.length);
+  assert.equal(contributions.length, 2);
+  assert.notEqual(contributions[0].resources[0].resourceId, contributions[1].resources[0].resourceId);
+  for (const contribution of contributions) {
+    assert.match(contribution.resources[0].resourceId, /^resource_[a-f0-9]{24}$/);
+    assert.match(contribution.transitions[0].transitionId, /^transition_[a-f0-9]{24}$/);
+    assert.equal(contribution.transitions[0].resourceId, contribution.resources[0].resourceId);
+  }
+});
+
+test('later recon previews and persists the same globally sequenced exchange IDs', async (t) => {
+  const root = await tempRoot(t);
+  const existing = normalizedExchange('existing-exchange', {
+    captureSequence: 7,
+    routeSignature: 'route_existing',
+  });
+  const task = {
+    taskId: 'recon-with-existing-history',
+    kind: 'recon',
+    objective: 'Exercise another authenticated route',
+    evidence: [{ id: existing.exchangeId, kind: 'exchange' }],
+    identityLease: 'attacker',
+    hypothesisId: null,
+    status: 'running',
+  };
+  const { deps, board } = await makeDeps(t, root, {
+    historyQueue: [[], [{ id: 'new-route' }], [{ id: 'new-route' }]],
+    agentHandler: async (runInput) => {
+      const readHistory = runInput.customTools.find(({ name }) => name === 'read_target_history');
+      const previewResult = await readHistory.execute('read-later-recon', {});
+      const preview = previewResult.details;
+      return {
+        taskId: task.taskId,
+        role: 'blackbox-recon',
+        baseRevision: 4,
+        resources: [{
+          resourceId: 'resource-1',
+          resourceType: 'item',
+          objectReferences: ['new-route'],
+          ownerIdentity: 'attacker',
+          visibility: 'private',
+          evidence: [{ id: preview[0].exchangeId, kind: 'exchange' }],
+          provenance: { actor: 'blackbox-recon', taskId: task.taskId, baseRevision: 4 },
+        }],
+      };
+    },
+  });
+  board.seed({
+    revision: 4,
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [existing],
+    tasks: [task],
+  });
+
+  const contribution = await createBlackboxActivities(deps).runBlackboxRecon({
+    ...input(root),
+    task,
+    revision: 4,
+  });
+
+  assert.equal(contribution.exchanges?.[0].captureSequence, 8);
+  assert.equal(contribution.resources?.[0].evidence[0].id, contribution.exchanges?.[0].exchangeId);
+});
+
+test('recon does not overwrite a known-good identity state after the live session loses authentication', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    authCheckQueue: [true, false],
+    historyQueue: [[], [{ id: 'recon' }]],
+  });
+  const task = {
+    taskId: 'recon-auth-expired',
+    kind: 'recon',
+    objective: 'Exercise one authenticated route',
+    evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+    identityLease: 'attacker',
+    hypothesisId: null,
+    status: 'running',
+  };
+  board.seed({
+    revision: 4,
+    identities: [{
+      name: 'attacker',
+      role: 'ordinary user',
+      authenticated: true,
+      stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+    }],
+    tasks: [task],
+  });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).runBlackboxRecon({ ...input(root), task, revision: 4 }),
+    /no longer authenticated/i,
+  );
+  assert.equal(browserCalls.some(([, args]) => args.includes('state-save')), false);
+});
+
 test('workers reject a running task of another kind before browser, Burp, or model side effects', async (t) => {
   const root = await tempRoot(t);
   const { deps, board, agents, burpCalls, browserCalls } = await makeDeps(t, root, {
@@ -381,8 +672,15 @@ test('workers reject a running task of another kind before browser, Burp, or mod
     identityLease: 'attacker',
     hypothesisId: 'hypothesis-1',
     status: 'pending',
-    sourceExchangeId: 'exchange-1',
-    proofCondition: { type: 'body_contains', marker: 'changed' },
+    replayPlan: {
+      steps: [{
+        stepId: 'step-1',
+        sourceExchangeId: 'exchange-1',
+        actor: 'attacker',
+        mutations: [{ type: 'set_path', path: '/api/items/2' }],
+      }],
+      proofCondition: { type: 'body_contains', marker: 'changed' },
+    },
   };
   const registeredAction = await board.registerTasks(preflight.revision, {
     operationKey: 'test:register-action',
@@ -487,4 +785,549 @@ test('Burp close failure cannot replace a completed preflight or identity captur
       .at(-1)?.[1].contributions[0].taskId,
     'bootstrap-attacker',
   );
+});
+
+test('action executes the persisted replay plan and derives its result from the replay service', async (t) => {
+  const root = await tempRoot(t);
+  const source = normalizedExchange('source-exchange');
+  const replayed = normalizedExchange('action-exchange', {
+    identity: 'attacker',
+    path: '/api/items/victim',
+    provenance: { actor: 'blackbox-action', taskId: 'action-1', baseRevision: 7 },
+  });
+  const persistedTask = {
+    taskId: 'action-1',
+    kind: 'action',
+    objective: 'Replay the victim object route as attacker',
+    evidence: [
+      { id: source.exchangeId, kind: 'exchange' },
+      { id: 'resource-victim', kind: 'resource' },
+    ],
+    identityLease: 'attacker',
+    hypothesisId: 'hypothesis-1',
+    status: 'running',
+    replayPlan: {
+      steps: [{
+        stepId: 'step-1',
+        sourceExchangeId: source.exchangeId,
+        actor: 'attacker',
+        mutations: [{ type: 'set_path', path: '/api/items/victim' }],
+      }],
+      proofCondition: { type: 'body_contains', marker: 'victim-private-marker' },
+    },
+  };
+  const observation = {
+    condition: persistedTask.replayPlan.proofCondition,
+    passed: true,
+    observedMarkerDigest: 'sha256:marker',
+    observedTransitionId: null,
+    verificationExchangeId: replayed.exchangeId,
+  };
+  let actionToolResult;
+  const { deps, board, replayCalls, browserCalls } = await makeDeps(t, root, {
+    historyQueue: [[], []],
+    replayHandler: async () => ({
+      status: 'completed',
+      exchanges: [replayed],
+      comparison: {
+        baselineExchangeId: source.exchangeId,
+        observedExchangeId: replayed.exchangeId,
+        baselineStatus: 200,
+        observedStatus: 200,
+        statusChanged: false,
+        baselineFingerprint: 'sha256:source',
+        observedFingerprint: 'sha256:action',
+        fingerprintChanged: true,
+      },
+      observation,
+    }),
+    agentHandler: async (runInput) => {
+      const replay = runInput.customTools.find(({ name }) => name === 'replay_target_request');
+      actionToolResult = await replay.execute('replay-1', { actionId: persistedTask.taskId });
+      return {
+        taskId: persistedTask.taskId,
+        role: 'blackbox-action',
+        baseRevision: 7,
+        candidateProofs: [{
+          candidateId: 'candidate-1',
+          hypothesisId: 'model-copied-the-wrong-hypothesis',
+          victimIdentity: 'victim',
+          attackerIdentity: 'attacker',
+          victimResourceId: 'resource-victim',
+          baselineExchangeId: source.exchangeId,
+          actionId: 'model-copied-the-wrong-action',
+          verificationSourceExchangeId: replayed.exchangeId,
+          demonstratedAction: 'read another user private object',
+          concreteEffect: 'private object contents were disclosed',
+          affectedParty: 'users',
+          preconditions: ['attacker has an ordinary account'],
+          provenance: { actor: 'blackbox-action', taskId: persistedTask.taskId, baseRevision: 7 },
+        }],
+      };
+    },
+  });
+  board.seed({
+    revision: 7,
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [source],
+    resources: [{
+      resourceId: 'resource-victim',
+      resourceType: 'private item',
+      objectReferences: ['victim'],
+      ownerIdentity: 'victim',
+      visibility: 'private',
+      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
+    }],
+    hypotheses: [{
+      hypothesisId: 'hypothesis-1',
+      kind: 'horizontal',
+      summary: 'An attacker may read a victim item.',
+      preconditions: ['two accounts'],
+      attackerCapability: 'read another user item',
+      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+      priority: 'high',
+      status: 'queued',
+      provenance: { actor: 'blackbox-analysis', taskId: 'analysis-1', baseRevision: 6 },
+    }],
+    tasks: [persistedTask],
+  });
+  const forgedInputTask = {
+    ...persistedTask,
+    replayPlan: {
+      ...persistedTask.replayPlan,
+      steps: [{
+        ...persistedTask.replayPlan.steps[0],
+        mutations: [{ type: 'set_path', path: '/forged-by-caller' }],
+      }],
+    },
+  };
+
+  const contribution = await createBlackboxActivities(deps).runBlackboxAction({
+    ...input(root),
+    task: forgedInputTask,
+    revision: 7,
+  });
+
+  assert.deepEqual(replayCalls.map(({ command }) => command), [{
+    actionId: persistedTask.taskId,
+    ...persistedTask.replayPlan,
+  }]);
+  assert.equal(browserCalls.some(([, args]) => args.includes('state-save') && args.at(-1) === statePathFor(root, 'attacker')), true);
+  assert.equal(JSON.stringify(actionToolResult).includes('HTTP/1.1'), false);
+  assert.deepEqual(contribution.exchanges?.map(({ exchangeId }) => exchangeId), [replayed.exchangeId]);
+  assert.deepEqual(contribution.actions, [{
+    actionId: persistedTask.taskId,
+    hypothesisId: persistedTask.hypothesisId,
+    sequence: { actionId: persistedTask.taskId, ...persistedTask.replayPlan },
+    status: 'completed',
+    exchangeIds: [replayed.exchangeId],
+    observation,
+    provenance: { actor: 'blackbox-action', taskId: persistedTask.taskId, baseRevision: 7 },
+  }]);
+  assert.deepEqual(contribution.candidateProofs?.map(({ candidateId }) => candidateId), [
+    `candidate_${createHash('sha256')
+      .update(`${persistedTask.taskId}\0candidate\0candidate-1`)
+      .digest('hex')
+      .slice(0, 24)}`,
+  ]);
+  assert.equal(contribution.candidateProofs?.[0].hypothesisId, persistedTask.hypothesisId);
+  assert.equal(contribution.candidateProofs?.[0].actionId, persistedTask.taskId);
+
+  deps.createReplayService = () => ({
+    async replay() {
+      return { status: 'delivery_unknown', reason: 'dispatch outcome is unknown' };
+    },
+  });
+  deps.createAgentRunner = () => ({
+    async run(runInput) {
+      const replay = runInput.customTools.find(({ name }) => name === 'replay_target_request');
+      await replay.execute('replay-delivery-unknown', { actionId: persistedTask.taskId });
+      throw new Error('model failed after dispatch');
+    },
+  });
+  const preserved = await createBlackboxActivities(deps).runBlackboxAction({
+    ...input(root),
+    task: persistedTask,
+    revision: 7,
+  });
+  assert.equal(preserved.actions[0].status, 'delivery_unknown');
+  assert.equal(preserved.candidateProofs, undefined);
+});
+
+test('verifier replays the approved sequence under fresh identity state and derives immutable evidence fields', async (t) => {
+  const root = await tempRoot(t);
+  const source = normalizedExchange('source-exchange');
+  const actionExchange = normalizedExchange('action-exchange', {
+    path: '/api/items/victim',
+    provenance: { actor: 'blackbox-action', taskId: 'action-1', baseRevision: 7 },
+  });
+  const verificationExchange = normalizedExchange('verification-exchange', {
+    path: '/api/items/victim',
+    provenance: { actor: 'blackbox-verifier', taskId: 'verification', baseRevision: 9 },
+  });
+  const replayPlan = {
+    steps: [
+      {
+        stepId: 'step-1',
+        sourceExchangeId: source.exchangeId,
+        actor: 'attacker',
+        mutations: [{ type: 'set_path', path: '/api/items/victim' }],
+      },
+      {
+        stepId: 'step-2',
+        sourceExchangeId: source.exchangeId,
+        actor: 'victim',
+        mutations: [{ type: 'set_path', path: '/api/items/victim' }],
+      },
+    ],
+    proofCondition: { type: 'body_contains', marker: 'victim-private-marker' },
+  };
+  const actionTask = {
+    taskId: 'action-1',
+    kind: 'action',
+    objective: 'Replay the victim object route as attacker',
+    evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+    identityLease: 'attacker',
+    hypothesisId: 'hypothesis-1',
+    status: 'completed',
+    replayPlan,
+  };
+  const actionObservation = {
+    condition: replayPlan.proofCondition,
+    passed: true,
+    observedMarkerDigest: 'sha256:marker',
+    observedTransitionId: null,
+    verificationExchangeId: actionExchange.exchangeId,
+  };
+  const action = {
+    actionId: actionTask.taskId,
+    hypothesisId: actionTask.hypothesisId,
+    sequence: { actionId: actionTask.taskId, ...replayPlan },
+    status: 'completed',
+    exchangeIds: [actionExchange.exchangeId],
+    observation: actionObservation,
+    provenance: { actor: 'blackbox-action', taskId: actionTask.taskId, baseRevision: 7 },
+  };
+  const candidate = {
+    candidateId: 'candidate-1',
+    hypothesisId: actionTask.hypothesisId,
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    victimResourceId: 'resource-victim',
+    baselineExchangeId: source.exchangeId,
+    actionId: actionTask.taskId,
+    verificationSourceExchangeId: actionExchange.exchangeId,
+    demonstratedAction: 'claimant text must not control verification',
+    concreteEffect: 'claimant effect must not control verification',
+    affectedParty: 'users',
+    preconditions: ['two accounts'],
+    provenance: { actor: 'blackbox-action', taskId: actionTask.taskId, baseRevision: 7 },
+  };
+  const verificationId = `verify_${createHash('sha256').update(candidate.candidateId).digest('hex').slice(0, 24)}`;
+  const verificationObservation = {
+    ...actionObservation,
+    verificationExchangeId: verificationExchange.exchangeId,
+  };
+  let verifierInput;
+  const loginInputs = [];
+  const { deps, board, replayCalls, browserCalls } = await makeDeps(t, root, {
+    historyQueue: [[], []],
+    replayHandler: async () => ({
+      status: 'completed',
+      exchanges: [verificationExchange],
+      comparison: {
+        baselineExchangeId: source.exchangeId,
+        observedExchangeId: verificationExchange.exchangeId,
+        baselineStatus: 200,
+        observedStatus: 200,
+        statusChanged: false,
+        baselineFingerprint: 'sha256:source',
+        observedFingerprint: 'sha256:verification',
+        fingerprintChanged: true,
+      },
+      observation: verificationObservation,
+    }),
+    agentHandler: async (runInput) => {
+      if (runInput.kind === 'blackbox-recon') {
+        loginInputs.push(runInput);
+        const statePath = runInput.identity.loginInstructions.match(/state-save ([^\n]+)/)?.[1];
+        assert.ok(statePath);
+        await mkdir(path.dirname(statePath), { recursive: true });
+        await writeFile(statePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+        return {
+          taskId: runInput.task.taskId,
+          role: 'blackbox-recon',
+          baseRevision: runInput.snapshot.revision,
+          exchanges: [],
+        };
+      }
+      verifierInput = runInput;
+      const replay = runInput.customTools.find(({ name }) => name === 'replay_verification_request');
+      await replay.execute('verify-1', { candidateId: candidate.candidateId });
+      return {
+        verificationId: 'model-controlled-id',
+        candidateId: candidate.candidateId,
+        verdict: 'verified',
+        freshStateRefs: [{ identity: 'attacker', stateRef: 'model-controlled-state' }],
+        replayActionIds: ['model-controlled-action'],
+        replayExchangeIds: ['model-controlled-exchange'],
+        observation: verificationObservation,
+        failureReason: null,
+        demonstratedAction: 'read another user private object',
+        concreteEffect: 'private object contents were disclosed',
+        affectedParty: 'users',
+      };
+    },
+  });
+  board.seed({
+    revision: 9,
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [source, actionExchange],
+    resources: [{
+      resourceId: 'resource-victim',
+      resourceType: 'private item',
+      objectReferences: ['victim'],
+      ownerIdentity: 'victim',
+      visibility: 'private',
+      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
+    }],
+    hypotheses: [{
+      hypothesisId: 'hypothesis-1',
+      kind: 'horizontal',
+      summary: 'An attacker may read a victim item.',
+      preconditions: ['two accounts'],
+      attackerCapability: 'read another user item',
+      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+      priority: 'high',
+      status: 'tested',
+      provenance: { actor: 'blackbox-analysis', taskId: 'analysis-1', baseRevision: 6 },
+    }],
+    actions: [action],
+    candidateProofs: [candidate],
+    tasks: [actionTask],
+  });
+
+  const attempt = await createBlackboxActivities(deps).runBlackboxVerifier({
+    ...input(root),
+    candidateId: candidate.candidateId,
+    revision: 9,
+  });
+
+  assert.equal(replayCalls.length, 1);
+  assert.notEqual(replayCalls[0].command.actionId, action.actionId);
+  assert.equal(replayCalls[0].command.actionId, verificationId);
+  assert.equal(
+    browserCalls.some(([, args]) =>
+      args.includes('state-save') && String(args.at(-1)).includes(`verification-runs${path.sep}${verificationId}`)),
+    true,
+  );
+  assert.deepEqual(replayCalls[0].command.steps, action.sequence.steps);
+  assert.deepEqual(replayCalls[0].command.proofCondition, action.sequence.proofCondition);
+  assert.deepEqual(loginInputs.map(({ identity }) => identity.name), ['attacker', 'victim']);
+  assert.deepEqual(loginInputs.map(({ identity }) => identity.credentials.username), [
+    'attacker@example.com',
+    'victim@example.com',
+  ]);
+  assert.equal(
+    loginInputs.every(({ customTools }) => customTools.map(({ name }) => name).join(',') === 'read_target_history'),
+    true,
+  );
+  assert.equal(loginInputs.every(({ identity }) => !('victim' in identity.credentials)), true);
+  assert.equal(verifierInput.identity.credentials, undefined);
+  assert.equal(verifierInput.identity.sensitiveValues.includes('backup@example.com'), true);
+  assert.deepEqual(attempt.exchanges.map(({ exchangeId }) => exchangeId), [verificationExchange.exchangeId]);
+  assert.deepEqual(attempt.verification, {
+    verificationId,
+    candidateId: candidate.candidateId,
+    verdict: 'verified',
+    freshStateRefs: [
+      {
+        identity: 'attacker',
+        stateRef: `.shannon/blackbox/verification-runs/${verificationId}/.shannon/blackbox/identities/attacker/storage-state.json`,
+      },
+      {
+        identity: 'victim',
+        stateRef: `.shannon/blackbox/verification-runs/${verificationId}/.shannon/blackbox/identities/victim/storage-state.json`,
+      },
+    ],
+    replayActionIds: [action.actionId],
+    replayExchangeIds: [verificationExchange.exchangeId],
+    observation: verificationObservation,
+    failureReason: null,
+    demonstratedAction: 'read another user private object',
+    concreteEffect: 'private object contents were disclosed',
+    affectedParty: 'users',
+  });
+
+  deps.createAgentRunner = () => ({
+    async run(runInput) {
+      const replay = runInput.customTools.find(({ name }) => name === 'replay_verification_request');
+      await replay.execute('verify-before-invalid-submission', { candidateId: candidate.candidateId });
+      throw new Error('invalid verifier submission');
+    },
+  });
+  const preserved = await createBlackboxActivities(deps).runBlackboxVerifier({
+    ...input(root),
+    candidateId: candidate.candidateId,
+    revision: 9,
+  });
+  assert.equal(preserved.verification.verdict, 'blocked');
+  assert.match(preserved.verification.failureReason ?? '', /submission failed/i);
+  assert.deepEqual(preserved.exchanges.map(({ exchangeId }) => exchangeId), [verificationExchange.exchangeId]);
+});
+
+test('control activities revalidate and atomically register the planner wave', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root);
+  const source = normalizedExchange('planner-source');
+  board.seed({
+    revision: 5,
+    identities: rawConfig().identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [source],
+  });
+  const accepted = {
+    taskId: 'analysis-accepted',
+    kind: 'analysis',
+    objective: 'Compare the observed ownership boundary',
+    evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+    identityLease: null,
+    hypothesisId: null,
+    status: 'pending',
+  };
+  const invalid = {
+    taskId: 'recon-invalid-identity',
+    kind: 'recon',
+    objective: 'Explore with an identity that does not exist',
+    evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+    identityLease: 'fabricated',
+    hypothesisId: null,
+    status: 'pending',
+  };
+  const batch = { baseRevision: 5, tasks: [accepted, invalid], stop: false };
+  const activities = createBlackboxActivities(deps);
+  const schedulerSnapshot = await activities.readPlannerSnapshot(input(root));
+  const wave = validateAndScheduleWave(batch, schedulerSnapshot);
+
+  await assert.rejects(
+    activities.registerPlannedWave({
+      ...input(root),
+      revision: 5,
+      waveNumber: 1,
+      batch,
+      wave: { ...wave, concurrent: [] },
+      operationKey: 'workflow-1:1:register:analysis-accepted',
+    }),
+    /does not match scheduler validation/i,
+  );
+  assert.equal(board.calls.filter(([name]) => name === 'registerTasks').length, 0);
+
+  const registered = await activities.registerPlannedWave({
+    ...input(root),
+    revision: 5,
+    waveNumber: 1,
+    batch,
+    wave,
+    operationKey: 'workflow-1:1:register:analysis-accepted',
+  });
+  const registration = board.calls.find(([name]) => name === 'registerTasks');
+  assert.deepEqual(registration[2].accepted.map(({ taskId }) => taskId), ['analysis-accepted']);
+  assert.deepEqual(registration[2].rejected.map(({ task, reason }) => [task.taskId, reason]), [
+    ['recon-invalid-identity', wave.rejected[0].reason],
+  ]);
+  assert.deepEqual(registered.tasks.find(({ taskId }) => taskId === accepted.taskId), {
+    taskId: accepted.taskId,
+    status: 'pending',
+    identityLease: null,
+  });
+});
+
+test('control activities redact failures, evaluate persisted progress, and finalize the run', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root);
+  const candidate = {
+    candidateId: 'candidate-control',
+    hypothesisId: 'hypothesis-control',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    victimResourceId: 'resource-control',
+    baselineExchangeId: 'source-control',
+    actionId: 'action-control',
+    verificationSourceExchangeId: 'action-exchange-control',
+    demonstratedAction: 'read another user object',
+    concreteEffect: 'private contents were disclosed',
+    affectedParty: 'users',
+    preconditions: ['ordinary account'],
+    provenance: { actor: 'blackbox-action', taskId: 'action-control', baseRevision: 8 },
+  };
+  board.seed({
+    revision: 9,
+    candidateProofs: [candidate],
+    hypotheses: [{
+      hypothesisId: candidate.hypothesisId,
+      kind: 'horizontal',
+      summary: 'Cross-user access may be possible',
+      preconditions: ['two accounts'],
+      attackerCapability: 'read another user object',
+      evidence: [],
+      priority: 'high',
+      status: 'tested',
+      provenance: { actor: 'blackbox-analysis', taskId: 'analysis-control', baseRevision: 7 },
+    }],
+  });
+  const activities = createBlackboxActivities(deps);
+
+  const blockedRevision = await activities.recordBlackboxVerificationFailure({
+    ...input(root),
+    revision: 9,
+    candidateId: candidate.candidateId,
+    reason: `verifier failed with ${SECRET}`,
+    operationKey: 'workflow-1:1:verify-failure:candidate-control',
+  });
+  assert.equal(blockedRevision, 10);
+  const recorded = board.calls.find(([name]) => name === 'recordVerification')[3].verification;
+  assert.equal(recorded.verdict, 'blocked');
+  assert.equal(recorded.failureReason.includes(SECRET), false);
+  assert.deepEqual(recorded.replayActionIds, [candidate.actionId]);
+
+  board.seed({
+    revision: 10,
+    hypotheses: [],
+    tasks: [],
+  });
+  const evaluation = await activities.evaluateBlackboxProgress({
+    ...input(root),
+    revision: 10,
+    waveNumber: 2,
+    plannerStop: true,
+  });
+  assert.deepEqual(evaluation, { decision: 'complete', revision: 10 });
+
+  const finalized = await activities.finalizeBlackboxRun({
+    ...input(root),
+    revision: 10,
+    status: 'incomplete',
+    failure: `finalization context ${SECRET}`,
+    operationKey: 'workflow-1:2:finalize:',
+  });
+  assert.equal(finalized.status, 'incomplete');
+  assert.equal(finalized.revision, 11);
+  assert.equal(finalized.failure.includes(SECRET), false);
+  assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'incomplete');
 });

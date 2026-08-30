@@ -51,6 +51,8 @@ import {
 import { toWorkflowSummary } from './summary-mapper.js';
 import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
 
+export { blackboxAuthzWorkflow } from './blackbox-workflow.js';
+
 /** Agents this run is expected to produce — drives the resume short-circuit. */
 function computeExpectedAgents(vulnClasses: readonly VulnClass[], exploit: boolean): string[] {
   const expected: string[] = ['pre-recon', 'recon'];

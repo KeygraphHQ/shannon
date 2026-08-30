@@ -468,7 +468,10 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
   assert.ok(exchange.responseFingerprint.length <= 72);
 
   const expectedHistoryHash = sha256(`${REQUEST_CRLF}\0${RESPONSE_CRLF}`);
-  assert.equal(exchange.exchangeId, `ex_${sha256(`attacker\0${1}\0${expectedHistoryHash}`).slice(0, 24)}`);
+  assert.equal(
+    exchange.exchangeId,
+    `ex_${sha256(`capture-attacker\0attacker\0${1}\0${expectedHistoryHash}`).slice(0, 24)}`,
+  );
   assert.equal(
     exchange.routeSignature,
     `route_${sha256(
@@ -498,6 +501,15 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
     rawDirectory: path.join(secondRoot, '.shannon', 'blackbox', 'raw'),
   });
   assert.deepEqual(repeated, exchanges);
+
+  const freshVerification = await normalizeCapturedTraffic({
+    ...input,
+    rawDirectory: path.join(secondRoot, '.shannon', 'blackbox', 'verification-raw'),
+    provenance: { actor: 'blackbox-verifier', taskId: 'verify-candidate', baseRevision: 9 },
+    captureSequenceOffset: 9,
+  });
+  assert.notEqual(freshVerification[0].exchangeId, exchange.exchangeId);
+  assert.equal(freshVerification[0].captureSequence, 10);
 
   const variants = [
     exchange,
@@ -607,7 +619,10 @@ test('normalization assigns IDs from delta-relative order after multiset subtrac
   assert.deepEqual(exchanges.map(({ captureSequence }) => captureSequence), [1, 2]);
   assert.deepEqual(
     exchanges.map(({ exchangeId }, index) => exchangeId),
-    [a, b].map((record, index) => `ex_${sha256(`attacker\0${index + 1}\0${historyHash(record)}`).slice(0, 24)}`),
+    [a, b].map(
+      (record, index) =>
+        `ex_${sha256(`delta-capture\0attacker\0${index + 1}\0${historyHash(record)}`).slice(0, 24)}`,
+    ),
   );
 });
 

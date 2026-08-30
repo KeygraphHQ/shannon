@@ -105,10 +105,13 @@ export interface ReplayStep {
   readonly mutations: readonly RequestMutation[];
 }
 
-export interface ReplaySequence {
-  readonly actionId: string;
+export interface ReplayPlan {
   readonly steps: readonly ReplayStep[];
   readonly proofCondition: ProofCondition;
+}
+
+export interface ReplaySequence extends ReplayPlan {
+  readonly actionId: string;
 }
 
 export interface DeterministicProofObservation {
@@ -177,8 +180,7 @@ export interface PlannerTask {
   readonly identityLease: string | 'anonymous' | null;
   readonly hypothesisId: string | null;
   readonly status: 'pending' | 'running' | 'completed' | 'failed' | 'rejected';
-  readonly proofCondition?: ProofCondition;
-  readonly sourceExchangeId?: string;
+  readonly replayPlan?: ReplayPlan;
 }
 
 export interface WorkerContribution {
@@ -197,6 +199,7 @@ export interface TaskRegistrationBatch {
   readonly operationKey: string;
   readonly accepted: readonly PlannerTask[];
   readonly rejected: readonly { readonly task: PlannerTask; readonly reason: string }[];
+  readonly closedHypothesisIds?: readonly string[];
 }
 
 export interface ContributionBatch {
@@ -226,6 +229,17 @@ export interface RejectedPlannerTask {
   readonly reason: string;
 }
 
+export interface BlackboxOperationReceipt {
+  readonly operationKey: string;
+  readonly requestDigest: string;
+  readonly revision: number;
+}
+
+export interface BlackboxVerificationAttempt {
+  readonly verification: VerificationResult;
+  readonly exchanges: readonly NormalizedExchange[];
+}
+
 export interface BlackboxDocument {
   readonly schemaVersion: 1;
   readonly revision: number;
@@ -241,6 +255,8 @@ export interface BlackboxDocument {
   readonly tasks: readonly PlannerTask[];
   readonly rejectedTasks: readonly RejectedPlannerTask[];
   readonly runStatus: BlackboxRunStatus;
+  /** Optional for schema-version-1 workspaces created before operation receipts existed. */
+  readonly operationReceipts?: readonly BlackboxOperationReceipt[];
 }
 
 export type BlackboxSnapshot = BlackboxDocument;
@@ -252,6 +268,10 @@ export interface BlackboardStore {
   registerTasks(baseRevision: number, batch: TaskRegistrationBatch): Promise<BlackboxSnapshot>;
   startTasks(baseRevision: number, operationKey: string, taskIds: readonly string[]): Promise<BlackboxSnapshot>;
   settleTasks(batch: ContributionBatch): Promise<BlackboxSnapshot>;
-  recordVerification(baseRevision: number, operationKey: string, result: VerificationResult): Promise<BlackboxSnapshot>;
+  recordVerification(
+    baseRevision: number,
+    operationKey: string,
+    attempt: BlackboxVerificationAttempt,
+  ): Promise<BlackboxSnapshot>;
   setRunStatus(baseRevision: number, operationKey: string, status: BlackboxRunStatus): Promise<BlackboxSnapshot>;
 }

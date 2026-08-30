@@ -129,8 +129,8 @@ test('target replay is bound to one approved action and permits one fresh-actor 
   const tools = createBlackboxTools({
     role: 'blackbox-action',
     task: makeTask('action', 'action-17'),
-    replayTargetRequest: async (actionId) => {
-      calls.push(actionId);
+    replayTargetRequest: async (...arguments_) => {
+      calls.push(arguments_.length);
       return calls.length === 1 ? { status: 'needs_fresh_actor_request' } : { status: 'completed', proof: { passed: true } };
     },
   });
@@ -139,10 +139,10 @@ test('target replay is bound to one approved action and permits one fresh-actor 
 
   await replay.execute('call-1', { actionId: 'action-17' });
   await replay.execute('call-2', { actionId: 'action-17' });
-  assert.deepEqual(calls, ['action-17', 'action-17']);
+  assert.deepEqual(calls, [0, 0]);
   await assert.rejects(replay.execute('call-3', { actionId: 'action-17' }), /second|only|already|call/i);
   await assert.rejects(replay.execute('call-4', { actionId: 'other-action' }), /bound|assigned|mismatch|action/i);
-  assert.deepEqual(calls, ['action-17', 'action-17']);
+  assert.deepEqual(calls, [0, 0]);
 });
 
 test('a fresh-actor response on the retry does not permit a third request', async () => {

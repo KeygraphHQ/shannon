@@ -4,6 +4,7 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type {
@@ -12,9 +13,11 @@ import type {
   BlackboxActionResult,
   BlackboxDocument,
   BlackboxHypothesis,
+  BlackboxOperationReceipt,
   BlackboxResource,
   BlackboxRunStatus,
   BlackboxSnapshot,
+  BlackboxVerificationAttempt,
   BlackboxWorkerRole,
   CandidateProof,
   ContributionBatch,
@@ -27,7 +30,6 @@ import type {
   ProofCondition,
   RejectedPlannerTask,
   TaskRegistrationBatch,
-  VerificationResult,
   WorkerContribution,
   WorkflowTransition,
 } from '../types/blackbox.js';
@@ -35,6 +37,7 @@ import { SessionMutex } from '../utils/concurrency.js';
 import { atomicWrite, ensureDirectory, fileExists, readJson } from '../utils/file-io.js';
 
 const blackboardMutex = new SessionMutex();
+const SAFE_RECORD_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
 export class StaleBlackboardRevisionError extends Error {
   constructor(
@@ -65,15 +68,47 @@ function clone<T>(value: T): T {
   return structuredClone(value);
 }
 
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return Object.fromEntries(
+      Object.keys(record)
+        .filter((key) => record[key] !== undefined)
+        .sort()
+        .map((key) => [key, canonicalize(record[key])]),
+    );
+  }
+  return value;
+}
+
+function digestRequest(value: unknown): string {
+  const serialized = JSON.stringify(canonicalize(value));
+  if (serialized === undefined) throw new BlackboardValidationError('Operation request cannot be serialized');
+  return `sha256:${createHash('sha256').update(serialized).digest('hex')}`;
+}
+
 function assertNonEmptyId(id: string, kind: string): void {
   if (typeof id !== 'string' || id.trim() === '') {
     throw new BlackboardValidationError(`${kind} ID must be a non-empty string`);
   }
 }
 
+function assertSafeRecordId(id: string, kind: string): void {
+  if (typeof id !== 'string' || !SAFE_RECORD_IDENTIFIER.test(id)) {
+    throw new BlackboardValidationError(`${kind} ID must be a safe identifier`);
+  }
+}
+
 function assertRevision(expected: number, document: BlackboxDocument): void {
   if (document.revision !== expected) {
     throw new StaleBlackboardRevisionError(expected, document.revision);
+  }
+}
+
+function assertMutable(document: BlackboxDocument): void {
+  if (document.runStatus !== 'running') {
+    throw new BlackboardValidationError(`Blackboard is terminal with status ${document.runStatus}`);
   }
 }
 
@@ -90,7 +125,7 @@ function mergeRecords<T extends IdentifiedRecord>(
   for (const untrusted of incoming) {
     const record = { ...clone(untrusted), provenance } as T;
     const id = idOf(record);
-    assertNonEmptyId(id, kind);
+    assertSafeRecordId(id, kind);
     const current = records.get(id);
     if (current) {
       if (!isDeepStrictEqual(current, record)) {
@@ -116,7 +151,7 @@ function mergePlainRecords<T>(
   for (const untrusted of incoming) {
     const record = clone(untrusted);
     const id = idOf(record);
-    assertNonEmptyId(id, kind);
+    assertSafeRecordId(id, kind);
     const current = records.get(id);
     if (current) {
       if (!isDeepStrictEqual(current, record)) {
@@ -162,7 +197,7 @@ function assertContributionPermission(document: BlackboxDocument, contribution: 
   const incompatible: Readonly<Record<BlackboxWorkerRole, readonly (keyof WorkerContribution)[]>> = {
     'blackbox-recon': ['hypotheses', 'actions', 'candidateProofs'],
     'blackbox-analysis': ['exchanges', 'resources', 'transitions', 'actions', 'candidateProofs'],
-    'blackbox-action': ['exchanges', 'resources', 'transitions', 'hypotheses'],
+    'blackbox-action': ['resources', 'transitions', 'hypotheses'],
     'blackbox-verifier': ['exchanges', 'resources', 'transitions', 'hypotheses', 'actions', 'candidateProofs'],
   };
   const labels: Partial<Record<keyof WorkerContribution, string>> = {
@@ -181,6 +216,9 @@ function assertContributionPermission(document: BlackboxDocument, contribution: 
 
   if ('verifications' in (contribution as unknown as Record<string, unknown>)) {
     throw new BlackboardValidationError('A worker cannot submit verification results');
+  }
+  if ((contribution.hypotheses ?? []).some(({ status }) => status !== 'open')) {
+    throw new BlackboardValidationError('Analysis hypotheses must enter the orchestrator lifecycle as open');
   }
   return task;
 }
@@ -242,6 +280,53 @@ function applyContribution(document: BlackboxDocument, contribution: WorkerContr
       provenance,
     ),
   };
+}
+
+function assertActionContributionBinding(task: PlannerTask, contribution: WorkerContribution): void {
+  if (task.kind !== 'action') return;
+  if (contribution.actions?.length !== 1) {
+    throw new BlackboardValidationError(`Action task ${task.taskId} must submit exactly one action result`);
+  }
+  if (!task.hypothesisId || !task.replayPlan) {
+    throw new BlackboardValidationError(`Action task ${task.taskId} has no registered hypothesis or replay plan`);
+  }
+
+  const result = contribution.actions[0];
+  if (!result) throw new BlackboardValidationError(`Action task ${task.taskId} has no action result`);
+  if (result.actionId !== task.taskId) {
+    throw new BlackboardValidationError(`Action result ${result.actionId} is not bound to task ${task.taskId}`);
+  }
+  if (result.hypothesisId !== task.hypothesisId) {
+    throw new BlackboardValidationError(`Action result ${result.actionId} is not bound to its task hypothesis`);
+  }
+  const submittedPlan = {
+    steps: result.sequence.steps,
+    proofCondition: result.sequence.proofCondition,
+  };
+  if (!isDeepStrictEqual(submittedPlan, task.replayPlan)) {
+    throw new BlackboardValidationError(`Action result ${result.actionId} does not match its approved replay plan`);
+  }
+  if (result.observation && !isDeepStrictEqual(result.observation.condition, task.replayPlan.proofCondition)) {
+    throw new BlackboardValidationError(
+      `Action result ${result.actionId} observation does not match its approved proof`,
+    );
+  }
+  if (
+    (contribution.candidateProofs?.length ?? 0) > 0 &&
+    (result.status !== 'completed' || !result.observation?.passed)
+  ) {
+    throw new BlackboardValidationError(
+      `Action result ${result.actionId} cannot produce a candidate without a passed proof`,
+    );
+  }
+  for (const candidate of contribution.candidateProofs ?? []) {
+    if (candidate.actionId !== result.actionId) {
+      throw new BlackboardValidationError(`Candidate ${candidate.candidateId} is not bound to its action result`);
+    }
+    if (candidate.hypothesisId !== task.hypothesisId) {
+      throw new BlackboardValidationError(`Candidate ${candidate.candidateId} is not bound to its action hypothesis`);
+    }
+  }
 }
 
 interface ReferenceIndexes {
@@ -316,6 +401,7 @@ function validateReferences(document: BlackboxDocument): void {
   assertUniqueIds(document.candidateProofs, ({ candidateId }) => candidateId, 'proof');
   assertUniqueIds(document.verifications, ({ verificationId }) => verificationId, 'verification');
   assertUniqueIds(document.tasks, ({ taskId }) => taskId, 'task');
+  assertUniqueIds(document.operationReceipts ?? [], ({ operationKey }) => operationKey, 'operation key');
   const taskIds = new Set(document.tasks.map(({ taskId }) => taskId));
   for (const { task } of document.rejectedTasks) {
     if (taskIds.has(task.taskId)) {
@@ -369,6 +455,10 @@ function validateReferences(document: BlackboxDocument): void {
     assertKnown(indexes.resource, proof.victimResourceId, 'resource', `proof ${proof.candidateId}`);
     assertKnown(indexes.exchange, proof.baselineExchangeId, 'exchange', `proof ${proof.candidateId}`);
     assertKnown(indexes.action, proof.actionId, 'action', `proof ${proof.candidateId}`);
+    const action = document.actions.find(({ actionId }) => actionId === proof.actionId);
+    if (action && action.hypothesisId !== proof.hypothesisId) {
+      throw new BlackboardValidationError(`Candidate ${proof.candidateId} action and hypothesis do not match`);
+    }
     assertKnown(indexes.exchange, proof.verificationSourceExchangeId, 'exchange', `proof ${proof.candidateId}`);
   }
   for (const verification of document.verifications) {
@@ -391,6 +481,15 @@ function validateReferences(document: BlackboxDocument): void {
     }
     if (task.hypothesisId) {
       assertKnown(indexes.hypothesis, task.hypothesisId, 'hypothesis', `task ${task.taskId}`);
+    }
+  }
+  for (const receipt of document.operationReceipts ?? []) {
+    assertNonEmptyId(receipt.operationKey, 'operation key');
+    if (!/^sha256:[a-f0-9]{64}$/.test(receipt.requestDigest)) {
+      throw new BlackboardValidationError(`Operation ${receipt.operationKey} request digest is invalid`);
+    }
+    if (!Number.isSafeInteger(receipt.revision) || receipt.revision < 1 || receipt.revision > document.revision) {
+      throw new BlackboardValidationError(`Operation ${receipt.operationKey} revision is invalid`);
     }
   }
 }
@@ -424,6 +523,9 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
     if (!Array.isArray(document[field])) {
       throw new BlackboardValidationError(`Blackboard field ${field} must be an array`);
     }
+  }
+  if (document.operationReceipts !== undefined && !Array.isArray(document.operationReceipts)) {
+    throw new BlackboardValidationError('Blackboard field operationReceipts must be an array');
   }
 }
 
@@ -480,6 +582,7 @@ export class FileBlackboardStore implements BlackboardStore {
         tasks: [],
         rejectedTasks: [],
         runStatus: 'running',
+        operationReceipts: [],
       };
       validateReferences(document);
       this.assertNoConfiguredSecrets(document);
@@ -503,160 +606,345 @@ export class FileBlackboardStore implements BlackboardStore {
   }
 
   async registerTasks(baseRevision: number, batch: TaskRegistrationBatch): Promise<BlackboxSnapshot> {
-    void batch.operationKey;
-    return this.compareAndSwap(baseRevision, (document) => {
-      const accepted = batch.accepted.map((task): PlannerTask => ({ ...clone(task), status: 'pending' }));
-      const rejected = batch.rejected.map(
-        ({ task, reason }): RejectedPlannerTask => ({ task: { ...clone(task), status: 'rejected' }, reason }),
-      );
-      const allNewIds = [...accepted.map(({ taskId }) => taskId), ...rejected.map(({ task }) => task.taskId)];
-      if (new Set(allNewIds).size !== allNewIds.length) {
-        throw new BlackboardValidationError('Conflicting duplicate task ID in registration batch');
-      }
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      batch.operationKey,
+      {
+        operation: 'registerTasks',
+        baseRevision,
+        accepted: batch.accepted,
+        rejected: batch.rejected,
+        closedHypothesisIds: batch.closedHypothesisIds,
+      },
+      (document) => {
+        const accepted = batch.accepted.map((task): PlannerTask => ({ ...clone(task), status: 'pending' }));
+        const rejected = batch.rejected.map(
+          ({ task, reason }): RejectedPlannerTask => ({ task: { ...clone(task), status: 'rejected' }, reason }),
+        );
+        const allNewIds = [...accepted.map(({ taskId }) => taskId), ...rejected.map(({ task }) => task.taskId)];
+        if (new Set(allNewIds).size !== allNewIds.length) {
+          throw new BlackboardValidationError('Conflicting duplicate task ID in registration batch');
+        }
 
-      const next: BlackboxDocument = {
-        ...document,
-        tasks: mergePlainRecords('task', document.tasks, accepted, ({ taskId }) => taskId),
-        rejectedTasks: mergePlainRecords('rejected task', document.rejectedTasks, rejected, ({ task }) => task.taskId),
-      };
-      validateReferences(next);
-      return next;
-    });
+        const closedHypothesisIds = batch.closedHypothesisIds ?? [];
+        if (new Set(closedHypothesisIds).size !== closedHypothesisIds.length) {
+          throw new BlackboardValidationError('Cannot close duplicate hypothesis IDs');
+        }
+        const queuedHypothesisIds = new Set(
+          accepted
+            .filter(
+              (task): task is PlannerTask & { readonly hypothesisId: string } =>
+                task.kind === 'action' && task.hypothesisId !== null,
+            )
+            .map(({ hypothesisId }) => hypothesisId),
+        );
+        for (const hypothesisId of closedHypothesisIds) {
+          const hypothesis = document.hypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
+          if (!hypothesis) throw new BlackboardValidationError(`Unknown hypothesis ${hypothesisId}`);
+          if (!['open', 'queued', 'tested', 'blocked'].includes(hypothesis.status)) {
+            throw new BlackboardValidationError(
+              `Cannot close hypothesis ${hypothesisId} while it is ${hypothesis.status}`,
+            );
+          }
+          if (queuedHypothesisIds.has(hypothesisId)) {
+            throw new BlackboardValidationError(`Hypothesis ${hypothesisId} cannot be queued and closed together`);
+          }
+        }
+        for (const hypothesisId of queuedHypothesisIds) {
+          const hypothesis = document.hypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
+          if (!hypothesis) throw new BlackboardValidationError(`Unknown hypothesis ${hypothesisId}`);
+          if (!['open', 'queued', 'tested', 'blocked'].includes(hypothesis.status)) {
+            throw new BlackboardValidationError(
+              `Cannot queue hypothesis ${hypothesisId} while it is ${hypothesis.status}`,
+            );
+          }
+        }
+
+        const closed = new Set(closedHypothesisIds);
+
+        const next: BlackboxDocument = {
+          ...document,
+          hypotheses: document.hypotheses.map((hypothesis) => {
+            if (closed.has(hypothesis.hypothesisId)) {
+              return { ...hypothesis, status: 'no_demonstrated_impact' as const };
+            }
+            if (queuedHypothesisIds.has(hypothesis.hypothesisId)) {
+              return { ...hypothesis, status: 'queued' as const };
+            }
+            return hypothesis;
+          }),
+          tasks: mergePlainRecords('task', document.tasks, accepted, ({ taskId }) => taskId),
+          rejectedTasks: mergePlainRecords(
+            'rejected task',
+            document.rejectedTasks,
+            rejected,
+            ({ task }) => task.taskId,
+          ),
+        };
+        validateReferences(next);
+        return next;
+      },
+    );
   }
 
   async startTasks(baseRevision: number, operationKey: string, taskIds: readonly string[]): Promise<BlackboxSnapshot> {
-    void operationKey;
-    return this.compareAndSwap(baseRevision, (document) => {
-      if (new Set(taskIds).size !== taskIds.length) {
-        throw new BlackboardValidationError('Cannot start duplicate task IDs');
-      }
-      const selected = new Set(taskIds);
-      const runningLeases = new Set(
-        document.tasks
-          .filter(({ status, identityLease }) => status === 'running' && identityLease !== null)
-          .map(({ identityLease }) => identityLease),
-      );
-      for (const taskId of taskIds) {
-        const task = document.tasks.find((candidate) => candidate.taskId === taskId);
-        if (!task) throw new BlackboardValidationError(`Unknown task ${taskId}`);
-        if (task.status !== 'pending') {
-          throw new BlackboardValidationError(`Task ${taskId} is ${task.status}, not pending`);
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'startTasks', baseRevision, taskIds },
+      (document) => {
+        if (new Set(taskIds).size !== taskIds.length) {
+          throw new BlackboardValidationError('Cannot start duplicate task IDs');
         }
-        if (task.identityLease && runningLeases.has(task.identityLease)) {
-          throw new BlackboardValidationError(`Identity ${task.identityLease} is already leased`);
+        const selected = new Set(taskIds);
+        const runningLeases = new Set(
+          document.tasks
+            .filter(({ status, identityLease }) => status === 'running' && identityLease !== null)
+            .map(({ identityLease }) => identityLease),
+        );
+        for (const taskId of taskIds) {
+          const task = document.tasks.find((candidate) => candidate.taskId === taskId);
+          if (!task) throw new BlackboardValidationError(`Unknown task ${taskId}`);
+          if (task.status !== 'pending') {
+            throw new BlackboardValidationError(`Task ${taskId} is ${task.status}, not pending`);
+          }
+          if (task.identityLease && runningLeases.has(task.identityLease)) {
+            throw new BlackboardValidationError(`Identity ${task.identityLease} is already leased`);
+          }
+          if (task.identityLease) runningLeases.add(task.identityLease);
         }
-        if (task.identityLease) runningLeases.add(task.identityLease);
-      }
 
-      return {
-        ...document,
-        tasks: document.tasks.map((task) =>
-          selected.has(task.taskId) ? { ...task, status: 'running' as const } : task,
-        ),
-      };
-    });
+        return {
+          ...document,
+          tasks: document.tasks.map((task) =>
+            selected.has(task.taskId) ? { ...task, status: 'running' as const } : task,
+          ),
+        };
+      },
+    );
   }
 
   async settleTasks(batch: ContributionBatch): Promise<BlackboxSnapshot> {
-    void batch.operationKey;
-    return this.compareAndSwap(batch.baseRevision, (document) => {
-      const contributions = [...batch.contributions].sort((left, right) => left.taskId.localeCompare(right.taskId));
-      const failures = [...batch.failures].sort((left, right) => left.taskId.localeCompare(right.taskId));
-      const taskIds = [...contributions.map(({ taskId }) => taskId), ...failures.map(({ taskId }) => taskId)];
-      if (new Set(taskIds).size !== taskIds.length) {
-        throw new BlackboardValidationError('A task cannot be settled more than once in one batch');
-      }
-      let next = document;
-      for (const contribution of contributions) {
-        if (contribution.baseRevision !== batch.baseRevision) {
-          throw new StaleBlackboardRevisionError(contribution.baseRevision, batch.baseRevision);
+    return this.keyedCompareAndSwap(
+      batch.baseRevision,
+      batch.operationKey,
+      {
+        operation: 'settleTasks',
+        baseRevision: batch.baseRevision,
+        contributions: batch.contributions,
+        failures: batch.failures,
+        identityCaptures: batch.identityCaptures,
+      },
+      (document) => {
+        const contributions = [...batch.contributions].sort((left, right) => left.taskId.localeCompare(right.taskId));
+        const failures = [...batch.failures].sort((left, right) => left.taskId.localeCompare(right.taskId));
+        const taskIds = [...contributions.map(({ taskId }) => taskId), ...failures.map(({ taskId }) => taskId)];
+        if (new Set(taskIds).size !== taskIds.length) {
+          throw new BlackboardValidationError('A task cannot be settled more than once in one batch');
         }
-        next = applyContribution(next, contribution);
-      }
-      for (const { taskId } of failures) {
-        const task = next.tasks.find((candidate) => candidate.taskId === taskId);
-        if (!task) throw new BlackboardValidationError(`Unknown task ${taskId}`);
-        if (task.status !== 'running') {
-          throw new BlackboardValidationError(`Task ${taskId} is ${task.status}, not running`);
+        let next = document;
+        for (const contribution of contributions) {
+          if (contribution.baseRevision !== batch.baseRevision) {
+            throw new StaleBlackboardRevisionError(contribution.baseRevision, batch.baseRevision);
+          }
+          const task = next.tasks.find(({ taskId }) => taskId === contribution.taskId);
+          if (task) assertActionContributionBinding(task, contribution);
+          next = applyContribution(next, contribution);
         }
-      }
+        for (const { taskId } of failures) {
+          const task = next.tasks.find((candidate) => candidate.taskId === taskId);
+          if (!task) throw new BlackboardValidationError(`Unknown task ${taskId}`);
+          if (task.status !== 'running') {
+            throw new BlackboardValidationError(`Task ${taskId} is ${task.status}, not running`);
+          }
+        }
 
-      const completed = new Set(contributions.map(({ taskId }) => taskId));
-      const failed = new Set(failures.map(({ taskId }) => taskId));
-      const identityCaptures = batch.identityCaptures ?? [];
-      if (new Set(identityCaptures.map(({ identity }) => identity)).size !== identityCaptures.length) {
-        throw new BlackboardValidationError('An identity cannot be captured more than once in one batch');
-      }
-      for (const { identity, stateRef } of identityCaptures) {
-        const expectedStateRef = `.shannon/blackbox/identities/${identity}/storage-state.json`;
-        if (stateRef !== expectedStateRef) {
-          throw new BlackboardValidationError(`Invalid state reference for identity ${identity}`);
+        const failedActionTasks = new Set(
+          contributions.flatMap((contribution) => {
+            const task = next.tasks.find(({ taskId }) => taskId === contribution.taskId);
+            return task?.kind === 'action' && contribution.actions?.[0]?.status !== 'completed'
+              ? [contribution.taskId]
+              : [];
+          }),
+        );
+        const completed = new Set(
+          contributions.map(({ taskId }) => taskId).filter((taskId) => !failedActionTasks.has(taskId)),
+        );
+        const failed = new Set([...failures.map(({ taskId }) => taskId), ...failedActionTasks]);
+        const identityCaptures = batch.identityCaptures ?? [];
+        if (new Set(identityCaptures.map(({ identity }) => identity)).size !== identityCaptures.length) {
+          throw new BlackboardValidationError('An identity cannot be captured more than once in one batch');
         }
-        if (!next.identities.some(({ name }) => name === identity)) {
-          throw new BlackboardValidationError(`Unknown identity ${identity}`);
+        for (const { identity, stateRef } of identityCaptures) {
+          const expectedStateRef = `.shannon/blackbox/identities/${identity}/storage-state.json`;
+          if (stateRef !== expectedStateRef) {
+            throw new BlackboardValidationError(`Invalid state reference for identity ${identity}`);
+          }
+          if (!next.identities.some(({ name }) => name === identity)) {
+            throw new BlackboardValidationError(`Unknown identity ${identity}`);
+          }
+          const bootstrapTaskId = `bootstrap-${identity}`;
+          const bootstrapTask = next.tasks.find(({ taskId }) => taskId === bootstrapTaskId);
+          if (
+            !completed.has(bootstrapTaskId) ||
+            !bootstrapTask ||
+            bootstrapTask.kind !== 'recon' ||
+            bootstrapTask.identityLease !== identity ||
+            bootstrapTask.hypothesisId !== null
+          ) {
+            throw new BlackboardValidationError(
+              `Identity ${identity} capture requires its matching bootstrap identity lease`,
+            );
+          }
         }
-        const bootstrapTaskId = `bootstrap-${identity}`;
-        const bootstrapTask = next.tasks.find(({ taskId }) => taskId === bootstrapTaskId);
-        if (
-          !completed.has(bootstrapTaskId) ||
-          !bootstrapTask ||
-          bootstrapTask.kind !== 'recon' ||
-          bootstrapTask.identityLease !== identity ||
-          bootstrapTask.hypothesisId !== null
-        ) {
-          throw new BlackboardValidationError(
-            `Identity ${identity} capture requires its matching bootstrap identity lease`,
-          );
-        }
-      }
-      const capturedIdentities = new Map(identityCaptures.map(({ identity, stateRef }) => [identity, stateRef]));
-      next = {
-        ...next,
-        identities: next.identities.map((identity) => {
-          const stateRef = capturedIdentities.get(identity.name);
-          return stateRef ? { ...identity, authenticated: true, stateRef } : identity;
-        }),
-        tasks: next.tasks.map((task) => {
-          if (completed.has(task.taskId)) return { ...task, status: 'completed' as const };
-          if (failed.has(task.taskId)) return { ...task, status: 'failed' as const };
-          return task;
-        }),
-      };
-      validateReferences(next);
-      return next;
-    });
+        const capturedIdentities = new Map(identityCaptures.map(({ identity, stateRef }) => [identity, stateRef]));
+        const testedActionHypotheses = new Set(
+          contributions
+            .map(({ taskId }) => next.tasks.find((task) => task.taskId === taskId))
+            .filter((task): task is PlannerTask => task?.kind === 'action' && task.hypothesisId !== null)
+            .map(({ hypothesisId }) => hypothesisId),
+        );
+        next = {
+          ...next,
+          identities: next.identities.map((identity) => {
+            const stateRef = capturedIdentities.get(identity.name);
+            return stateRef ? { ...identity, authenticated: true, stateRef } : identity;
+          }),
+          tasks: next.tasks.map((task) => {
+            if (completed.has(task.taskId)) return { ...task, status: 'completed' as const };
+            if (failed.has(task.taskId)) return { ...task, status: 'failed' as const };
+            return task;
+          }),
+          hypotheses: next.hypotheses.map((hypothesis) => {
+            if (!testedActionHypotheses.has(hypothesis.hypothesisId)) return hypothesis;
+            if (['verified', 'disproved', 'no_demonstrated_impact'].includes(hypothesis.status)) return hypothesis;
+            return { ...hypothesis, status: 'tested' as const };
+          }),
+        };
+        validateReferences(next);
+        return next;
+      },
+    );
   }
 
   async recordVerification(
     baseRevision: number,
     operationKey: string,
-    result: VerificationResult,
+    attempt: BlackboxVerificationAttempt,
   ): Promise<BlackboxSnapshot> {
-    void operationKey;
-    return this.compareAndSwap(baseRevision, (document) => {
-      const verifications = mergePlainRecords(
-        'verification',
-        document.verifications,
-        [result],
-        ({ verificationId }) => verificationId,
-      );
-      const candidate = document.candidateProofs.find(({ candidateId }) => candidateId === result.candidateId);
-      const hypotheses = candidate
-        ? document.hypotheses.map((hypothesis) => {
-            if (hypothesis.hypothesisId !== candidate.hypothesisId) return hypothesis;
-            const status: HypothesisStatus = result.verdict === 'verified' ? 'verified' : result.verdict;
-            return { ...hypothesis, status };
-          })
-        : document.hypotheses;
-      const next = { ...document, verifications, hypotheses };
-      validateReferences(next);
-      return next;
-    });
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'recordVerification', baseRevision, attempt },
+      (document) => {
+        const result = attempt.verification;
+        const candidate = document.candidateProofs.find(({ candidateId }) => candidateId === result.candidateId);
+        if (!candidate) throw new BlackboardValidationError(`Unknown candidate ${result.candidateId}`);
+        const action = document.actions.find(({ actionId }) => actionId === candidate.actionId);
+        if (!action) throw new BlackboardValidationError(`Unknown original action ${candidate.actionId}`);
+
+        if (result.verdict === 'verified') {
+          if (!result.observation?.passed) {
+            throw new BlackboardValidationError('A verified result requires a passed observation');
+          }
+          if (!result.replayActionIds.includes(candidate.actionId)) {
+            throw new BlackboardValidationError(`Verified result must link the original action ${candidate.actionId}`);
+          }
+          if (!isDeepStrictEqual(result.observation.condition, action.sequence.proofCondition)) {
+            throw new BlackboardValidationError(
+              'Verified result observation does not match the approved proof condition',
+            );
+          }
+
+          const stateRefs = new Map<string, string>();
+          for (const { identity, stateRef } of result.freshStateRefs) {
+            if (stateRefs.has(identity)) {
+              throw new BlackboardValidationError(`Verified result has duplicate fresh state for ${identity}`);
+            }
+            if (typeof stateRef !== 'string' || stateRef.length === 0) {
+              throw new BlackboardValidationError(`Verified result has invalid fresh state for ${identity}`);
+            }
+            stateRefs.set(identity, stateRef);
+          }
+          const capturedStateRefs = new Set(
+            document.identities.flatMap(({ stateRef }) => (stateRef === null ? [] : [stateRef])),
+          );
+          const namedActors = new Set(
+            action.sequence.steps.map(({ actor }) => actor).filter((actor) => actor !== 'anonymous'),
+          );
+          const proofCondition = action.sequence.proofCondition;
+          if (proofCondition.type === 'persistent_state') {
+            const verificationSource = document.exchanges.find(
+              ({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId,
+            );
+            if (verificationSource?.identity && verificationSource.identity !== 'anonymous') {
+              namedActors.add(verificationSource.identity);
+            }
+          }
+          for (const actor of namedActors) {
+            const stateRef = stateRefs.get(actor);
+            if (!stateRef)
+              throw new BlackboardValidationError(`Verified result requires fresh state for actor ${actor}`);
+            if (capturedStateRefs.has(stateRef)) {
+              throw new BlackboardValidationError(`Verified result fresh state for ${actor} reuses capture state`);
+            }
+          }
+
+          const freshExchangeIds = new Set(attempt.exchanges.map(({ exchangeId }) => exchangeId));
+          if (
+            result.replayExchangeIds.length === 0 ||
+            result.replayExchangeIds.some((exchangeId) => !freshExchangeIds.has(exchangeId))
+          ) {
+            throw new BlackboardValidationError('Verified result must reference its fresh replay exchanges');
+          }
+          if (
+            !result.observation.verificationExchangeId ||
+            !result.replayExchangeIds.includes(result.observation.verificationExchangeId)
+          ) {
+            throw new BlackboardValidationError('Verified result observation must link a fresh replay exchange');
+          }
+        }
+
+        const provenance: EvidenceProvenance = {
+          actor: 'blackbox-verifier',
+          taskId: result.verificationId,
+          baseRevision,
+        };
+        const exchanges = mergeRecords(
+          'exchange',
+          document.exchanges,
+          attempt.exchanges,
+          ({ exchangeId }) => exchangeId,
+          provenance,
+        );
+        const verifications = mergePlainRecords(
+          'verification',
+          document.verifications,
+          [result],
+          ({ verificationId }) => verificationId,
+        );
+        const hypotheses = document.hypotheses.map((hypothesis) => {
+          if (hypothesis.hypothesisId !== candidate.hypothesisId) return hypothesis;
+          if (hypothesis.status === 'verified') return hypothesis;
+          if (hypothesis.status === 'disproved' && result.verdict !== 'verified') return hypothesis;
+          if (hypothesis.status === 'no_demonstrated_impact') return hypothesis;
+          const status: HypothesisStatus = result.verdict === 'verified' ? 'verified' : result.verdict;
+          return { ...hypothesis, status };
+        });
+        const next = { ...document, exchanges, verifications, hypotheses };
+        validateReferences(next);
+        return next;
+      },
+    );
   }
 
   async setRunStatus(baseRevision: number, operationKey: string, status: BlackboxRunStatus): Promise<BlackboxSnapshot> {
-    void operationKey;
-    return this.compareAndSwap(baseRevision, (document) => ({ ...document, runStatus: status }));
+    return this.keyedCompareAndSwap(
+      baseRevision,
+      operationKey,
+      { operation: 'setRunStatus', baseRevision, status },
+      (document) => ({ ...document, runStatus: status }),
+    );
   }
 
   private async readUnlocked(): Promise<BlackboxDocument> {
@@ -672,6 +960,7 @@ export class FileBlackboardStore implements BlackboardStore {
   ): Promise<BlackboxSnapshot> {
     const observed = await this.readUnlocked();
     assertRevision(baseRevision, observed);
+    assertMutable(observed);
     const candidate = { ...update(clone(observed)), revision: baseRevision + 1 };
     validateReferences(candidate);
     this.assertNoConfiguredSecrets(candidate);
@@ -680,6 +969,44 @@ export class FileBlackboardStore implements BlackboardStore {
     try {
       const current = await this.readUnlocked();
       assertRevision(baseRevision, current);
+      assertMutable(current);
+      await atomicWrite(this.blackboardPath, candidate);
+      return clone(candidate);
+    } finally {
+      unlock();
+    }
+  }
+
+  private async keyedCompareAndSwap(
+    baseRevision: number,
+    operationKey: string,
+    request: unknown,
+    update: (document: BlackboxDocument) => BlackboxDocument,
+  ): Promise<BlackboxSnapshot> {
+    assertNonEmptyId(operationKey, 'operation key');
+    const requestDigest = digestRequest(request);
+    const unlock = await blackboardMutex.lock(this.blackboardPath);
+    try {
+      const current = await this.readUnlocked();
+      const receipt = (current.operationReceipts ?? []).find((candidate) => candidate.operationKey === operationKey);
+      if (receipt) {
+        if (receipt.requestDigest !== requestDigest) {
+          throw new BlackboardValidationError(`Operation key ${operationKey} was already used with different content`);
+        }
+        return clone(current);
+      }
+
+      assertRevision(baseRevision, current);
+      assertMutable(current);
+      const revision = baseRevision + 1;
+      const operationReceipt: BlackboxOperationReceipt = { operationKey, requestDigest, revision };
+      const candidate = {
+        ...update(clone(current)),
+        revision,
+        operationReceipts: [...(current.operationReceipts ?? []), operationReceipt],
+      };
+      validateReferences(candidate);
+      this.assertNoConfiguredSecrets(candidate);
       await atomicWrite(this.blackboardPath, candidate);
       return clone(candidate);
     } finally {

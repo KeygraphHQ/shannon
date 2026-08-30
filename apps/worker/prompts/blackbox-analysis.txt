@@ -5,3 +5,4 @@ As an attacker, I could <demonstrated action>, causing <concrete effect> to <cus
 Submit only structured records supported by the supplied evidence IDs.
 
 Compare identities, route signatures, ownership links, and state transitions in the supplied slice. Turn observations into falsifiable hypotheses with explicit preconditions and evidence references. Do not send requests, use a browser, invent evidence, or make a severity claim.
+Use only identifiers made from letters, digits, underscores, and hyphens, starting with a letter or digit. Prefix hypothesis IDs with the assigned task ID.

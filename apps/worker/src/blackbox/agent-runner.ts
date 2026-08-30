@@ -141,12 +141,19 @@ function collectReferencedStrings(value: unknown, references: Set<string>): void
 
 function taskReferences(task: PlannerTask | null): ReadonlySet<string> {
   if (!task) return new Set<string>();
-  const extended = task as PlannerTask & { readonly sourceExchangeId?: string };
-  return new Set(
-    [...task.evidence.map(({ id }) => id), task.hypothesisId, task.identityLease, extended.sourceExchangeId].filter(
+  const references = new Set(
+    [...task.evidence.map(({ id }) => id), task.hypothesisId, task.identityLease].filter(
       (value): value is string => typeof value === 'string' && value.length > 0,
     ),
   );
+  for (const step of task.replayPlan?.steps ?? []) {
+    references.add(step.sourceExchangeId);
+    references.add(step.actor);
+  }
+  if (task.replayPlan?.proofCondition.type === 'persistent_state') {
+    references.add(task.replayPlan.proofCondition.verificationSourceExchangeId);
+  }
+  return references;
 }
 
 function projectVerifierInput(value: unknown): unknown {
@@ -155,6 +162,12 @@ function projectVerifierInput(value: unknown): unknown {
   const permitted = new Set([
     'candidateId',
     'actionId',
+    'exchangeId',
+    'routeSignature',
+    'method',
+    'origin',
+    'queryKeys',
+    'bodyShape',
     'sequence',
     'steps',
     'stepId',
@@ -289,6 +302,7 @@ function boundedSlice(
     case 'blackbox-verifier':
       return {
         ...common,
+        routes: projectVerifierInput(linkedRecords(routes, verifierEvidenceReferences)),
         candidateProofs: projectVerifierInput(candidateProofs),
         actionOutcomes: projectVerifierInput(verifierActionOutcomes),
       };

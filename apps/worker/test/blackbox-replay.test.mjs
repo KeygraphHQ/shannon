@@ -349,7 +349,7 @@ test('identity-bound replay strips victim state, substitutes the actor, preserve
 
   assert.equal(outcome.exchanges.length, 1);
   assert.equal(outcome.exchanges[0].identity, 'attacker');
-  assert.equal(outcome.exchanges[0].captureSequence, 1);
+  assert.equal(outcome.exchanges[0].captureSequence, 10);
   assert.equal(outcome.observation.passed, true);
   assert.equal(outcome.comparison.baselineExchangeId, 'ex_source');
   assert.equal(outcome.comparison.observedExchangeId, outcome.exchanges[0].exchangeId);
@@ -361,6 +361,28 @@ test('identity-bound replay strips victim state, substitutes the actor, preserve
   for (const secret of CONFIGURED_SECRETS) {
     assert.equal(exposed.includes(secret), false, `replay outcome leaked ${secret}`);
   }
+});
+
+test('identity substitution alone can replay a victim request as the attacker', async () => {
+  const { service, client } = harness();
+  const outcome = await service.replay(replayCommand('act_identity_swap', {
+    steps: [{
+      stepId: 'step_identity_swap',
+      sourceExchangeId: 'ex_source',
+      actor: 'attacker',
+      mutations: [],
+    }],
+  }));
+
+  assert.equal(outcome.status, 'completed');
+  assert.equal(client.calls.length, 1);
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(outbound.target, '/api/users/100?view=full&csrf_token=attacker-query-csrf');
+  assert.equal(
+    outbound.headers.find(({ name }) => name.toLowerCase() === 'authorization')?.value,
+    'Bearer attacker-bearer',
+  );
+  assert.equal(JSON.parse(outbound.body).object_id, '100');
 });
 
 test('identity-bound replay replaces form CSRF from the actor equivalent request', async () => {
@@ -641,7 +663,7 @@ test('four steps retain order, stop after a dispatched failure, and are never re
     proofCondition: { type: 'body_contains', marker: 'four' },
   });
   assert.equal(outcome.status, 'completed');
-  assert.deepEqual(outcome.exchanges.map(({ captureSequence }) => captureSequence), [1, 2, 3, 4]);
+  assert.deepEqual(outcome.exchanges.map(({ captureSequence }) => captureSequence), [2, 3, 4, 5]);
   assert.deepEqual(
     success.client.calls.map(({ arguments_ }) => parseHttpRequest(arguments_.content).target),
     ['/api/items/1?sequence=1', '/api/items/1?sequence=2', '/api/items/1?sequence=3', '/api/items/1?sequence=4'],

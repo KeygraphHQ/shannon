@@ -4,4 +4,5 @@ An observation is not a finding. A candidate is useful only if its replay can pr
 As an attacker, I could <demonstrated action>, causing <concrete effect> to <customer, application, or users>.
 Submit only structured records supported by the supplied evidence IDs.
 
-Perform only the assigned replay and proof condition. Call the bound replay tool with the assigned action ID. Report observed outcomes, exchange references, and failures exactly as observed. Do not choose a target, alter the sequence, or use severity language. The verifier decides whether the evidence supports an impact.
+Perform only the assigned replay and proof condition. Call the bound replay tool with the assigned action ID. The orchestrator records the exact replay outcome and exchange evidence. Submit candidate metadata only when that deterministic outcome passes the assigned impact proof. Do not fabricate observed outcomes, submit model-authored action records, choose a target, alter the sequence, or use severity language. The verifier decides whether the evidence supports an impact.
+Use only identifiers made from letters, digits, underscores, and hyphens, starting with a letter or digit. Prefix any candidate ID with the assigned task ID.

@@ -18,6 +18,7 @@ const MAX_BODY_SHAPE_LENGTH = 512;
 
 export interface TrafficNormalizationInput extends TrafficCaptureInput {
   readonly provenance: EvidenceProvenance;
+  readonly captureSequenceOffset?: number;
 }
 
 export interface RawExchangeNormalizationInput {
@@ -317,7 +318,9 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
     ? mediaType(firstHeader(response.headers, 'content-type'), input.configuredSecrets)
     : null;
   const rawHash = historyHash(input.raw);
-  const exchangeId = `ex_${sha256(`${input.identity}\0${input.captureSequence}\0${rawHash}`).slice(0, 24)}`;
+  const exchangeId = `ex_${sha256(
+    `${input.provenance.taskId}\0${input.identity}\0${input.captureSequence}\0${rawHash}`,
+  ).slice(0, 24)}`;
   const origin = target.origin;
   const routeSignature = `route_${sha256(
     `${request.method}\0${origin}\0${pathResult.path}\0${queryKeys.join(',')}\0${bodyShape}`,
@@ -346,6 +349,10 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
 export async function normalizeCapturedTraffic(
   input: TrafficNormalizationInput,
 ): Promise<readonly NormalizedExchange[]> {
+  const captureSequenceOffset = input.captureSequenceOffset ?? 0;
+  if (!Number.isSafeInteger(captureSequenceOffset) || captureSequenceOffset < 0) {
+    throw new Error('Capture sequence offset must be a non-negative safe integer');
+  }
   const delta = diffHistory(input.before, input.after);
   const normalized: NormalizedExchange[] = [];
   let directoryReady = false;
@@ -355,7 +362,7 @@ export async function normalizeCapturedTraffic(
       rules: input.rules,
       identity: input.identity,
       raw,
-      captureSequence: normalized.length + 1,
+      captureSequence: captureSequenceOffset + normalized.length + 1,
       configuredSecrets: input.configuredSecrets,
       provenance: input.provenance,
     });

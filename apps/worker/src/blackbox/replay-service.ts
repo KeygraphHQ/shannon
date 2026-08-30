@@ -11,6 +11,7 @@ import type {
   EvidenceProvenance,
   NormalizedExchange,
   ProofCondition,
+  ReplaySequence,
   ReplayStep,
   RequestMutation,
 } from '../types/blackbox.js';
@@ -29,11 +30,7 @@ const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
 const FORBIDDEN_MODEL_HEADERS = new Set(['cookie', 'authorization', 'proxy-authorization', 'host', 'origin']);
 const JSON_POINTER_DANGEROUS_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
-export interface ReplayCommand {
-  readonly actionId: string;
-  readonly steps: readonly ReplayStep[];
-  readonly proofCondition: ProofCondition;
-}
+export type ReplayCommand = ReplaySequence;
 
 export interface ResponseComparison {
   readonly baselineExchangeId: string;
@@ -226,8 +223,8 @@ function normalizeCommand(value: ReplayCommand): ReplayCommand {
     if (candidate.actor !== 'anonymous') assertSafeIdentifier(candidate.actor, 'actor');
     if (seenStepIds.has(candidate.stepId)) throw new ReplayValidationError(`Duplicate replay step ${candidate.stepId}`);
     seenStepIds.add(candidate.stepId);
-    if (!Array.isArray(candidate.mutations) || candidate.mutations.length < 1 || candidate.mutations.length > 8) {
-      throw new ReplayValidationError(`Replay step ${candidate.stepId} requires one to eight mutations`);
+    if (!Array.isArray(candidate.mutations) || candidate.mutations.length > 8) {
+      throw new ReplayValidationError(`Replay step ${candidate.stepId} allows zero to eight explicit mutations`);
     }
     return {
       stepId: candidate.stepId,
@@ -830,6 +827,7 @@ export class ReplayService {
   private readonly rawStore: ReplayRawStore;
   private readonly identityState: IdentityStateResolver;
   private readonly provenance: EvidenceProvenance;
+  private readonly captureSequences = new Map<string, number>();
 
   constructor(options: ReplayServiceOptions) {
     this.targetOrigin = normalizeTargetOrigin(options.targetOrigin);
@@ -840,6 +838,10 @@ export class ReplayService {
       if (exchanges.has(exchange.exchangeId))
         throw new ReplayValidationError(`Duplicate exchange ${exchange.exchangeId}`);
       exchanges.set(exchange.exchangeId, structuredClone(exchange));
+      this.captureSequences.set(
+        exchange.identity,
+        Math.max(this.captureSequences.get(exchange.identity) ?? 0, exchange.captureSequence),
+      );
     }
     this.exchanges = exchanges;
     this.client = options.client;
@@ -855,6 +857,13 @@ export class ReplayService {
       throw new ReplayValidationError(`Replay exchange ${exchangeId} is outside the target origin`);
     }
     return exchange;
+  }
+
+  private nextCaptureSequence(identity: string): number {
+    const sequence = (this.captureSequences.get(identity) ?? 0) + 1;
+    if (!Number.isSafeInteger(sequence)) throw new ReplayValidationError('Replay capture sequence exhausted');
+    this.captureSequences.set(identity, sequence);
+    return sequence;
   }
 
   private async actorEquivalent(
@@ -952,8 +961,8 @@ export class ReplayService {
       updateContentLength(prepared);
     }
 
-    if (!allowNoMutations && step.mutations.length === 0) {
-      throw new ReplayValidationError(`Replay step ${step.stepId} requires a mutation`);
+    if (!allowNoMutations && step.mutations.length === 0 && step.actor === source.identity) {
+      throw new ReplayValidationError(`Replay step ${step.stepId} requires an identity change or a mutation`);
     }
     applyMutations(prepared, step.mutations);
     assertRequestInScope(parseHttpRequest(serializeHttp1(prepared)), this.targetOrigin, this.rules);
@@ -1112,7 +1121,7 @@ export class ReplayService {
         rules: this.rules,
         identity: preparedRequest.actor,
         raw: record,
-        captureSequence: index + 1,
+        captureSequence: this.nextCaptureSequence(preparedRequest.actor),
         configuredSecrets: this.configuredSecrets,
         provenance: this.provenance,
       });

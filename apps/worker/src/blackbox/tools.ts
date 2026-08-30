@@ -164,8 +164,8 @@ export interface BlackboxToolFactoryOptions {
   readonly task?: PlannerTask | null;
   readonly candidateId?: string;
   readonly readTargetHistory?: () => unknown | Promise<unknown>;
-  readonly replayTargetRequest?: (actionId: string) => unknown | Promise<unknown>;
-  readonly replayVerificationRequest?: (candidateId: string) => unknown | Promise<unknown>;
+  readonly replayTargetRequest?: () => unknown | Promise<unknown>;
+  readonly replayVerificationRequest?: () => unknown | Promise<unknown>;
 }
 
 const EMPTY_PARAMS = Type.Object({}, { additionalProperties: false });
@@ -198,7 +198,7 @@ function boundedReplayTool(
   name: 'replay_target_request' | 'replay_verification_request',
   expectedId: string,
   parameterName: 'actionId' | 'candidateId',
-  callback: (id: string) => unknown | Promise<unknown>,
+  callback: () => unknown | Promise<unknown>,
 ): ToolDefinition {
   let calls = 0;
   let retryPermitted = false;
@@ -212,7 +212,7 @@ function boundedReplayTool(
       if (supplied !== expectedId) throw new Error(`Replay ${parameterName} is not bound to this assignment`);
       if (calls >= 2 || (calls > 0 && !retryPermitted)) throw new Error(`Only one ${name} retry is allowed`);
       calls += 1;
-      const result = await callback(expectedId);
+      const result = await callback();
       retryPermitted = isFreshActorRetry(result);
       return result;
     },
