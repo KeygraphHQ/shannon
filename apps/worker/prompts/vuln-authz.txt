@@ -38,7 +38,8 @@ Success criterion: A complete, code-backed analysis of every potential authoriza
 </critical>
 
 <starting_context>
-- Your **primary source of truth** for authorization test targets is the reconnaissance report at `.shannon/deliverables/recon_deliverable.md`. Look specifically for:
+- Your **exhaustive source of truth** for authorization test targets is Section 4 of `.shannon/deliverables/recon_deliverable.md`. Track every Route ID in the structured disposition ledger.
+- Section 8 is a priority guide, not a complete route inventory. Use its candidate lists to order work, but never use them to limit coverage:
   - **"Horizontal" section:** Endpoints where users access resources by ID that might belong to other users
   - **"Vertical" section:** Admin/privileged endpoints that regular users shouldn't access
   - **"Context" section:** Multi-step workflows where order/state matters
@@ -88,7 +89,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 - **`task` agent (Code Analysis):** Your primary tool. Use it to ask targeted questions about the source code, trace authorization logic paths, and understand permission models. MANDATORY for all source code analysis.
 - **`bash` tool:** Use for creating directories, copying files, and other shell commands as needed.
 - **Browser Automation (playwright-cli skill):** For browser interactions with the live web application (multi-step flows and role-based access controls), invoke the `playwright-cli` skill to learn available commands. Always pass `-s={{PLAYWRIGHT_SESSION}}` to every command for session isolation.
-- **`todo_write` Tool:** Use this to create and manage your analysis task list. Create a todo item for each endpoint that needs authorization analysis. Mark items as "in_progress" when working on them and "completed" when done.
+- **`todo_write` Tool:** Use this to create and manage your analysis task list. Group routes that share a router, middleware chain, or guard into manageable analysis-batch todos; do not create one todo per route. Mark batches as "in_progress" when working on them and "completed" when done. The per-route disposition ledger is the authoritative coverage record.
 </cli_tools>
 
 <data_format_specifications>
@@ -114,6 +115,18 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 		],
 		"notes": "any assumptions, related findings, or special conditions"
 	}
+
+The top-level queue also requires `recon_route_dispositions`. Include exactly one entry per Route ID in recon Section 4:
+	{
+		"route_id": "exact METHOD /path Route ID from Section 4",
+		"disposition": "queued | ruled_out | blocked",
+		"finding_ids": ["AUTHZ-VULN-01"],
+		"evidence": "code-backed vulnerability or control evidence, or the exact blocker"
+	}
+
+- Use `queued` only when `finding_ids` contains one or more IDs present in `vulnerabilities`.
+- Use `ruled_out` only after tracing the route to a sufficient guard or establishing from code that it crosses no authorization boundary. Leave `finding_ids` empty.
+- Use `blocked` only when a concrete analysis blocker prevents a verdict. Leave `finding_ids` empty.
 </exploitation_queue_format>
 
 </data_format_specifications>
@@ -125,12 +138,14 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 
 - **Goal:** Determine whether endpoints from recon can reach a **side effect** without passing through a **sufficient authorization guard**. No live exploitation in this phase.
 
+- **Coverage ledger:** Work every Route ID in recon Section 4. Analyze shared router and guard chains in batches, but record exactly one `queued`, `ruled_out`, or `blocked` entry per route in `recon_route_dispositions`. Section 8 changes priority only.
+
 ---
 
 ### 1) Horizontal Authorization Analysis
 
 - **Create To Dos:**
-    For each item listed under **`.shannon/deliverables/recon_deliverable.md` → section 8 "Horizontal"*, use the `todo_write` tool to create a task entry.
+    Use the Section 8 "Horizontal" list to prioritize the matching Section 4 route todos.
     
 - **Process:**
     - Start at the identified endpoint.
@@ -162,7 +177,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 ### 2) Vertical Authorization Analysis
 
 - **Create To Dos:**
-    For each item listed under **`.shannon/deliverables/recon_deliverable.md` →  section 8 "Vertical"**, use the `todo_write` tool to create a task entry.
+    Use the Section 8 "Vertical" list to prioritize the matching Section 4 route todos.
     
 - **Process:**
     - Start at the identified endpoint.
@@ -188,7 +203,7 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 ### 3) Context / Workflow Authorization Analysis
 
 - **Create To Dos:**
-    For each item listed under **`.shannon/deliverables/recon_deliverable.md` → section 8 "Context"**, use the `todo_write` tool to create a task entry.
+    Use the Section 8 "Context" list to prioritize the matching Section 4 route todos.
     
 - **Process:**
     - Start at the endpoint that represents a step in a workflow.
@@ -270,8 +285,9 @@ For each analysis you perform from the lists above, you must make a final **verd
 
 
 <coverage_requirements>
-- Test **all** endpoints from recon section 8
+- Analyze **every Route ID** from recon Section 4; Section 8 is only a priority guide
 - Include both REST and GraphQL endpoints
+- Submit exactly one route disposition per Section 4 Route ID
 </coverage_requirements>
 
 </methodology_and_domain_expertise>
@@ -302,6 +318,7 @@ The harness injects each tool's complete description and per-field guidance into
 
 1. **Todo Completion:** ALL tasks in your `todo_write` list must be marked as "completed".
 2. **Deliverable Emission:** Call the 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
+3. **Route Closure:** `submit_exploitation_queue` must contain exactly one valid `recon_route_dispositions` entry for every Route ID in recon Section 4.
 
 **Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the tool calls.
 

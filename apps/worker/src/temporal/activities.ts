@@ -46,7 +46,7 @@ import type { ExploitationDecision, VulnType } from '../services/queue-validatio
 import type { ReportData, ReportMeta } from '../services/report-renderer.js';
 import { assembleFinalReport, copyReportToRunRoot, injectModelIntoReport } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
-import { AGENTS } from '../session-manager.js';
+import { AGENT_VALIDATORS, AGENTS, incompleteRecordedPrerequisites } from '../session-manager.js';
 import type { AgentName } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import type { ContainerConfig, VulnClass } from '../types/config.js';
@@ -950,6 +950,7 @@ export async function loadResumeState(
 
   // 3. Cross-check agent status with deliverables on disk
   const completedAgents: string[] = [];
+  const completedAgentSet = new Set<string>();
   const agents = session.metrics.agents;
 
   for (const agentName of ALL_AGENTS) {
@@ -958,17 +959,35 @@ export async function loadResumeState(
       continue;
     }
 
+    const logger = createActivityLogger();
+    const incompletePrerequisites = incompleteRecordedPrerequisites(agentName, agents, completedAgentSet);
+    if (incompletePrerequisites.length > 0) {
+      logger.warn(
+        `Agent ${agentName} shows success but recorded prerequisite(s) must re-run: ${incompletePrerequisites.join(', ')}`,
+      );
+      continue;
+    }
+
     const deliverableFilename = AGENTS[agentName].deliverableFilename;
     const deliverablePath = path.join(deliverablesDir(expectedRepoPath, deliverablesSubdir), deliverableFilename);
     const deliverableExists = await fileExists(deliverablePath);
 
     if (!deliverableExists) {
-      const logger = createActivityLogger();
       logger.warn(`Agent ${agentName} shows success but deliverable missing, will re-run`);
       continue;
     }
 
+    const outputValid = await AGENT_VALIDATORS[agentName](
+      deliverablesDir(expectedRepoPath, deliverablesSubdir),
+      logger,
+    );
+    if (!outputValid) {
+      logger.warn(`Agent ${agentName} shows success but output validation failed, will re-run`);
+      continue;
+    }
+
     completedAgents.push(agentName);
+    completedAgentSet.add(agentName);
   }
 
   // 4. Collect git checkpoints and validate at least one exists

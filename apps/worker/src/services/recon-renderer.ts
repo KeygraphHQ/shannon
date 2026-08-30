@@ -51,14 +51,14 @@ const HOW_TO_READ_THIS = `## 0) HOW TO READ THIS
 This reconnaissance report provides a comprehensive map of the application's attack surface, with special emphasis on authorization and privilege escalation opportunities for the Authorization Analysis Specialist.
 
 **Key Sections for Authorization Analysis:**
-- **Section 4 (API Endpoint Inventory):** Contains authorization details for each endpoint - focus on "Required Role" and "Object ID Parameters" columns to identify IDOR candidates.
+- **Section 4 (API Endpoint Inventory):** The exhaustive authorization worklist. Every stable Route ID must receive a downstream disposition; use the authorization columns to trace its guard and protected side effects.
 - **Section 6.4 (Guards Directory):** Catalog of authorization controls - understand what each guard means before analyzing vulnerabilities.
 - **Section 7 (Role & Privilege Architecture):** Complete role hierarchy and privilege mapping - use this to understand the privilege lattice and identify escalation targets.
 - **Section 8 (Authorization Vulnerability Candidates):** Pre-prioritized lists of endpoints for horizontal, vertical, and context-based authorization testing.
 
 **How to Use the Network Mapping (Section 6):** The entity/flow mapping shows system boundaries and data sensitivity levels. Pay special attention to flows marked with authorization guards and entities handling PII/sensitive data.
 
-**Priority Order for Testing:** Start with Section 8's High-priority horizontal candidates, then vertical escalation endpoints for each role level, finally context-based workflow bypasses.`;
+**Priority Order for Testing:** Start with Section 8's High-priority horizontal candidates, then vertical escalation endpoints for each role level, finally context-based workflow bypasses. Section 8 changes order, not Section 4 coverage.`;
 
 // ============================================================================
 // SORT ORDER CONSTANTS
@@ -219,6 +219,7 @@ function renderEndpoints(endpoints: readonly Endpoint[] | undefined): string {
   }
   const sorted = sortEndpoints(endpoints);
   const rows = sorted.map((e) => [
+    `${e.method} ${e.path}`,
     e.method,
     e.path,
     e.required_role,
@@ -231,6 +232,7 @@ function renderEndpoints(endpoints: readonly Endpoint[] | undefined): string {
     '',
     renderTable(
       [
+        'Route ID',
         'Method',
         'Endpoint Path',
         'Required Role',

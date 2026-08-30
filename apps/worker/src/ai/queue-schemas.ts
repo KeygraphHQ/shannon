@@ -112,6 +112,25 @@ const authzFields = {
   minimal_witness: optStr(),
 };
 
+const reconRouteDisposition = Type.Object({
+  route_id: Type.String({
+    minLength: 1,
+    description: 'Exact Route ID from recon Section 4, for example "GET /api/users/{id}".',
+  }),
+  disposition: stringEnum(['queued', 'ruled_out', 'blocked'], {
+    description:
+      'queued when one or more linked findings should be exploited; ruled_out when code proves the route safe; ' +
+      'blocked when analysis could not reach a verdict.',
+  }),
+  finding_ids: Type.Array(Type.String({ minLength: 1 }), {
+    description: 'Finding IDs linked to this route. Required for queued; empty for ruled_out or blocked.',
+  }),
+  evidence: Type.String({
+    minLength: 1,
+    description: 'Code-backed guard/control evidence, vulnerability evidence, or the concrete analysis blocker.',
+  }),
+});
+
 // === Per-entry schemas (single vulnerability). Entry types derive from these. ===
 
 const injectionEntry = () => Type.Object({ ...baseFields(true), ...injectionFields });
@@ -150,6 +169,11 @@ function queueSchema(agentName: AgentName, exploit: boolean): TObject | undefine
   if (!extra) return undefined;
   return Type.Object({
     vulnerabilities: Type.Array(Type.Object({ ...baseFields(exploit), ...extra })),
+    ...(agentName === 'authz-vuln' && {
+      recon_route_dispositions: Type.Array(reconRouteDisposition, {
+        description: 'Exactly one disposition for every Route ID in recon Section 4.',
+      }),
+    }),
   });
 }
 
@@ -174,6 +198,12 @@ export function createQueueSubmitTool(agentName: AgentName, exploit = true): Cap
       promptGuidelines: [
         'You MUST call submit_exploitation_queue exactly once as your final action.',
         'Include every analyzed finding in the vulnerabilities array.',
+        ...(agentName === 'authz-vuln'
+          ? [
+              'Include exactly one recon_route_dispositions entry for every Route ID in recon Section 4.',
+              'Use queued only with finding_ids present in vulnerabilities; use ruled_out with concrete code evidence; use blocked with the exact blocker.',
+            ]
+          : []),
       ],
       parameters: schema,
       async execute(_toolCallId, params) {
