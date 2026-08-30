@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 /**
- * Strict parsing for the HTTP/1.x text representation returned by Burp.
+ * Strict parsing for the HTTP/1.x and HTTP/2 text representations returned by Burp.
  *
  * This module deliberately keeps header values intact, including duplicate
  * fields. Callers that expose a message outside the raw corpus must redact it
@@ -13,7 +13,7 @@
  */
 
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const HTTP_VERSION_PATTERN = /^HTTP\/(\d+)\.(\d+)$/;
+const HTTP_VERSION_PATTERN = /^HTTP\/(?:\d+\.\d+|2)$/;
 
 export interface HttpHeader {
   readonly name: string;
@@ -52,7 +52,7 @@ interface ParsedHead {
 /** Parse an HTTP request start line, headers, and body. */
 export function parseHttpRequest(raw: string): ParsedHttpRequest {
   const parsed = parseMessage(raw, 'request');
-  const match = /^(\S+) (\S+) (HTTP\/\d+\.\d+)$/.exec(parsed.startLine);
+  const match = /^(\S+) (\S+) (HTTP\/(?:\d+\.\d+|2))$/.exec(parsed.startLine);
   if (!match) {
     throw new HttpMessageParseError('Malformed HTTP request start line');
   }
@@ -74,7 +74,7 @@ export function parseHttpRequest(raw: string): ParsedHttpRequest {
 /** Parse an HTTP response status line, headers, and body. */
 export function parseHttpResponse(raw: string): ParsedHttpResponse {
   const parsed = parseMessage(raw, 'response');
-  const match = /^HTTP\/(\d+\.\d+) (\d{3})(?: (.*))?$/.exec(parsed.startLine);
+  const match = /^HTTP\/((?:\d+\.\d+)|2) (\d{3})(?: (.*))?$/.exec(parsed.startLine);
   if (!match) {
     throw new HttpMessageParseError('Malformed HTTP response start line');
   }

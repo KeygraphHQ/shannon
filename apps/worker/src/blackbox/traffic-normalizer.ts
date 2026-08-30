@@ -20,6 +20,16 @@ export interface TrafficNormalizationInput extends TrafficCaptureInput {
   readonly provenance: EvidenceProvenance;
 }
 
+export interface RawExchangeNormalizationInput {
+  readonly targetOrigin: string;
+  readonly rules: TrafficCaptureInput['rules'];
+  readonly identity: TrafficCaptureInput['identity'];
+  readonly raw: RawHistoryRecord;
+  readonly captureSequence: number;
+  readonly configuredSecrets: readonly string[];
+  readonly provenance: EvidenceProvenance;
+}
+
 export function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
 }
@@ -275,67 +285,87 @@ export function collapseExchanges(exchanges: readonly NormalizedExchange[]): rea
   return [...collapsed.values()];
 }
 
+export function normalizeRawExchange(input: RawExchangeNormalizationInput): NormalizedExchange | null {
+  if (!Number.isInteger(input.captureSequence) || input.captureSequence < 1) {
+    throw new Error('Capture sequence must be a positive integer');
+  }
+  if (input.raw.request === BURP_NO_REQUEST || input.raw.request.endsWith(BURP_TRUNCATION_MARKER)) return null;
+
+  const request = parseHttpRequest(input.raw.request);
+  if (!requestMatchesScope(request, input.targetOrigin, input.rules)) return null;
+  const target = assertRequestInScope(request, input.targetOrigin, input.rules);
+  const requestContentType = mediaType(firstHeader(request.headers, 'content-type'), input.configuredSecrets);
+  const pathResult = normalizedPath(target.path, input.configuredSecrets);
+  const queryKeys = [
+    ...new Set([...target.query.keys()].map((key) => safeFieldName(key, input.configuredSecrets))),
+  ].sort();
+  const bodyShape = describeBody(request.body, requestContentType, input.configuredSecrets);
+  const candidates = new Set(pathResult.objectReferences);
+  for (const [key, value] of target.query) {
+    if (safeFieldName(key, input.configuredSecrets) !== REDACTED_NAME && isReferenceField(key)) {
+      addCandidate(candidates, value, input.configuredSecrets);
+    }
+  }
+  collectBodyCandidates(request.body, requestContentType, input.configuredSecrets, candidates);
+
+  const responseUnavailable =
+    input.raw.response.length === 0 ||
+    input.raw.response === BURP_NO_RESPONSE ||
+    input.raw.response.endsWith(BURP_TRUNCATION_MARKER);
+  const response = responseUnavailable ? null : parseHttpResponse(input.raw.response);
+  const responseContentType = response
+    ? mediaType(firstHeader(response.headers, 'content-type'), input.configuredSecrets)
+    : null;
+  const rawHash = historyHash(input.raw);
+  const exchangeId = `ex_${sha256(`${input.identity}\0${input.captureSequence}\0${rawHash}`).slice(0, 24)}`;
+  const origin = target.origin;
+  const routeSignature = `route_${sha256(
+    `${request.method}\0${origin}\0${pathResult.path}\0${queryKeys.join(',')}\0${bodyShape}`,
+  ).slice(0, 24)}`;
+
+  return {
+    exchangeId,
+    routeSignature,
+    identity: input.identity,
+    captureSequence: input.captureSequence,
+    method: request.method,
+    origin,
+    path: pathResult.path,
+    queryKeys,
+    bodyShape,
+    requestContentType,
+    responseStatus: response?.status ?? 0,
+    responseContentType,
+    responseFingerprint: `sha256:${sha256(responseUnavailable ? BURP_NO_RESPONSE : input.raw.response)}`,
+    candidateObjectReferences: [...candidates].sort(),
+    rawRecordRef: `raw:${exchangeId}`,
+    provenance: structuredClone(input.provenance),
+  };
+}
+
 export async function normalizeCapturedTraffic(
   input: TrafficNormalizationInput,
 ): Promise<readonly NormalizedExchange[]> {
   const delta = diffHistory(input.before, input.after);
-  const scoped = delta.flatMap((raw) => {
-    if (raw.request === BURP_NO_REQUEST || raw.request.endsWith(BURP_TRUNCATION_MARKER)) return [];
-    const request = parseHttpRequest(raw.request);
-    if (!requestMatchesScope(request, input.targetOrigin, input.rules)) return [];
-    return [{ raw, request, target: assertRequestInScope(request, input.targetOrigin, input.rules) }];
-  });
-
-  if (scoped.length > 0) await ensureDirectory(input.rawDirectory);
   const normalized: NormalizedExchange[] = [];
-  for (const [index, { raw, request, target }] of scoped.entries()) {
-    const sequence = index + 1;
-    const requestContentType = mediaType(firstHeader(request.headers, 'content-type'), input.configuredSecrets);
-    const pathResult = normalizedPath(target.path, input.configuredSecrets);
-    const queryKeys = [
-      ...new Set([...target.query.keys()].map((key) => safeFieldName(key, input.configuredSecrets))),
-    ].sort();
-    const bodyShape = describeBody(request.body, requestContentType, input.configuredSecrets);
-    const candidates = new Set(pathResult.objectReferences);
-    for (const [key, value] of target.query) {
-      if (safeFieldName(key, input.configuredSecrets) !== REDACTED_NAME && isReferenceField(key)) {
-        addCandidate(candidates, value, input.configuredSecrets);
-      }
-    }
-    collectBodyCandidates(request.body, requestContentType, input.configuredSecrets, candidates);
-
-    const responseUnavailable =
-      raw.response.length === 0 || raw.response === BURP_NO_RESPONSE || raw.response.endsWith(BURP_TRUNCATION_MARKER);
-    const response = responseUnavailable ? null : parseHttpResponse(raw.response);
-    const responseContentType = response
-      ? mediaType(firstHeader(response.headers, 'content-type'), input.configuredSecrets)
-      : null;
-    const rawHash = historyHash(raw);
-    const exchangeId = `ex_${sha256(`${input.identity}\0${sequence}\0${rawHash}`).slice(0, 24)}`;
-    const origin = target.origin;
-    const routeSignature = `route_${sha256(
-      `${request.method}\0${origin}\0${pathResult.path}\0${queryKeys.join(',')}\0${bodyShape}`,
-    ).slice(0, 24)}`;
-
-    await atomicWrite(path.join(input.rawDirectory, `${exchangeId}.json`), raw);
-    normalized.push({
-      exchangeId,
-      routeSignature,
+  let directoryReady = false;
+  for (const raw of delta) {
+    const exchange = normalizeRawExchange({
+      targetOrigin: input.targetOrigin,
+      rules: input.rules,
       identity: input.identity,
-      captureSequence: sequence,
-      method: request.method,
-      origin,
-      path: pathResult.path,
-      queryKeys,
-      bodyShape,
-      requestContentType,
-      responseStatus: response?.status ?? 0,
-      responseContentType,
-      responseFingerprint: `sha256:${sha256(responseUnavailable ? BURP_NO_RESPONSE : raw.response)}`,
-      candidateObjectReferences: [...candidates].sort(),
-      rawRecordRef: `raw:${exchangeId}`,
-      provenance: structuredClone(input.provenance),
+      raw,
+      captureSequence: normalized.length + 1,
+      configuredSecrets: input.configuredSecrets,
+      provenance: input.provenance,
     });
+    if (!exchange) continue;
+    if (!directoryReady) {
+      await ensureDirectory(input.rawDirectory);
+      directoryReady = true;
+    }
+    await atomicWrite(path.join(input.rawDirectory, `${exchange.exchangeId}.json`), raw);
+    normalized.push(exchange);
   }
 
   return collapseExchanges(normalized);
