@@ -139,6 +139,101 @@ test('initialization atomically writes a redacted revision-zero document', async
   await assert.rejects(readFile(`${boardPath}.tmp`, 'utf8'), /ENOENT/);
 });
 
+test('task settlement atomically records authenticated identity state without credentials', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackboard-identity-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const FileBlackboardStore = requireExport('FileBlackboardStore');
+  const store = new FileBlackboardStore(root);
+  const initial = initialization();
+  let snapshot = await store.initialize({
+    ...initial,
+    identities: initial.identities.map((identity) => ({ ...identity, authenticated: false, stateRef: null })),
+  });
+  const stateRef = '.shannon/blackbox/identities/attacker/storage-state.json';
+  const task = plannerTask('bootstrap-attacker', 'recon');
+  snapshot = await store.registerTasks(snapshot.revision, {
+    operationKey: 'register:bootstrap-attacker',
+    accepted: [task],
+    rejected: [],
+  });
+  snapshot = await store.startTasks(snapshot.revision, 'start:bootstrap-attacker', [task.taskId]);
+  const updated = await store.settleTasks({
+    operationKey: 'settle:bootstrap-attacker',
+    baseRevision: snapshot.revision,
+    contributions: [{
+      taskId: task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: snapshot.revision,
+    }],
+    failures: [],
+    identityCaptures: [{ identity: 'attacker', stateRef }],
+  });
+
+  assert.equal(updated.revision, 3);
+  assert.deepEqual(updated.identities.find(({ name }) => name === 'attacker'), {
+    name: 'attacker',
+    role: 'ordinary user',
+    authenticated: true,
+    stateRef,
+  });
+  assert.equal(updated.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'completed');
+  assert.equal(JSON.stringify(updated).includes('configured-password'), false);
+  await assert.rejects(
+    store.settleTasks({
+      baseRevision: updated.revision,
+      operationKey: 'capture:unknown',
+      contributions: [],
+      failures: [],
+      identityCaptures: [{
+        identity: 'unknown',
+        stateRef: '.shannon/blackbox/identities/unknown/storage-state.json',
+      }],
+    }),
+    /unknown identity/i,
+  );
+});
+
+test('identity capture settlement requires the matching bootstrap identity lease', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackboard-identity-lease-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const FileBlackboardStore = requireExport('FileBlackboardStore');
+  const store = new FileBlackboardStore(root);
+  const initial = initialization();
+  let snapshot = await store.initialize({
+    ...initial,
+    identities: initial.identities.map((identity) => ({ ...identity, authenticated: false, stateRef: null })),
+  });
+  const task = plannerTask('bootstrap-attacker', 'recon', { identityLease: 'victim' });
+  snapshot = await store.registerTasks(snapshot.revision, {
+    operationKey: 'register:wrong-bootstrap-lease',
+    accepted: [task],
+    rejected: [],
+  });
+  snapshot = await store.startTasks(snapshot.revision, 'start:wrong-bootstrap-lease', [task.taskId]);
+
+  await assert.rejects(
+    store.settleTasks({
+      operationKey: 'settle:wrong-bootstrap-lease',
+      baseRevision: snapshot.revision,
+      contributions: [{
+        taskId: task.taskId,
+        role: 'blackbox-recon',
+        baseRevision: snapshot.revision,
+      }],
+      failures: [],
+      identityCaptures: [{
+        identity: 'attacker',
+        stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+      }],
+    }),
+    /identity lease|leased.*attacker|bootstrap.*attacker/i,
+  );
+  const unchanged = await store.read();
+  assert.equal(unchanged.revision, snapshot.revision);
+  assert.equal(unchanged.identities.find(({ name }) => name === 'attacker')?.authenticated, false);
+  assert.equal(unchanged.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'running');
+});
+
 test('resume requires the configured secret set and keeps enforcing it across store instances', async (t) => {
   const { root } = await makeStore(t);
   const FileBlackboardStore = requireExport('FileBlackboardStore');

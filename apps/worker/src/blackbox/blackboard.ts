@@ -583,8 +583,39 @@ export class FileBlackboardStore implements BlackboardStore {
 
       const completed = new Set(contributions.map(({ taskId }) => taskId));
       const failed = new Set(failures.map(({ taskId }) => taskId));
+      const identityCaptures = batch.identityCaptures ?? [];
+      if (new Set(identityCaptures.map(({ identity }) => identity)).size !== identityCaptures.length) {
+        throw new BlackboardValidationError('An identity cannot be captured more than once in one batch');
+      }
+      for (const { identity, stateRef } of identityCaptures) {
+        const expectedStateRef = `.shannon/blackbox/identities/${identity}/storage-state.json`;
+        if (stateRef !== expectedStateRef) {
+          throw new BlackboardValidationError(`Invalid state reference for identity ${identity}`);
+        }
+        if (!next.identities.some(({ name }) => name === identity)) {
+          throw new BlackboardValidationError(`Unknown identity ${identity}`);
+        }
+        const bootstrapTaskId = `bootstrap-${identity}`;
+        const bootstrapTask = next.tasks.find(({ taskId }) => taskId === bootstrapTaskId);
+        if (
+          !completed.has(bootstrapTaskId) ||
+          !bootstrapTask ||
+          bootstrapTask.kind !== 'recon' ||
+          bootstrapTask.identityLease !== identity ||
+          bootstrapTask.hypothesisId !== null
+        ) {
+          throw new BlackboardValidationError(
+            `Identity ${identity} capture requires its matching bootstrap identity lease`,
+          );
+        }
+      }
+      const capturedIdentities = new Map(identityCaptures.map(({ identity, stateRef }) => [identity, stateRef]));
       next = {
         ...next,
+        identities: next.identities.map((identity) => {
+          const stateRef = capturedIdentities.get(identity.name);
+          return stateRef ? { ...identity, authenticated: true, stateRef } : identity;
+        }),
         tasks: next.tasks.map((task) => {
           if (completed.has(task.taskId)) return { ...task, status: 'completed' as const };
           if (failed.has(task.taskId)) return { ...task, status: 'failed' as const };

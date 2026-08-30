@@ -51,40 +51,64 @@ window.chrome.runtime = window.chrome.runtime || {
 };
 `;
 
-function buildStealthConfig(initScriptPath: string) {
-  return {
-    browser: {
-      browserName: 'chromium',
-      launchOptions: {
-        headless: true,
-        args: ['--disable-blink-features=AutomationControlled'],
-        ignoreDefaultArgs: ['--enable-automation'],
-      },
-      contextOptions: {
-        viewport: { width: 1920, height: 1080 },
-        locale: 'en-US',
-        extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
-        userAgent:
-          'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      },
-      initScript: [initScriptPath],
+function buildStealthConfig(initScriptPath: string, options: PlaywrightConfigOptions) {
+  const browser = {
+    browserName: 'chromium',
+    launchOptions: {
+      headless: true,
+      args: ['--disable-blink-features=AutomationControlled'],
+      ignoreDefaultArgs: ['--enable-automation'],
+      ...(options.proxyUrl !== undefined ? { proxy: { server: options.proxyUrl } } : {}),
     },
+    contextOptions: {
+      viewport: { width: 1920, height: 1080 },
+      locale: 'en-US',
+      extraHTTPHeaders: { 'Accept-Language': 'en-US,en;q=0.9' },
+      userAgent:
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      ...(options.ignoreHTTPSErrors !== undefined ? { ignoreHTTPSErrors: options.ignoreHTTPSErrors } : {}),
+    },
+    initScript: [initScriptPath],
   };
+  return {
+    browser,
+  };
+}
+
+export interface PlaywrightConfigOptions {
+  readonly proxyUrl?: string;
+  readonly ignoreHTTPSErrors?: boolean;
+  readonly overwrite?: boolean;
+}
+
+function validateProxyUrl(proxyUrl: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(proxyUrl);
+  } catch {
+    throw new Error(`Invalid proxy URL: ${proxyUrl}`);
+  }
+  if (parsed.protocol !== 'http:' || parsed.hostname.length === 0) {
+    throw new Error(`Proxy URL must use http:// and include a host: ${proxyUrl}`);
+  }
 }
 
 export type StealthConfigWriteResult = 'wrote' | 'skipped-existing';
 
 export async function writePlaywrightStealthConfig(
   sourceDir: string,
+  options: PlaywrightConfigOptions = {},
 ): Promise<{ result: StealthConfigWriteResult; configPath: string }> {
+  if (options.proxyUrl !== undefined) validateProxyUrl(options.proxyUrl);
+
   const playwrightDir = path.join(sourceDir, '.playwright');
   const configPath = path.join(playwrightDir, 'cli.config.json');
-  if (await pathExists(configPath)) {
+  if (!options.overwrite && (await pathExists(configPath))) {
     return { result: 'skipped-existing', configPath };
   }
   const initScriptPath = path.join(playwrightDir, 'scripts', 'stealth.js');
   await fs.mkdir(path.dirname(initScriptPath), { recursive: true });
   await fs.writeFile(initScriptPath, STEALTH_INIT_SCRIPT);
-  await fs.writeFile(configPath, JSON.stringify(buildStealthConfig(initScriptPath), null, 2));
+  await fs.writeFile(configPath, JSON.stringify(buildStealthConfig(initScriptPath, options), null, 2));
   return { result: 'wrote', configPath };
 }

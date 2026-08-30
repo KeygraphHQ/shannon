@@ -204,6 +204,7 @@ export interface ContributionBatch {
   readonly baseRevision: number;
   readonly contributions: readonly WorkerContribution[];
   readonly failures: readonly { readonly taskId: string; readonly reason: string }[];
+  readonly identityCaptures?: readonly { readonly identity: string; readonly stateRef: string }[];
 }
 
 export interface RedactedBlackboxIdentity {
