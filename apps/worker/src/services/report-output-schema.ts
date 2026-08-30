@@ -21,6 +21,8 @@ export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Inject
 export interface CodeBlock {
   readonly language: string;
   readonly content: string;
+  /** PDF-only projection with inserted visual line breaks; `content` remains exact. */
+  readonly displayContent: string;
 }
 
 export type StepItem =
@@ -84,11 +86,13 @@ export interface ExploitFinding {
   readonly title: string;
   readonly category: TypstCategory;
   readonly severity: TypstSeverity;
-  readonly status: TypstStatus;
+  readonly owaspCategory: string;
+  readonly authState?: string;
   readonly summary: FindingSummary;
   readonly prerequisites: string;
   readonly exploitationSteps: readonly Step[];
   readonly proofOfImpact: readonly StepItem[];
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }
@@ -136,7 +140,9 @@ export interface AnalysisFinding {
   readonly category: TypstCategory;
   readonly severity: TypstSeverity;
   readonly confidence: TypstConfidence;
+  readonly owaspCategory: string;
   readonly summary: FindingSummary;
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }

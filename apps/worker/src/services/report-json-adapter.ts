@@ -16,7 +16,12 @@
  * pipeline knows nothing about the Typst shape.
  */
 
-import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
+import type {
+  AddFindingInput,
+  AdditionalSection,
+  StepItem as CollectorStepItem,
+  StructuredStep,
+} from '../collectors/finding-collector.js';
 import { orderFindings } from './finding-order.js';
 import type {
   ExploitsReportData,
@@ -26,6 +31,7 @@ import type {
   ReportData as TypstReportData,
   TypstSeverity,
   TypstStatus,
+  StepItem as TypstStepItem,
 } from './report-output-schema.js';
 import type { ReportData } from './report-renderer.js';
 
@@ -85,14 +91,40 @@ function toTypstCategory(s: string): TypstCategory {
 // STEP / ITEM TRANSFORMS
 // ============================================================================
 
-// StepItem is currently identical on both sides of the adapter boundary, so this is a no-op.
-// It stays as an explicit seam rather than being inlined so a future divergence between the
-// collector's StepItem and the Typst schema's StepItem has a single place to add the conversion.
-function adaptStepItem(item: StepItem): StepItem {
-  return item;
+// Typst raw blocks do not wrap long lines. Keep the exact payload in `content` and derive a separate
+// display-only projection with inserted line breaks for the PDF. Canonical JSON, Markdown, SARIF,
+// and the exact Typst-side payload remain byte-for-byte intact.
+const PDF_CODE_LINE_COLUMNS = 84;
+
+function wrapCodeForPdf(content: string): string {
+  return content
+    .split('\n')
+    .flatMap((line) => {
+      const characters = Array.from(line);
+      if (characters.length <= PDF_CODE_LINE_COLUMNS) return [line];
+
+      const wrapped: string[] = [];
+      for (let offset = 0; offset < characters.length; offset += PDF_CODE_LINE_COLUMNS) {
+        wrapped.push(characters.slice(offset, offset + PDF_CODE_LINE_COLUMNS).join(''));
+      }
+      return wrapped;
+    })
+    .join('\n');
 }
 
-function adaptStep(step: StructuredStep, index: number): { number: number; title?: string; items: StepItem[] } {
+function adaptStepItem(item: CollectorStepItem): TypstStepItem {
+  if (item.kind === 'prose') return item;
+  return {
+    kind: 'code',
+    block: {
+      language: item.block.language,
+      content: item.block.content,
+      displayContent: wrapCodeForPdf(item.block.content),
+    },
+  };
+}
+
+function adaptStep(step: StructuredStep, index: number): { number: number; title?: string; items: TypstStepItem[] } {
   return {
     number: index + 1,
     ...(step.title && { title: step.title }),
@@ -100,7 +132,7 @@ function adaptStep(step: StructuredStep, index: number): { number: number; title
   };
 }
 
-function adaptAdditionalSection(section: AdditionalSection): { heading: string; items: StepItem[] } {
+function adaptAdditionalSection(section: AdditionalSection): { heading: string; items: TypstStepItem[] } {
   return {
     heading: section.heading,
     items: section.items.map(adaptStepItem),
@@ -201,7 +233,8 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       title: f.title,
       category: toTypstCategory(f.category),
       severity: toTypstSeverity(f.severity),
-      status: toTypstStatus(f.status ?? 'exploited'),
+      owaspCategory: f.owasp_category,
+      ...(f.auth_state && { authState: f.auth_state }),
       summary: {
         vulnerableLocation: f.vulnerable_location,
         overview: f.overview,
@@ -212,6 +245,7 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       prerequisites: f.prerequisites ?? '',
       exploitationSteps: (f.exploitation_steps ?? []).map(adaptStep),
       proofOfImpact: (f.proof_of_impact ?? []).map(adaptStepItem),
+      remediation: f.remediation,
       ...(f.notes && f.notes.length > 0 && { notes: f.notes.map(adaptStepItem) }),
       ...(f.additional_sections &&
         f.additional_sections.length > 0 && {
@@ -277,11 +311,13 @@ function adaptFindingsMode(data: ReportData): FindingsReportData {
       category: toTypstCategory(f.category),
       severity: toTypstSeverity(f.severity),
       confidence: toTypstConfidence(f.confidence ?? 'medium'),
+      owaspCategory: f.owasp_category,
       summary: {
         vulnerableLocation: f.vulnerable_location,
         overview: f.overview,
         impact: f.impact,
       },
+      remediation: f.remediation,
       ...(f.notes && f.notes.length > 0 && { notes: f.notes.map(adaptStepItem) }),
       ...(f.additional_sections &&
         f.additional_sections.length > 0 && {
