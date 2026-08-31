@@ -595,7 +595,14 @@ function successExpression(condition: SuccessCondition): string {
       predicate = `(document.body?.innerText ?? '').includes(${value})`;
       break;
   }
-  return `(${predicate}) ? '${AUTH_SUCCESS_MARKER}' : '${AUTH_FAILURE_MARKER}'`;
+  return `(async () => {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    if (${predicate}) return '${AUTH_SUCCESS_MARKER}';
+    if (Date.now() >= deadline) return '${AUTH_FAILURE_MARKER}';
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+})`;
 }
 
 function authCheckSucceeded(stdout: string): boolean {
@@ -853,6 +860,22 @@ async function assertStorageState(fileSystem: BlackboxFileSystem, filePath: stri
   ) {
     throw new Error(`Identity ${identity} produced an invalid storage-state file`);
   }
+}
+
+async function saveIdentityState(
+  dependencies: BlackboxActivityDependencies,
+  repoPath: string,
+  session: string,
+  identity: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const storagePath = statePath(repoPath, identity);
+  await dependencies.runBrowserCommand(
+    'playwright-cli',
+    [`-s=${session}`, 'state-save', storagePath],
+    cancellableBrowserOptions(repoPath, signal),
+  );
+  await assertStorageState(dependencies.fileSystem, storagePath, identity);
 }
 
 function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]): string {
@@ -1326,22 +1349,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
       let successEvidence: string | null = null;
       if (identity) {
-        const storagePath = statePath(input.repoPath, identity.name);
-        await dependencies.runBrowserCommand(
-          'playwright-cli',
-          [`-s=${session}`, 'state-save', storagePath],
-          cancellableBrowserOptions(input.repoPath, cancellationSignal),
-        );
-        const rawState = String(await dependencies.fileSystem.readFile(storagePath, 'utf8'));
-        const parsedState = JSON.parse(rawState) as unknown;
-        if (
-          !parsedState ||
-          typeof parsedState !== 'object' ||
-          !Array.isArray((parsedState as Record<string, unknown>).cookies) ||
-          !Array.isArray((parsedState as Record<string, unknown>).origins)
-        ) {
-          throw new Error(`Identity ${identity.name} produced an invalid storage-state file`);
-        }
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
@@ -1350,6 +1357,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Identity ${identity.name} did not satisfy its configured success condition`);
         }
+        await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
         successEvidence = safeSuccessEvidence(
           identity.authentication.success_condition.value,
           context.configuredSecrets,
@@ -1531,6 +1539,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Captured state for identity ${identity.name} no longer satisfies its success condition`);
         }
+        await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
       }
 
       const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
@@ -1715,6 +1724,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           if (!authCheckSucceeded(checked.stdout)) {
             throw new Error(`Captured state for replay actor ${identity.name} is no longer authenticated`);
           }
+          await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
         }
       }
 

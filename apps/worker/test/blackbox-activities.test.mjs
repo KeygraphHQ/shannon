@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
+import { runInNewContext } from 'node:vm';
 
 import { createBlackboxActivities } from '../dist/blackbox/activities.js';
 import { BlackboardValidationError, StaleBlackboardRevisionError } from '../dist/blackbox/blackboard.js';
@@ -264,6 +265,7 @@ async function makeDeps(t, root, options = {}) {
   const auditCalls = [];
   const historyCursor = { index: 0 };
   const authCheckCursor = { index: 0 };
+  const authExpressions = [];
   const openedSessions = new Set();
   const loadedStateSessions = new Set();
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
@@ -306,17 +308,26 @@ async function makeDeps(t, root, options = {}) {
       }
       const serialized = JSON.stringify(args);
       const isAuthCheck = /eval/.test(serialized);
+      const authCheckIndex = isAuthCheck ? authCheckCursor.index++ : -1;
+      const authExpression = isAuthCheck ? commandArguments[commandArguments.indexOf('eval') + 1] : undefined;
+      if (isAuthCheck) authExpressions.push(authExpression);
       const configuredAuthResult = isAuthCheck
         ? options.authCheckQueue?.[
-            Math.min(authCheckCursor.index++, Math.max((options.authCheckQueue?.length ?? 1) - 1, 0))
+            Math.min(authCheckIndex, Math.max((options.authCheckQueue?.length ?? 1) - 1, 0))
           ]
         : undefined;
-      return {
-        stdout: isAuthCheck
-          ? options.authCheckOutput ?? (configuredAuthResult === false
+      const handledAuthResult = isAuthCheck && options.authCheckExpressionHandler
+        ? await options.authCheckExpressionHandler(authExpression, authCheckIndex)
+        : undefined;
+      const authOutput = typeof handledAuthResult === 'string'
+        ? handledAuthResult
+        : typeof handledAuthResult === 'boolean'
+          ? (handledAuthResult ? '__SHANNON_AUTH_OK__' : '__SHANNON_AUTH_FAILED__')
+          : options.authCheckOutput ?? (configuredAuthResult === false
             ? '__SHANNON_AUTH_FAILED__'
-            : '__SHANNON_AUTH_OK__')
-          : '',
+            : '__SHANNON_AUTH_OK__');
+      return {
+        stdout: isAuthCheck ? authOutput : '',
         stderr: '',
         exitCode: 0,
       };
@@ -360,7 +371,7 @@ async function makeDeps(t, root, options = {}) {
     ...(options.copyDeliverables ? { copyDeliverables: options.copyDeliverables } : {}),
   };
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { deps, board, agents, auditCalls, burpCalls, browserCalls, replayCalls };
+  return { deps, board, agents, auditCalls, burpCalls, browserCalls, replayCalls, authExpressions };
 }
 
 async function tempRoot(t) {
@@ -978,6 +989,12 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
       path.join(root, '.shannon', 'blackbox', 'identities', name, 'storage-state.json'),
     ]),
   );
+  for (const name of identityNames) {
+    const authCheckIndex = browserCalls.findIndex(([, args]) => args[0] === `-s=bb-${name}` && args.includes('eval'));
+    const stateSaveIndex = browserCalls.findIndex(([, args]) => args[0] === `-s=bb-${name}` && args.includes('state-save'));
+    assert.equal(authCheckIndex >= 0, true);
+    assert.equal(authCheckIndex < stateSaveIndex, true);
+  }
   assert.equal(attacker.exchangeIds.length, 1);
   assert.equal(victim.exchangeIds.length, 1);
   assert.equal(backup.exchangeIds.length, 1);
@@ -1006,6 +1023,74 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
   assert.equal(anonymous.authenticated, false);
   assert.equal(anonymous.successEvidence, null);
   assert.equal(anonymous.failureReason, null);
+});
+
+test('identity auth checks poll the configured condition before saving browser state', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, authExpressions } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+    authCheckExpressionHandler: async (expression) => {
+      let now = 0;
+      const context = {
+        location: { href: `${TARGET_ORIGIN}/login` },
+        Date: { now: () => now },
+        setTimeout(callback) {
+          context.location.href = `${TARGET_ORIGIN}/dashboard`;
+          callback();
+        },
+      };
+      const check = runInNewContext(`(${expression})`, context);
+      return check();
+    },
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.equal(authExpressions.length, 1);
+  assert.match(authExpressions[0], /async/);
+  assert.match(authExpressions[0], /setTimeout/);
+  assert.match(authExpressions[0], /100/);
+  assert.match(authExpressions[0], /5000/);
+  assert.match(authExpressions[0], /location\.href\.includes\("\/dashboard"\)/);
+  assert.match(authExpressions[0], /__SHANNON_AUTH_OK__/);
+  assert.match(authExpressions[0], /__SHANNON_AUTH_FAILED__/);
+
+  let now = 0;
+  let waits = 0;
+  const neverTrueContext = {
+    location: { href: `${TARGET_ORIGIN}/login` },
+    Date: { now: () => now },
+    setTimeout(callback) {
+      waits += 1;
+      now = 5000;
+      callback();
+    },
+  };
+  const neverTrueCheck = runInNewContext(`(${authExpressions[0]})`, neverTrueContext);
+  assert.equal(await neverTrueCheck(), '__SHANNON_AUTH_FAILED__');
+  assert.equal(waits, 1);
+});
+
+test('initial capture does not persist identity state when authentication fails', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    authCheckQueue: [false],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, false);
+  assert.equal(browserCalls.some(([, args]) => args[0] === '-s=bb-attacker' && args.includes('state-save')), false);
 });
 
 test('capture retries observed traffic when blackboard validation rejects model enrichment', async (t) => {
@@ -1419,7 +1504,7 @@ test('later recon previews and persists the same globally sequenced exchange IDs
   assert.equal(contribution.resources?.[0].evidence[0].id, contribution.exchanges?.[0].exchangeId);
 });
 
-test('recon does not overwrite a known-good identity state after the live session loses authentication', async (t) => {
+test('recon saves one confirmed-good identity state but does not overwrite it after auth loss', async (t) => {
   const root = await tempRoot(t);
   const { deps, board, browserCalls } = await makeDeps(t, root, {
     identityNames: ['attacker'],
@@ -1451,7 +1536,11 @@ test('recon does not overwrite a known-good identity state after the live sessio
     createBlackboxActivities(deps).runBlackboxRecon({ ...input(root), task, revision: 4 }),
     /no longer authenticated/i,
   );
-  assert.equal(browserCalls.some(([, args]) => args.includes('state-save')), false);
+  const stateSaves = browserCalls.filter(([, args]) => args.includes('state-save'));
+  assert.equal(stateSaves.length, 1);
+  const authChecks = browserCalls.filter(([, args]) => args.includes('eval'));
+  assert.equal(browserCalls.indexOf(authChecks[0]) < browserCalls.indexOf(stateSaves[0]), true);
+  assert.equal(browserCalls.indexOf(stateSaves[0]) < browserCalls.indexOf(authChecks[1]), true);
   assertStateRestore(browserCalls, 'bb-attacker', statePathFor(root, 'attacker'));
 });
 
@@ -1792,6 +1881,69 @@ test('action executes the persisted replay plan and derives its result from the 
   });
   assert.equal(preserved.actions[0].status, 'delivery_unknown');
   assert.equal(preserved.candidateProofs, undefined);
+});
+
+test('action persists every restored authenticated actor before replay work', async (t) => {
+  const root = await tempRoot(t);
+  const source = normalizedExchange('multi-actor-source');
+  const task = {
+    taskId: 'multi-actor-action',
+    kind: 'action',
+    objective: 'Replay one route with both assigned actors loaded',
+    evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+    identityLease: 'attacker',
+    hypothesisId: 'multi-actor-hypothesis',
+    status: 'running',
+    replayPlan: {
+      steps: [
+        { stepId: 'attacker-step', sourceExchangeId: source.exchangeId, actor: 'attacker', mutations: [] },
+        { stepId: 'victim-step', sourceExchangeId: source.exchangeId, actor: 'victim', mutations: [] },
+      ],
+      proofCondition: { type: 'body_contains', marker: 'multi-actor-marker' },
+    },
+  };
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker', 'victim'],
+    strictStateRestore: true,
+    historyQueue: [[], []],
+    agentHandler: async () => { throw new Error('agent failed before replay'); },
+  });
+  board.seed({
+    revision: 7,
+    identities: rawConfig(['attacker', 'victim']).identities.map(({ name, role }) => ({
+      name,
+      role,
+      authenticated: true,
+      stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
+    })),
+    exchanges: [source],
+    hypotheses: [{
+      hypothesisId: task.hypothesisId,
+      kind: 'horizontal',
+      summary: 'A route may cross identity boundaries.',
+      preconditions: ['two accounts'],
+      attackerCapability: 'replay a route with assigned actors',
+      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+      priority: 'high',
+      status: 'queued',
+      provenance: { actor: 'blackbox-analysis', taskId: 'analysis-1', baseRevision: 6 },
+    }],
+    tasks: [task],
+  });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).runBlackboxAction({ ...input(root), task, revision: 7 }),
+    /agent failed before replay/,
+  );
+
+  for (const actor of ['attacker', 'victim']) {
+    const session = `-s=bb-action-${task.taskId}-${actor}`;
+    const authCheckIndex = browserCalls.findIndex(([, args]) => args[0] === session && args.includes('eval'));
+    const stateSaves = browserCalls.filter(([, args]) => args[0] === session && args.includes('state-save'));
+    assert.equal(authCheckIndex >= 0, true);
+    assert.equal(stateSaves.length, 1);
+    assert.equal(authCheckIndex < browserCalls.indexOf(stateSaves[0]), true);
+  }
 });
 
 test('verifier replays the approved sequence under fresh identity state and derives immutable evidence fields', async (t) => {
