@@ -141,7 +141,7 @@ function reasonMessage(reason: PartialReasonView): string | undefined {
     case 'class_reconciliation_failed':
       return className === undefined
         ? undefined
-        : `${className} findings could not be grouped into test cases, so that class was not exploited. Its analysis results are still in the report.`;
+        : `${className} findings could not be grouped into test cases, so that class was not exploited and its findings are not in the report.`;
     case 'report_renumber_failed':
       return className === undefined
         ? undefined

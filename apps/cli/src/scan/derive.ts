@@ -66,8 +66,25 @@ export function isTerminal(status: string): boolean {
   return status !== 'RUNNING' && status !== 'UNSPECIFIED';
 }
 
+/**
+ * Whether the class-level failure recorded for this agent's class applies to this agent.
+ *
+ * A class failure is recorded against the class as a whole, so it matches both of that class's
+ * agents. A reconciliation failure, though, happens only after the analysis agent has already
+ * succeeded, so it belongs to the exploitation lane: attributing it to the analysis row as well
+ * would report an agent that completed as failed.
+ */
+function classFailureApplies(name: string, state: PipelineState | null): boolean {
+  if (!state) return false;
+  const vulnClass = agentClass(name);
+  if (!state.failedPipelines.some((f) => f.vulnType === vulnClass)) return false;
+  const reconciliationFailed = (state.failedReconciliations ?? []).some((r) => r.vulnerabilityClass === vulnClass);
+  const isAnalysisAgent = name.endsWith('-vuln');
+  return !(reconciliationFailed && isAnalysisAgent);
+}
+
 function isFailedAgent(name: string, state: PipelineState | null): boolean {
-  return !!state && (state.failedAgent === name || state.failedPipelines.some((f) => f.vulnType === agentClass(name)));
+  return !!state && (state.failedAgent === name || classFailureApplies(name, state));
 }
 
 /** An agent has entered play once it is running, has metrics, or has failed. */
@@ -91,14 +108,13 @@ function agentState(name: string, state: PipelineState | null, running: Set<stri
 }
 
 /**
- * Only `failed`'s presence is used here, never its `.error` text: that string is the
- * worker's raw error for the failed class, not vetted for display, so it is reduced to
+ * Only the presence of a class failure is used here, never its `.error` text: that string is
+ * the worker's raw error for the failed class, not vetted for display, so it is reduced to
  * a boolean before reaching safeFailureDetail's fixed sentence.
  */
 function agentError(name: string, state: PipelineState | null, byAgent: Map<string, RunningAgent>): string | undefined {
-  const failed = state?.failedPipelines.find((f) => f.vulnType === agentClass(name));
   const hasFailure =
-    failed !== undefined || byAgent.get(name)?.lastFailure !== undefined || state?.failedAgent === name;
+    classFailureApplies(name, state) || byAgent.get(name)?.lastFailure !== undefined || state?.failedAgent === name;
   return safeFailureDetail(hasFailure);
 }
 

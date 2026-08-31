@@ -228,7 +228,7 @@ export const PARTIAL_REASON_SAFE_MESSAGES: Readonly<Record<PartialReasonCode, st
   class_pipeline_failed:
     '{Class} could not be fully assessed. The other classes completed. Re-running this workspace retries only the part that failed.',
   class_reconciliation_failed:
-    '{Class} findings could not be grouped into test cases, so that class was not exploited. Its analysis results are still in the report.',
+    '{Class} findings could not be grouped into test cases, so that class was not exploited and its findings are not in the report.',
   report_renumber_failed:
     '{Class} findings kept their working reference numbers, so numbering in the report may have gaps. The findings themselves are complete.',
   report_compaction_failed:
