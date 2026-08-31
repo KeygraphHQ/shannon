@@ -602,11 +602,13 @@ function authCheckSucceeded(stdout: string): boolean {
   const resultHeading = '### Result';
   const codeHeading = '### Ran Playwright code';
   const resultStart = stdout.indexOf(resultHeading);
-  const codeStart = resultStart < 0 ? -1 : stdout.indexOf(codeHeading, resultStart + resultHeading.length);
-  const output = resultStart >= 0 && codeStart >= 0
-    ? stdout.slice(resultStart + resultHeading.length, codeStart)
-    : stdout;
-  return output.includes(AUTH_SUCCESS_MARKER) && !output.includes(AUTH_FAILURE_MARKER);
+  const codeStart = stdout.indexOf(codeHeading);
+  if (resultStart >= 0 || codeStart >= 0) {
+    if (resultStart < 0 || codeStart < resultStart + resultHeading.length) return false;
+    const output = stdout.slice(resultStart + resultHeading.length, codeStart);
+    return output.includes(AUTH_SUCCESS_MARKER) && !output.includes(AUTH_FAILURE_MARKER);
+  }
+  return stdout.includes(AUTH_SUCCESS_MARKER) && !stdout.includes(AUTH_FAILURE_MARKER);
 }
 
 function previewTraffic(

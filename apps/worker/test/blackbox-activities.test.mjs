@@ -342,28 +342,63 @@ async function tempRoot(t) {
   return root;
 }
 
-test('capture accepts a successful Playwright result when the echoed code also contains both auth markers', async (t) => {
-  const root = await tempRoot(t);
-  const { deps } = await makeDeps(t, root, {
-    identityNames: ['attacker'],
-    authCheckOutput: [
-      '### Result',
-      '"__SHANNON_AUTH_OK__"',
-      '### Ran Playwright code',
-      "(() => (true ? '__SHANNON_AUTH_OK__' : '__SHANNON_AUTH_FAILED__'))()",
-    ].join('\n'),
-    historyQueue: [
-      [], [{ id: 'preflight' }],
-      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
-    ],
-  });
-  const activities = createBlackboxActivities(deps);
+test('capture interprets Playwright auth results without accepting malformed structured output', async (t) => {
+  const cases = [
+    {
+      name: 'structured success',
+      output: [
+        '### Result',
+        '"__SHANNON_AUTH_OK__"',
+        '### Ran Playwright code',
+        "(() => (true ? '__SHANNON_AUTH_OK__' : '__SHANNON_AUTH_FAILED__'))()",
+      ].join('\n'),
+      expected: true,
+    },
+    {
+      name: 'structured failure',
+      output: [
+        '### Result',
+        '"__SHANNON_AUTH_FAILED__"',
+        '### Ran Playwright code',
+        "(() => (false ? '__SHANNON_AUTH_OK__' : '__SHANNON_AUTH_FAILED__'))()",
+      ].join('\n'),
+      expected: false,
+    },
+    { name: 'missing result heading', output: '### Ran Playwright code\n__SHANNON_AUTH_OK__', expected: false },
+    { name: 'missing/truncated code heading', output: '### Result\n__SHANNON_AUTH_OK__\n### Ran Playwright', expected: false },
+    {
+      name: 'reversed headings',
+      output: '### Ran Playwright code\nsource\n### Result\n__SHANNON_AUTH_OK__',
+      expected: false,
+    },
+    { name: 'plain success', output: '__SHANNON_AUTH_OK__', expected: true },
+    { name: 'plain failure', output: '__SHANNON_AUTH_FAILED__', expected: false },
+  ];
 
-  await activities.preflightBlackbox(input(root));
-  const capture = await activities.captureIdentity(input(root), 'attacker');
+  for (const { name, output, expected } of cases) {
+    await t.test(name, async (caseTest) => {
+      const root = await tempRoot(caseTest);
+      const { deps } = await makeDeps(caseTest, root, {
+        identityNames: ['attacker'],
+        authCheckOutput: output,
+        historyQueue: [
+          [], [{ id: 'preflight' }],
+          [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+        ],
+      });
+      const activities = createBlackboxActivities(deps);
 
-  assert.equal(capture.authenticated, true);
-  assert.equal(capture.exchangeIds.length, 1);
+      await activities.preflightBlackbox(input(root));
+      if (expected) {
+        const capture = await activities.captureIdentity(input(root), 'attacker');
+        assert.equal(capture.authenticated, true);
+        assert.equal(capture.exchangeIds.length, 1);
+      } else {
+        const capture = await activities.captureIdentity(input(root), 'attacker');
+        assert.equal(capture.authenticated, false);
+      }
+    });
+  }
 });
 
 test('missing proxy fails before creating an agent or connecting to Burp', async (t) => {
