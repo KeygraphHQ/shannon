@@ -140,6 +140,45 @@ test('Burp history parser preserves missing-message placeholders and accepts nul
   assert.equal(snapshot.orderedRecords[0].response, '<no response>');
 });
 
+test('Burp history parser recovers complete requests from truncated response envelopes', () => {
+  const completeRequest = REQUEST_CRLF;
+  const oversized = JSON.stringify({ request: completeRequest, response: 'response-byte'.repeat(600) });
+  const truncated = `${oversized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`;
+  assert.equal(truncated.length, 5000 + BURP_TRUNCATION_MARKER.length);
+
+  assert.deepEqual(parseHistoryText(truncated), [
+    { request: completeRequest, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 },
+  ]);
+});
+
+test('Burp history parser keeps truncated requests countable but excludes them from target history', async () => {
+  const oversized = JSON.stringify({
+    request: `GET /${'request-byte'.repeat(600)} HTTP/1.1\r\nHost: api.target.example\r\n\r\n`,
+    response: RESPONSE_LF,
+  });
+  const truncated = `${oversized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`;
+  const records = parseHistoryText(truncated);
+  assert.equal(records.length, 1);
+  assert.equal(records[0].request.endsWith(BURP_TRUNCATION_MARKER), true);
+  assert.equal(records[0].response, BURP_TRUNCATION_MARKER);
+
+  const client = new FakeBurpClient(() => ({ content: [{ type: 'text', text: truncated }] }));
+  const snapshot = await readTargetHistory(client, TARGET_ORIGIN, {});
+  assert.equal(snapshot.orderedRecords.length, 0);
+});
+
+test('Burp history parser rejects malformed marker-bearing lines and preserves valid marker values', () => {
+  const validRequest = `${REQUEST_LF}${BURP_TRUNCATION_MARKER}`;
+  const validResponse = `response${BURP_TRUNCATION_MARKER}`;
+  const validNotes = `notes${BURP_TRUNCATION_MARKER}`;
+  assert.deepEqual(parseHistoryText(JSON.stringify({ request: validRequest, response: validResponse, notes: validNotes })), [
+    { request: validRequest, response: validResponse, notes: validNotes, occurrence: 1 },
+  ]);
+
+  const malformed = `${'{"request":'.padEnd(5000, 'x')}${BURP_TRUNCATION_MARKER}`;
+  assert.throws(() => parseHistoryText(malformed), /history line 1/i);
+});
+
 test('traffic capture excludes truncated requests without treating truncated responses as proof', async (t) => {
   assert.equal(BURP_TRUNCATION_MARKER, '... (truncated)');
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-burp-truncated-'));

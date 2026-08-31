@@ -403,6 +403,77 @@ export class BurpMcpClient implements BurpToolClient {
   }
 }
 
+const BURP_TRUNCATED_RECORD_LENGTH = 5000 + BURP_TRUNCATION_MARKER.length;
+
+function findUnescapedQuote(value: string, start: number): number {
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      escaped = false;
+    } else if (character === '\\') {
+      escaped = true;
+    } else if (character === '"') {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function isJsonStringPrefix(value: string, start: number): boolean {
+  let escaped = false;
+  for (let index = start; index < value.length; index += 1) {
+    const character = value[index];
+    if (escaped) {
+      if (character === 'u') {
+        const code = value.slice(index + 1, index + 5);
+        if (code.length < 4 && !/^[0-9a-fA-F]*$/.test(code)) return false;
+        if (code.length === 4 && !/^[0-9a-fA-F]{4}$/.test(code)) return false;
+        if (code.length === 4) index += 4;
+      } else if (!'"\\/bfnrt'.includes(character ?? '')) {
+        return false;
+      }
+      escaped = false;
+    } else if (character === '\\') {
+      escaped = true;
+    } else if ((character?.charCodeAt(0) ?? 0) < 0x20 || character === '"') {
+      return false;
+    }
+  }
+  return true;
+}
+
+function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined {
+  if (line.length !== BURP_TRUNCATED_RECORD_LENGTH || !line.endsWith(BURP_TRUNCATION_MARKER)) return undefined;
+
+  const prefix = line.slice(0, 5000);
+  const requestField = '{"request":';
+  if (!prefix.startsWith(requestField) || prefix[requestField.length] !== '"') return undefined;
+
+  const requestValueStart = requestField.length;
+  const requestValueEnd = findUnescapedQuote(prefix, requestValueStart + 1);
+  if (requestValueEnd < 0) {
+    if (!isJsonStringPrefix(prefix, requestValueStart + 1)) return undefined;
+    return { request: `${BURP_NO_REQUEST}${BURP_TRUNCATION_MARKER}`, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+  }
+
+  const responseField = ',"response":"';
+  if (!prefix.startsWith(responseField, requestValueEnd + 1)) return undefined;
+  const responseValueStart = requestValueEnd + 1 + responseField.length - 1;
+  if (findUnescapedQuote(prefix, responseValueStart + 1) >= 0 || !isJsonStringPrefix(prefix, responseValueStart + 1)) {
+    return undefined;
+  }
+
+  let request: unknown;
+  try {
+    request = JSON.parse(prefix.slice(requestValueStart, requestValueEnd + 1)) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (typeof request !== 'string' || request.length === 0) return undefined;
+  return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+}
+
 export function parseHistoryText(text: string): RawHistoryRecord[] {
   const records: RawHistoryRecord[] = [];
   const lines = text.split(/\r?\n/);
@@ -416,7 +487,10 @@ export function parseHistoryText(text: string): RawHistoryRecord[] {
     try {
       value = JSON.parse(line) as unknown;
     } catch {
-      throw new Error(`Malformed Burp history line ${index + 1}`);
+      const truncated = parseTruncatedHistoryRecord(line);
+      if (!truncated) throw new Error(`Malformed Burp history line ${index + 1}`);
+      records.push(truncated);
+      continue;
     }
     if (!isRecord(value) || typeof value.request !== 'string' || value.request.length === 0) {
       throw new Error(`Burp history line ${index + 1} is missing a request`);
