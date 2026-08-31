@@ -18,6 +18,7 @@
  *
  * Options:
  *   --task-queue <name>    Task queue name (required, unique per scan)
+ *   --workflow-id <id>     Workflow ID selected by the Shannon CLI
  *   --config <path>        Configuration file path
  *   --output <path>        Stable mounted path for final customer report copies
  *   --workspace <name>     Resume from existing workspace
@@ -240,6 +241,7 @@ interface CliArgs {
   webUrl: string;
   repoPath: string;
   taskQueue: string;
+  workflowId?: string;
   configPath?: string;
   customerOutputPath?: string;
   pipelineTestingMode: boolean;
@@ -253,6 +255,7 @@ function showUsage(): void {
   console.log('  node dist/temporal/worker.js <webUrl> <repoPath> --task-queue <name> [options]\n');
   console.log('Options:');
   console.log('  --task-queue <name>    Task queue name (required)');
+  console.log('  --workflow-id <id>     Workflow ID selected by the Shannon CLI');
   console.log('  --config <path>        Configuration file path');
   console.log('  --workspace <name>     Resume from existing workspace');
   console.log('  --output <path>        Stable mounted path for final customer report copies');
@@ -268,6 +271,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   let webUrl: string | undefined;
   let repoPath: string | undefined;
   let taskQueue: string | undefined;
+  let workflowId: string | undefined;
   let configPath: string | undefined;
   let customerOutputPath: string | undefined;
   let pipelineTestingMode = false;
@@ -279,6 +283,12 @@ function parseCliArgs(argv: string[]): CliArgs {
       const nextArg = argv[i + 1];
       if (nextArg && !nextArg.startsWith('-')) {
         taskQueue = nextArg;
+        i++;
+      }
+    } else if (arg === '--workflow-id') {
+      const nextArg = argv[i + 1];
+      if (nextArg && !nextArg.startsWith('-')) {
+        workflowId = nextArg;
         i++;
       }
     } else if (arg === '--config') {
@@ -326,6 +336,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     webUrl,
     repoPath,
     taskQueue,
+    ...(workflowId && { workflowId }),
     pipelineTestingMode,
     ...(configPath && { configPath }),
     ...(customerOutputPath && { customerOutputPath }),
@@ -354,6 +365,17 @@ interface SessionJson {
 
 function isValidWorkspaceName(name: string): boolean {
   return /^[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}$/.test(name);
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Accept a CLI-owned ID only when it preserves this launch branch's public naming contract. */
+function selectWorkflowId(requested: string | undefined, fallback: string, expected: RegExp): string {
+  if (requested === undefined) return fallback;
+  if (!expected.test(requested)) throw new Error('Invalid workflow identity supplied by the Shannon CLI');
+  return requested;
 }
 
 interface WorkspaceResolution {
@@ -407,7 +429,12 @@ async function terminateExistingWorkflows(client: Client, workspaceName: string)
 async function resolveWorkspace(client: Client, args: CliArgs, expectedExploit: boolean): Promise<WorkspaceResolution> {
   if (!args.resumeFromWorkspace) {
     const hostname = sanitizeHostname(args.webUrl);
-    const workflowId = `${hostname}_shannon-${Date.now()}`;
+    const fallback = `${hostname}_shannon-${Date.now()}`;
+    const workflowId = selectWorkflowId(
+      args.workflowId,
+      fallback,
+      new RegExp(`^${escapeRegExp(hostname)}_shannon-\\d+$`),
+    );
     return {
       workflowId,
       sessionId: workflowId,
@@ -442,8 +469,9 @@ async function resolveWorkspace(client: Client, args: CliArgs, expectedExploit: 
       console.log(`Terminated ${terminatedWorkflows.length} previous scan(s)\n`);
     }
 
+    const fallback = `${workspace}_resume_${Date.now()}`;
     return {
-      workflowId: `${workspace}_resume_${Date.now()}`,
+      workflowId: selectWorkflowId(args.workflowId, fallback, new RegExp(`^${escapeRegExp(workspace)}_resume_\\d+$`)),
       sessionId: workspace,
       isResume: true,
       terminatedWorkflows,
@@ -461,7 +489,12 @@ async function resolveWorkspace(client: Client, args: CliArgs, expectedExploit: 
 
   // If the workspace name already looks like a CLI-generated ID
   // (ends with _shannon-<digits>), use it directly to avoid double _shannon- suffixes
-  const workflowId = /_shannon-\d+$/.test(workspace) ? workspace : `${workspace}_shannon-${Date.now()}`;
+  const fallback = /_shannon-\d+$/.test(workspace) ? workspace : `${workspace}_shannon-${Date.now()}`;
+  const expected =
+    fallback === workspace
+      ? new RegExp(`^${escapeRegExp(workspace)}$`)
+      : new RegExp(`^${escapeRegExp(workspace)}_shannon-\\d+$`);
+  const workflowId = selectWorkflowId(args.workflowId, fallback, expected);
 
   return {
     workflowId,

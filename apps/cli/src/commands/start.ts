@@ -12,7 +12,7 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import * as p from '@clack/prompts';
 import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
-import { fail } from '../errors.js';
+import { fail, warn } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { commandPrefix, isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
@@ -25,6 +25,7 @@ import {
   resolveRepo,
   resolveRunFile,
 } from '../paths.js';
+import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
 import { indentFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
@@ -214,6 +215,12 @@ export function writeLaunchStateAtomically(internalPath: string, outputDir: stri
   }
 }
 
+/** Select the workflow ID before Docker starts so the container can carry it as immutable identity. */
+export function createWorkflowId(workspace: string, isResume: boolean, timestamp: number = Date.now()): string {
+  if (isResume) return `${workspace}_resume_${timestamp}`;
+  return /_shannon-\d+$/.test(workspace) ? workspace : `${workspace}_shannon-${timestamp}`;
+}
+
 export async function start(args: StartArgs): Promise<void> {
   // 1. Resolve non-mutating inputs and classify the workspace before changing it.
   initHome();
@@ -250,6 +257,7 @@ export async function start(args: StartArgs): Promise<void> {
   const suffix = randomSuffix();
   const taskQueue = `shannon-${suffix}`;
   const containerName = `shannon-worker-${suffix}`;
+  const workflowId = createWorkflowId(workspace, launchDecision.isResume);
 
   // 4. Create writable overlay directories after resume validation has succeeded.
   // The run dir and its INTERNAL_DIR must be 0o777 so the container user can create audit
@@ -294,13 +302,23 @@ export async function start(args: StartArgs): Promise<void> {
     initialResumeCount = Array.isArray(attempts) ? attempts.length : 0;
   }
 
-  // 8. Spawn the worker container.
+  // 8. Persist the exact launch candidate before Docker can start the worker. Session
+  // registration later replaces this bridge as the durable workflow identity.
+  try {
+    writePendingWorkflowIdentity(workspacePath, workflowId, taskQueue);
+  } catch {
+    spinner.error('Could not record the scan workflow identity');
+    process.exit(1);
+  }
+
+  // 9. Spawn the worker container.
   const proc = spawnWorker({
     version: args.version,
     url: args.url,
     repo,
     workspacesDir,
     taskQueue,
+    workflowId,
     containerName,
     envFlags: buildEnvFlags(),
     ...(config && { config }),
@@ -366,10 +384,17 @@ export async function start(args: StartArgs): Promise<void> {
       const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
 
       // Fresh: session.json appears with originalWorkflowId. Resume: new resumeAttempts entry.
-      const ready = isResume ? resumeAttempts.length > initialResumeCount : !!session.session?.originalWorkflowId;
+      const ready = isResume
+        ? resumeAttempts.slice(initialResumeCount).some((attempt) => attempt.workflowId === workflowId)
+        : session.session?.originalWorkflowId === workflowId;
 
       if (ready) {
         started = true;
+        try {
+          clearPendingWorkflowIdentity(workspacePath, taskQueue);
+        } catch {
+          warn(`Scan ${workspace} started, but its launch record could not be removed.`);
+        }
         spinner.stop(`Scan started — ${workspace}`);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
         if (args.follow) {

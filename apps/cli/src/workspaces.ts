@@ -8,8 +8,9 @@
  * identity proof are separate steps: `resolveScanIdentity` turns a selected or explicit
  * string into the one canonical (workspace, workflowId) pair the session records prove.
  *
- * Running scans are identified by Docker label (the authoritative source, shared with
- * `stop`); recency for finished scans comes from each run's session.json createdAt,
+ * Running workers are identified by Docker workspace label for default-target selection.
+ * `stop` supplements that local discovery with Temporal lifecycle state. Recency for
+ * finished scans comes from each run's session.json createdAt,
  * with the workspace directory mtime as the fallback for runs that predate it.
  */
 

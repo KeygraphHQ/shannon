@@ -43,6 +43,9 @@ RUN rm -rf node_modules apps/*/node_modules && pnpm install --frozen-lockfile --
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
 
+# Lifecycle protocol consumed by the CLI before it trusts a container workflow-id label.
+LABEL shannon.worker-protocol="workflow-id-v1"
+
 # Install only runtime dependencies
 USER root
 RUN apk update && apk add --no-cache \

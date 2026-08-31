@@ -27,6 +27,16 @@ const DEV_IMAGE = 'shannon-worker';
 /** Docker label stamped on each worker container, mapping it back to its workspace so a single scan can be stopped by name. */
 const WORKSPACE_LABEL = 'shannon.workspace';
 
+/** Docker label that joins a worker container to the Temporal workflow polling its unique task queue. */
+const TASK_QUEUE_LABEL = 'shannon.task-queue';
+
+/** Docker label carrying the workflow ID selected before the worker starts. */
+const WORKFLOW_ID_LABEL = 'shannon.workflow-id';
+
+/** Image/container protocol proving that the worker honors the preselected workflow ID. */
+const WORKER_PROTOCOL_LABEL = 'shannon.worker-protocol';
+export const WORKFLOW_ID_PROTOCOL = 'workflow-id-v1';
+
 export function getWorkerImage(version: string): string {
   return getMode() === 'local' ? DEV_IMAGE : `${NPX_IMAGE_REPO}:${version}`;
 }
@@ -83,9 +93,6 @@ function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
 
 const TEMPORAL_CONTAINER = 'shannon-temporal';
 const TEMPORAL_ADDRESS = 'localhost:7233';
-
-/** Query matching every running pentest scan workflow. */
-const RUNNING_SCAN_QUERY = "ExecutionStatus = 'Running' AND WorkflowType = 'pentestPipelineWorkflow'";
 
 /** Build `docker exec` args for a `temporal` CLI command run inside the Temporal container. */
 function temporalCmd(...args: string[]): string[] {
@@ -256,7 +263,10 @@ export function buildImage(noCache: boolean, version: string): void {
 export function ensureImage(version: string): void {
   const image = getWorkerImage(version);
   const exists = runQuiet('docker', ['image', 'inspect', image]);
-  if (exists) return;
+  if (exists) {
+    ensureWorkerImageProtocol(image);
+    return;
+  }
 
   if (canBuildImage()) {
     console.log('Shannon image not found, building...');
@@ -274,6 +284,22 @@ export function ensureImage(version: string): void {
     }
     pruneOldImages(version);
   }
+  ensureWorkerImageProtocol(image);
+}
+
+/** Refuse a stale worker image that would ignore the CLI-selected workflow ID. */
+function ensureWorkerImageProtocol(image: string): void {
+  const protocol = runOutput('docker', [
+    'image',
+    'inspect',
+    image,
+    '--format',
+    `{{ index .Config.Labels "${WORKER_PROTOCOL_LABEL}" }}`,
+  ]);
+  if (protocol === WORKFLOW_ID_PROTOCOL) return;
+
+  const hint = canBuildImage() ? 'Run ./shannon build, then retry.' : 'Reinstall this Shannon version, then retry.';
+  fail('The Shannon worker image is incompatible with this CLI.', hint);
 }
 
 /**
@@ -377,6 +403,7 @@ export interface WorkerOptions {
   repo: { hostPath: string; containerPath: string };
   workspacesDir: string;
   taskQueue: string;
+  workflowId: string;
   containerName: string;
   envFlags: string[];
   config?: { hostPath: string; containerPath: string };
@@ -399,8 +426,16 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   }
   args.push('--name', opts.containerName, '--network', 'shannon-net');
 
-  // Tag with the workspace so `stop <workspace>` can target this scan's container
-  args.push('--label', `${WORKSPACE_LABEL}=${opts.workspace}`);
+  // Keep the launch identity on the container before session.json exists. The fixed workflow
+  // ID lets stop verify the pre-registration window without trusting visibility timing.
+  args.push(
+    '--label',
+    `${WORKSPACE_LABEL}=${opts.workspace}`,
+    '--label',
+    `${TASK_QUEUE_LABEL}=${opts.taskQueue}`,
+    '--label',
+    `${WORKFLOW_ID_LABEL}=${opts.workflowId}`,
+  );
 
   // Add host flag for Linux
   args.push(...addHostFlag());
@@ -459,6 +494,7 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Worker command
   args.push('node', 'apps/worker/dist/temporal/worker.js', opts.url, opts.repo.containerPath);
   args.push('--task-queue', opts.taskQueue);
+  args.push('--workflow-id', opts.workflowId);
   if (opts.config) {
     args.push('--config', opts.config.containerPath);
   }
@@ -482,6 +518,18 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 /** `docker ps --filter` args matching every running worker container. */
 export const WORKER_FILTER: readonly string[] = ['--filter', 'name=shannon-worker-'];
 
+/** Result of a command-backed query whose unavailable state must not be mistaken for an empty result. */
+export type CommandQueryResult<T> = { kind: 'ok'; value: T } | { kind: 'unavailable' };
+
+/** Identity carried by a running scan worker container. Older workers may lack the newer labels. */
+export interface RunningScanContainer {
+  readonly id: string;
+  readonly workspace?: string;
+  readonly taskQueue?: string;
+  readonly workflowId?: string;
+  readonly workerProtocol?: string;
+}
+
 /** `docker ps --filter` args matching one scan's worker container(s), by workspace label. */
 export function scanFilter(workspace: string): readonly string[] {
   return ['--filter', `label=${WORKSPACE_LABEL}=${workspace}`];
@@ -492,23 +540,85 @@ export function scanFilter(workspace: string): readonly string[] {
  * the authoritative check for whether containers actually stopped — `docker stop`'s
  * exit code can't distinguish "already gone" from "failed to stop".
  */
+export function runningContainersChecked(filter: readonly string[]): CommandQueryResult<string[]> {
+  try {
+    const output = execFileSync('docker', ['ps', '-q', ...filter], { stdio: 'pipe', encoding: 'utf-8' }).trim();
+    return { kind: 'ok', value: output.split('\n').filter(Boolean) };
+  } catch {
+    return { kind: 'unavailable' };
+  }
+}
+
+/**
+ * Best-effort counterpart for callers where Docker unavailability is intentionally
+ * presented as no local running containers.
+ */
 export function runningContainers(filter: readonly string[]): string[] {
-  const output = runOutput('docker', ['ps', '-q', ...filter]);
-  return output.split('\n').filter(Boolean);
+  const result = runningContainersChecked(filter);
+  return result.kind === 'ok' ? result.value : [];
+}
+
+function normalizedLabel(value: string | undefined): string | undefined {
+  const normalized = value?.trim();
+  return normalized && normalized !== '<no value>' ? normalized : undefined;
+}
+
+/**
+ * Running scan containers with the labels needed to correlate a worker to its Temporal
+ * workflow. A successful query keeps unlabeled legacy workers in the result by ID.
+ */
+export function runningScanContainersChecked(
+  filter: readonly string[] = WORKER_FILTER,
+): CommandQueryResult<RunningScanContainer[]> {
+  try {
+    const format = `{{.ID}}\t{{ index .Labels "${WORKSPACE_LABEL}" }}\t{{ index .Labels "${TASK_QUEUE_LABEL}" }}\t{{ index .Labels "${WORKFLOW_ID_LABEL}" }}\t{{ index .Labels "${WORKER_PROTOCOL_LABEL}" }}`;
+    const output = execFileSync('docker', ['ps', ...filter, '--format', format], {
+      stdio: 'pipe',
+      encoding: 'utf-8',
+    }).trim();
+    if (!output) return { kind: 'ok', value: [] };
+
+    const containers: RunningScanContainer[] = [];
+    for (const line of output.split('\n')) {
+      const [rawId, rawWorkspace, rawTaskQueue, rawWorkflowId, rawWorkerProtocol] = line.split('\t');
+      const id = rawId?.trim();
+      if (!id) return { kind: 'unavailable' };
+      const workspace = normalizedLabel(rawWorkspace);
+      const taskQueue = normalizedLabel(rawTaskQueue);
+      const workflowId = normalizedLabel(rawWorkflowId);
+      const workerProtocol = normalizedLabel(rawWorkerProtocol);
+      containers.push({
+        id,
+        ...(workspace !== undefined && { workspace }),
+        ...(taskQueue !== undefined && { taskQueue }),
+        ...(workflowId !== undefined && { workflowId }),
+        ...(workerProtocol !== undefined && { workerProtocol }),
+      });
+    }
+    return { kind: 'ok', value: containers };
+  } catch {
+    return { kind: 'unavailable' };
+  }
 }
 
 /**
  * Workspace names of every running worker container, read from the shannon.workspace
- * label each scan is stamped with at spawn. This is the authoritative running-scan →
- * workspace-name map. Best-effort: empty when Docker is unreachable, which is the
- * correct answer anyway (no scan can be running without the daemon).
+ * label each scan is stamped with at spawn. The checked form preserves Docker query
+ * failures so lifecycle commands do not mistake an unavailable daemon for an empty list.
  */
+export function runningScanWorkspacesChecked(): CommandQueryResult<string[]> {
+  const result = runningScanContainersChecked();
+  if (result.kind === 'unavailable') return result;
+  return {
+    kind: 'ok',
+    value: result.value.flatMap((container) => (container.workspace === undefined ? [] : [container.workspace])),
+  };
+}
+
+/** Best-effort counterpart for callers that only need the local scan list. */
 export function runningScanWorkspaces(): string[] {
-  const output = runOutput('docker', ['ps', ...WORKER_FILTER, '--format', `{{ index .Labels "${WORKSPACE_LABEL}" }}`]);
-  return output
-    .split('\n')
-    .map((name) => name.trim())
-    .filter(Boolean);
+  const result = runningScanWorkspacesChecked();
+  return result.kind === 'ok' ? result.value : [];
 }
 
 /**
@@ -518,40 +628,6 @@ export function runningScanWorkspaces(): string[] {
  */
 export async function stopContainers(ids: string[]): Promise<void> {
   await Promise.all(ids.map((id) => spawnQuiet('docker', ['stop', id])));
-}
-
-/** Request cooperative cancellation so the workflow can run its terminal finalizer. */
-export function cancelWorkflow(workflowId: string): boolean {
-  return runQuiet('docker', temporalCmd('workflow', 'cancel', '--workflow-id', workflowId));
-}
-
-/**
- * Terminate a Temporal workflow so a stopped scan doesn't linger as a running
- * workflow with no worker. Best-effort: returns false if Temporal is unreachable
- * or the workflow already closed. Requires Temporal to be up (guard with isTemporalReady).
- */
-export function terminateWorkflow(workflowId: string, reason: string): boolean {
-  return runQuiet('docker', temporalCmd('workflow', 'terminate', '--workflow-id', workflowId, '--reason', reason));
-}
-
-/**
- * Whether a specific workflow is still in the Running state. Re-querying this after
- * a terminate verifies it actually took effect, rather than trusting the terminate
- * command's exit code. Requires Temporal to be up (guard with isTemporalReady).
- */
-export function isWorkflowRunning(workflowId: string): boolean {
-  const query = `WorkflowId = '${workflowId}' AND ExecutionStatus = 'Running'`;
-  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', query));
-  return output.includes(workflowId);
-}
-
-/**
- * Whether any pentest scan workflow is still Running — the `stop --all` counterpart
- * to isWorkflowRunning. Requires Temporal to be up (guard with isTemporalReady).
- */
-export function anyRunningScanWorkflow(): boolean {
-  const output = runOutput('docker', temporalCmd('workflow', 'list', '--query', RUNNING_SCAN_QUERY));
-  return output.includes('pentestPipelineWorkflow');
 }
 
 /**
