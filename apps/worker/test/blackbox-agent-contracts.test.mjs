@@ -306,6 +306,73 @@ test('recon submissions accept unavailable response status zero and reject low n
   );
 });
 
+test('planner submissions close hypotheses only when stopping without tasks', async () => {
+  const rejected = createBlackboxSubmitTool('planner');
+  await assert.rejects(
+    rejected.tool.execute('submit-close-while-working', {
+      ...VALID.planner,
+      tasks: [
+        {
+          taskId: 'analysis-1',
+          kind: 'analysis',
+          objective: 'Compare ownership evidence',
+          evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+          identityLease: null,
+          hypothesisId: null,
+          status: 'pending',
+        },
+      ],
+      closeHypothesisIds: ['hypothesis-1'],
+    }),
+    /hypotheses may close only when the planner stops with no tasks/i,
+  );
+  assert.equal(rejected.getCaptured(), undefined);
+  assert.equal(rejected.getCallCount(), 0);
+
+  const accepted = createBlackboxSubmitTool('planner');
+  await accepted.tool.execute('submit-close-and-stop', {
+    ...VALID.planner,
+    stop: true,
+    closeHypothesisIds: ['hypothesis-1'],
+  });
+  assert.deepEqual(accepted.getCaptured().closeHypothesisIds, ['hypothesis-1']);
+  assert.equal(accepted.getCallCount(), 1);
+});
+
+test('planner submissions reject action tasks without a hypothesis', async () => {
+  const submit = createBlackboxSubmitTool('planner');
+  await assert.rejects(
+    submit.tool.execute('submit-unbound-action', {
+      ...VALID.planner,
+      tasks: [
+        {
+          taskId: 'action-1',
+          kind: 'action',
+          objective: 'Replay the ownership boundary',
+          evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+          identityLease: 'attacker',
+          hypothesisId: null,
+          status: 'pending',
+          replayPlan: {
+            steps: [
+              {
+                stepId: 'step-1',
+                sourceExchangeId: 'exchange-1',
+                actor: 'attacker',
+                mutations: [{ type: 'set_path', path: '/objects/2' }],
+              },
+            ],
+            proofCondition: { type: 'body_contains', marker: 'victim-marker' },
+          },
+        },
+      ],
+    }),
+    /action task requires a hypothesis/i,
+  );
+  assert.equal(submit.getCaptured(), undefined);
+  assert.equal(submit.getCallCount(), 0);
+});
+
 test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {
   const secret = 'bootstrap-password-123';
   const value = {

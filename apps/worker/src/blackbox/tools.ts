@@ -48,6 +48,7 @@ function capturedSubmitTool<T>(
     parameters: Type.Unsafe(schema),
     async execute(_toolCallId, params) {
       if (!Value.Check(schema, params)) throw new Error(`${name} received an invalid structured result`);
+      if (name === 'submit_planner_tasks') validatePlannerBatch(params as PlannerBatch);
       if (name === 'submit_worker_contribution' && contributionRole) {
         validateContribution(contributionRole, params as Record<string, unknown>);
       }
@@ -63,6 +64,19 @@ function capturedSubmitTool<T>(
     getCallCount: () => callCount,
     directive: `\n\nYou MUST call ${name} exactly once as your final action to submit the structured result.`,
   };
+}
+
+function validatePlannerBatch(batch: PlannerBatch): void {
+  if (batch.closeHypothesisIds !== undefined && batch.closeHypothesisIds.length > 0) {
+    if (!batch.stop || batch.tasks.length !== 0) {
+      throw new Error('Hypotheses may close only when the planner stops with no tasks');
+    }
+  }
+  for (const task of batch.tasks) {
+    if (task.kind === 'action' && task.hypothesisId === null) {
+      throw new Error('Action task requires a hypothesis');
+    }
+  }
 }
 
 function validateVerification(value: Record<string, unknown>): void {

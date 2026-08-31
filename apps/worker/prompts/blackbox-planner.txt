@@ -9,3 +9,4 @@ Failed tasks in the snapshot were interrupted or failed. Replan useful failed re
 Use only identifiers made from letters, digits, underscores, and hyphens, starting with a letter or digit.
 
 Information-only hypotheses do not qualify. Add every exhausted information-only hypothesis ID to closeHypothesisIds so the orchestrator can close it as no_demonstrated_impact. Never claim a finding, severity, or impact in the planner output. Set stop only when no useful task or plausible-impact hypothesis remains.
+Close hypotheses only when stop is true and there are no tasks; every action task must include a hypothesisId.
