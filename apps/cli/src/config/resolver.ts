@@ -15,6 +15,7 @@ import {
   DEFAULT_MODEL_SPEC,
   GENERIC_API_KEY_ENV,
   isCuratedProvider,
+  PROVIDER_API_KEY_ENV,
   parseModelSpec,
 } from '../model-spec.js';
 
@@ -235,6 +236,30 @@ function validateConfig(config: TOMLConfig): string[] {
   return errors;
 }
 
+function assertNoCredentialConflict(toml: TOMLConfig): void {
+  const tomlBaseUrl = typeof toml.core?.base_url === 'string' ? toml.core.base_url : undefined;
+  if (!tomlBaseUrl || process.env.SHANNON_AI_BASE_URL) return;
+
+  const tomlModel = typeof toml.core?.model === 'string' ? toml.core.model : DEFAULT_MODEL_SPEC;
+  const spec = parseModelSpec(process.env.SHANNON_AI_MODEL ?? tomlModel);
+  if (typeof spec === 'string' || !isCuratedProvider(spec.providerId)) return;
+
+  for (const envVar of PROVIDER_API_KEY_ENV[spec.providerId]) {
+    const mapping = CONFIG_MAP.find((entry) => entry.env === envVar);
+    const tomlHasCredential = mapping ? getTomlValue(toml, mapping) !== undefined : false;
+    const envHasCredential = Boolean(process.env[envVar]);
+    if (!envHasCredential && !tomlHasCredential) continue;
+
+    if (envHasCredential) {
+      fail(
+        `${envVar} in your environment conflicts with the gateway credential in config.toml (core.base_url = ${tomlBaseUrl}).`,
+        `Unset ${envVar}, or set SHANNON_AI_BASE_URL to override both from the environment.`,
+      );
+    }
+    return;
+  }
+}
+
 // === Public API ===
 
 /**
@@ -243,7 +268,8 @@ function validateConfig(config: TOMLConfig): string[] {
  * For each mapped variable: if not already set in the environment,
  * look it up in ~/.shannon/config.toml and inject it into process.env.
  * Local mode uses .env exclusively — TOML is skipped.
- * Exits with an error if the TOML contains unknown or invalid keys.
+ * Exits with an error if the TOML contains unknown or invalid keys, or if an
+ * ambient credential conflicts with a TOML-configured gateway credential.
  */
 export function resolveConfig(): void {
   if (getMode() === 'local') return;
@@ -260,6 +286,8 @@ export function resolveConfig(): void {
       `Run 'npx @keygraph/shannon setup' to reconfigure.`,
     );
   }
+
+  assertNoCredentialConflict(toml);
 
   for (const mapping of CONFIG_MAP) {
     if (process.env[mapping.env]) continue;
