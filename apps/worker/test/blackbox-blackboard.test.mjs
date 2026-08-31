@@ -685,6 +685,87 @@ test('task registration queues action hypotheses and closes exhausted hypotheses
   assert.deepEqual(await store.read(), current);
 });
 
+test('task registration atomically inserts an orchestrator hypothesis with its action', async (t) => {
+  const { store } = await makeStore(t);
+  let snapshot = await store.registerTasks(0, {
+    operationKey: 'register:compiled-recon',
+    accepted: [
+      plannerTask('recon-compiled-attacker', 'recon'),
+      plannerTask('recon-compiled-victim', 'recon', { identityLease: 'victim' }),
+    ],
+    rejected: [],
+  });
+  snapshot = await store.startTasks(snapshot.revision, 'start:compiled-recon', [
+    'recon-compiled-attacker',
+    'recon-compiled-victim',
+  ]);
+  snapshot = await store.settleTasks({
+    operationKey: 'settle:compiled-recon',
+    baseRevision: snapshot.revision,
+    contributions: [
+      {
+        taskId: 'recon-compiled-attacker',
+        role: 'blackbox-recon',
+        baseRevision: snapshot.revision,
+        exchanges: [exchange('ex_compiled_attacker')],
+      },
+      {
+        taskId: 'recon-compiled-victim',
+        role: 'blackbox-recon',
+        baseRevision: snapshot.revision,
+        exchanges: [exchange('ex_compiled_victim', { identity: 'victim' })],
+        resources: [
+          resource('res_compiled_victim', {
+            evidence: [{ id: 'ex_compiled_victim', kind: 'exchange' }],
+          }),
+        ],
+      },
+    ],
+    failures: [],
+  });
+
+  const registrationRevision = snapshot.revision;
+  const compiledHypothesis = hypothesis('hyp_compiled', [
+    { id: 'ex_compiled_attacker', kind: 'exchange' },
+    { id: 'ex_compiled_victim', kind: 'exchange' },
+    { id: 'res_compiled_victim', kind: 'resource' },
+  ]);
+  const compiledAction = plannerTask('action-compiled', 'action', {
+    evidence: compiledHypothesis.evidence,
+    identityLease: 'attacker',
+    hypothesisId: compiledHypothesis.hypothesisId,
+    replayPlan: {
+      steps: [
+        {
+          stepId: 'step-compiled',
+          sourceExchangeId: 'ex_compiled_victim',
+          actor: 'attacker',
+          mutations: [],
+        },
+      ],
+      proofCondition: { type: 'body_contains', marker: 'victim-record' },
+    },
+  });
+
+  const registered = await store.registerTasks(registrationRevision, {
+    operationKey: 'register:compiled-action',
+    hypotheses: [compiledHypothesis],
+    accepted: [compiledAction],
+    rejected: [],
+  });
+
+  assert.deepEqual(registered.hypotheses.find(({ hypothesisId }) => hypothesisId === 'hyp_compiled'), {
+    ...compiledHypothesis,
+    status: 'queued',
+    provenance: {
+      actor: 'orchestrator',
+      taskId: 'authorization-compiler',
+      baseRevision: registrationRevision,
+    },
+  });
+  assert.equal(registered.tasks.find(({ taskId }) => taskId === 'action-compiled')?.status, 'pending');
+});
+
 test('analysis cannot assign orchestrator-owned hypothesis lifecycle states', async (t) => {
   const { store, snapshot, taskId } = await makeRunningStore(t, 'analysis');
   const before = await store.read();

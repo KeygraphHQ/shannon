@@ -43,6 +43,7 @@ import {
   renderBlackboxArtifacts,
   validateBlackboxDeliverables,
 } from './artifacts.js';
+import { type CompiledAuthorizationAttacks, compileAuthorizationAttacks } from './attack-compiler.js';
 import { BlackboardValidationError, FileBlackboardStore } from './blackboard.js';
 import {
   BurpMcpClient,
@@ -747,6 +748,24 @@ function namespacePlannerBatch(batch: PlannerBatch, revision: number): PlannerBa
       taskId: namespacedRecordId('task', namespace, task.taskId),
       status: 'pending',
     })),
+  };
+}
+
+function mergeCompiledPlannerBatch(
+  submitted: PlannerBatch,
+  compiled: CompiledAuthorizationAttacks,
+  revision: number,
+): PlannerBatch {
+  const namespaced = namespacePlannerBatch(submitted, revision);
+  const { compiledHypotheses: _modelCompiledHypotheses, ...modelBatch } = namespaced;
+  if (compiled.tasks.length === 0) return modelBatch;
+  return {
+    ...modelBatch,
+    tasks: [...compiled.tasks, ...modelBatch.tasks.slice(0, 6 - compiled.tasks.length)],
+    stop: false,
+    stopReason: null,
+    closeHypothesisIds: [],
+    compiledHypotheses: compiled.hypotheses,
   };
 }
 
@@ -1668,20 +1687,37 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== revision) throw new Error('Planner activity received a stale blackboard revision');
+    const compiled = compileAuthorizationAttacks(snapshot);
     const auditSession = dependencies.createAuditSession(input, context.runScope);
     await auditSession.initialize(input.workflowId);
-    const submitted = (await dependencies.createAgentRunner(input).run({
-      kind: 'planner',
-      targetOrigin: context.targetOrigin,
-      task: null,
-      snapshot: toRedactedSlice(snapshot),
-      identity: null,
-      customTools: [],
-      auditSession: auditSession as AuditSession,
-      logger: activityLogger(),
-      ...(cancellationSignal ? { cancellationSignal } : {}),
-    })) as PlannerBatch;
-    return namespacePlannerBatch(submitted, revision);
+    try {
+      const submitted = (await dependencies.createAgentRunner(input).run({
+        kind: 'planner',
+        targetOrigin: context.targetOrigin,
+        task: null,
+        snapshot: toRedactedSlice(snapshot),
+        identity: null,
+        customTools: [],
+        auditSession: auditSession as AuditSession,
+        logger: activityLogger(),
+        ...(cancellationSignal ? { cancellationSignal } : {}),
+      })) as PlannerBatch;
+      return mergeCompiledPlannerBatch(submitted, compiled, revision);
+    } catch (error) {
+      cancellationSignal?.throwIfAborted();
+      if (compiled.tasks.length === 0) throw error;
+      activityLogger().warn('Planner model failed; continuing with deterministic authorization work', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return {
+        baseRevision: revision,
+        tasks: compiled.tasks,
+        stop: false,
+        stopReason: null,
+        closeHypothesisIds: [],
+        compiledHypotheses: compiled.hypotheses,
+      };
+    }
   };
 
   const runReconActivity = async (input: BlackboxWorkerActivityInput): Promise<WorkerContribution> => {
@@ -2496,6 +2532,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     });
     const next = await store.registerTasks(input.revision, {
       operationKey: input.operationKey,
+      ...(input.wave.compiledHypotheses && input.wave.compiledHypotheses.length > 0
+        ? { hypotheses: input.wave.compiledHypotheses }
+        : {}),
       accepted,
       rejected,
       closedHypothesisIds: input.wave.closedHypothesisIds,

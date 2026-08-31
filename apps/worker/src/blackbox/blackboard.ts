@@ -735,6 +735,7 @@ export class FileBlackboardStore implements BlackboardStore {
       {
         operation: 'registerTasks',
         baseRevision,
+        hypotheses: batch.hypotheses,
         accepted: batch.accepted,
         rejected: batch.rejected,
         closedHypothesisIds: batch.closedHypothesisIds,
@@ -768,6 +769,13 @@ export class FileBlackboardStore implements BlackboardStore {
         const rejected = batch.rejected.map(
           ({ task, reason }): RejectedPlannerTask => ({ task: { ...clone(task), status: 'rejected' }, reason }),
         );
+        const compiledHypotheses = batch.hypotheses ?? [];
+        if (new Set(compiledHypotheses.map(({ hypothesisId }) => hypothesisId)).size !== compiledHypotheses.length) {
+          throw new BlackboardValidationError('Cannot register duplicate hypothesis IDs');
+        }
+        if (compiledHypotheses.some(({ status }) => status !== 'open')) {
+          throw new BlackboardValidationError('Orchestrator hypotheses must enter the lifecycle as open');
+        }
         const allNewIds = [...accepted.map(({ taskId }) => taskId), ...rejected.map(({ task }) => task.taskId)];
         if (new Set(allNewIds).size !== allNewIds.length) {
           throw new BlackboardValidationError('Conflicting duplicate task ID in registration batch');
@@ -785,8 +793,23 @@ export class FileBlackboardStore implements BlackboardStore {
             )
             .map(({ hypothesisId }) => hypothesisId),
         );
+        for (const { hypothesisId } of compiledHypotheses) {
+          if (!queuedHypothesisIds.has(hypothesisId)) {
+            throw new BlackboardValidationError(
+              `Orchestrator hypothesis ${hypothesisId} must be registered with an accepted action`,
+            );
+          }
+        }
+        const registeredHypotheses =
+          compiledHypotheses.length === 0
+            ? [...document.hypotheses]
+            : mergeRecords('hypothesis', document.hypotheses, compiledHypotheses, ({ hypothesisId }) => hypothesisId, {
+                actor: 'orchestrator',
+                taskId: 'authorization-compiler',
+                baseRevision,
+              });
         for (const hypothesisId of closedHypothesisIds) {
-          const hypothesis = document.hypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
+          const hypothesis = registeredHypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
           if (!hypothesis) throw new BlackboardValidationError(`Unknown hypothesis ${hypothesisId}`);
           if (!['open', 'queued', 'tested', 'blocked'].includes(hypothesis.status)) {
             throw new BlackboardValidationError(
@@ -798,7 +821,7 @@ export class FileBlackboardStore implements BlackboardStore {
           }
         }
         for (const hypothesisId of queuedHypothesisIds) {
-          const hypothesis = document.hypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
+          const hypothesis = registeredHypotheses.find((candidate) => candidate.hypothesisId === hypothesisId);
           if (!hypothesis) throw new BlackboardValidationError(`Unknown hypothesis ${hypothesisId}`);
           if (!['open', 'queued', 'tested', 'blocked'].includes(hypothesis.status)) {
             throw new BlackboardValidationError(
@@ -812,7 +835,7 @@ export class FileBlackboardStore implements BlackboardStore {
         const next: BlackboxDocument = {
           ...document,
           planningWave,
-          hypotheses: document.hypotheses.map((hypothesis) => {
+          hypotheses: registeredHypotheses.map((hypothesis) => {
             if (closed.has(hypothesis.hypothesisId)) {
               return { ...hypothesis, status: 'no_demonstrated_impact' as const };
             }

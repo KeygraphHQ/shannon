@@ -226,6 +226,7 @@ export interface WorkerContribution {
 
 export interface TaskRegistrationBatch {
   readonly operationKey: string;
+  readonly hypotheses?: readonly BlackboxHypothesis[];
   readonly accepted: readonly PlannerTask[];
   readonly rejected: readonly { readonly task: PlannerTask; readonly reason: string }[];
   readonly closedHypothesisIds?: readonly string[];

@@ -141,6 +141,100 @@ test('schedules independent recon and analysis concurrently and serializes appro
   assert.equal(commandForActionTask(action, 'action_authz_attempt_1').actionId, 'action_authz_attempt_1');
 });
 
+test('schedules an action against its same-wave orchestrator hypothesis', () => {
+  const compiledHypothesis = {
+    hypothesisId: 'hyp_compiled_authz',
+    kind: 'horizontal',
+    summary: 'An authenticated peer may read a victim-owned private record.',
+    preconditions: ['Two authenticated users exist.'],
+    attackerCapability: 'Replay the victim request as the attacker.',
+    evidence: [
+      { id: 'ex_victim', kind: 'exchange' },
+      { id: 'resource_100', kind: 'resource' },
+    ],
+    priority: 'high',
+    status: 'open',
+    provenance: { actor: 'orchestrator', taskId: 'authorization-compiler', baseRevision: 7 },
+  };
+  const action = task('action_compiled_authz', 'action', {
+    evidence: compiledHypothesis.evidence,
+    identityLease: 'attacker',
+    hypothesisId: compiledHypothesis.hypothesisId,
+    replayPlan: {
+      steps: [
+        {
+          stepId: 'step_compiled_authz',
+          sourceExchangeId: 'ex_victim',
+          actor: 'attacker',
+          mutations: [],
+        },
+      ],
+      proofCondition: { type: 'body_contains', marker: 'victim-record' },
+    },
+  });
+
+  const wave = validateAndScheduleWave(
+    batch([action], { compiledHypotheses: [compiledHypothesis] }),
+    snapshot({ tasks: [] }),
+  );
+
+  assert.deepEqual(wave, {
+    concurrent: [],
+    actions: [action],
+    rejected: [],
+    closedHypothesisIds: [],
+    compiledHypotheses: [compiledHypothesis],
+  });
+});
+
+test('rejects malformed, orphaned, and evidence-mismatched compiled hypotheses', () => {
+  const compiledHypothesis = {
+    hypothesisId: 'hyp_compiled_authz',
+    kind: 'horizontal',
+    summary: 'An authenticated peer may read a victim-owned private record.',
+    preconditions: ['Two authenticated users exist.'],
+    attackerCapability: 'Replay the victim request as the attacker.',
+    evidence: [{ id: 'ex_victim', kind: 'exchange' }],
+    priority: 'high',
+    status: 'open',
+    provenance: { actor: 'orchestrator', taskId: 'authorization-compiler', baseRevision: 7 },
+  };
+  const action = actionTask('action_compiled_authz', {
+    hypothesisId: compiledHypothesis.hypothesisId,
+    evidence: compiledHypothesis.evidence,
+    replayPlan: {
+      steps: [
+        {
+          stepId: 'step_compiled_authz',
+          sourceExchangeId: 'ex_victim',
+          actor: 'attacker',
+          mutations: [],
+        },
+      ],
+      proofCondition: { type: 'body_contains', marker: 'victim-record' },
+    },
+  });
+
+  assert.throws(
+    () => validateAndScheduleWave(batch([action], { compiledHypotheses: [null] }), snapshot({ tasks: [] })),
+    /compiled hypothesis.*invalid/i,
+  );
+  assert.throws(
+    () => validateAndScheduleWave(batch([], { compiledHypotheses: [compiledHypothesis] }), snapshot({ tasks: [] })),
+    /compiled hypothesis.*action/i,
+  );
+  assert.throws(
+    () =>
+      validateAndScheduleWave(
+        batch([{ ...action, evidence: [{ id: 'resource_100', kind: 'resource' }] }], {
+          compiledHypotheses: [compiledHypothesis],
+        }),
+        snapshot({ tasks: [] }),
+      ),
+    /compiled hypothesis.*evidence/i,
+  );
+});
+
 test('rejects duplicate, prior, unsupported, unbacked, and conflicting concurrent tasks', () => {
   const duplicateOne = task('duplicate', 'analysis');
   const duplicateTwo = task('duplicate', 'recon');

@@ -1026,6 +1026,109 @@ test('planner task IDs are namespaced by evidence revision before scheduling', a
   }]);
 });
 
+test('planner preserves a deterministic authorization action when the model stops', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, agents } = await makeDeps(t, root, {
+    identityNames: ['attacker', 'victim'],
+    agentHandler: async () => ({ baseRevision: 7, tasks: [], stop: true, stopReason: 'No more work' }),
+  });
+  const victimExchange = normalizedExchange('ex_victim_record', {
+    identity: 'victim',
+    routeSignature: 'route_record_get',
+    path: '/api/records/victim-record-4d2e',
+    candidateObjectReferences: ['victim-record-4d2e'],
+  });
+  const attackerExchange = normalizedExchange('ex_attacker_record', {
+    identity: 'attacker',
+    routeSignature: 'route_record_get',
+    path: '/api/records/peer-9b1c',
+    candidateObjectReferences: ['peer-9b1c'],
+  });
+  board.seed({
+    revision: 7,
+    identities: [
+      {
+        name: 'attacker',
+        role: 'ordinary user',
+        authenticated: true,
+        stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+      },
+      {
+        name: 'victim',
+        role: 'ordinary user',
+        authenticated: true,
+        stateRef: '.shannon/blackbox/identities/victim/storage-state.json',
+      },
+    ],
+    exchanges: [victimExchange, attackerExchange],
+    resources: [
+      {
+        resourceId: 'res_victim_record',
+        resourceType: 'record',
+        objectReferences: ['victim-record-4d2e'],
+        ownerIdentity: 'victim',
+        visibility: 'private',
+        evidence: [{ id: victimExchange.exchangeId, kind: 'exchange' }],
+        provenance: victimExchange.provenance,
+      },
+      {
+        resourceId: 'res_attacker_record',
+        resourceType: 'record',
+        objectReferences: ['peer-9b1c'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [{ id: attackerExchange.exchangeId, kind: 'exchange' }],
+        provenance: attackerExchange.provenance,
+      },
+    ],
+  });
+
+  const activities = createBlackboxActivities(deps);
+  const batch = await activities.runBlackboxPlanner(input(root), 7);
+
+  assert.equal(agents.length, 1);
+  assert.equal(batch.stop, false);
+  assert.equal(batch.stopReason, null);
+  assert.equal(batch.tasks.length, 2);
+  const victimReplay = batch.tasks.find(({ identityLease }) => identityLease === 'attacker');
+  assert.equal(victimReplay.kind, 'action');
+  assert.deepEqual(victimReplay.replayPlan.steps, [
+    {
+      stepId: victimReplay.replayPlan.steps[0].stepId,
+      sourceExchangeId: victimExchange.exchangeId,
+      actor: 'attacker',
+      mutations: [],
+    },
+  ]);
+  assert.equal(batch.compiledHypotheses.length, 2);
+  assert.equal(
+    batch.compiledHypotheses.some(({ hypothesisId }) => hypothesisId === victimReplay.hypothesisId),
+    true,
+  );
+
+  deps.createAgentRunner = () => ({
+    async run() {
+      throw new Error('planner contract failure');
+    },
+  });
+  const fallback = await activities.runBlackboxPlanner(input(root), 7);
+  assert.deepEqual(fallback.tasks, batch.tasks);
+  assert.deepEqual(fallback.compiledHypotheses, batch.compiledHypotheses);
+  assert.equal(fallback.stop, false);
+
+  const wave = validateAndScheduleWave(batch, await activities.readPlannerSnapshot(input(root)));
+  await activities.registerPlannedWave({
+    ...input(root),
+    revision: 7,
+    waveNumber: 1,
+    batch,
+    wave,
+    operationKey: 'workflow-1:1:register:compiled-actions',
+  });
+  const registration = board.calls.find(([name]) => name === 'registerTasks');
+  assert.deepEqual(registration[2].hypotheses, batch.compiledHypotheses);
+});
+
 test('preflight rejects a browser navigation that produces no target history delta', async (t) => {
   const root = await tempRoot(t);
   const { deps, browserCalls, agents } = await makeDeps(t, root, { historyQueue: [[], []] });

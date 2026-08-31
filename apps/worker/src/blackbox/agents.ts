@@ -7,6 +7,7 @@
 import { type TSchema, Type } from 'typebox';
 import type { PiToolPolicy } from '../ai/pi/pi-executor.js';
 import type {
+  BlackboxHypothesis,
   BlackboxTaskKind,
   BlackboxWorkerRole,
   EvidenceRef,
@@ -349,6 +350,8 @@ export interface PlannerBatch {
   readonly baseRevision: number;
   readonly tasks: readonly PlannerTask[];
   readonly stop: boolean;
+  /** Host-generated hypotheses paired atomically with deterministic action tasks. Never model-submittable. */
+  readonly compiledHypotheses?: readonly BlackboxHypothesis[];
   readonly evidenceDependencies?: readonly EvidenceRef[];
   readonly identityLease?: string | 'anonymous' | null;
   readonly stopReason?: string | null;

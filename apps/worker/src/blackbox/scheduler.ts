@@ -4,7 +4,14 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import type { EvidenceRef, HypothesisStatus, PlannerTask, ReplayPlan, ReplaySequence } from '../types/blackbox.js';
+import type {
+  BlackboxHypothesis,
+  EvidenceRef,
+  HypothesisStatus,
+  PlannerTask,
+  ReplayPlan,
+  ReplaySequence,
+} from '../types/blackbox.js';
 import type { Rules } from '../types/config.js';
 import type { PlannerBatch } from './agents.js';
 
@@ -65,6 +72,83 @@ export interface ScheduledWave {
   readonly actions: readonly PlannerTask[];
   readonly rejected: readonly { readonly taskId: string; readonly reason: string }[];
   readonly closedHypothesisIds: readonly string[];
+  readonly compiledHypotheses?: readonly BlackboxHypothesis[];
+}
+
+function validatedCompiledHypotheses(
+  batch: PlannerBatch,
+  snapshot: BlackboxSchedulerSnapshot,
+): readonly BlackboxHypothesis[] {
+  const hypotheses: readonly BlackboxHypothesis[] = batch.compiledHypotheses ?? [];
+  if (!Array.isArray(hypotheses) || hypotheses.length > 6) {
+    throw new BlackboxSchedulerValidationError('Compiled hypothesis batch must contain zero to six hypotheses');
+  }
+  const existing = new Set(snapshot.hypotheses.map(({ hypothesisId }) => hypothesisId));
+  const seen = new Set<string>();
+  for (const rawHypothesis of hypotheses as readonly unknown[]) {
+    if (!isRecord(rawHypothesis)) {
+      throw new BlackboxSchedulerValidationError('Compiled hypothesis is invalid');
+    }
+    const hypothesis = rawHypothesis as unknown as BlackboxHypothesis;
+    if (!isSafeIdentifier(hypothesis.hypothesisId)) {
+      throw new BlackboxSchedulerValidationError('Compiled hypothesis has an invalid identifier');
+    }
+    if (seen.has(hypothesis.hypothesisId) || existing.has(hypothesis.hypothesisId)) {
+      throw new BlackboxSchedulerValidationError(`Duplicate compiled hypothesis ${hypothesis.hypothesisId}`);
+    }
+    seen.add(hypothesis.hypothesisId);
+    if (
+      !['horizontal', 'vertical', 'workflow'].includes(hypothesis.kind) ||
+      typeof hypothesis.summary !== 'string' ||
+      hypothesis.summary.trim().length === 0 ||
+      !Array.isArray(hypothesis.preconditions) ||
+      !hypothesis.preconditions.every((value: unknown) => typeof value === 'string' && value.trim().length > 0) ||
+      typeof hypothesis.attackerCapability !== 'string' ||
+      hypothesis.attackerCapability.trim().length === 0 ||
+      !['high', 'medium', 'low'].includes(hypothesis.priority) ||
+      hypothesis.status !== 'open'
+    ) {
+      throw new BlackboxSchedulerValidationError(`Compiled hypothesis ${hypothesis.hypothesisId} is invalid`);
+    }
+    if (
+      hypothesis.provenance.actor !== 'orchestrator' ||
+      hypothesis.provenance.taskId !== 'authorization-compiler' ||
+      hypothesis.provenance.baseRevision !== snapshot.revision
+    ) {
+      throw new BlackboxSchedulerValidationError(
+        `Compiled hypothesis ${hypothesis.hypothesisId} has invalid provenance`,
+      );
+    }
+    const evidenceFailure = evidenceReason(
+      {
+        taskId: hypothesis.hypothesisId,
+        kind: 'analysis',
+        objective: hypothesis.summary,
+        evidence: hypothesis.evidence,
+        identityLease: null,
+        hypothesisId: null,
+        status: 'pending',
+      },
+      snapshot,
+    );
+    if (evidenceFailure) {
+      throw new BlackboxSchedulerValidationError(`Compiled hypothesis ${hypothesis.hypothesisId}: ${evidenceFailure}`);
+    }
+    const action = batch.tasks.find(
+      (task) => isRecord(task) && task.kind === 'action' && task.hypothesisId === hypothesis.hypothesisId,
+    );
+    if (!action) {
+      throw new BlackboxSchedulerValidationError(
+        `Compiled hypothesis ${hypothesis.hypothesisId} requires a paired action`,
+      );
+    }
+    if (!isDeeplyEqual(hypothesis.evidence, action.evidence)) {
+      throw new BlackboxSchedulerValidationError(
+        `Compiled hypothesis ${hypothesis.hypothesisId} evidence must match its paired action`,
+      );
+    }
+  }
+  return hypotheses;
 }
 
 export class BlackboxSchedulerValidationError extends Error {
@@ -412,7 +496,15 @@ export function validateAndScheduleWave(batch: PlannerBatch, snapshot: BlackboxS
     throw new BlackboxSchedulerValidationError('Planner batch must contain zero to six tasks');
   }
 
-  const closedHypothesisIds = closeHypotheses(batch, snapshot);
+  const compiledHypotheses = validatedCompiledHypotheses(batch, snapshot);
+  const validationSnapshot: BlackboxSchedulerSnapshot = {
+    ...snapshot,
+    hypotheses: [
+      ...snapshot.hypotheses,
+      ...compiledHypotheses.map(({ hypothesisId, status }) => ({ hypothesisId, status })),
+    ],
+  };
+  const closedHypothesisIds = closeHypotheses(batch, validationSnapshot);
   const existingTaskIds = new Set([...snapshot.tasks.map(({ taskId }) => taskId), ...snapshot.rejectedTaskIds]);
   const counts = new Map<string, number>();
   for (const task of batch.tasks) {
@@ -449,7 +541,7 @@ export function validateAndScheduleWave(batch: PlannerBatch, snapshot: BlackboxS
       rejected.push({ taskId, reason: `Task identifier ${taskId} was used by a prior task` });
       continue;
     }
-    const reason = taskReason(task, snapshot);
+    const reason = taskReason(task, validationSnapshot);
     if (reason) {
       rejected.push({ taskId, reason });
       continue;
@@ -463,7 +555,9 @@ export function validateAndScheduleWave(batch: PlannerBatch, snapshot: BlackboxS
             replayPlansShareDispatchedStep(
               action.replayPlan,
               task.replayPlan,
-              new Map(snapshot.exchanges.map(({ exchangeId, routeSignature }) => [exchangeId, routeSignature])),
+              new Map(
+                validationSnapshot.exchanges.map(({ exchangeId, routeSignature }) => [exchangeId, routeSignature]),
+              ),
             )),
       );
       if (sameWaveAction) {
@@ -494,7 +588,19 @@ export function validateAndScheduleWave(batch: PlannerBatch, snapshot: BlackboxS
     concurrent.push(task);
   }
 
-  return { concurrent, actions, rejected, closedHypothesisIds };
+  const acceptedHypothesisIds = new Set(
+    actions.flatMap(({ hypothesisId }) => (hypothesisId === null ? [] : [hypothesisId])),
+  );
+  const acceptedCompiledHypotheses = compiledHypotheses.filter(({ hypothesisId }) =>
+    acceptedHypothesisIds.has(hypothesisId),
+  );
+  return {
+    concurrent,
+    actions,
+    rejected,
+    closedHypothesisIds,
+    ...(acceptedCompiledHypotheses.length > 0 ? { compiledHypotheses: acceptedCompiledHypotheses } : {}),
+  };
 }
 
 export function commandForActionTask(task: PlannerTask, executionId = task.taskId): ReplaySequence {
