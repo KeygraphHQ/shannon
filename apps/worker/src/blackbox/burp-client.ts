@@ -91,49 +91,171 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-async function fetchWithNodeHttp(hostHeader: string, input: string | URL | Request, init?: RequestInit): Promise<Response> {
-  const request = new Request(input, init);
-  const url = new URL(request.url);
-  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-    throw new TypeError(`Unsupported URL protocol for Burp MCP: ${url.protocol}`);
-  }
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 20;
 
-  const headers: Record<string, string> = {};
-  for (const [name, value] of request.headers) headers[name] = value;
-  headers.host = hostHeader;
+function isHttpUrl(url: URL): boolean {
+  return url.protocol === 'http:' || url.protocol === 'https:';
+}
 
-  const requestBody = request.body ? Buffer.from(await request.arrayBuffer()) : undefined;
+function annotateResponse(response: Response, url: URL, redirected: boolean): Response {
+  Object.defineProperties(response, {
+    url: { configurable: true, enumerable: true, value: url.href },
+    redirected: { configurable: true, enumerable: true, value: redirected },
+  });
+  return response;
+}
+
+async function readRequestBody(request: Request): Promise<Buffer | undefined> {
+  if (!request.body) return undefined;
+  request.signal.throwIfAborted();
+
+  const reader = request.body.getReader();
+  const chunks: Buffer[] = [];
+  return new Promise<Buffer>((resolve, reject) => {
+    let settled = false;
+    const abort = (): void => {
+      if (settled) return;
+      settled = true;
+      reject(request.signal.reason);
+      void reader.cancel(request.signal.reason).catch(() => undefined);
+    };
+    const read = async (): Promise<void> => {
+      try {
+        while (!settled) {
+          const { done, value } = await reader.read();
+          if (settled) return;
+          if (done) {
+            settled = true;
+            resolve(Buffer.concat(chunks));
+            return;
+          }
+          chunks.push(Buffer.from(value));
+          if (request.signal.aborted) abort();
+        }
+      } catch (error) {
+        if (!settled) {
+          settled = true;
+          reject(error);
+        }
+      } finally {
+        request.signal.removeEventListener('abort', abort);
+        reader.releaseLock();
+      }
+    };
+    request.signal.addEventListener('abort', abort, { once: true });
+    if (request.signal.aborted) abort();
+    else void read();
+  });
+}
+
+function requestNodeResponse(
+  url: URL,
+  method: string,
+  headers: Headers,
+  body: Buffer | undefined,
+  signal: AbortSignal,
+): Promise<Response> {
+  const requestHeaders: Record<string, string> = {};
+  for (const [name, value] of headers) requestHeaders[name] = value;
   const requestFunction = url.protocol === 'https:' ? https.request : http.request;
   return new Promise<Response>((resolve, reject) => {
     const nodeRequest = requestFunction(
       url,
-      { method: request.method, headers, signal: request.signal },
+      { method, headers: requestHeaders, signal },
       (nodeResponse) => {
-        const responseHeaders = new Headers();
-        for (const [name, value] of Object.entries(nodeResponse.headers)) {
-          if (Array.isArray(value)) {
-            for (const item of value) responseHeaders.append(name, item);
-          } else if (value !== undefined) {
-            responseHeaders.set(name, value);
+        try {
+          const responseHeaders = new Headers();
+          for (const [name, value] of Object.entries(nodeResponse.headers)) {
+            if (Array.isArray(value)) {
+              for (const item of value) responseHeaders.append(name, item);
+            } else if (value !== undefined) {
+              responseHeaders.set(name, value);
+            }
           }
+          const status = nodeResponse.statusCode ?? 500;
+          const nullBody = method === 'HEAD' || status === 204 || status === 205 || status === 304;
+          if (nullBody) {
+            nodeResponse.on('error', () => undefined);
+            nodeResponse.resume();
+            resolve(
+              new Response(null, {
+                status,
+                statusText: nodeResponse.statusMessage ?? '',
+                headers: responseHeaders,
+              }),
+            );
+            return;
+          }
+          resolve(
+            new Response(Readable.toWeb(nodeResponse), {
+              status,
+              statusText: nodeResponse.statusMessage ?? '',
+              headers: responseHeaders,
+            }),
+          );
+        } catch (error) {
+          nodeResponse.on('error', () => undefined);
+          nodeResponse.resume();
+          reject(error);
         }
-        resolve(
-          new Response(Readable.toWeb(nodeResponse), {
-            status: nodeResponse.statusCode ?? 500,
-            statusText: nodeResponse.statusMessage ?? '',
-            headers: responseHeaders,
-          }),
-        );
       },
     );
     nodeRequest.once('error', reject);
-    if (requestBody) nodeRequest.end(requestBody);
+    if (body !== undefined) nodeRequest.end(body);
     else nodeRequest.end();
   });
 }
 
-export function createHostHeaderFetch(hostHeader: string, fetchImpl: typeof fetch = fetch): typeof fetch {
-  if (fetchImpl === globalThis.fetch) {
+async function fetchWithNodeHttp(hostHeader: string, input: string | URL | Request, init?: RequestInit): Promise<Response> {
+  const request = new Request(input, init);
+  let url = new URL(request.url);
+  if (!isHttpUrl(url)) throw new TypeError(`Unsupported URL protocol for Burp MCP: ${url.protocol}`);
+
+  let method = request.method;
+  let body = await readRequestBody(request);
+  const headers = new Headers(request.headers);
+  headers.set('Host', hostHeader);
+  let redirected = false;
+
+  for (let redirectCount = 0; ; redirectCount += 1) {
+    request.signal.throwIfAborted();
+    const response = await requestNodeResponse(url, method, headers, body, request.signal);
+    const location = response.headers.get('location');
+    if (!REDIRECT_STATUSES.has(response.status) || !location) return annotateResponse(response, url, redirected);
+    if (request.redirect === 'error') {
+      if (response.body) await response.body.cancel().catch(() => undefined);
+      throw new TypeError('Redirect encountered while redirect mode is error');
+    }
+    if (request.redirect === 'manual') return annotateResponse(response, url, redirected);
+    if (redirectCount >= MAX_REDIRECTS) {
+      if (response.body) await response.body.cancel().catch(() => undefined);
+      throw new TypeError('Too many redirects');
+    }
+    if (response.body) await response.body.cancel().catch(() => undefined);
+
+    const nextUrl = new URL(location, url);
+    if (!isHttpUrl(nextUrl)) throw new TypeError(`Unsupported redirect URL protocol: ${nextUrl.protocol}`);
+    if ((response.status === 301 || response.status === 302) && method === 'POST') {
+      method = 'GET';
+      body = undefined;
+      headers.delete('content-length');
+      headers.delete('content-type');
+      headers.delete('transfer-encoding');
+    } else if (response.status === 303 && method !== 'GET' && method !== 'HEAD') {
+      method = 'GET';
+      body = undefined;
+      headers.delete('content-length');
+      headers.delete('content-type');
+      headers.delete('transfer-encoding');
+    }
+    url = nextUrl;
+    redirected = true;
+  }
+}
+
+export function createHostHeaderFetch(hostHeader: string, fetchImpl?: typeof fetch): typeof fetch {
+  if (fetchImpl === undefined) {
     return (input, init) => fetchWithNodeHttp(hostHeader, input, init);
   }
   return (input, init) => {
@@ -173,7 +295,7 @@ export class BurpMcpClient implements BurpToolClient {
   private readonly settings: BurpMcpSettings;
   private readonly createClient: () => SdkClientLike;
   private readonly createTransport: (url: URL, options: SSEClientTransportOptions) => unknown;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: typeof fetch | undefined;
   private sdkClient: SdkClientLike | undefined;
   private connected = false;
 
@@ -181,7 +303,7 @@ export class BurpMcpClient implements BurpToolClient {
     this.settings = settings;
     this.createClient = factories.createClient ?? createProductionClient;
     this.createTransport = factories.createTransport ?? createProductionTransport;
-    this.fetchImpl = factories.fetch ?? fetch;
+    this.fetchImpl = factories.fetch;
   }
 
   async connect(cancellationSignal?: AbortSignal): Promise<void> {

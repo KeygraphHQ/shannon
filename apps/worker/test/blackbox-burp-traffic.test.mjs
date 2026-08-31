@@ -337,6 +337,156 @@ test('host override reaches a real HTTP server for SSE GET and JSON POST', async
   ]);
 });
 
+test('native host fetch follows redirects while preserving configured Host and fetch semantics', async (t) => {
+  const requests = [];
+  const server = createServer(async (request, response) => {
+    const chunks = [];
+    for await (const chunk of request) chunks.push(chunk);
+    requests.push({ method: request.method, path: request.url, host: request.headers.host, body: Buffer.concat(chunks).toString('utf8') });
+
+    if (request.url === '/sse') {
+      response.writeHead(301, { location: '/sse-final' });
+      response.end();
+      return;
+    }
+    if (request.url === '/sse-final') {
+      response.writeHead(200, { 'content-type': 'text/event-stream' });
+      response.end('data: ready\n\n');
+      return;
+    }
+    if (request.url === '/rpc') {
+      response.writeHead(307, { location: '/rpc-final' });
+      response.end();
+      return;
+    }
+    if (request.url === '/rpc-final') {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{}');
+      return;
+    }
+    if (request.url === '/rpc-rewrite') {
+      response.writeHead(303, { location: '/rpc-get' });
+      response.end();
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'application/json' });
+    response.end(JSON.stringify({ method: request.method, body: Buffer.concat(chunks).toString('utf8') }));
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const port = address.port;
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const configuredHost = `configured.test:${port}`;
+  const scopedFetch = createHostHeaderFetch(configuredHost);
+
+  const sseResponse = await scopedFetch(`${baseUrl}/sse`, { redirect: 'follow' });
+  assert.equal(sseResponse.status, 200);
+  assert.equal(sseResponse.url, `${baseUrl}/sse-final`);
+  assert.equal(sseResponse.redirected, true);
+  assert.equal(await sseResponse.text(), 'data: ready\n\n');
+
+  const postResponse = await scopedFetch(`${baseUrl}/rpc`, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'content-type': 'application/json' },
+    body: '{"jsonrpc":"2.0"}',
+  });
+  assert.equal(postResponse.status, 200);
+  assert.equal(postResponse.url, `${baseUrl}/rpc-final`);
+  assert.equal(postResponse.redirected, true);
+  assert.equal(await postResponse.text(), '{}');
+
+  const rewrittenResponse = await scopedFetch(`${baseUrl}/rpc-rewrite`, {
+    method: 'POST',
+    redirect: 'follow',
+    headers: { 'content-type': 'application/json' },
+    body: '{"jsonrpc":"2.0"}',
+  });
+  assert.equal(rewrittenResponse.status, 200);
+  assert.equal(rewrittenResponse.url, `${baseUrl}/rpc-get`);
+  assert.equal(rewrittenResponse.redirected, true);
+  assert.deepEqual(JSON.parse(await rewrittenResponse.text()), { method: 'GET', body: '' });
+
+  assert.deepEqual(requests, [
+    { method: 'GET', path: '/sse', host: configuredHost, body: '' },
+    { method: 'GET', path: '/sse-final', host: configuredHost, body: '' },
+    { method: 'POST', path: '/rpc', host: configuredHost, body: '{"jsonrpc":"2.0"}' },
+    { method: 'POST', path: '/rpc-final', host: configuredHost, body: '{"jsonrpc":"2.0"}' },
+    { method: 'POST', path: '/rpc-rewrite', host: configuredHost, body: '{"jsonrpc":"2.0"}' },
+    { method: 'GET', path: '/rpc-get', host: configuredHost, body: '' },
+  ]);
+});
+
+test('native host fetch exposes null Response bodies for null-body statuses and HEAD', async (t) => {
+  const server = createServer((request, response) => {
+    if (request.url === '/no-content') response.writeHead(204).end();
+    else if (request.url === '/reset-content') response.writeHead(205).end();
+    else if (request.url === '/not-modified') response.writeHead(304).end();
+    else response.writeHead(200).end();
+  });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const baseUrl = `http://127.0.0.1:${address.port}`;
+  const scopedFetch = createHostHeaderFetch(`configured.test:${address.port}`);
+  for (const path of ['/no-content', '/reset-content', '/not-modified']) {
+    const response = await scopedFetch(`${baseUrl}${path}`);
+    assert.equal(response.body, null, `${path} must expose a null body`);
+    assert.equal(await response.text(), '');
+  }
+  const headResponse = await scopedFetch(`${baseUrl}/head`, { method: 'HEAD' });
+  assert.equal(headResponse.body, null, 'HEAD must expose a null body');
+  assert.equal(await headResponse.text(), '');
+});
+
+test('native host fetch aborts a request while buffering its body', async (t) => {
+  const server = createServer((_request, response) => response.writeHead(500).end());
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  t.after(() => new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  let bodyCancelled = false;
+  const body = new ReadableStream({
+    start() {},
+    cancel() {
+      bodyCancelled = true;
+    },
+  });
+  const controller = new AbortController();
+  const scopedFetch = createHostHeaderFetch(`configured.test:${address.port}`);
+  const pending = scopedFetch(`http://127.0.0.1:${address.port}/slow`, {
+    method: 'POST',
+    body,
+    duplex: 'half',
+    signal: controller.signal,
+  });
+  await new Promise((resolve) => setTimeout(resolve, 20));
+  controller.abort();
+  await assert.rejects(
+    Promise.race([
+      pending,
+      new Promise((_, reject) => setTimeout(() => reject(new Error('body buffering ignored cancellation')), 100)),
+    ]),
+    (error) => error?.name === 'AbortError',
+  );
+  assert.equal(bodyCancelled, true);
+});
+
 test('Burp adapter aborts and closes a client stuck establishing the SSE transport', async () => {
   let markConnectStarted;
   const connectStarted = new Promise((resolve) => { markConnectStarted = resolve; });
