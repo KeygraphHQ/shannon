@@ -286,9 +286,9 @@ async function makeDeps(t, root, options = {}) {
         : undefined;
       return {
         stdout: isAuthCheck
-          ? configuredAuthResult === false
+          ? options.authCheckOutput ?? (configuredAuthResult === false
             ? '__SHANNON_AUTH_FAILED__'
-            : '__SHANNON_AUTH_OK__'
+            : '__SHANNON_AUTH_OK__')
           : '',
         stderr: '',
         exitCode: 0,
@@ -341,6 +341,30 @@ async function tempRoot(t) {
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
+
+test('capture accepts a successful Playwright result when the echoed code also contains both auth markers', async (t) => {
+  const root = await tempRoot(t);
+  const { deps } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    authCheckOutput: [
+      '### Result',
+      '"__SHANNON_AUTH_OK__"',
+      '### Ran Playwright code',
+      "(() => (true ? '__SHANNON_AUTH_OK__' : '__SHANNON_AUTH_FAILED__'))()",
+    ].join('\n'),
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+  });
+  const activities = createBlackboxActivities(deps);
+
+  await activities.preflightBlackbox(input(root));
+  const capture = await activities.captureIdentity(input(root), 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.equal(capture.exchangeIds.length, 1);
+});
 
 test('missing proxy fails before creating an agent or connecting to Burp', async (t) => {
   const root = await tempRoot(t);

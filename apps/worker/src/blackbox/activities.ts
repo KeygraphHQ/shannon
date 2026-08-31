@@ -598,6 +598,17 @@ function successExpression(condition: SuccessCondition): string {
   return `(${predicate}) ? '${AUTH_SUCCESS_MARKER}' : '${AUTH_FAILURE_MARKER}'`;
 }
 
+function authCheckSucceeded(stdout: string): boolean {
+  const resultHeading = '### Result';
+  const codeHeading = '### Ran Playwright code';
+  const resultStart = stdout.indexOf(resultHeading);
+  const codeStart = resultStart < 0 ? -1 : stdout.indexOf(codeHeading, resultStart + resultHeading.length);
+  const output = resultStart >= 0 && codeStart >= 0
+    ? stdout.slice(resultStart + resultHeading.length, codeStart)
+    : stdout;
+  return output.includes(AUTH_SUCCESS_MARKER) && !output.includes(AUTH_FAILURE_MARKER);
+}
+
 function previewTraffic(
   before: HistorySnapshot,
   after: HistorySnapshot,
@@ -1165,7 +1176,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${validationSession}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        reusable = checked.stdout.includes(AUTH_SUCCESS_MARKER) && !checked.stdout.includes(AUTH_FAILURE_MARKER);
+        reusable = authCheckSucceeded(checked.stdout);
         if (reusable) {
           await dependencies.runBrowserCommand(
             'playwright-cli',
@@ -1320,7 +1331,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+        if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Identity ${identity.name} did not satisfy its configured success condition`);
         }
         successEvidence = safeSuccessEvidence(
@@ -1476,7 +1487,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+        if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Captured state for identity ${identity.name} no longer satisfies its success condition`);
         }
       }
@@ -1551,7 +1562,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+        if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Captured state for identity ${identity.name} is no longer authenticated`);
         }
         await dependencies.runBrowserCommand(
@@ -1656,7 +1667,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
             cancellableBrowserOptions(input.repoPath, cancellationSignal),
           );
-          if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+          if (!authCheckSucceeded(checked.stdout)) {
             throw new Error(`Captured state for replay actor ${identity.name} is no longer authenticated`);
           }
         }
@@ -1934,7 +1945,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+        if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
         }
       }
@@ -2068,7 +2079,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
-        if (!checked.stdout.includes(AUTH_SUCCESS_MARKER) || checked.stdout.includes(AUTH_FAILURE_MARKER)) {
+        if (!authCheckSucceeded(checked.stdout)) {
           throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
         }
       }
