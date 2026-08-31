@@ -26,7 +26,7 @@ export interface TaskToolContext {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly model: Model<any>;
   readonly modelRuntime: ModelRuntime;
-  readonly resourceLoader: ResourceLoader;
+  readonly createResourceLoader: () => Promise<ResourceLoader>;
   readonly parentAgentName: LoggableAgentName;
   readonly workflowLogPath?: string | undefined;
   readonly onDelegationStart?: ((child: string) => Promise<void>) | undefined;
@@ -129,10 +129,11 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       const onCancellation = (): void => abortChildSession();
 
       try {
+        const resourceLoader = await config.createResourceLoader();
         ({ session: subSession } = await createAgentSession({
           cwd: config.cwd,
           agentDir,
-          resourceLoader: config.resourceLoader,
+          resourceLoader,
           model: config.model,
           tools: CHILD_TOOLS,
           modelRuntime: config.modelRuntime,

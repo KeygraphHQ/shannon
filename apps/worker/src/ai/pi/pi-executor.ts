@@ -299,7 +299,7 @@ export async function runPiPrompt(
         childUsage.cacheReadTokens += usage.cacheReadTokens;
         childUsage.cacheWriteTokens += usage.cacheWriteTokens;
       },
-      resourceLoader,
+      createResourceLoader: () => buildResourceLoader(sourceDir, logger, agentName),
       ...(cancellationSignal && { cancellationSignal }),
     }),
     createTodoWriteTool(),
@@ -403,7 +403,6 @@ export async function runPiPrompt(
 
     // 6. Run the agent to completion (resolves at agent_end).
     await session.prompt(fullPrompt);
-    session.dispose();
 
     // 7. Surface any error captured during the run.
     if (pendingError) throw pendingError;
@@ -469,6 +468,7 @@ export async function runPiPrompt(
       retryable,
     };
   } finally {
+    session?.dispose();
     cancellationSignal?.removeEventListener('abort', onCancellation);
   }
 }
