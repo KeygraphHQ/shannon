@@ -58,6 +58,16 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly s
 /** Model used when SHANNON_AI_MODEL is unset. */
 export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
 
+/** Models accepted by their provider before the pinned pi catalogue publishes a descriptor. */
+const DIRECT_MODEL_COMPATIBILITY: Readonly<
+  Record<string, { readonly referenceModelId: string; readonly name: string }>
+> = {
+  'openai-codex:gpt-daybreak-blue-latest': {
+    referenceModelId: 'gpt-5.6-sol',
+    name: 'GPT Daybreak Blue',
+  },
+};
+
 /** Browsable pi model catalogue — the source of valid `<provider>:<model-id>` ids. */
 export const PI_CATALOG_URL = 'https://pi.dev/models';
 
@@ -267,8 +277,12 @@ function pointAtGateway(model: Model<Api>, providerId: string, baseUrl: string, 
  * catalogue for its API dialect. Cost and context window on such a descriptor
  * are the reference model's, so spend figures are approximate there.
  *
+ * A narrowly listed direct-provider model may borrow a compatible catalogue
+ * descriptor while the pinned pi release catches up. Other unknown direct
+ * models remain rejected.
+ *
  * Returns undefined when the id is unresolvable — unknown with no endpoint
- * override, or a provider carrying no models at all.
+ * override or compatibility entry, or a provider carrying no models at all.
  */
 export function resolveModel(
   modelRuntime: ModelRuntime,
@@ -281,6 +295,16 @@ export function resolveModel(
   if (found) {
     return baseUrl ? pointAtGateway(found, providerId, baseUrl, format) : found;
   }
+
+  const compatibility = DIRECT_MODEL_COMPATIBILITY[`${providerId}:${modelId}`];
+  if (compatibility) {
+    const reference = modelRuntime.getModel(providerId, compatibility.referenceModelId);
+    if (reference) {
+      const compatible = { ...reference, id: modelId, name: compatibility.name };
+      return baseUrl ? pointAtGateway(compatible, providerId, baseUrl, format) : compatible;
+    }
+  }
+
   if (!baseUrl) return undefined;
 
   const reference = modelRuntime.getModels(providerId)[0];

@@ -378,7 +378,9 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   }
   if (!modelRuntime.getModel(spec.providerId, spec.modelId)) {
     logger.warn(
-      `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; passing it to the custom endpoint as given. Cost figures will be approximate.`,
+      credentials.baseUrl
+        ? `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; passing it to the custom endpoint as given. Cost figures will be approximate.`
+        : `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; using a compatible descriptor. Cost figures will be approximate.`,
     );
   }
   if (credentials.baseUrl && spec.providerId === 'openai') {
