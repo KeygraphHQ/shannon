@@ -10,6 +10,7 @@ import https from 'node:https';
 import { Readable } from 'node:stream';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport, type SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
+import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Rules } from '../types/config.js';
 import { parseHttpRequest } from './http-message.js';
 import { requestMatchesScope } from './scope-guard.js';
@@ -89,6 +90,10 @@ function createProductionTransport(url: URL, options: SSEClientTransportOptions)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isMcpRequestTimeout(error: unknown): boolean {
+  return isRecord(error) && error.code === ErrorCode.RequestTimeout;
 }
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
@@ -365,6 +370,11 @@ export class BurpMcpClient implements BurpToolClient {
     this.fetchImpl = factories.fetch;
   }
 
+  private connectedClient(): SdkClientLike {
+    if (!this.connected || !this.sdkClient) throw new Error('Burp MCP client is not connected');
+    return this.sdkClient;
+  }
+
   async connect(cancellationSignal?: AbortSignal): Promise<void> {
     if (this.connected) return;
     cancellationSignal?.throwIfAborted();
@@ -443,15 +453,26 @@ export class BurpMcpClient implements BurpToolClient {
     if (!ALLOWED_BURP_TOOLS.has(name)) {
       throw new Error(`Burp MCP tool is not allowed: ${name}`);
     }
-    if (!this.connected || !this.sdkClient) {
-      throw new Error('Burp MCP client is not connected');
-    }
     cancellationSignal?.throwIfAborted();
-    return this.sdkClient.callTool(
-      { name, arguments: arguments_ },
-      undefined,
-      cancellationSignal ? { signal: cancellationSignal } : undefined,
-    );
+    const input = { name, arguments: arguments_ };
+    const requestOptions = cancellationSignal ? { signal: cancellationSignal } : undefined;
+    try {
+      return await this.connectedClient().callTool(input, undefined, requestOptions);
+    } catch (error) {
+      cancellationSignal?.throwIfAborted();
+      if (name !== 'get_proxy_http_history_regex' || !isMcpRequestTimeout(error)) throw error;
+
+      const staleClient = this.connectedClient();
+      this.sdkClient = undefined;
+      this.connected = false;
+      try {
+        await staleClient.close();
+      } catch {
+        // A fresh connection can recover a timed-out read even when the stale transport cannot close cleanly.
+      }
+      await this.connect(cancellationSignal);
+      return this.connectedClient().callTool(input, undefined, requestOptions);
+    }
   }
 
   async close(): Promise<void> {

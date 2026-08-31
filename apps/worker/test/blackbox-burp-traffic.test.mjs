@@ -455,6 +455,101 @@ test('production Burp adapter verifies tools, restricts calls, and sets the MCP 
   assert.equal(forwardedHeaders.get('x-test'), 'kept');
 });
 
+test('Burp adapter reconnects once after a read-only history request times out', async () => {
+  const events = [];
+  let clientNumber = 0;
+  const createClient = () => {
+    const number = ++clientNumber;
+    return {
+      async connect() {
+        events.push(['connect', number]);
+      },
+      async listTools() {
+        events.push(['listTools', number]);
+        return {
+          tools: [
+            { name: 'get_proxy_http_history_regex' },
+            { name: 'send_http1_request' },
+            { name: 'send_http2_request' },
+          ],
+        };
+      },
+      async callTool(input) {
+        events.push(['call', number, input.name]);
+        if (number === 1) {
+          throw Object.assign(new Error('Request timed out'), { code: -32001 });
+        }
+        return { content: [{ type: 'text', text: EXPECTED_BURP_END_OF_ITEMS }] };
+      },
+      async close() {
+        events.push(['close', number]);
+      },
+    };
+  };
+  const client = new BurpMcpClient(
+    { url: 'http://host.docker.internal:9876', hostHeader: '127.0.0.1:9876' },
+    { createClient, createTransport: () => ({ kind: 'fake-transport' }) },
+  );
+
+  await client.connect();
+  const result = await client.call('get_proxy_http_history_regex', { regex: 'capture-token', count: 100, offset: 0 });
+  await client.close();
+
+  assert.equal(extractMcpText(result), EXPECTED_BURP_END_OF_ITEMS);
+  assert.deepEqual(events, [
+    ['connect', 1],
+    ['listTools', 1],
+    ['call', 1, 'get_proxy_http_history_regex'],
+    ['close', 1],
+    ['connect', 2],
+    ['listTools', 2],
+    ['call', 2, 'get_proxy_http_history_regex'],
+    ['close', 2],
+  ]);
+});
+
+test('Burp adapter does not retry a timed-out state-changing request', async () => {
+  let createdClients = 0;
+  let closeCalls = 0;
+  const sdkClient = {
+    async connect() {},
+    async listTools() {
+      return {
+        tools: [
+          { name: 'get_proxy_http_history_regex' },
+          { name: 'send_http1_request' },
+          { name: 'send_http2_request' },
+        ],
+      };
+    },
+    async callTool() {
+      throw Object.assign(new Error('Request timed out'), { code: -32001 });
+    },
+    async close() {
+      closeCalls += 1;
+    },
+  };
+  const client = new BurpMcpClient(
+    { url: 'http://host.docker.internal:9876', hostHeader: '127.0.0.1:9876' },
+    {
+      createClient: () => {
+        createdClients += 1;
+        return sdkClient;
+      },
+      createTransport: () => ({ kind: 'fake-transport' }),
+    },
+  );
+
+  await client.connect();
+  await assert.rejects(client.call('send_http1_request', { content: 'GET / HTTP/1.1\r\n\r\n' }), {
+    code: -32001,
+  });
+  await client.close();
+
+  assert.equal(createdClients, 1);
+  assert.equal(closeCalls, 1);
+});
+
 test('host override reaches a real HTTP server for SSE GET and JSON POST', async (t) => {
   const requests = [];
   const server = createServer(async (request, response) => {
