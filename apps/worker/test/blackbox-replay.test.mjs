@@ -843,21 +843,29 @@ test('a named replay can replace a victim cookie with actor authorization', asyn
     outbound.headers.find(({ name }) => name.toLowerCase() === 'authorization')?.value,
     'Bearer attacker-bearer',
   );
+});
 
-  const reverse = harness({
+test('a bearer source requests fresh actor traffic instead of falling back to cookie-only state', async () => {
+  const state = new FakeIdentityStateResolver();
+  state.latest.delete('attacker\0route_users');
+  const current = harness({
+    identityState: state,
     identityBoundRequestFields: [],
     records: new Map([[
       'ex_source',
       raw('PATCH /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer victim-bearer\r\n\r\n'),
     ]]),
   });
-  const reverseOutcome = await reverse.service.replay(replayCommand('act_bearer_to_cookie', {
+  const outcome = await current.service.replay(replayCommand('act_bearer_to_cookie', {
     steps: [{ stepId: 'step_bearer_to_cookie', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
   }));
-  assert.equal(reverseOutcome.status, 'completed');
-  const reverseOutbound = parseHttpRequest(reverse.client.calls[0].arguments_.content);
-  assert.equal(reverseOutbound.headers.some(({ name }) => name.toLowerCase() === 'authorization'), false);
-  assert.equal(reverseOutbound.headers.find(({ name }) => name.toLowerCase() === 'cookie')?.value, 'session=attacker-cookie');
+
+  assert.deepEqual(outcome, {
+    status: 'needs_fresh_actor_request',
+    stepId: 'step_bearer_to_cookie',
+    routeSignature: 'route_users',
+  });
+  assert.equal(current.client.calls.length, 0);
 });
 
 test('anti-CSRF material alone never proves a named actor binding', async () => {

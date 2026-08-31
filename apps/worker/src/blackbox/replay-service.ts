@@ -1430,8 +1430,7 @@ export class ReplayService {
   }
 
   private sourceNeedsEquivalent(request: MutableRequest): boolean {
-    const headerNames = boundNames(this.identityBoundRequestFields, 'header');
-    if (boundHeaderNames(request, this.identityBoundRequestFields).some((name) => !isAuthenticationBoundField(name, headerNames))) {
+    if (boundHeaderNames(request, this.identityBoundRequestFields).length > 0) {
       return true;
     }
     const queryNames = boundNames(this.identityBoundRequestFields, 'query');
