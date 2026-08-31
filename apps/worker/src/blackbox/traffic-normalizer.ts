@@ -23,6 +23,7 @@ export interface TrafficNormalizationInput extends TrafficCaptureInput {
   readonly captureToken: string;
   readonly identityBoundRequestFields: readonly IdentityBoundRequestField[];
   readonly captureSequenceOffset?: number;
+  readonly routeSignature?: string;
 }
 
 export interface RawExchangeNormalizationInput {
@@ -768,6 +769,9 @@ export async function normalizeCapturedTraffic(
   if (!Number.isSafeInteger(captureSequenceOffset) || captureSequenceOffset < 0) {
     throw new Error('Capture sequence offset must be a non-negative safe integer');
   }
+  if (input.routeSignature !== undefined && input.routeSignature.length === 0) {
+    throw new Error('Route signature filter must be non-empty');
+  }
   const delta = filterCapturedTrafficByToken(diffHistory(input.before, input.after), input.captureToken);
   const configuredSecrets = [...input.configuredSecrets, input.captureToken];
   const normalized: NormalizedExchange[] = [];
@@ -783,7 +787,7 @@ export async function normalizeCapturedTraffic(
       identityBoundRequestFields: input.identityBoundRequestFields,
       provenance: input.provenance,
     });
-    if (!exchange) continue;
+    if (!exchange || (input.routeSignature !== undefined && exchange.routeSignature !== input.routeSignature)) continue;
     if (!directoryReady) {
       await ensureDirectory(input.rawDirectory);
       directoryReady = true;

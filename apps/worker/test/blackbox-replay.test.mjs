@@ -7,6 +7,7 @@ import test from 'node:test';
 import { parseHttpRequest } from '../dist/blackbox/http-message.js';
 import { FileIdentityStateResolver } from '../dist/blackbox/identity-state.js';
 import { FileReplayRawStore, ReplayService } from '../dist/blackbox/replay-service.js';
+import { normalizeRawExchange } from '../dist/blackbox/traffic-normalizer.js';
 
 const TARGET_ORIGIN = 'https://api.target.example:8443';
 const PROVENANCE = { actor: 'blackbox-action', taskId: 'action-task', baseRevision: 3 };
@@ -866,6 +867,115 @@ test('a bearer source requests fresh actor traffic instead of falling back to co
     routeSignature: 'route_users',
   });
   assert.equal(current.client.calls.length, 0);
+});
+
+test('read-only route acquisition uses only fresh actor authentication and persists a same-route capture', async () => {
+  const sourceRequest = [
+    'GET /api/users/100 HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Authorization: Bearer victim-bearer',
+    'X-Keep: source-value',
+    '',
+    '',
+  ].join('\r\n');
+  const actorRequest = [
+    'GET /api/profile HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Authorization: Bearer attacker-bearer',
+    'X-Keep: actor-value',
+    '',
+    '',
+  ].join('\r\n');
+  const sourceRouteSignature = normalizeRawExchange({
+    raw: raw(sourceRequest),
+    targetOrigin: TARGET_ORIGIN,
+    rules: {},
+    identity: 'victim',
+    captureSequence: 1,
+    configuredSecrets: CONFIGURED_SECRETS,
+    identityBoundRequestFields: [],
+    provenance: PROVENANCE,
+  }).routeSignature;
+  const state = new FakeIdentityStateResolver();
+  state.latest.delete(`attacker\0${sourceRouteSignature}`);
+  const { service, client, rawStore } = harness({
+    burpResults: [response(JSON.stringify({ object_id: '100', owner: 'victim' }))],
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges: [exchange('ex_source', 'victim', sourceRouteSignature, { method: 'GET' })],
+    records: new Map([['ex_source', raw(sourceRequest)]]),
+  });
+
+  const acquired = await service.acquireReadOnlyActorRoute({
+    sourceExchangeId: 'ex_source',
+    actor: 'attacker',
+    actorRecords: [raw(actorRequest)],
+    captureToken: CAPTURE_TOKEN,
+  });
+
+  assert.ok(acquired);
+  assert.equal(acquired.identity, 'attacker');
+  assert.equal(acquired.routeSignature, sourceRouteSignature);
+  assert.equal(client.calls.length, 1);
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(outbound.method, 'GET');
+  assert.equal(outbound.target, '/api/users/100');
+  assert.equal(outbound.headers.find(({ name }) => name.toLowerCase() === 'cookie')?.value, 'session=attacker-cookie');
+  assert.equal(
+    outbound.headers.find(({ name }) => name.toLowerCase() === 'authorization')?.value,
+    'Bearer attacker-bearer',
+  );
+  assert.equal(outbound.headers.find(({ name }) => name.toLowerCase() === 'x-keep')?.value, 'source-value');
+  assert.equal(outbound.headers.find(({ name }) => name.toLowerCase() === 'x-shannon-capture')?.value, CAPTURE_TOKEN);
+  assert.equal(JSON.stringify(client.calls[0]).includes('victim-bearer'), false);
+  assert.equal(rawStore.rawWrites.length, 1);
+  assert.equal(rawStore.rawWrites[0].exchangeId, acquired.exchangeId);
+  assert.equal(rawStore.rawWrites[0].record.request.includes(CAPTURE_TOKEN), false);
+  assert.equal(rawStore.rawWrites[0].record.request.includes('attacker-bearer'), true);
+  assert.equal(rawStore.rawWrites[0].record.request.includes('victim-bearer'), false);
+});
+
+test('route acquisition refuses state-changing methods and non-authentication bound fields before dispatch', async (t) => {
+  const actorRequest = raw(
+    'GET /api/profile HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer attacker-bearer\r\n\r\n',
+  );
+  const cases = [
+    {
+      name: 'state-changing method',
+      request:
+        'POST /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer victim-bearer\r\n\r\n',
+      method: 'POST',
+      identityBoundRequestFields: [],
+    },
+    {
+      name: 'anti-CSRF header',
+      request:
+        'GET /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer victim-bearer\r\nX-CSRF-Token: victim-header-csrf\r\n\r\n',
+      method: 'GET',
+      identityBoundRequestFields: [{ location: 'header', name: 'x-csrf-token' }],
+    },
+  ];
+
+  for (const fixture of cases) {
+    await t.test(fixture.name, async () => {
+      const { service, client, rawStore } = harness({
+        identityBoundRequestFields: fixture.identityBoundRequestFields,
+        exchanges: [exchange('ex_source', 'victim', 'route_users', { method: fixture.method })],
+        records: new Map([['ex_source', raw(fixture.request)]]),
+      });
+
+      const acquired = await service.acquireReadOnlyActorRoute({
+        sourceExchangeId: 'ex_source',
+        actor: 'attacker',
+        actorRecords: [actorRequest],
+        captureToken: CAPTURE_TOKEN,
+      });
+
+      assert.equal(acquired, null);
+      assert.equal(client.calls.length, 0);
+      assert.equal(rawStore.rawWrites.length, 0);
+    });
+  }
 });
 
 test('anti-CSRF material alone never proves a named actor binding', async () => {

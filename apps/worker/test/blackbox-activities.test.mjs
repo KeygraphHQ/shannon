@@ -14,6 +14,7 @@ import {
   StaleBlackboardRevisionError,
 } from '../dist/blackbox/blackboard.js';
 import { validateAndScheduleWave } from '../dist/blackbox/scheduler.js';
+import { normalizeRawExchange } from '../dist/blackbox/traffic-normalizer.js';
 
 const TARGET_ORIGIN = 'https://target.example';
 const SECRET = 'password-fixture-secret';
@@ -47,8 +48,8 @@ function normalizedExchange(exchangeId, overrides = {}) {
 
 function history(records) {
   return records
-    .map(({ id, captureToken }) =>
-      JSON.stringify({ request: REQUEST(id, captureToken ?? CAPTURE_TOKEN), response: RESPONSE(id), notes: '' }),
+    .map(({ id, captureToken, request }) =>
+      JSON.stringify({ request: request ?? REQUEST(id, captureToken ?? CAPTURE_TOKEN), response: RESPONSE(id), notes: '' }),
     )
     .join('\n');
 }
@@ -302,6 +303,7 @@ async function makeDeps(t, root, options = {}) {
   const openedSessions = new Set();
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
   const replayCalls = [];
+  const acquisitionCalls = [];
   const fileSystem = { readFile, writeFile, mkdir, rm };
   const deps = {
     parseConfig(configPath, mode) {
@@ -399,6 +401,10 @@ async function makeDeps(t, root, options = {}) {
     }),
     createReplayService(replayOptions) {
       return {
+        async acquireReadOnlyActorRoute(acquisition) {
+          acquisitionCalls.push({ acquisition, options: replayOptions });
+          return options.acquireHandler?.(acquisition, replayOptions) ?? null;
+        },
         async replay(command) {
           replayCalls.push({ command, options: replayOptions });
           if (options.replayHandler) return options.replayHandler(command, replayOptions, replayCalls.length);
@@ -410,7 +416,17 @@ async function makeDeps(t, root, options = {}) {
     ...(options.copyDeliverables ? { copyDeliverables: options.copyDeliverables } : {}),
   };
   t.after(() => rm(root, { recursive: true, force: true }));
-  return { deps, board, agents, auditCalls, burpCalls, browserCalls, replayCalls, authExpressions };
+  return {
+    deps,
+    board,
+    agents,
+    auditCalls,
+    burpCalls,
+    browserCalls,
+    replayCalls,
+    acquisitionCalls,
+    authExpressions,
+  };
 }
 
 async function tempRoot(t) {
@@ -2496,14 +2512,29 @@ test('action persists every restored authenticated actor before replay work', as
 
 test('verifier replays the approved sequence under fresh identity state and derives immutable evidence fields', async (t) => {
   const root = await tempRoot(t);
+  const freshRouteSignature = normalizeRawExchange({
+    raw: {
+      request: REQUEST('source'),
+      response: RESPONSE('source'),
+      notes: '',
+      occurrence: 1,
+    },
+    targetOrigin: TARGET_ORIGIN,
+    rules: {},
+    identity: 'victim',
+    captureSequence: 1,
+    configuredSecrets: [],
+    identityBoundRequestFields: [],
+    provenance: { actor: 'blackbox-recon', taskId: 'fixture', baseRevision: 1 },
+  }).routeSignature;
   const source = normalizedExchange('source-exchange', {
     identity: 'victim',
-    routeSignature: 'route-items',
+    routeSignature: freshRouteSignature,
     candidateObjectReferences: ['victim'],
   });
   const control = normalizedExchange('control-exchange', {
     identity: 'attacker',
-    routeSignature: 'route-items',
+    routeSignature: freshRouteSignature,
     candidateObjectReferences: ['attacker'],
   });
   const actionExchange = normalizedExchange('action-exchange', {
@@ -2584,24 +2615,65 @@ test('verifier replays the approved sequence under fresh identity state and deri
     verificationExchangeId: verificationExchange.exchangeId,
   };
   let verifierInput;
+  const freshActorExchange = normalizedExchange('fresh-attacker-route', {
+    identity: 'attacker',
+    routeSignature: freshRouteSignature,
+    provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: 9 },
+  });
   const loginInputs = [];
-  const { deps, board, replayCalls, browserCalls } = await makeDeps(t, root, {
-    historyQueue: [[], []],
-    replayHandler: async () => ({
-      status: 'completed',
-      exchanges: [verificationExchange],
-      comparison: {
-        baselineExchangeId: source.exchangeId,
-        observedExchangeId: verificationExchange.exchangeId,
-        baselineStatus: 200,
-        observedStatus: 200,
-        statusChanged: false,
-        baselineFingerprint: 'sha256:source',
-        observedFingerprint: 'sha256:verification',
-        fingerprintChanged: true,
-      },
-      observation: verificationObservation,
-    }),
+  const { deps, board, replayCalls, acquisitionCalls, browserCalls } = await makeDeps(t, root, {
+    historyQueue: [
+      [],
+      [
+        {
+          id: 'profile',
+          request: `GET /api/profile HTTP/1.1\r\nHost: target.example\r\nX-Shannon-Capture: ${CAPTURE_TOKEN}\r\nAuthorization: Bearer attacker-fresh\r\nAccept: application/json\r\n\r\n`,
+        },
+        { id: 'foreign-route', captureToken: 'capture_other_0123456789' },
+      ],
+    ],
+    acquireHandler: async (acquisition) => {
+      assert.equal(acquisition.sourceExchangeId, source.exchangeId);
+      assert.equal(acquisition.actor, 'attacker');
+      assert.equal(acquisition.captureToken, CAPTURE_TOKEN);
+      assert.equal(acquisition.actorRecords.length, 1);
+      assert.match(acquisition.actorRecords[0].request, /^GET \/api\/profile /);
+      assert.match(acquisition.actorRecords[0].request, /Authorization: Bearer attacker-fresh/);
+      return freshActorExchange;
+    },
+    replayHandler: async (_command, replayOptions, callCount) => {
+      if (callCount === 1) {
+        return { status: 'needs_fresh_actor_request', stepId: 'step-1', routeSignature: freshRouteSignature };
+      }
+      if (callCount === 2) {
+        const verifierExchanges = replayOptions.exchanges.filter(
+          ({ provenance }) => provenance.actor === 'blackbox-verifier',
+        );
+        assert.equal(verifierExchanges.length, 1);
+        assert.equal(verifierExchanges[0].exchangeId, freshActorExchange.exchangeId);
+        assert.equal(verifierExchanges[0].identity, 'attacker');
+        assert.equal(verifierExchanges[0].routeSignature, freshRouteSignature);
+        assert.equal(
+          await replayOptions.identityState.getLatestExchangeId('attacker', freshRouteSignature),
+          freshActorExchange.exchangeId,
+        );
+      }
+      return {
+        status: 'completed',
+        exchanges: [verificationExchange],
+        comparison: {
+          baselineExchangeId: source.exchangeId,
+          observedExchangeId: verificationExchange.exchangeId,
+          baselineStatus: 200,
+          observedStatus: 200,
+          statusChanged: false,
+          baselineFingerprint: 'sha256:source',
+          observedFingerprint: 'sha256:verification',
+          fingerprintChanged: true,
+        },
+        observation: verificationObservation,
+      };
+    },
     agentHandler: async (runInput) => {
       if (runInput.kind === 'blackbox-recon') {
         loginInputs.push(runInput);
@@ -2685,9 +2757,11 @@ test('verifier replays the approved sequence under fresh identity state and deri
     revision: 9,
   });
 
-  assert.equal(replayCalls.length, 1);
+  assert.equal(replayCalls.length, 2);
+  assert.equal(acquisitionCalls.length, 1);
   assert.notEqual(replayCalls[0].command.actionId, action.actionId);
   assert.equal(replayCalls[0].command.actionId, verificationId);
+  assert.equal(replayCalls[1].command.actionId, verificationId);
   assert.equal(
     browserCalls.some(([, args]) =>
       args.includes('state-save') && String(args.at(-1)).includes(`verification-runs${path.sep}${verificationId}`)),
@@ -2707,7 +2781,10 @@ test('verifier replays the approved sequence under fresh identity state and deri
   assert.equal(loginInputs.every(({ identity }) => !('victim' in identity.credentials)), true);
   assert.equal(verifierInput.identity.credentials, undefined);
   assert.equal(verifierInput.identity.sensitiveValues.includes('backup@example.com'), true);
-  assert.deepEqual(attempt.exchanges.map(({ exchangeId }) => exchangeId), [verificationExchange.exchangeId]);
+  assert.deepEqual(attempt.exchanges.map(({ exchangeId }) => exchangeId), [
+    freshActorExchange.exchangeId,
+    verificationExchange.exchangeId,
+  ]);
   assert.deepEqual(attempt.verification, {
     verificationId,
     candidateId: candidate.candidateId,

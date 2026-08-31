@@ -30,6 +30,7 @@ import { getHeaderValues, parseHttpRequest, parseHttpResponse } from './http-mes
 import type { IdentityStateResolver } from './identity-state.js';
 import { assertRequestInScope, normalizeTargetOrigin } from './scope-guard.js';
 import {
+  filterCapturedTrafficByToken,
   isImplicitAuthenticationRequestFieldName,
   isImplicitIdentityBoundRequestFieldName,
   isSynchronizationRequestFieldName,
@@ -111,6 +112,13 @@ export interface ReplayServiceOptions {
   readonly provenance: EvidenceProvenance;
   readonly identityBoundRequestFields: readonly IdentityBoundRequestField[];
   readonly cancellationSignal?: AbortSignal;
+}
+
+export interface ReadOnlyActorRouteAcquisition {
+  readonly sourceExchangeId: string;
+  readonly actor: string;
+  readonly actorRecords: readonly RawHistoryRecord[];
+  readonly captureToken: string;
 }
 
 export class ReplayValidationError extends Error {
@@ -893,6 +901,48 @@ function hasIdentityBinding(request: MutableRequest, fields: readonly IdentityBo
   });
 }
 
+function supportsReadOnlyActorRouteAcquisition(
+  request: MutableRequest,
+  fields: readonly IdentityBoundRequestField[],
+): boolean {
+  if (!['GET', 'HEAD'].includes(request.method.toUpperCase())) return false;
+  const headerNames = boundNames(fields, 'header');
+  if (boundHeaderNames(request, fields).some((name) => !isAuthenticationBoundField(name, headerNames))) {
+    return false;
+  }
+  if (boundParameterNames(request.target.searchParams, boundNames(fields, 'query')).length > 0) return false;
+  if (isFormRequest(request) && boundParameterNames(parseFormBody(request), boundNames(fields, 'form')).length > 0) {
+    return false;
+  }
+  if (isJsonRequest(request)) {
+    const body = parseJsonBody(request);
+    if (identityBoundJsonPaths(body, boundJsonPointers(fields)).length > 0) return false;
+  }
+  return true;
+}
+
+function authenticationHeaders(
+  records: readonly RawHistoryRecord[],
+  targetOrigin: string,
+  rules: Rules,
+  fields: readonly IdentityBoundRequestField[],
+): readonly MutableHeader[] {
+  const configuredNames = boundNames(fields, 'header');
+  for (const record of [...records].reverse()) {
+    try {
+      const request = mutableRequest(record.request, targetOrigin, rules);
+      const names = new Set(
+        boundHeaderNames(request, fields).filter((name) => isAuthenticationBoundField(name, configuredNames)),
+      );
+      const headers = request.headers.filter(({ name }) => names.has(name.toLowerCase()));
+      if (headers.length > 0) return headers;
+    } catch {
+      // Ignore malformed and out-of-scope actor traffic.
+    }
+  }
+  return [];
+}
+
 function parseJsonPointer(pointer: string): readonly string[] {
   if (pointer.length === 0 || !pointer.startsWith('/')) {
     throw new ReplayValidationError('JSON pointer must be non-empty and start with /');
@@ -1402,6 +1452,116 @@ export class ReplayService {
       }
     }
     return { exchangeIds, passed };
+  }
+
+  public async acquireReadOnlyActorRoute(input: ReadOnlyActorRouteAcquisition): Promise<NormalizedExchange | null> {
+    assertSafeIdentifier(input.sourceExchangeId, 'exchange reference');
+    assertSafeIdentifier(input.actor, 'actor');
+    if (!this.identityState.isKnownIdentity(input.actor)) {
+      throw new ReplayValidationError(`Unknown replay actor ${input.actor}`);
+    }
+    if (
+      input.captureToken.length < 16 ||
+      input.captureToken.length > 256 ||
+      !/^[\x21-\x7e]+$/.test(input.captureToken)
+    ) {
+      throw new ReplayValidationError('Invalid acquisition capture token');
+    }
+
+    const source = this.exchange(input.sourceExchangeId);
+    const record = await this.rawStore.readExchange(input.sourceExchangeId);
+    if (!record) throw new ReplayValidationError(`Raw replay exchange ${input.sourceExchangeId} does not exist`);
+    const request = mutableRequest(record.request, this.targetOrigin, this.rules);
+    if (request.method !== source.method) {
+      throw new ReplayValidationError(`Raw replay exchange ${input.sourceExchangeId} does not match its metadata`);
+    }
+    if (!supportsReadOnlyActorRouteAcquisition(request, this.identityBoundRequestFields)) return null;
+
+    // The replay needs an actor-bound capture of the unmodified source route.
+    // It applies the approved mutations only after resolving that equivalent.
+    const prepared = cloneRequest(request);
+    const protectedHeaders = new Set([
+      'cookie',
+      'authorization',
+      'proxy-authorization',
+      SHANNON_CAPTURE_HEADER.toLowerCase(),
+      ...boundHeaderNames(request, this.identityBoundRequestFields),
+    ]);
+    removeHeaders(prepared, (name) => protectedHeaders.has(name));
+    let cookieHeader: string | null;
+    try {
+      cookieHeader = await this.identityState.getCookieHeader(input.actor, request.target);
+    } catch {
+      return null;
+    }
+    if (cookieHeader) setHeader(prepared, 'Cookie', [cookieHeader]);
+    const actorHeaders = authenticationHeaders(
+      input.actorRecords,
+      this.targetOrigin,
+      this.rules,
+      this.identityBoundRequestFields,
+    );
+    for (const name of new Set(actorHeaders.map(({ name }) => name.toLowerCase()))) {
+      const values = actorHeaders.filter((header) => header.name.toLowerCase() === name);
+      setHeader(
+        prepared,
+        values[0]?.name ?? name,
+        values.map(({ value }) => value),
+      );
+    }
+    if (!hasIdentityBinding(prepared, this.identityBoundRequestFields)) return null;
+    assertRequestInScope(parseHttpRequest(serializeHttp1(prepared)), this.targetOrigin, this.rules);
+
+    const outboundRequest = cloneRequest(prepared);
+    setHeader(outboundRequest, SHANNON_CAPTURE_HEADER, [input.captureToken]);
+    const outbound = sendArguments(outboundRequest);
+    let rawResponse: string;
+    try {
+      this.cancellationSignal?.throwIfAborted();
+      const result = await this.client.call(outbound.name, outbound.arguments_, this.cancellationSignal);
+      rawResponse = extractBurpSendHttpResponse(extractMcpText(result), outbound.rawRequest);
+      this.cancellationSignal?.throwIfAborted();
+    } catch {
+      this.cancellationSignal?.throwIfAborted();
+      return null;
+    }
+    if (
+      rawResponse === BURP_NO_RESPONSE ||
+      rawResponse.trim().length === 0 ||
+      rawResponse.endsWith(BURP_TRUNCATION_MARKER)
+    ) {
+      return null;
+    }
+    const captured = filterCapturedTrafficByToken(
+      [
+        {
+          request: outbound.rawRequest,
+          response: rawResponse,
+          notes: `${this.provenance.taskId}:fresh-actor-route`,
+          occurrence: 1,
+        },
+      ],
+      input.captureToken,
+    )[0];
+    if (!captured) return null;
+    let normalized: NormalizedExchange | null;
+    try {
+      normalized = normalizeRawExchange({
+        raw: captured,
+        targetOrigin: this.targetOrigin,
+        rules: this.rules,
+        identity: input.actor,
+        captureSequence: this.nextCaptureSequence(input.actor),
+        configuredSecrets: [...this.configuredSecrets, input.captureToken],
+        identityBoundRequestFields: this.identityBoundRequestFields,
+        provenance: this.provenance,
+      });
+    } catch {
+      return null;
+    }
+    if (!normalized || normalized.routeSignature !== source.routeSignature) return null;
+    await this.rawStore.writeExchange(normalized.exchangeId, captured);
+    return normalized;
   }
 
   private nextCaptureSequence(identity: string): number {

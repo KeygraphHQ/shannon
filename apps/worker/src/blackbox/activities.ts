@@ -163,6 +163,7 @@ interface BlackboxAuditSessionLike {
 }
 
 interface BlackboxReplayServiceLike {
+  acquireReadOnlyActorRoute: ReplayService['acquireReadOnlyActorRoute'];
   replay: ReplayService['replay'];
 }
 
@@ -2291,9 +2292,15 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const client = dependencies.createBurpClient(context.burpSettings);
     const dynamicExchanges: NormalizedExchange[] = [];
     let outcome: ReplayOutcome | null = null;
-    let requestedFreshActor: string | 'anonymous' | null = null;
     try {
       await client.connect(cancellationSignal);
+      let historyCheckpoint = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+        captureTokens,
+      );
       for (const { identity, session, storagePath, captureToken } of sessions) {
         await openCaptureBoundSession(
           dependencies,
@@ -2348,13 +2355,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           throw new Error(`Fresh verifier state for identity ${identity.name} is not authenticated`);
         }
       }
-      let historyCheckpoint = await readTargetHistory(
-        client,
-        context.targetOrigin,
-        context.config.rules,
-        cancellationSignal,
-        captureTokens,
-      );
       const executeVerificationReplay = async (): Promise<ReplayOutcome> => {
         for (const { session, storagePath } of sessions) {
           await dependencies.runBrowserCommand(
@@ -2370,66 +2370,93 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           cancellationSignal,
           captureTokens,
         );
-        if (requestedFreshActor) {
-          const requestedSession = sessions.find(({ identity }) => identity.name === requestedFreshActor);
-          if (!requestedSession) throw new Error(`No capture-bound verifier session exists for ${requestedFreshActor}`);
-          const captured = await normalizeCapturedTraffic({
+        const createReplay = (): BlackboxReplayServiceLike =>
+          dependencies.createReplayService({
             targetOrigin: context.targetOrigin,
             rules: context.config.rules,
-            identity: requestedFreshActor,
-            before: historyCheckpoint,
-            after: currentHistory,
-            rawDirectory: rawDirectory(input.repoPath),
             configuredSecrets: context.configuredSecrets,
-            captureToken: requestedSession.captureToken,
+            exchanges: [...snapshot.exchanges, ...dynamicExchanges],
+            client,
+            rawStore: dependencies.createReplayRawStore(input.repoPath),
+            identityState,
             identityBoundRequestFields: context.config.identityBoundRequestFields,
             provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
-            captureSequenceOffset: captureSequenceOffset(
-              [...snapshot.exchanges, ...dynamicExchanges],
-              requestedFreshActor,
-            ),
+            ...(cancellationSignal ? { cancellationSignal } : {}),
           });
-          dynamicExchanges.push(...captured);
-          if (requestedFreshActor !== 'anonymous' && captured.length > 0) {
-            await identityState.writeCaptureIndex(
-              requestedFreshActor,
-              dynamicExchanges
-                .filter(({ identity }) => identity === requestedFreshActor)
-                .map(({ exchangeId, routeSignature, captureSequence }) => ({
-                  exchangeId,
-                  routeSignature,
-                  captureSequence,
-                })),
-            );
+
+        let replay = createReplay();
+        let replayOutcome = await replay.replay(sequence);
+        if (replayOutcome.status === 'needs_fresh_actor_request') {
+          const requestedStepId = replayOutcome.stepId;
+          const requestedRouteSignature = replayOutcome.routeSignature;
+          const step = sequence.steps.find(({ stepId }) => stepId === requestedStepId);
+          let requestedFreshActor: string | 'anonymous' | null = step?.actor ?? null;
+          if (!requestedFreshActor) {
+            const proofCondition = sequence.proofCondition;
+            if (proofCondition.type === 'persistent_state') {
+              requestedFreshActor =
+                snapshot.exchanges.find(({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId)
+                  ?.identity ?? null;
+            }
+          }
+          if (requestedFreshActor && requestedFreshActor !== 'anonymous') {
+            const requestedSession = sessions.find(({ identity }) => identity.name === requestedFreshActor);
+            if (!requestedSession) {
+              throw new Error(`No capture-bound verifier session exists for ${requestedFreshActor}`);
+            }
+            let captured = await normalizeCapturedTraffic({
+              targetOrigin: context.targetOrigin,
+              rules: context.config.rules,
+              identity: requestedFreshActor,
+              before: historyCheckpoint,
+              after: currentHistory,
+              rawDirectory: rawDirectory(input.repoPath),
+              configuredSecrets: context.configuredSecrets,
+              captureToken: requestedSession.captureToken,
+              identityBoundRequestFields: context.config.identityBoundRequestFields,
+              provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
+              captureSequenceOffset: captureSequenceOffset(
+                [...snapshot.exchanges, ...dynamicExchanges],
+                requestedFreshActor,
+              ),
+              routeSignature: requestedRouteSignature,
+            });
+            const acquisitionSourceExchangeId =
+              step?.sourceExchangeId ??
+              (sequence.proofCondition.type === 'persistent_state'
+                ? sequence.proofCondition.verificationSourceExchangeId
+                : null);
+            if (captured.length === 0 && acquisitionSourceExchangeId) {
+              const acquired = await replay.acquireReadOnlyActorRoute({
+                sourceExchangeId: acquisitionSourceExchangeId,
+                actor: requestedFreshActor,
+                actorRecords: filterCapturedTrafficByToken(
+                  diffHistory(historyCheckpoint, currentHistory),
+                  requestedSession.captureToken,
+                ),
+                captureToken: requestedSession.captureToken,
+              });
+              if (acquired) captured = [acquired];
+            }
+            dynamicExchanges.push(...captured);
+            if (captured.length > 0) {
+              await identityState.writeCaptureIndex(
+                requestedFreshActor,
+                dynamicExchanges
+                  .filter(({ identity }) => identity === requestedFreshActor)
+                  .map(({ exchangeId, routeSignature, captureSequence }) => ({
+                    exchangeId,
+                    routeSignature,
+                    captureSequence,
+                  })),
+              );
+              replay = createReplay();
+              replayOutcome = await replay.replay(sequence);
+            }
           }
         }
         historyCheckpoint = currentHistory;
-        const replay = dependencies.createReplayService({
-          targetOrigin: context.targetOrigin,
-          rules: context.config.rules,
-          configuredSecrets: context.configuredSecrets,
-          exchanges: [...snapshot.exchanges, ...dynamicExchanges],
-          client,
-          rawStore: dependencies.createReplayRawStore(input.repoPath),
-          identityState,
-          identityBoundRequestFields: context.config.identityBoundRequestFields,
-          provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
-          ...(cancellationSignal ? { cancellationSignal } : {}),
-        });
-        const replayOutcome = await replay.replay(sequence);
         outcome = replayOutcome;
-        requestedFreshActor = null;
-        if (replayOutcome.status === 'needs_fresh_actor_request') {
-          const step = sequence.steps.find(({ stepId }) => stepId === replayOutcome.stepId);
-          if (step) requestedFreshActor = step.actor;
-          else {
-            const proofCondition = sequence.proofCondition;
-            if (proofCondition.type !== 'persistent_state') return replayOutcome;
-            requestedFreshActor =
-              snapshot.exchanges.find(({ exchangeId }) => exchangeId === proofCondition.verificationSourceExchangeId)
-                ?.identity ?? null;
-          }
-        }
         return replayOutcome;
       };
 
@@ -2437,7 +2464,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         'Fresh verifier states were created in isolated identity sessions. Do not load prior action or capture state.',
         ...sessions.map(({ identity, session }) => `${identity.name}: use only Playwright session ${session}.`),
         'Do not authenticate, exchange sessions, or change identities before calling the bound verification replay.',
-        'If replay requests a fresh actor request, exercise only the returned route in that actor session, then retry once.',
+        'Call the bound verification replay once. The host acquires any fresh actor route and performs its single retry.',
       ].join('\n');
       const tools = callerTools(
         createBlackboxTools({

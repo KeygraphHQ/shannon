@@ -227,7 +227,7 @@ function boundedReplayTool(
       if (calls >= 2 || (calls > 0 && !retryPermitted)) throw new Error(`Only one ${name} retry is allowed`);
       calls += 1;
       const result = await callback();
-      retryPermitted = isFreshActorRetry(result);
+      retryPermitted = name === 'replay_target_request' && isFreshActorRetry(result);
       return result;
     },
   );

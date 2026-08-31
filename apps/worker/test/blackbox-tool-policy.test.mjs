@@ -184,6 +184,27 @@ test('verification replay rejects a mismatched candidate without sending traffic
   assert.equal(calls, 1);
 });
 
+test('verification replay remains one-shot when fresh actor acquisition is host-controlled', async () => {
+  let calls = 0;
+  const tools = createBlackboxTools({
+    role: 'blackbox-verifier',
+    candidateId: 'candidate-host-retry',
+    replayVerificationRequest: async () => {
+      calls += 1;
+      return { status: 'needs_fresh_actor_request' };
+    },
+  });
+  const replay = tools.find((tool) => tool.name === 'replay_verification_request');
+  assert.ok(replay);
+
+  await replay.execute('call-1', { candidateId: 'candidate-host-retry' });
+  await assert.rejects(
+    replay.execute('call-2', { candidateId: 'candidate-host-retry' }),
+    /already|extra|only|call/i,
+  );
+  assert.equal(calls, 1);
+});
+
 test('verification replay requires an explicit assigned candidate', () => {
   assert.throws(
     () => createBlackboxTools({ role: 'blackbox-verifier' }),
