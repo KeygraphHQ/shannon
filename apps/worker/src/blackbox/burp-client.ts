@@ -405,78 +405,101 @@ export class BurpMcpClient implements BurpToolClient {
 
 const BURP_TRUNCATED_RECORD_LENGTH = 5000 + BURP_TRUNCATION_MARKER.length;
 
-function findUnescapedQuote(value: string, start: number): number {
-  let escaped = false;
-  for (let index = start; index < value.length; index += 1) {
+type JsonStringScan =
+  | { readonly kind: 'complete'; readonly end: number }
+  | { readonly kind: 'incomplete' }
+  | { readonly kind: 'invalid' };
+
+function scanJsonString(value: string, start: number): JsonStringScan {
+  if (value[start] !== '"') return { kind: 'invalid' };
+
+  for (let index = start + 1; index < value.length; index += 1) {
     const character = value[index];
-    if (escaped) {
-      escaped = false;
-    } else if (character === '\\') {
-      escaped = true;
-    } else if (character === '"') {
-      return index;
+    if (character === '"') return { kind: 'complete', end: index };
+    if (character === '\\') {
+      const escape = value[index + 1];
+      if (escape === undefined) return { kind: 'incomplete' };
+      if ('"\\/bfnrt'.includes(escape)) {
+        index += 1;
+        continue;
+      }
+      if (escape !== 'u') return { kind: 'invalid' };
+
+      const code = value.slice(index + 2, index + 6);
+      if (code.length < 4) return /^[0-9a-fA-F]*$/.test(code) ? { kind: 'incomplete' } : { kind: 'invalid' };
+      if (!/^[0-9a-fA-F]{4}$/.test(code)) return { kind: 'invalid' };
+      index += 5;
+      continue;
     }
+    if ((character?.charCodeAt(0) ?? 0) < 0x20) return { kind: 'invalid' };
   }
-  return -1;
+  return { kind: 'incomplete' };
 }
 
-function isJsonStringPrefix(value: string, start: number): boolean {
-  let escaped = false;
-  for (let index = start; index < value.length; index += 1) {
-    const character = value[index];
-    if (escaped) {
-      if (character === 'u') {
-        const code = value.slice(index + 1, index + 5);
-        if (code.length < 4 && !/^[0-9a-fA-F]*$/.test(code)) return false;
-        if (code.length === 4 && !/^[0-9a-fA-F]{4}$/.test(code)) return false;
-        if (code.length === 4) index += 4;
-      } else if (!'"\\/bfnrt'.includes(character ?? '')) {
-        return false;
-      }
-      escaped = false;
-    } else if (character === '\\') {
-      escaped = true;
-    } else if ((character?.charCodeAt(0) ?? 0) < 0x20 || character === '"') {
-      return false;
-    }
+function decodeJsonString(
+  value: string,
+  scan: Extract<JsonStringScan, { readonly kind: 'complete' }>,
+  start: number,
+): string | undefined {
+  try {
+    const decoded = JSON.parse(value.slice(start, scan.end + 1)) as unknown;
+    return typeof decoded === 'string' ? decoded : undefined;
+  } catch {
+    return undefined;
   }
-  return true;
+}
+
+function matchDelimiter(value: string, start: number, delimiter: string): 'complete' | 'incomplete' | 'invalid' {
+  const suffix = value.slice(start);
+  if (suffix.length < delimiter.length) return delimiter.startsWith(suffix) ? 'incomplete' : 'invalid';
+  return suffix.startsWith(delimiter) ? 'complete' : 'invalid';
 }
 
 function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined {
   if (line.length !== BURP_TRUNCATED_RECORD_LENGTH || !line.endsWith(BURP_TRUNCATION_MARKER)) return undefined;
 
   const prefix = line.slice(0, 5000);
-  const requestField = '{"request":';
-  if (!prefix.startsWith(requestField) || prefix[requestField.length] !== '"') return undefined;
+  const requestField = '{"request":"';
+  if (!prefix.startsWith(requestField)) return undefined;
 
-  const requestValueStart = requestField.length;
-  const requestValueEnd = findUnescapedQuote(prefix, requestValueStart + 1);
-  if (requestValueEnd < 0) {
-    if (!isJsonStringPrefix(prefix, requestValueStart + 1)) return undefined;
+  const requestValueStart = requestField.length - 1;
+  const requestScan = scanJsonString(prefix, requestValueStart);
+  if (requestScan.kind === 'incomplete') {
     return { request: `${BURP_NO_REQUEST}${BURP_TRUNCATION_MARKER}`, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
   }
-
-  let request: unknown;
-  try {
-    request = JSON.parse(prefix.slice(requestValueStart, requestValueEnd + 1)) as unknown;
-  } catch {
-    return undefined;
-  }
-  if (typeof request !== 'string' || request.length === 0) return undefined;
+  if (requestScan.kind === 'invalid') return undefined;
+  const request = decodeJsonString(prefix, requestScan, requestValueStart);
+  if (request === undefined || request.length === 0) return undefined;
 
   const responseField = ',"response":"';
-  const responseFieldPrefix = prefix.slice(requestValueEnd + 1);
-  if (responseFieldPrefix.length < responseField.length) {
-    if (!responseField.startsWith(responseFieldPrefix)) return undefined;
+  let cursor = requestScan.end + 1;
+  const responseDelimiter = matchDelimiter(prefix, cursor, responseField);
+  if (responseDelimiter === 'incomplete') {
     return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
   }
-  if (!responseFieldPrefix.startsWith(responseField)) return undefined;
-  const responseValueStart = requestValueEnd + 1 + responseField.length - 1;
-  if (findUnescapedQuote(prefix, responseValueStart + 1) >= 0 || !isJsonStringPrefix(prefix, responseValueStart + 1)) {
-    return undefined;
-  }
-  return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+  if (responseDelimiter === 'invalid') return undefined;
+
+  cursor += responseField.length - 1;
+  const responseScan = scanJsonString(prefix, cursor);
+  if (responseScan.kind === 'incomplete') return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+  if (responseScan.kind === 'invalid') return undefined;
+  const response = decodeJsonString(prefix, responseScan, cursor);
+  if (response === undefined) return undefined;
+
+  const notesField = ',"notes":"';
+  cursor = responseScan.end + 1;
+  const notesDelimiter = matchDelimiter(prefix, cursor, notesField);
+  if (notesDelimiter === 'incomplete') return { request, response, notes: BURP_TRUNCATION_MARKER, occurrence: 1 };
+  if (notesDelimiter === 'invalid') return undefined;
+
+  cursor += notesField.length - 1;
+  const notesScan = scanJsonString(prefix, cursor);
+  if (notesScan.kind === 'incomplete') return { request, response, notes: BURP_TRUNCATION_MARKER, occurrence: 1 };
+  if (notesScan.kind === 'invalid') return undefined;
+  const notes = decodeJsonString(prefix, notesScan, cursor);
+  if (notes === undefined) return undefined;
+
+  return prefix.slice(notesScan.end + 1) === '}' ? { request, response, notes, occurrence: 1 } : undefined;
 }
 
 export function parseHistoryText(text: string): RawHistoryRecord[] {

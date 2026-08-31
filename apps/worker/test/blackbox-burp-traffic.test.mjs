@@ -182,6 +182,76 @@ test('Burp history parser accepts cuts immediately after the request and within 
   );
 });
 
+test('Burp history parser recovers the stable envelope at every field boundary', () => {
+  const responseField = ',"response":"';
+  const notesField = ',"notes":"';
+  const oversizedResponse = 'response-byte'.repeat(600);
+  const requestForResponseDelimiterCut = (cutSuffixLength) => {
+    const targetResponseFieldIndex = 5000 - cutSuffixLength;
+    let request = 'GET /stable-envelope HTTP/1.1';
+    const responseFieldIndex = () => JSON.stringify({ request, response: oversizedResponse, notes: 'notes' }).indexOf(responseField);
+    while (responseFieldIndex() < targetResponseFieldIndex) request += 'a';
+    while (responseFieldIndex() > targetResponseFieldIndex) request = request.slice(0, -1);
+    assert.equal(responseFieldIndex(), targetResponseFieldIndex);
+    return request;
+  };
+  for (let cutSuffixLength = 0; cutSuffixLength < responseField.length; cutSuffixLength += 1) {
+    const request = requestForResponseDelimiterCut(cutSuffixLength);
+    const serialized = JSON.stringify({ request, response: oversizedResponse, notes: 'notes' });
+    assert.deepEqual(parseHistoryText(`${serialized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`), [
+      { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 },
+    ]);
+  }
+
+  let response = 'complete-response';
+  const request = 'GET /complete-response HTTP/1.1';
+  const targetNotesFieldIndex = 4982;
+  const notesFieldIndex = () => JSON.stringify({ request, response, notes: 'truncated-notes'.repeat(100) }).indexOf(notesField);
+  while (notesFieldIndex() < targetNotesFieldIndex) response += 'r';
+  while (notesFieldIndex() > targetNotesFieldIndex) response = response.slice(0, -1);
+  assert.equal(notesFieldIndex(), targetNotesFieldIndex);
+  const notesEnvelope = JSON.stringify({ request, response, notes: 'truncated-notes'.repeat(100) });
+  assert.deepEqual(parseHistoryText(`${notesEnvelope.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`), [
+    { request, response, notes: BURP_TRUNCATION_MARKER, occurrence: 1 },
+  ]);
+
+  const malformed = notesEnvelope.slice(0, 5000).replace(',"notes":"', ',"notse":"');
+  assert.throws(() => parseHistoryText(`${malformed}${BURP_TRUNCATION_MARKER}`), /history line 1/i);
+});
+
+test('Burp history parser accepts dangling JSON escapes only inside a recognized truncated string', () => {
+  const alignDanglingCut = (field) => {
+    let request = field === 'request' ? 'GET /dangling HTTP/1.1\\' : 'GET /dangling HTTP/1.1';
+    let response = field === 'response' ? 'response\\' : 'response';
+    let notes = field === 'notes' ? 'notes\\' : 'notes';
+    const adjust = (value) => {
+      if (field === 'request') request = value;
+      else if (field === 'response') response = value;
+      else notes = value;
+    };
+    let serialized = JSON.stringify({ request, response, notes });
+    while (!(serialized[4999] === '\\' && serialized[5000] === '\\')) {
+      const value = field === 'request' ? request : field === 'response' ? response : notes;
+      adjust(`${value.slice(0, -1)}a\\`);
+      serialized = JSON.stringify({ request, response, notes });
+    }
+    return { request, response, notes, serialized };
+  };
+
+  const requestCut = alignDanglingCut('request');
+  assert.equal(parseHistoryText(`${requestCut.serialized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`)[0].request.endsWith(BURP_TRUNCATION_MARKER), true);
+
+  const responseCut = alignDanglingCut('response');
+  assert.deepEqual(parseHistoryText(`${responseCut.serialized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`), [
+    { request: responseCut.request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 },
+  ]);
+
+  const notesCut = alignDanglingCut('notes');
+  assert.deepEqual(parseHistoryText(`${notesCut.serialized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`), [
+    { request: notesCut.request, response: notesCut.response, notes: BURP_TRUNCATION_MARKER, occurrence: 1 },
+  ]);
+});
+
 test('Burp history parser keeps truncated requests countable but excludes them from target history', async () => {
   const oversized = JSON.stringify({
     request: `GET /${'request-byte'.repeat(600)} HTTP/1.1\r\nHost: api.target.example\r\n\r\n`,
