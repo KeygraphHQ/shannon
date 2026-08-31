@@ -1257,7 +1257,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         overwrite: true,
       });
       const captureToken = createCaptureToken(dependencies);
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+      const before = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+        [captureToken],
+      );
       try {
         await openCaptureBoundSession(
           dependencies,
@@ -1272,7 +1278,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           cwd: input.repoPath,
         });
       }
-      const after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+      const after = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+        [captureToken],
+      );
       if (filterCapturedTrafficByToken(diffHistory(before, after), captureToken).length === 0) {
         throw new Error('Proxied browser navigation produced no target-origin Burp history');
       }
@@ -1441,7 +1453,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       started = await store.startTasks(snapshot.revision, `${input.workflowId}:0:start:${taskId}`, [taskId]);
       const runningTask = started.tasks.find((candidate) => candidate.taskId === taskId);
       if (!runningTask || runningTask.status !== 'running') throw new Error(`Bootstrap task ${taskId} did not start`);
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+      const before = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+        [captureToken],
+      );
       await openCaptureBoundSession(
         dependencies,
         input.repoPath,
@@ -1465,6 +1483,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
                 context.targetOrigin,
                 context.config.rules,
                 cancellationSignal,
+                [captureToken],
               );
               return previewTraffic(
                 before,
@@ -1513,7 +1532,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           error: error instanceof Error ? error.name : 'unknown',
         });
       } finally {
-        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+        after = await readTargetHistory(
+          client,
+          context.targetOrigin,
+          context.config.rules,
+          cancellationSignal,
+          [captureToken],
+        );
       }
 
       let successEvidence: string | null = null;
@@ -1801,7 +1826,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
       }
 
-      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+      const before = await readTargetHistory(
+        client,
+        context.targetOrigin,
+        context.config.rules,
+        cancellationSignal,
+        [captureToken],
+      );
       const tools = callerTools(
         createBlackboxTools({
           role: 'blackbox-recon',
@@ -1811,6 +1842,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               context.targetOrigin,
               context.config.rules,
               cancellationSignal,
+              [captureToken],
             );
             return previewTraffic(
               before,
@@ -1864,7 +1896,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           },
         );
       } finally {
-        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+        after = await readTargetHistory(
+          client,
+          context.targetOrigin,
+          context.config.rules,
+          cancellationSignal,
+          [captureToken],
+        );
       }
       if (identity) {
         const checked = await dependencies.runBrowserCommand(
@@ -1964,6 +2002,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       session: `bb-action-${task.taskId}-${actor}`,
       captureToken: createCaptureToken(dependencies),
     }));
+    const captureTokens = sessions.map(({ captureToken }) => captureToken);
     const dynamicExchanges: NormalizedExchange[] = [];
     let outcome: ReplayOutcome | null = null;
     let requestedFreshActor: string | 'anonymous' | null = null;
@@ -2011,6 +2050,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         context.targetOrigin,
         context.config.rules,
         cancellationSignal,
+        captureTokens,
       );
       const executeApprovedReplay = async (): Promise<ReplayOutcome> => {
         for (const { actor, session } of sessions) {
@@ -2026,6 +2066,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           context.targetOrigin,
           context.config.rules,
           cancellationSignal,
+          captureTokens,
         );
         if (requestedFreshActor) {
           const requestedSession = sessions.find(({ actor }) => actor === requestedFreshActor);
@@ -2242,6 +2283,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       storagePath: statePath(freshRoot, identity.name),
       captureToken: createCaptureToken(dependencies),
     }));
+    const captureTokens = sessions.map(({ captureToken }) => captureToken);
     for (const { storagePath } of sessions) {
       await dependencies.fileSystem.mkdir(path.dirname(storagePath), { recursive: true });
     }
@@ -2311,6 +2353,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         context.targetOrigin,
         context.config.rules,
         cancellationSignal,
+        captureTokens,
       );
       const executeVerificationReplay = async (): Promise<ReplayOutcome> => {
         for (const { session, storagePath } of sessions) {
@@ -2325,6 +2368,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           context.targetOrigin,
           context.config.rules,
           cancellationSignal,
+          captureTokens,
         );
         if (requestedFreshActor) {
           const requestedSession = sessions.find(({ identity }) => identity.name === requestedFreshActor);

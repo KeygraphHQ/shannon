@@ -556,6 +556,12 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
   assert.equal(result.revision, 1);
   assert.equal(burpCalls.filter(([name]) => name === 'connect').length, 1);
   assert.equal(burpCalls.filter(([name]) => name === 'close').length, 1);
+  const historyCalls = burpCalls.filter(([name]) => name === 'call');
+  assert.equal(historyCalls.length, 2);
+  for (const [, , arguments_] of historyCalls) {
+    assert.match(arguments_.regex, /X-Shannon-Capture/i);
+    assert.match(arguments_.regex, new RegExp(CAPTURE_TOKEN));
+  }
 });
 
 test('activities forward Temporal cancellation to model, browser, and Burp boundaries', async (t) => {

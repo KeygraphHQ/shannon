@@ -622,14 +622,26 @@ function escapedHostRegex(targetOrigin: string): string {
   return host.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function escapedRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function captureTokensRegex(captureTokens: readonly string[]): string {
+  const tokens = [...new Set(captureTokens)].sort().map(escapedRegex);
+  return `(?m)^(?i:X-Shannon-Capture):[ \\t]*(?:${tokens.join('|')})[ \\t]*\\r?$`;
+}
+
 export async function readTargetHistory(
   client: BurpToolClient,
   targetOrigin: string,
   rules: Rules,
   cancellationSignal?: AbortSignal,
+  captureTokens?: readonly string[],
 ): Promise<HistorySnapshot> {
+  if (captureTokens?.length === 0) return snapshotHistory([]);
+
   const records: RawHistoryRecord[] = [];
-  const regex = escapedHostRegex(targetOrigin);
+  const regex = captureTokens === undefined ? escapedHostRegex(targetOrigin) : captureTokensRegex(captureTokens);
   const count = 100;
 
   for (let offset = 0; ; offset += count) {

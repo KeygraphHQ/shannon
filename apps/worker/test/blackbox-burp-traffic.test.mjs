@@ -705,6 +705,54 @@ test('history pagination uses only escaped target-host regex pages and exact-ori
   assert.equal(filtered.orderedRecords.length, 2);
 });
 
+test('capture-token history reads request only the current activity corpus', async () => {
+  const activityToken = 'Capture_0123456789ABCDEF';
+  const unrelated = Array.from({ length: 100 }, (_, index) =>
+    payload(REQUEST_LF, RESPONSE_LF, `unrelated-${index}`),
+  );
+  const current = [
+    captured(payload(REQUEST_LF, RESPONSE_LF, 'current-1'), activityToken),
+    captured(payload(REQUEST_LF, RESPONSE_LF, 'current-2'), activityToken),
+  ];
+  const caseVariant = captured(payload(REQUEST_LF, RESPONSE_LF, 'case-variant'), activityToken.toLowerCase());
+  const corpus = [...unrelated, ...current, caseVariant];
+  const client = new FakeBurpClient((_name, { regex, count, offset }) => {
+    const javascriptPattern = regex
+      .replace(/^\(\?m\)/, '')
+      .replace(/\(\?i:([^)]*)\)/g, '(?:$1)');
+    const expression = new RegExp(javascriptPattern, 'm');
+    const page = corpus.filter(({ request }) => expression.test(request)).slice(offset, offset + count);
+    return mcpResult(page);
+  });
+
+  const snapshot = await readTargetHistory(client, TARGET_ORIGIN, {}, undefined, [activityToken]);
+
+  assert.deepEqual(snapshot.orderedRecords.map(({ notes }) => notes), ['current-1', 'current-2']);
+  assert.equal(client.calls.length, 1);
+  assert.match(client.calls[0].arguments_.regex, /X-Shannon-Capture/i);
+});
+
+test('legacy history cancellation remains the fourth argument', async () => {
+  const controller = new AbortController();
+  const client = new FakeBurpClient(() => mcpResult([]));
+
+  await readTargetHistory(client, TARGET_ORIGIN, {}, controller.signal);
+
+  assert.equal(client.calls.length, 1);
+  assert.equal(client.calls[0].cancellationSignal, controller.signal);
+});
+
+test('an explicit empty capture-token set avoids a broad history query', async () => {
+  const client = new FakeBurpClient(() => {
+    throw new Error('Burp history must not be queried without a current capture token');
+  });
+
+  const snapshot = await readTargetHistory(client, TARGET_ORIGIN, {}, undefined, []);
+
+  assert.deepEqual(snapshot, { orderedRecords: [], occurrenceCounts: {} });
+  assert.deepEqual(client.calls, []);
+});
+
 test('scope rules use avoid precedence and OR-within/AND-across focus groups', () => {
   const request = parseHttpRequest(
     'GET /api/resource?object_id=42 HTTP/1.1\r\nHost: api.target.example\r\nX-Tenant: alpha\r\n\r\n',
