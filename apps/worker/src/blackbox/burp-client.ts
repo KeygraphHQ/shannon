@@ -291,6 +291,65 @@ export function extractMcpText(result: unknown): string {
   return textBlocks.join('\n');
 }
 
+const HTTP_REQUEST_RESPONSE_PREFIX = 'HttpRequestResponse{httpRequest=';
+const HTTP_RESPONSE_SEPARATOR = ', httpResponse=';
+const MESSAGE_ANNOTATIONS_SEPARATOR = ', messageAnnotations=Annotations{';
+
+function equivalentEchoedRequest(expectedRequest: string, echoedRequest: string): boolean {
+  if (echoedRequest === expectedRequest) return true;
+  try {
+    const expected = parseHttpRequest(expectedRequest);
+    const echoed = parseHttpRequest(echoedRequest);
+    if (
+      expected.version !== '2' ||
+      echoed.version !== expected.version ||
+      echoed.method !== expected.method ||
+      echoed.target !== expected.target ||
+      echoed.body !== expected.body
+    ) {
+      return false;
+    }
+    const canonicalHeaders = (headers: typeof expected.headers): string[] =>
+      headers.map(({ name, value }) => `${name.toLowerCase()}\0${value}`).sort();
+    return JSON.stringify(canonicalHeaders(echoed.headers)) === JSON.stringify(canonicalHeaders(expected.headers));
+  } catch {
+    return false;
+  }
+}
+
+export function extractBurpSendHttpResponse(text: string, expectedRequest: string): string {
+  if (!text.startsWith(HTTP_REQUEST_RESPONSE_PREFIX)) return text;
+
+  const annotationsIndex = text.lastIndexOf(MESSAGE_ANNOTATIONS_SEPARATOR);
+  if (annotationsIndex < HTTP_REQUEST_RESPONSE_PREFIX.length || !text.endsWith('}}')) {
+    throw new Error('Burp MCP send result has a malformed request-response envelope');
+  }
+
+  const requestAndResponse = text.slice(HTTP_REQUEST_RESPONSE_PREFIX.length, annotationsIndex);
+  const candidates: string[] = [];
+  for (let offset = 0; offset < requestAndResponse.length; ) {
+    const separatorIndex = requestAndResponse.indexOf(HTTP_RESPONSE_SEPARATOR, offset);
+    if (separatorIndex < 0) break;
+    const echoedRequest = requestAndResponse.slice(0, separatorIndex);
+    const response = requestAndResponse.slice(separatorIndex + HTTP_RESPONSE_SEPARATOR.length);
+    if (
+      (response === 'null' || response === BURP_NO_RESPONSE || response.startsWith('HTTP/')) &&
+      equivalentEchoedRequest(expectedRequest, echoedRequest)
+    ) {
+      candidates.push(response);
+    }
+    offset = separatorIndex + 1;
+  }
+  if (candidates.length !== 1) {
+    throw new Error('Burp MCP send result has a malformed request-response envelope');
+  }
+  const response = candidates[0];
+  if (response === undefined) {
+    throw new Error('Burp MCP send result has a malformed request-response envelope');
+  }
+  return response === 'null' ? BURP_NO_RESPONSE : response;
+}
+
 export class BurpMcpClient implements BurpToolClient {
   private readonly settings: BurpMcpSettings;
   private readonly createClient: () => SdkClientLike;

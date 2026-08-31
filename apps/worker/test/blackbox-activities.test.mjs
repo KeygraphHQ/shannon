@@ -389,7 +389,14 @@ async function makeDeps(t, root, options = {}) {
     readEnvironment: () => environment,
     createCaptureToken: options.createCaptureToken ?? (() => CAPTURE_TOKEN),
     fileSystem,
-    createReplayRawStore: () => ({}),
+    createReplayRawStore: () => ({
+      async readExchange(exchangeId) {
+        return structuredClone(options.rawRecords?.get(exchangeId) ?? null);
+      },
+      async writeExchange() {},
+      async readAction() { return null; },
+      async writeAction() {},
+    }),
     createReplayService(replayOptions) {
       return {
         async replay(command) {
@@ -1031,8 +1038,11 @@ test('planner task IDs are namespaced by evidence revision before scheduling', a
 
 test('planner preserves a deterministic authorization action when the model stops', async (t) => {
   const root = await tempRoot(t);
+  const rawOnlySentinel = 'raw-response-must-not-reach-model-or-board';
+  const rawRecords = new Map();
   const { deps, board, agents } = await makeDeps(t, root, {
     identityNames: ['attacker', 'victim'],
+    rawRecords,
     agentHandler: async () => ({ baseRevision: 7, tasks: [], stop: true, stopReason: 'No more work' }),
   });
   const victimExchange = normalizedExchange('ex_victim_record', {
@@ -1047,6 +1057,30 @@ test('planner preserves a deterministic authorization action when the model stop
     path: '/api/records/peer-9b1c',
     candidateObjectReferences: ['peer-9b1c'],
   });
+  rawRecords.set(victimExchange.exchangeId, {
+    request: REQUEST('victim-record-4d2e'),
+    response: [
+      'HTTP/1.1 200 OK',
+      'Content-Type: application/json',
+      '',
+      JSON.stringify({ id: 'victim-record-4d2e', ownerId: 'victim-record-4d2e', debug: rawOnlySentinel }),
+    ].join('\r\n'),
+    notes: '',
+    occurrence: 1,
+  });
+  rawRecords.set(attackerExchange.exchangeId, {
+    request: REQUEST('peer-9b1c'),
+    response: [
+      'HTTP/1.1 200 OK',
+      'Content-Type: application/json',
+      '',
+      JSON.stringify({ id: 'peer-9b1c', ownerId: 'peer-9b1c' }),
+    ].join('\r\n'),
+    notes: '',
+    occurrence: 1,
+  });
+  victimExchange.responseFingerprint = `sha256:${createHash('sha256').update(rawRecords.get(victimExchange.exchangeId).response).digest('hex')}`;
+  attackerExchange.responseFingerprint = `sha256:${createHash('sha256').update(rawRecords.get(attackerExchange.exchangeId).response).digest('hex')}`;
   board.seed({
     revision: 7,
     identities: [
@@ -1103,7 +1137,13 @@ test('planner preserves a deterministic authorization action when the model stop
       mutations: [],
     },
   ]);
+  assert.deepEqual(victimReplay.replayPlan.proofCondition, {
+    type: 'json_pointer_equals',
+    pointer: '/ownerId',
+    value: 'victim-record-4d2e',
+  });
   assert.equal(batch.compiledHypotheses.length, 2);
+  assert.equal(JSON.stringify({ batch, agentInput: agents[0] }).includes(rawOnlySentinel), false);
   assert.equal(
     batch.compiledHypotheses.some(({ hypothesisId }) => hypothesisId === victimReplay.hypothesisId),
     true,

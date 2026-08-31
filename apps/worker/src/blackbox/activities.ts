@@ -1690,7 +1690,33 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== revision) throw new Error('Planner activity received a stale blackboard revision');
-    const compiled = compileAuthorizationAttacks(snapshot);
+    const preliminaryCompiled = compileAuthorizationAttacks(snapshot);
+    const compilerRawStore = dependencies.createReplayRawStore(input.repoPath);
+    const rawResponses = new Map<string, string>();
+    const compilerRouteSignatures = new Set(
+      preliminaryCompiled.tasks.flatMap(({ replayPlan }) =>
+        (replayPlan?.steps ?? []).flatMap(({ sourceExchangeId }) => {
+          const source = snapshot.exchanges.find(({ exchangeId }) => exchangeId === sourceExchangeId);
+          return source ? [source.routeSignature] : [];
+        }),
+      ),
+    );
+    const compilerExchangeIds = [
+      ...new Set(
+        snapshot.exchanges
+          .filter(({ routeSignature }) => compilerRouteSignatures.has(routeSignature))
+          .map(({ exchangeId }) => exchangeId),
+      ),
+    ].sort();
+    for (const exchangeId of compilerExchangeIds) {
+      try {
+        const record = await compilerRawStore.readExchange(exchangeId);
+        if (record) rawResponses.set(exchangeId, record.response);
+      } catch {
+        // Raw evidence is optional for refinement; the compiler retains its grounded fallback.
+      }
+    }
+    const compiled = compileAuthorizationAttacks(snapshot, 2, rawResponses);
     const auditSession = dependencies.createAuditSession(input, context.runScope);
     await auditSession.initialize(input.workflowId);
     try {

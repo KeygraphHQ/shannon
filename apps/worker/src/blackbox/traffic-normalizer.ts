@@ -555,7 +555,7 @@ function describeRouteBody(
   return `text:${bucket}`;
 }
 
-function isReferenceField(name: string): boolean {
+export function isReferenceField(name: string): boolean {
   return /(^|[-_])(id|ids|uuid|key|slug|number)($|[-_])/i.test(name) || /(?:Id|ID)$/.test(name);
 }
 

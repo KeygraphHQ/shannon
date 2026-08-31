@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 
 import { compileAuthorizationAttacks } from '../dist/blackbox/attack-compiler.js';
@@ -77,6 +78,16 @@ function snapshot() {
   };
 }
 
+function rawJsonResponse(body) {
+  return ['HTTP/1.1 200 OK', 'Content-Type: application/json', '', JSON.stringify(body)].join('\r\n');
+}
+
+function bindResponseFingerprints(input, rawResponses) {
+  for (const candidate of input.exchanges) {
+    candidate.responseFingerprint = `sha256:${createHash('sha256').update(rawResponses.get(candidate.exchangeId)).digest('hex')}`;
+  }
+}
+
 test('compiles owner-bound peer routes into an identity-swap action', () => {
   const compiled = compileAuthorizationAttacks(snapshot(), 1);
 
@@ -121,6 +132,130 @@ test('compiles owner-bound peer routes into an identity-swap action', () => {
     },
   });
   assert.match(compiled.tasks[0].replayPlan.steps[0].stepId, /^step_authz_[a-f0-9]{24}$/);
+});
+
+test('derives a discriminating JSON proof when a short object reference appears in generic control text', () => {
+  const input = snapshot();
+  input.exchanges[0] = exchange('ex_victim_memo', 'victim', '3');
+  input.exchanges[1] = exchange('ex_attacker_memo', 'attacker', '2');
+  input.resources[0] = resource('res_victim_memo', 'victim', '3', 'ex_victim_memo');
+  input.resources[1] = resource('res_attacker_memo', 'attacker', '2', 'ex_attacker_memo');
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse({ status: 'success', data: { id: 3, UserId: 3 } })],
+    ['ex_attacker_memo', rawJsonResponse({ status: 'success', data: { id: 2, UserId: 2, noise: '3' } })],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'json_pointer_equals',
+    pointer: '/data/UserId',
+    value: 3,
+  });
+});
+
+test('does not compile an authorization replay whose only exact proof is a bare object selector', () => {
+  const input = snapshot();
+  input.exchanges[0] = exchange('ex_victim_memo', 'victim', '3');
+  input.exchanges[1] = exchange('ex_attacker_memo', 'attacker', '2');
+  input.resources[0] = resource('res_victim_memo', 'victim', '3', 'ex_victim_memo');
+  input.resources[1] = resource('res_attacker_memo', 'attacker', '2', 'ex_attacker_memo');
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse({ data: { id: 3 } })],
+    ['ex_attacker_memo', rawJsonResponse({ data: { id: 2 } })],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled, { hypotheses: [], tasks: [] });
+});
+
+test('retains the grounded fallback for a scalar JSON root', () => {
+  const input = snapshot();
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse('victim-memo-4d2e')],
+    ['ex_attacker_memo', rawJsonResponse('peer-9b1c')],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'body_contains',
+    marker: 'victim-memo-4d2e',
+  });
+});
+
+test('selects an escaped reference pointer and ignores forbidden object paths', () => {
+  const input = snapshot();
+  const rawResponses = new Map([
+    [
+      'ex_victim_memo',
+      rawJsonResponse({
+        constructor: { id: 'victim-memo-4d2e' },
+        session: { id: 'victim-memo-4d2e' },
+        data: { 'record~/ID': 'victim-memo-4d2e' },
+      }),
+    ],
+    [
+      'ex_attacker_memo',
+      rawJsonResponse({
+        constructor: { id: 'peer-9b1c' },
+        session: { id: 'peer-9b1c' },
+        data: { 'record~/ID': 'peer-9b1c' },
+      }),
+    ],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'json_pointer_equals',
+    pointer: '/data/record~0~1ID',
+    value: 'victim-memo-4d2e',
+  });
+});
+
+test('does not derive structured proof from raw evidence with a mismatched fingerprint', () => {
+  const input = snapshot();
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse({ id: 'victim-memo-4d2e' })],
+    ['ex_attacker_memo', rawJsonResponse({ id: 'peer-9b1c' })],
+  ]);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'body_contains',
+    marker: 'victim-memo-4d2e',
+  });
+});
+
+test('retains the fallback when another readable control has the victim value at the selected pointer', () => {
+  const input = snapshot();
+  input.identities.push({
+    name: 'observer',
+    role: 'ordinary user',
+    authenticated: true,
+    stateRef: 'state/observer.json',
+  });
+  input.exchanges.push(exchange('ex_observer_memo', 'observer', 'observer-7c3d'));
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse({ id: 'victim-memo-4d2e' })],
+    ['ex_attacker_memo', rawJsonResponse({ id: 'peer-9b1c' })],
+    ['ex_observer_memo', rawJsonResponse({ id: 'victim-memo-4d2e' })],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileAuthorizationAttacks(input, 1, rawResponses);
+
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'body_contains',
+    marker: 'victim-memo-4d2e',
+  });
 });
 
 test('accepts read-only RPC posts and rejects mixed-name state changes', () => {

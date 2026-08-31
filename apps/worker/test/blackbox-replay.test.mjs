@@ -151,7 +151,7 @@ class FakeBurpClient {
     const next = this.results.shift();
     if (next instanceof Error) throw next;
     if (next === undefined) throw new Error('No queued Burp result');
-    if (typeof next === 'function') return next(cancellationSignal);
+    if (typeof next === 'function') return next(cancellationSignal, { name, arguments_ });
     return typeof next === 'string' ? mcpResponse(next) : next;
   }
 
@@ -1350,16 +1350,34 @@ test('four steps retain order, stop after a dispatched failure, and are never re
 });
 
 test('HTTP/2 sources use only the structured HTTP/2 Burp tool', async () => {
-  const h2Request = ['GET /api/h2?view=one HTTP/2', 'Host: api.target.example:8443', 'Accept: application/json', '', ''].join(
-    '\r\n',
-  );
+  const h2Request = [
+    'GET /api/h2?view=one HTTP/2',
+    'Host: api.target.example:8443',
+    'Accept: application/json',
+    'x-client-version: one',
+    '',
+    '',
+  ].join('\r\n');
   const catalog = [exchange('ex_h2', 'anonymous', 'route_h2', { method: 'GET', path: '/api/h2' })];
   const records = new Map([['ex_h2', raw(h2Request)]]);
+  const rawHttpResponse = ['HTTP/2 200 OK', 'Content-Type: application/json', '', '{"ok":true}'].join('\r\n');
   const { service, client } = harness({
     exchanges: catalog,
     records,
     configuredSecrets: [],
-    burpResults: [['HTTP/2 200 OK', 'Content-Type: application/json', '', '{"ok":true}'].join('\r\n')],
+    burpResults: [
+      () =>
+        mcpResponse(
+          `HttpRequestResponse{httpRequest=${[
+            'GET /api/h2?view=two HTTP/2',
+            'Host: api.target.example:8443',
+            'Accept: application/json',
+            'X-Client-Version: one',
+            '',
+            '',
+          ].join('\r\n')}, httpResponse=${rawHttpResponse}, messageAnnotations=Annotations{comment='', highlightColor=NONE}}`,
+        ),
+    ],
   });
   const outcome = await service.replay({
     actionId: 'act_h2',
@@ -1382,6 +1400,7 @@ test('HTTP/2 sources use only the structured HTTP/2 Burp tool', async () => {
     ':authority': 'api.target.example:8443',
   });
   assert.equal(client.calls[0].arguments_.headers.accept, 'application/json');
+  assert.equal(client.calls[0].arguments_.headers['x-client-version'], 'one');
   assert.equal(outcome.status, 'completed');
   assert.equal(outcome.observation.passed, true);
 });
@@ -1612,6 +1631,48 @@ test('completed and uncertain actions are idempotent and invalid responses never
     assert.equal(state.client.calls.length, 1, `${name} was resent`);
     assert.equal(state.rawStore.rawWrites.length, 1, `${name} raw evidence was rewritten`);
   }
+});
+
+test('unwraps the native Burp send envelope and rejects a mismatched echoed request', async () => {
+  const rawHttpResponse = response('{"marker":"victim-private-marker"}');
+  const wrapped = harness({
+    burpResults: [
+      (_signal, call) =>
+        mcpResponse(
+          `HttpRequestResponse{httpRequest=${call.arguments_.content}, httpResponse=${rawHttpResponse}, messageAnnotations=Annotations{comment='', highlightColor=NONE}}`,
+        ),
+    ],
+  });
+
+  const completed = await wrapped.service.replay(replayCommand('act_native_burp_envelope'));
+
+  assert.equal(completed.status, 'completed');
+  assert.equal(wrapped.rawStore.rawWrites.length, 1);
+  assert.equal(wrapped.rawStore.rawWrites[0].record.response, rawHttpResponse);
+  assert.match(wrapped.rawStore.rawWrites[0].record.response, /^HTTP\//);
+  assert.doesNotMatch(wrapped.rawStore.rawWrites[0].record.response, /HttpRequestResponse|messageAnnotations/);
+
+  const mismatchedEnvelope = `HttpRequestResponse{httpRequest=${SOURCE_REQUEST}, httpResponse=${rawHttpResponse}, messageAnnotations=Annotations{comment='', highlightColor=NONE}}`;
+  const mismatched = harness({ burpResults: [mcpResponse(mismatchedEnvelope)] });
+  const rejected = await mismatched.service.replay(replayCommand('act_mismatched_burp_envelope'));
+
+  assert.equal(rejected.status, 'delivery_unknown');
+  assert.equal(rejected.reason, 'Burp returned a malformed request-response envelope after dispatch');
+  assert.equal(mismatched.rawStore.rawWrites.length, 1);
+  assert.equal(mismatched.rawStore.rawWrites[0].record.response, mismatchedEnvelope);
+
+  const noResponse = harness({
+    burpResults: [
+      (_signal, call) =>
+        mcpResponse(
+          `HttpRequestResponse{httpRequest=${call.arguments_.content}, httpResponse=null, messageAnnotations=Annotations{comment='', highlightColor=NONE}}`,
+        ),
+    ],
+  });
+  const missing = await noResponse.service.replay(replayCommand('act_native_burp_no_response'));
+
+  assert.equal(missing.status, 'delivery_unknown');
+  assert.equal(missing.reason, 'Burp returned no HTTP response after dispatch');
 });
 
 test('transient post-dispatch persistence failures become terminal without replaying the request', async () => {

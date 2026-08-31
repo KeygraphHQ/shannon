@@ -12,7 +12,10 @@ import type {
   EvidenceRef,
   NormalizedExchange,
   PlannerTask,
+  ProofCondition,
 } from '../types/blackbox.js';
+import { parseHttpResponse } from './http-message.js';
+import { isReferenceField, isSensitiveRequestFieldName } from './traffic-normalizer.js';
 
 export interface CompiledAuthorizationAttacks {
   readonly hypotheses: readonly BlackboxHypothesis[];
@@ -30,7 +33,28 @@ interface AttackCandidate {
   readonly resourceId: string;
 }
 
+interface JsonProofCandidate {
+  readonly pointer: string;
+  readonly segments: readonly string[];
+  readonly value: string | number;
+}
+
 const READ_OPERATIONS = new Set(['get', 'read', 'fetch', 'view', 'list', 'search', 'query', 'lookup', 'download']);
+const FORBIDDEN_JSON_POINTER_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+const OWNERSHIP_REFERENCE_SUBJECTS = new Set([
+  'account',
+  'customer',
+  'member',
+  'org',
+  'organization',
+  'owner',
+  'principal',
+  'subject',
+  'tenant',
+  'user',
+]);
+const REFERENCE_SUFFIXES = new Set(['id', 'ids', 'key', 'number', 'slug', 'uuid']);
+const UNPROVEN_SELECTOR_ECHO = Symbol('unproven-selector-echo');
 const WRITE_OPERATIONS = new Set([
   'create',
   'update',
@@ -53,6 +77,155 @@ const WRITE_OPERATIONS = new Set([
 
 function digest(value: string): string {
   return createHash('sha256').update(value).digest('hex').slice(0, 24);
+}
+
+function responseMatchesFingerprint(exchange: NormalizedExchange, rawResponse: string): boolean {
+  return `sha256:${createHash('sha256').update(rawResponse).digest('hex')}` === exchange.responseFingerprint;
+}
+
+function parsedJsonResponse(
+  exchange: NormalizedExchange,
+  rawResponses: ReadonlyMap<string, string>,
+): { readonly value: unknown } | null {
+  const rawResponse = rawResponses.get(exchange.exchangeId);
+  if (!rawResponse || !responseMatchesFingerprint(exchange, rawResponse)) return null;
+  try {
+    return { value: JSON.parse(parseHttpResponse(rawResponse).body) as unknown };
+  } catch {
+    return null;
+  }
+}
+
+function escapedPointerSegment(segment: string): string {
+  return segment.replace(/~/g, '~0').replace(/\//g, '~1');
+}
+
+function jsonProofCandidates(root: unknown, marker: string): JsonProofCandidate[] {
+  const candidates: JsonProofCandidate[] = [];
+  const pending: { readonly value: unknown; readonly segments: readonly string[]; readonly depth: number }[] = [
+    { value: root, segments: [], depth: 0 },
+  ];
+  let visited = 0;
+  while (pending.length > 0 && visited < 4096) {
+    const current = pending.pop();
+    if (!current) break;
+    visited += 1;
+    const leaf = current.segments.at(-1);
+    const safeReferencePath =
+      leaf !== undefined &&
+      isReferenceField(leaf) &&
+      current.segments.every(
+        (segment) => !FORBIDDEN_JSON_POINTER_SEGMENTS.has(segment) && !isSensitiveRequestFieldName(segment),
+      );
+    const exactMarker =
+      (typeof current.value === 'string' && current.value === marker) ||
+      (typeof current.value === 'number' && Number.isFinite(current.value) && String(current.value) === marker);
+    if (safeReferencePath && exactMarker) {
+      const pointer = current.segments.map((segment) => `/${escapedPointerSegment(segment)}`).join('');
+      if (pointer.length <= 512) {
+        candidates.push({ pointer, segments: current.segments, value: current.value as string | number });
+      }
+      continue;
+    }
+    if (current.depth >= 32 || !current.value || typeof current.value !== 'object') continue;
+    const entries = Array.isArray(current.value)
+      ? current.value.map((value, index) => [String(index), value] as const)
+      : Object.entries(current.value);
+    for (let index = entries.length - 1; index >= 0; index -= 1) {
+      const entry = entries[index];
+      if (!entry) continue;
+      pending.push({
+        value: entry[1],
+        segments: [...current.segments, entry[0]],
+        depth: current.depth + 1,
+      });
+    }
+  }
+  return candidates;
+}
+
+function valueAtSegments(
+  root: unknown,
+  segments: readonly string[],
+): { readonly found: boolean; readonly value: unknown } {
+  let current = root;
+  for (const segment of segments) {
+    if (Array.isArray(current) && /^(?:0|[1-9]\d*)$/.test(segment) && Number(segment) < current.length) {
+      current = current[Number(segment)];
+    } else if (current && typeof current === 'object' && Object.hasOwn(current, segment)) {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return { found: false, value: undefined };
+    }
+  }
+  return { found: true, value: current };
+}
+
+function normalizedFieldName(value: string): string {
+  return value.replace(/[^A-Za-z0-9]/g, '').toLowerCase();
+}
+
+function ownershipReference(candidate: JsonProofCandidate): boolean {
+  const leaf = normalizedFieldName(candidate.segments.at(-1) ?? '');
+  for (const subject of OWNERSHIP_REFERENCE_SUBJECTS) {
+    for (const suffix of REFERENCE_SUFFIXES) {
+      if (leaf === `${subject}${suffix}`) return true;
+    }
+  }
+  const parent = normalizedFieldName(candidate.segments.at(-2) ?? '');
+  return REFERENCE_SUFFIXES.has(leaf) && OWNERSHIP_REFERENCE_SUBJECTS.has(parent);
+}
+
+function bareIdReference(candidate: JsonProofCandidate): boolean {
+  return normalizedFieldName(candidate.segments.at(-1) ?? '') === 'id';
+}
+
+function structuredProofCondition(
+  source: NormalizedExchange,
+  control: NormalizedExchange,
+  controls: readonly NormalizedExchange[],
+  marker: string,
+  rawResponses: ReadonlyMap<string, string>,
+): ProofCondition | typeof UNPROVEN_SELECTOR_ECHO | null {
+  const sourceJson = parsedJsonResponse(source, rawResponses);
+  if (!sourceJson) return null;
+  const parsedControls = controls.map((candidate) => ({
+    exchange: candidate,
+    parsed: parsedJsonResponse(candidate, rawResponses),
+  }));
+  if (parsedControls.some(({ parsed }) => parsed === null)) return null;
+  const readableControls = parsedControls as readonly {
+    readonly exchange: NormalizedExchange;
+    readonly parsed: { readonly value: unknown };
+  }[];
+  const pairedControlJson = readableControls.find(({ exchange }) => exchange.exchangeId === control.exchangeId)?.parsed;
+  if (!pairedControlJson) return null;
+
+  const controlReferences = new Set(control.candidateObjectReferences);
+  const candidates = jsonProofCandidates(sourceJson.value, marker).filter((candidate) => {
+    const pairedValue = valueAtSegments(pairedControlJson.value, candidate.segments);
+    if (
+      !pairedValue.found ||
+      (typeof pairedValue.value !== 'string' && typeof pairedValue.value !== 'number') ||
+      !controlReferences.has(String(pairedValue.value))
+    ) {
+      return false;
+    }
+    return readableControls.every(({ parsed }) => {
+      const observed = valueAtSegments(parsed.value, candidate.segments);
+      return !observed.found || JSON.stringify(observed.value) !== JSON.stringify(candidate.value);
+    });
+  });
+  candidates.sort((left, right) => {
+    const leftRank = ownershipReference(left) ? 0 : bareIdReference(left) ? 2 : 1;
+    const rightRank = ownershipReference(right) ? 0 : bareIdReference(right) ? 2 : 1;
+    return (
+      leftRank - rightRank || left.pointer.length - right.pointer.length || compareText(left.pointer, right.pointer)
+    );
+  });
+  const selected = candidates[0];
+  if (selected && bareIdReference(selected)) return UNPROVEN_SELECTOR_ECHO;
+  return selected ? { type: 'json_pointer_equals', pointer: selected.pointer, value: selected.value } : null;
 }
 
 function compareText(left: string, right: string): number {
@@ -154,7 +327,11 @@ function candidateOrder(left: AttackCandidate, right: AttackCandidate): number {
  * The replay and verifier remain responsible for proving impact; this compiler only
  * removes the model's need to rediscover the authorization-test template.
  */
-export function compileAuthorizationAttacks(snapshot: BlackboxSnapshot, limit = 2): CompiledAuthorizationAttacks {
+export function compileAuthorizationAttacks(
+  snapshot: BlackboxSnapshot,
+  limit = 2,
+  rawResponses: ReadonlyMap<string, string> = new Map(),
+): CompiledAuthorizationAttacks {
   if (snapshot.runStatus !== 'running' || !Number.isInteger(limit) || limit < 1) {
     return { hypotheses: [], tasks: [] };
   }
@@ -257,6 +434,9 @@ export function compileAuthorizationAttacks(snapshot: BlackboxSnapshot, limit = 
 
         const evidence = evidenceFor(source, control, victimResource, peerResource);
         const resourceType = safeResourceType(victimResource.resourceType);
+        const structuredProof = structuredProofCondition(source, control, controls, marker, rawResponses);
+        if (structuredProof === UNPROVEN_SELECTOR_ECHO) continue;
+        const proofCondition = structuredProof ?? ({ type: 'body_contains', marker } as const);
         const hypothesis: BlackboxHypothesis = {
           hypothesisId,
           kind: 'horizontal',
@@ -285,7 +465,7 @@ export function compileAuthorizationAttacks(snapshot: BlackboxSnapshot, limit = 
                 mutations: [],
               },
             ],
-            proofCondition: { type: 'body_contains', marker },
+            proofCondition,
           },
         };
         candidates.push({

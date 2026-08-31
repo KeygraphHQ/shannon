@@ -18,7 +18,13 @@ import type {
 import type { IdentityBoundRequestField, Rules } from '../types/config.js';
 import { atomicWrite, ensureDirectory, fileExists, readJson } from '../utils/file-io.js';
 import type { BurpToolClient, RawHistoryRecord } from './burp-client.js';
-import { BURP_NO_REQUEST, BURP_NO_RESPONSE, BURP_TRUNCATION_MARKER, extractMcpText } from './burp-client.js';
+import {
+  BURP_NO_REQUEST,
+  BURP_NO_RESPONSE,
+  BURP_TRUNCATION_MARKER,
+  extractBurpSendHttpResponse,
+  extractMcpText,
+} from './burp-client.js';
 import type { ParsedHttpResponse } from './http-message.js';
 import { getHeaderValues, parseHttpRequest, parseHttpResponse } from './http-message.js';
 import type { IdentityStateResolver } from './identity-state.js';
@@ -1701,15 +1707,26 @@ export class ReplayService {
         );
       }
 
-      let rawResponse: string;
+      let rawToolText: string;
       try {
-        rawResponse = extractMcpText(result);
+        rawToolText = extractMcpText(result);
       } catch {
         return this.persistTerminal(
           command.actionId,
           commandDigest,
           'Burp returned an invalid tool result after dispatch',
           terminalAttempt(BURP_NO_RESPONSE),
+        );
+      }
+      let rawResponse: string;
+      try {
+        rawResponse = extractBurpSendHttpResponse(rawToolText, outbound.rawRequest);
+      } catch {
+        return this.persistTerminal(
+          command.actionId,
+          commandDigest,
+          'Burp returned a malformed request-response envelope after dispatch',
+          terminalAttempt(rawToolText),
         );
       }
       if (rawResponse === BURP_NO_RESPONSE || rawResponse.trim().length === 0) {
