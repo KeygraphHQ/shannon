@@ -1349,15 +1349,53 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
       let successEvidence: string | null = null;
       if (identity) {
+        const storagePath = statePath(input.repoPath, identity.name);
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${session}`, 'eval', successExpression(identity.authentication.success_condition)],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
         if (!authCheckSucceeded(checked.stdout)) {
-          throw new Error(`Identity ${identity.name} did not satisfy its configured success condition`);
+          const recoverySession = `bb-capture-recovery-${identity.name}`;
+          let recovered = false;
+          try {
+            await assertStorageState(dependencies.fileSystem, storagePath, identity.name);
+            await restoreIdentityState(
+              dependencies,
+              input.repoPath,
+              recoverySession,
+              storagePath,
+              context.targetUrl,
+              cancellationSignal,
+            );
+            const recoveryChecked = await dependencies.runBrowserCommand(
+              'playwright-cli',
+              [`-s=${recoverySession}`, 'eval', successExpression(identity.authentication.success_condition)],
+              cancellableBrowserOptions(input.repoPath, cancellationSignal),
+            );
+            if (authCheckSucceeded(recoveryChecked.stdout)) {
+              await saveIdentityState(dependencies, input.repoPath, recoverySession, identity.name, cancellationSignal);
+              recovered = true;
+            }
+          } catch {
+            cancellationSignal?.throwIfAborted();
+          } finally {
+            try {
+              await dependencies.runBrowserCommand('playwright-cli', [`-s=${recoverySession}`, 'close'], {
+                cwd: input.repoPath,
+              });
+            } catch (error) {
+              activityLogger().warn(`Unable to close Playwright session ${recoverySession}`, {
+                error: error instanceof Error ? error.name : 'unknown',
+              });
+            }
+          }
+          if (!recovered) {
+            throw new Error(`Identity ${identity.name} did not satisfy its configured success condition`);
+          }
+        } else {
+          await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
         }
-        await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
         successEvidence = safeSuccessEvidence(
           identity.authentication.success_condition.value,
           context.configuredSecrets,

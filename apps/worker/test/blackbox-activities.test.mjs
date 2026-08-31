@@ -1093,6 +1093,221 @@ test('initial capture does not persist identity state when authentication fails'
   assert.equal(browserCalls.some(([, args]) => args[0] === '-s=bb-attacker' && args.includes('state-save')), false);
 });
 
+test('identity capture recovers an agent-saved state in a fresh session after live auth loss', async (t) => {
+  const root = await tempRoot(t);
+  const storagePath = statePathFor(root, 'attacker');
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    strictStateRestore: true,
+    authCheckQueue: [false, true],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+    agentHandler: async () => {
+      await mkdir(path.dirname(storagePath), { recursive: true });
+      await writeFile(storagePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+      return { taskId: 'bootstrap-attacker', role: 'blackbox-recon', baseRevision: 2, exchanges: [] };
+    },
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.deepEqual(
+    browserCalls
+      .filter(([, args]) => args[0] === '-s=bb-capture-recovery-attacker')
+      .map(([, args]) => args.slice(0, 3)),
+    [
+      ['-s=bb-capture-recovery-attacker', 'open', 'about:blank'],
+      ['-s=bb-capture-recovery-attacker', 'state-load', storagePath],
+      ['-s=bb-capture-recovery-attacker', 'goto', `${TARGET_ORIGIN}/login`],
+      ['-s=bb-capture-recovery-attacker', 'eval', browserCalls.find(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('eval'))?.[1][2]],
+      ['-s=bb-capture-recovery-attacker', 'state-save', storagePath],
+      ['-s=bb-capture-recovery-attacker', 'close'],
+    ],
+  );
+  assert.deepEqual(
+    board.calls
+      .filter(([name]) => name === 'settleTasks')
+      .at(-1)?.[1].identityCaptures,
+    [{ identity: 'attacker', stateRef: '.shannon/blackbox/identities/attacker/storage-state.json' }],
+  );
+});
+
+test('identity capture fails closed when bootstrap state recovery is false or malformed', async (t) => {
+  for (const scenario of [
+    { name: 'false', authCheckQueue: [false, false], state: { cookies: [], origins: [] }, evalCount: 2 },
+    { name: 'malformed', authCheckQueue: [false, true], state: { cookies: [] }, evalCount: 1 },
+    {
+      name: 'malformed-result',
+      authCheckQueue: [false, true],
+      state: { cookies: [], origins: [] },
+      evalCount: 2,
+      recoveryOutput: '### Result\n"__SHANNON_AUTH_OK__"',
+    },
+  ]) {
+    await t.test(scenario.name, async (tCase) => {
+      const root = await tempRoot(tCase);
+      const storagePath = statePathFor(root, 'attacker');
+      const { deps, browserCalls } = await makeDeps(tCase, root, {
+        identityNames: ['attacker'],
+        strictStateRestore: true,
+        authCheckQueue: scenario.authCheckQueue,
+        historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+        agentHandler: async () => {
+          await mkdir(path.dirname(storagePath), { recursive: true });
+          await writeFile(storagePath, JSON.stringify(scenario.state), 'utf8');
+          return { taskId: 'bootstrap-attacker', role: 'blackbox-recon', baseRevision: 2, exchanges: [] };
+        },
+      });
+      if (scenario.recoveryOutput) {
+        const originalRunBrowserCommand = deps.runBrowserCommand;
+        deps.runBrowserCommand = async (...args) => {
+          const result = await originalRunBrowserCommand(...args);
+          const commandArguments = args[1];
+          if (commandArguments[0] === '-s=bb-capture-recovery-attacker' && commandArguments.includes('eval')) {
+            return { ...result, stdout: scenario.recoveryOutput };
+          }
+          return result;
+        };
+      }
+      const activities = createBlackboxActivities(deps);
+      const runInput = input(root);
+
+      await activities.preflightBlackbox(runInput);
+      const capture = await activities.captureIdentity(runInput, 'attacker');
+
+      assert.equal(capture.authenticated, false);
+      assert.equal(
+        browserCalls.filter(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('state-save')).length,
+        0,
+      );
+      assert.equal(browserCalls.filter(([, args]) => args.includes('eval')).length, scenario.evalCount);
+      assert.equal(
+        browserCalls.some(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('close')),
+        true,
+      );
+    });
+  }
+});
+
+test('identity capture fails closed when recovered state cannot be validated after save', async (t) => {
+  const root = await tempRoot(t);
+  const storagePath = statePathFor(root, 'attacker');
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    strictStateRestore: true,
+    authCheckQueue: [false, true],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+    agentHandler: async () => {
+      await mkdir(path.dirname(storagePath), { recursive: true });
+      await writeFile(storagePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+      return { taskId: 'bootstrap-attacker', role: 'blackbox-recon', baseRevision: 2, exchanges: [] };
+    },
+  });
+  const originalReadFile = deps.fileSystem.readFile;
+  let reads = 0;
+  deps.fileSystem.readFile = async (...args) => {
+    reads += 1;
+    if (reads === 2) throw new Error('rotated state validation failed');
+    return originalReadFile(...args);
+  };
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, false);
+  assert.equal(
+    board.calls
+      .filter(([name]) => name === 'settleTasks')
+      .at(-1)?.[1].identityCaptures,
+    undefined,
+  );
+  assert.equal(
+    browserCalls.some(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('close')),
+    true,
+  );
+});
+
+test('identity capture does not enter recovery when the primary auth eval command errors', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+  });
+  const originalRunBrowserCommand = deps.runBrowserCommand;
+  deps.runBrowserCommand = async (...args) => {
+    const result = await originalRunBrowserCommand(...args);
+    const commandArguments = args[1];
+    if (commandArguments[0] === '-s=bb-attacker' && commandArguments.includes('eval')) {
+      throw new Error('primary auth eval failed');
+    }
+    return result;
+  };
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, false);
+  assert.equal(
+    browserCalls.some(([, args]) => args[0] === '-s=bb-capture-recovery-attacker'),
+    false,
+  );
+  assert.equal(board.calls.at(-1)?.[1].identityCaptures, undefined);
+});
+
+test('identity capture propagates cancellation during recovery and closes both sessions without a signal', async (t) => {
+  const root = await tempRoot(t);
+  const controller = new AbortController();
+  const storagePath = statePathFor(root, 'attacker');
+  const { deps, board, browserCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    strictStateRestore: true,
+    cancellationSignal: controller.signal,
+    authCheckQueue: [false, true],
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+    agentHandler: async () => {
+      await mkdir(path.dirname(storagePath), { recursive: true });
+      await writeFile(storagePath, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
+      return { taskId: 'bootstrap-attacker', role: 'blackbox-recon', baseRevision: 2, exchanges: [] };
+    },
+  });
+  const originalRunBrowserCommand = deps.runBrowserCommand;
+  deps.runBrowserCommand = async (...args) => {
+    const result = await originalRunBrowserCommand(...args);
+    const commandArguments = args[1];
+    if (commandArguments[0] === '-s=bb-capture-recovery-attacker' && commandArguments.includes('eval')) {
+      controller.abort();
+      throw new Error('recovery auth eval interrupted');
+    }
+    return result;
+  };
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  await assert.rejects(
+    activities.captureIdentity(runInput, 'attacker'),
+    (error) => error?.name === 'AbortError',
+  );
+
+  assert.equal(
+    browserCalls.filter(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('state-save')).length,
+    0,
+  );
+  assert.equal(board.calls.at(-1)?.[1].identityCaptures, undefined);
+  for (const session of ['-s=bb-capture-recovery-attacker', '-s=bb-attacker']) {
+    const closeCall = browserCalls.find(([, args]) => args[0] === session && args.includes('close'));
+    assert.equal(closeCall !== undefined, true);
+    assert.equal('signal' in closeCall[2], false);
+  }
+});
+
 test('capture retries observed traffic when blackboard validation rejects model enrichment', async (t) => {
   const root = await tempRoot(t);
   const { deps, board } = await makeDeps(t, root, {
