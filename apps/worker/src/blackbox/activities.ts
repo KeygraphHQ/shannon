@@ -937,6 +937,20 @@ function cancellableBrowserOptions(repoPath: string, signal: AbortSignal | undef
   return signal ? { cwd: repoPath, signal } : { cwd: repoPath };
 }
 
+async function restoreIdentityState(
+  dependencies: BlackboxActivityDependencies,
+  repoPath: string,
+  session: string,
+  storagePath: string,
+  targetUrl: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const options = cancellableBrowserOptions(repoPath, signal);
+  await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', 'about:blank'], options);
+  await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'state-load', storagePath], options);
+  await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'goto', targetUrl], options);
+}
+
 export function createBlackboxActivities(supplied: Partial<BlackboxActivityDependencies> = {}): BlackboxActivityApi {
   const dependencies: BlackboxActivityDependencies = { ...DEFAULT_DEPENDENCIES, ...supplied };
   const activityLogger = (): ActivityLogger => dependencies.logger ?? createActivityLogger();
@@ -1165,14 +1179,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       try {
         if (!identity || !reusable) throw new Error('identity state is not marked authenticated');
         await assertStorageState(dependencies.fileSystem, statePath(input.repoPath, actor), actor);
-        await dependencies.runBrowserCommand(
-          'playwright-cli',
-          [`-s=${validationSession}`, 'state-load', statePath(input.repoPath, actor)],
-          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        await restoreIdentityState(
+          dependencies,
+          input.repoPath,
+          validationSession,
+          statePath(input.repoPath, actor),
+          context.targetUrl,
+          cancellationSignal,
         );
-        await dependencies.runBrowserCommand('playwright-cli', [`-s=${validationSession}`, 'open', context.targetUrl], {
-          ...cancellableBrowserOptions(input.repoPath, cancellationSignal),
-        });
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
           [`-s=${validationSession}`, 'eval', successExpression(identity.authentication.success_condition)],
@@ -1472,17 +1486,22 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const session = `bb-${actor}`;
     try {
       if (identity) {
+        await restoreIdentityState(
+          dependencies,
+          input.repoPath,
+          session,
+          statePath(input.repoPath, identity.name),
+          context.targetUrl,
+          cancellationSignal,
+        );
+      }
+      if (!identity) {
         await dependencies.runBrowserCommand(
           'playwright-cli',
-          [`-s=${session}`, 'state-load', statePath(input.repoPath, identity.name)],
+          [`-s=${session}`, 'open', context.targetUrl],
           cancellableBrowserOptions(input.repoPath, cancellationSignal),
         );
       }
-      await dependencies.runBrowserCommand(
-        'playwright-cli',
-        [`-s=${session}`, 'open', context.targetUrl],
-        cancellableBrowserOptions(input.repoPath, cancellationSignal),
-      );
       if (identity) {
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
@@ -1652,17 +1671,21 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         const identity = context.config.identities.find(({ name }) => name === actor);
         if (actor !== 'anonymous' && !identity) throw new Error(`Unknown replay actor ${actor}`);
         if (identity) {
+          await restoreIdentityState(
+            dependencies,
+            input.repoPath,
+            session,
+            statePath(input.repoPath, identity.name),
+            context.targetUrl,
+            cancellationSignal,
+          );
+        } else {
           await dependencies.runBrowserCommand(
             'playwright-cli',
-            [`-s=${session}`, 'state-load', statePath(input.repoPath, identity.name)],
+            [`-s=${session}`, 'open', context.targetUrl],
             cancellableBrowserOptions(input.repoPath, cancellationSignal),
           );
         }
-        await dependencies.runBrowserCommand(
-          'playwright-cli',
-          [`-s=${session}`, 'open', context.targetUrl],
-          cancellableBrowserOptions(input.repoPath, cancellationSignal),
-        );
         if (identity) {
           const checked = await dependencies.runBrowserCommand(
             'playwright-cli',

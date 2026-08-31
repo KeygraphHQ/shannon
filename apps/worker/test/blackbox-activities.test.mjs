@@ -253,6 +253,8 @@ async function makeDeps(t, root, options = {}) {
   const auditCalls = [];
   const historyCursor = { index: 0 };
   const authCheckCursor = { index: 0 };
+  const openedSessions = new Set();
+  const loadedStateSessions = new Set();
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
   const replayCalls = [];
   const fileSystem = { readFile, writeFile, mkdir, rm };
@@ -271,7 +273,21 @@ async function makeDeps(t, root, options = {}) {
     async runBrowserCommand(...args) {
       browserCalls.push(args);
       const [, commandArguments] = args;
+      const session = commandArguments.find((value) => typeof value === 'string' && value.startsWith('-s='));
+      const openIndex = commandArguments.indexOf('open');
       const stateSaveIndex = commandArguments.indexOf('state-save');
+      const stateLoadIndex = commandArguments.indexOf('state-load');
+      const gotoIndex = commandArguments.indexOf('goto');
+      if (options.strictStateRestore && session) {
+        if (stateLoadIndex >= 0 && !openedSessions.has(session)) {
+          throw new Error(`state-load requires an existing session: ${session}`);
+        }
+        if (openIndex >= 0) openedSessions.add(session);
+        if (stateLoadIndex >= 0) loadedStateSessions.add(session);
+        if (gotoIndex >= 0 && !loadedStateSessions.has(session)) {
+          throw new Error(`goto requires restored state: ${session}`);
+        }
+      }
       if (stateSaveIndex >= 0 && commandArguments[stateSaveIndex + 1]) {
         const stateFile = commandArguments[stateSaveIndex + 1];
         await mkdir(path.dirname(stateFile), { recursive: true });
@@ -340,6 +356,19 @@ async function tempRoot(t) {
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackbox-activities-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
+}
+
+function assertStateRestore(browserCalls, session, storagePath) {
+  assert.deepEqual(
+    browserCalls
+      .filter(([, args]) => args[0] === `-s=${session}` && ['open', 'state-load', 'goto'].includes(args[1]))
+      .map(([, args]) => args),
+    [
+      [`-s=${session}`, 'open', 'about:blank'],
+      [`-s=${session}`, 'state-load', storagePath],
+      [`-s=${session}`, 'goto', `${TARGET_ORIGIN}/login`],
+    ],
+  );
 }
 
 test('capture interprets Playwright auth results without accepting malformed structured output', async (t) => {
@@ -481,6 +510,7 @@ test('activities forward Temporal cancellation to model, browser, and Burp bound
 test('resume records its workflow, recovers once, and reuses a completed bootstrap capture', async (t) => {
   const root = await tempRoot(t);
   const { deps, board, auditCalls, burpCalls, browserCalls, agents } = await makeDeps(t, root, {
+    strictStateRestore: true,
     historyQueue: [[], [{ id: 'preflight' }]],
   });
   board.seed({
@@ -560,6 +590,7 @@ test('resume records its workflow, recovers once, and reuses a completed bootstr
   assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('state-load')), true);
   assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('eval')), true);
   assert.equal(browserCalls.slice(effectCounts[1]).some(([, args]) => args.includes('state-save')), true);
+  assertStateRestore(browserCalls, 'bb-resume-check-attacker', statePathFor(root, 'attacker'));
   assert.equal(board.calls.some(([name]) => name === 'refreshIdentityCapture'), false);
   assert.equal(board.calls.filter(([name]) => name === 'recoverInterruptedTasks').length, 1);
   assert.deepEqual(auditCalls.find(([name]) => name === 'resume')?.slice(1), [
@@ -1151,6 +1182,7 @@ test('recon does not overwrite a known-good identity state after the live sessio
   const root = await tempRoot(t);
   const { deps, board, browserCalls } = await makeDeps(t, root, {
     identityNames: ['attacker'],
+    strictStateRestore: true,
     authCheckQueue: [true, false],
     historyQueue: [[], [{ id: 'recon' }]],
   });
@@ -1179,6 +1211,7 @@ test('recon does not overwrite a known-good identity state after the live sessio
     /no longer authenticated/i,
   );
   assert.equal(browserCalls.some(([, args]) => args.includes('state-save')), false);
+  assertStateRestore(browserCalls, 'bb-attacker', statePathFor(root, 'attacker'));
 });
 
 test('workers reject a running task of another kind before browser, Burp, or model side effects', async (t) => {
@@ -1357,6 +1390,7 @@ test('action executes the persisted replay plan and derives its result from the 
   };
   let actionToolResult;
   const { deps, board, replayCalls, browserCalls } = await makeDeps(t, root, {
+    strictStateRestore: true,
     historyQueue: [[], []],
     replayHandler: async () => ({
       status: 'completed',
@@ -1451,6 +1485,7 @@ test('action executes the persisted replay plan and derives its result from the 
     ...persistedTask.replayPlan,
   }]);
   assert.equal(browserCalls.some(([, args]) => args.includes('state-save') && args.at(-1) === statePathFor(root, 'attacker')), true);
+  assertStateRestore(browserCalls, 'bb-action-action-1-attacker', statePathFor(root, 'attacker'));
   assert.equal(JSON.stringify(actionToolResult).includes('HTTP/1.1'), false);
   assert.deepEqual(contribution.exchanges?.map(({ exchangeId }) => exchangeId), [replayed.exchangeId]);
   assert.deepEqual(contribution.actions, [{
