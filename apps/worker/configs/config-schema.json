@@ -128,6 +128,57 @@
       "minItems": 2,
       "maxItems": 5
     },
+    "identity_bound_request_fields": {
+      "type": "array",
+      "description": "Additional opaque request fields bound to the active identity in black-box mode; conventional authentication and anti-CSRF fields are protected automatically",
+      "maxItems": 64,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "location": { "const": "header" },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[!#$%&'*+\\-.^_`|~0-9A-Za-z]+$"
+              }
+            },
+            "required": ["location", "name"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "location": { "enum": ["query", "form"] },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 128,
+                "pattern": "^[^\\u0000-\\u001F\\u007F]+$"
+              }
+            },
+            "required": ["location", "name"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "location": { "const": "json" },
+              "pointer": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 512,
+                "pattern": "^/"
+              }
+            },
+            "required": ["location", "pointer"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
     "rules": {
       "type": "object",
       "description": "Testing rules that define what to focus on or avoid during penetration testing",
@@ -224,6 +275,12 @@
     { "required": ["exploit"] },
     { "required": ["report"] },
     { "required": ["rules_of_engagement"] }
+  ],
+  "allOf": [
+    {
+      "if": { "required": ["identities"] },
+      "then": { "required": ["identity_bound_request_fields"] }
+    }
   ],
   "additionalProperties": false,
   "$defs": {

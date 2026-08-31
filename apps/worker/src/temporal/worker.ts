@@ -34,12 +34,11 @@ import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
-import * as blackboxActivities from '../blackbox/activities.js';
 import type {
   BlackboxWorkflowInput,
   BlackboxWorkflowResult,
 } from '../blackbox/activities.js';
-import type { BlackboxWorkflowProgress } from './blackbox-workflow.js';
+import * as blackboxActivities from '../blackbox/activities.js';
 import { createBlackboxRunScope } from '../blackbox/scope-guard.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
 import {
@@ -48,10 +47,11 @@ import {
   FINAL_REPORT_PDF_FILENAME,
   resolveSessionJsonPath,
 } from '../paths.js';
-import type { VulnClass } from '../types/config.js';
 import type { BlackboxRunScope } from '../types/blackbox.js';
+import type { VulnClass } from '../types/config.js';
 import { fileExists, readJson } from '../utils/file-io.js';
 import * as whiteboxActivities from './activities.js';
+import type { BlackboxWorkflowProgress } from './blackbox-workflow.js';
 import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js';
 import {
   assertResumeCompatible,
@@ -237,6 +237,7 @@ async function loadBlackboxRunScope(args: CliArgs): Promise<BlackboxRunScope> {
   return createBlackboxRunScope(
     args.webUrl,
     config.identities.map(({ name }) => name),
+    config.identityBoundRequestFields,
     process.env,
   );
 }

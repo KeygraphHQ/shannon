@@ -21,12 +21,15 @@ import { assertRequestInScope, requestMatchesScope } from '../dist/blackbox/scop
 import {
   collapseExchanges,
   diffHistory,
+  filterCapturedTrafficByToken,
   historyHash,
   normalizeCapturedTraffic,
+  normalizeRawExchange,
 } from '../dist/blackbox/traffic-normalizer.js';
 
 const TARGET_ORIGIN = 'https://api.target.example';
 const EXPECTED_BURP_END_OF_ITEMS = 'Reached end of items';
+const CAPTURE_TOKEN = 'capture_0123456789abcdef';
 
 const REQUEST_CRLF = [
   'POST /api/users/42?expand=roles&csrf_token=query-secret HTTP/1.1',
@@ -63,6 +66,16 @@ const RESPONSE_LF = ['HTTP/1.1 204 No Content', 'Content-Length: 0', '', ''].joi
 
 function payload(request = REQUEST_LF, response = RESPONSE_LF, notes = '') {
   return { request, response, notes };
+}
+
+function withCaptureToken(request, token = CAPTURE_TOKEN) {
+  const separator = request.includes('\r\n') ? '\r\n' : '\n';
+  const [startLine, ...rest] = request.split(separator);
+  return [startLine, `X-Shannon-Capture: ${token}`, ...rest].join(separator);
+}
+
+function captured(record, token = CAPTURE_TOKEN) {
+  return { ...record, request: withCaptureToken(record.request, token) };
 }
 
 function mcpResult(records, includeFooter = true) {
@@ -303,12 +316,14 @@ test('traffic capture excludes truncated requests without treating truncated res
     identity: 'attacker',
     before: snapshotHistory([]),
     after: snapshotHistory([
-      { ...truncatedRequest, occurrence: 1 },
-      { ...truncatedResponse, occurrence: 1 },
+      captured({ ...truncatedRequest, occurrence: 1 }),
+      captured({ ...truncatedResponse, occurrence: 1 }),
     ]),
     rawDirectory: path.join(root, 'raw'),
     configuredSecrets: [],
     provenance: { actor: 'blackbox-recon', taskId: 'truncated-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   });
   assert.equal(exchanges.length, 1);
   assert.equal(exchanges[0].responseStatus, 0);
@@ -810,12 +825,51 @@ test('history diff is a multiset and attributes repeated identical requests', ()
   assert.equal(after.occurrenceCounts[historyHash(a)], 2);
 });
 
+test('capture ownership filtering is exact, strips its reserved header, and never returns the token', () => {
+  const reflectedResponse = [
+    'HTTP/1.1 200 OK',
+    `X-Reflected-Capture: ${CAPTURE_TOKEN}`,
+    '',
+    `reflected=${CAPTURE_TOKEN}`,
+  ].join('\r\n');
+  const matching = captured({ ...payload(REQUEST_LF, reflectedResponse, 'matching'), occurrence: 1 });
+  const wrong = captured({ ...payload(REQUEST_LF, RESPONSE_LF, 'wrong'), occurrence: 2 }, `${CAPTURE_TOKEN}-wrong`);
+  const absent = { ...payload(REQUEST_LF, RESPONSE_LF, 'absent'), occurrence: 3 };
+  const duplicate = {
+    ...matching,
+    request: withCaptureToken(matching.request),
+    occurrence: 4,
+  };
+
+  const selected = filterCapturedTrafficByToken([wrong, absent, duplicate, matching], CAPTURE_TOKEN);
+
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0].notes, 'matching');
+  assert.equal(selected[0].request, REQUEST_LF);
+  assert.equal(selected[0].response.includes('x'.repeat(CAPTURE_TOKEN.length)), true);
+  assert.equal(JSON.stringify(selected).includes(CAPTURE_TOKEN), false);
+  assert.equal(matching.request.includes(CAPTURE_TOKEN), true, 'the pure filter must not mutate its input');
+  const allXToken = 'x'.repeat(16);
+  const [allXSelected] = filterCapturedTrafficByToken(
+    [captured({ ...payload(REQUEST_LF, RESPONSE_LF, allXToken), occurrence: 1 }, allXToken)],
+    allXToken,
+  );
+  assert.equal(JSON.stringify(allXSelected).includes(allXToken), false);
+  assert.throws(() => filterCapturedTrafficByToken([matching], ''), /capture token/i);
+});
+
 test('normalization persists exact raw evidence and exposes stable redacted metadata only', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-burp-'));
   const secondRoot = await mkdtemp(path.join(tmpdir(), 'shannon-burp-repeat-'));
   t.after(() => Promise.all([rm(root, { recursive: true, force: true }), rm(secondRoot, { recursive: true, force: true })]));
   const before = snapshotHistory([]);
-  const after = snapshotHistory([{ ...payload(REQUEST_CRLF, RESPONSE_CRLF, 'captured'), occurrence: 1 }]);
+  const unrelated = { ...payload('GET /unrelated HTTP/1.1\r\nHost: api.target.example\r\n\r\n', RESPONSE_LF, 'other-run'), occurrence: 1 };
+  const wrongRun = captured({ ...unrelated, occurrence: 2 }, `${CAPTURE_TOKEN}-other-run`);
+  const after = snapshotHistory([
+    unrelated,
+    wrongRun,
+    captured({ ...payload(REQUEST_CRLF, RESPONSE_CRLF, 'captured'), occurrence: 1 }),
+  ]);
   const configuredSecrets = [
     'query-secret',
     'cookie-secret',
@@ -837,6 +891,8 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
     rawDirectory: path.join(root, '.shannon', 'blackbox', 'raw'),
     configuredSecrets,
     provenance,
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   };
 
   const exchanges = await normalizeCapturedTraffic(input);
@@ -861,7 +917,7 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
   assert.equal(
     exchange.routeSignature,
     `route_${sha256(
-      `${exchange.method}\0${exchange.origin}\0${exchange.path}\0${exchange.queryKeys.join(',')}\0${exchange.bodyShape}`,
+      `${exchange.method}\0${exchange.origin}\0${exchange.path}\0expand\0json:{name:string,object_id:string}`,
     ).slice(0, 24)}`,
   );
 
@@ -880,7 +936,10 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
   assert.equal(serialized.includes('http/1.1'), false);
 
   const rawPath = path.join(input.rawDirectory, `${exchange.exchangeId}.json`);
-  assert.deepEqual(JSON.parse(await readFile(rawPath, 'utf8')), after.orderedRecords[0]);
+  assert.deepEqual(JSON.parse(await readFile(rawPath, 'utf8')), {
+    ...payload(REQUEST_CRLF, RESPONSE_CRLF, 'captured'),
+    occurrence: 1,
+  });
 
   const repeated = await normalizeCapturedTraffic({
     ...input,
@@ -963,14 +1022,16 @@ test('normalization filters scope before persistence and sequences only the attr
     identity: 'attacker',
     before: snapshotHistory([]),
     after: snapshotHistory([
-      { ...foreign, occurrence: 1 },
-      { ...allowed, occurrence: 1 },
-      { ...hostMismatch, occurrence: 1 },
-      { ...avoided, occurrence: 1 },
+      captured({ ...foreign, occurrence: 1 }),
+      captured({ ...allowed, occurrence: 1 }),
+      captured({ ...hostMismatch, occurrence: 1 }),
+      captured({ ...avoided, occurrence: 1 }),
     ]),
     rawDirectory,
     configuredSecrets: [],
     provenance: { actor: 'blackbox-recon', taskId: 'scope-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   });
 
   assert.equal(exchanges.length, 1);
@@ -987,8 +1048,8 @@ test('normalization assigns IDs from delta-relative order after multiset subtrac
   const before = snapshotHistory([{ ...a, occurrence: 1 }]);
   const after = snapshotHistory([
     { ...a, occurrence: 1 },
-    { ...a, occurrence: 2 },
-    { ...b, occurrence: 1 },
+    captured({ ...a, occurrence: 1 }),
+    captured({ ...b, occurrence: 1 }),
   ]);
 
   const exchanges = await normalizeCapturedTraffic({
@@ -1000,6 +1061,8 @@ test('normalization assigns IDs from delta-relative order after multiset subtrac
     rawDirectory: path.join(root, 'raw'),
     configuredSecrets: [],
     provenance: { actor: 'blackbox-recon', taskId: 'delta-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   });
 
   assert.deepEqual(exchanges.map(({ captureSequence }) => captureSequence), [1, 2]);
@@ -1017,7 +1080,7 @@ test('normalization redacts dynamic secret names and secret-bearing media types'
   t.after(() => rm(root, { recursive: true, force: true }));
   const configuredSecret = 'configured-secret';
   const request = [
-    'POST /api/items?state=query-state&nonce=query-nonce HTTP/1.1',
+    'POST /api/items?state=query-state&nonce=query-nonce&authenticity_id=777 HTTP/1.1',
     'Host: api.target.example',
     `Content-Type: application/${configuredSecret}`,
     '',
@@ -1028,6 +1091,7 @@ test('normalization redacts dynamic secret names and secret-bearing media types'
       pass: 'short-password',
       state: 'body-state',
       nonce: 'body-nonce',
+      authenticity_id: '888',
       session: { object_id: 'nested-secret-reference' },
       object_id: '42',
     }),
@@ -1043,24 +1107,29 @@ test('normalization redacts dynamic secret names and secret-bearing media types'
     rules: {},
     identity: 'attacker',
     before: snapshotHistory([]),
-    after: snapshotHistory([{ ...payload(request, response), occurrence: 1 }]),
+    after: snapshotHistory([captured({ ...payload(request, response), occurrence: 1 })]),
     rawDirectory: path.join(root, 'raw'),
     configuredSecrets: [configuredSecret],
     provenance: { actor: 'blackbox-recon', taskId: 'secret-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   });
 
   assert.equal(exchanges.length, 1);
   assert.equal(exchanges[0].requestContentType, null);
   assert.equal(exchanges[0].responseContentType, null);
   assert.deepEqual(exchanges[0].candidateObjectReferences, ['42']);
+  assert.deepEqual(exchanges[0].queryKeys, ['<redacted>', 'nonce', 'state']);
+  assert.match(exchanges[0].bodyShape, /key:string/);
+  assert.match(exchanges[0].bodyShape, /nonce:string/);
+  assert.match(exchanges[0].bodyShape, /state:string/);
   const serialized = JSON.stringify(exchanges).toLowerCase();
   for (const forbidden of [
     configuredSecret,
     'private_key',
     'privatekey',
     'pass',
-    'state',
-    'nonce',
+    'authenticity_id',
     'private-key-value',
     'camel-private-key-value',
     'short-password',
@@ -1075,6 +1144,272 @@ test('normalization redacts dynamic secret names and secret-bearing media types'
   }
 });
 
+test('normalization treats declared opaque carriers as sensitive metadata, not resource references', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'shannon-burp-identity-fields-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const request = [
+    'POST /api/items?subject_id=42&view=full HTTP/1.1',
+    'Host: api.target.example',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({ identity: { opaque_id: '99' }, object_ids: ['123', '456'], resource_id: '100' }),
+  ].join('\r\n');
+  const reflectedResponse = RESPONSE_CRLF.replace(
+    '\r\n\r\n',
+    `\r\nX-Capture-Echo: ${CAPTURE_TOKEN}\r\n\r\n`,
+  );
+  const exchanges = await normalizeCapturedTraffic({
+    targetOrigin: TARGET_ORIGIN,
+    rules: {},
+    identity: 'attacker',
+    before: snapshotHistory([]),
+    after: snapshotHistory([captured({ ...payload(request, reflectedResponse), occurrence: 1 })]),
+    rawDirectory: path.join(root, 'raw'),
+    configuredSecrets: [],
+    provenance: { actor: 'blackbox-recon', taskId: 'identity-field-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [
+      { location: 'query', name: 'subject_id' },
+      { location: 'json', pointer: '/identity/opaque_id' },
+      { location: 'json', pointer: '/object_ids/0' },
+    ],
+  });
+
+  assert.equal(exchanges.length, 1);
+  assert.deepEqual(exchanges[0].queryKeys, ['<redacted>', 'view']);
+  assert.equal(exchanges[0].bodyShape.includes('opaque_id'), false);
+  assert.deepEqual(exchanges[0].candidateObjectReferences, ['100', '456']);
+  const persisted = await readFile(path.join(root, 'raw', `${exchanges[0].exchangeId}.json`), 'utf8');
+  assert.equal(persisted.includes(CAPTURE_TOKEN), false);
+  assert.equal(persisted.includes('X-Shannon-Capture'), false);
+  assert.doesNotThrow(() => JSON.parse(persisted));
+  assert.equal(persisted.includes('x'.repeat(CAPTURE_TOKEN.length)), true);
+  assert.equal(
+    exchanges[0].responseFingerprint,
+    `sha256:${sha256(reflectedResponse.replaceAll(CAPTURE_TOKEN, 'x'.repeat(CAPTURE_TOKEN.length)))}`,
+  );
+});
+
+test('normalization exposes mutable workflow field names without exposing their values', () => {
+  const exchange = normalizeRawExchange({
+    targetOrigin: TARGET_ORIGIN,
+    rules: {},
+    identity: 'attacker',
+    raw: {
+      request: [
+        'POST /api/reset?state=enabled&page_token=page-secret&reset_token=reset-secret HTTP/1.1',
+        'Host: api.target.example',
+        'Content-Type: application/json',
+        '',
+        JSON.stringify({ new_password: 'new-password-secret' }),
+      ].join('\r\n'),
+      response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{}',
+      notes: '',
+      occurrence: 1,
+    },
+    captureSequence: 1,
+    configuredSecrets: ['page-secret', 'reset-secret', 'new-password-secret'],
+    identityBoundRequestFields: [],
+    provenance: { actor: 'blackbox-recon', taskId: 'workflow-field-capture', baseRevision: 1 },
+  });
+
+  assert.deepEqual(exchange.queryKeys, ['page_token', 'reset_token', 'state']);
+  assert.match(exchange.bodyShape, /new_password:string/);
+  assert.equal(JSON.stringify(exchange).includes('page-secret'), false);
+  assert.equal(JSON.stringify(exchange).includes('reset-secret'), false);
+  assert.equal(JSON.stringify(exchange).includes('new-password-secret'), false);
+});
+
+test('normalization groups only response-grounded sibling slugs', () => {
+  const normalize = (slug, captureSequence, body = JSON.stringify({ slug })) =>
+    normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: 'attacker',
+      raw: {
+        request: `GET /api/profiles/${slug} HTTP/1.1\r\nHost: api.target.example\r\n\r\n`,
+        response: `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n${body}`,
+        notes: '',
+        occurrence: 1,
+      },
+      captureSequence,
+      configuredSecrets: [],
+      identityBoundRequestFields: [],
+      provenance: { actor: 'blackbox-recon', taskId: 'slug-capture', baseRevision: 1 },
+    });
+
+  const alice = normalize('alice', 1);
+  const bob = normalize('bob', 2);
+  const active = normalize('active', 3, '{}');
+  assert.equal(alice.path, '/api/profiles/alice');
+  assert.equal(bob.path, '/api/profiles/bob');
+  assert.equal(alice.routeSignature, bob.routeSignature);
+  assert.notEqual(alice.routeSignature, active.routeSignature);
+});
+
+test('route signatures omit actor-only query, form, and JSON identity carriers', () => {
+  const normalize = (request, captureSequence) =>
+    normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: captureSequence === 1 ? 'victim' : 'attacker',
+      raw: {
+        request,
+        response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{}',
+        notes: '',
+        occurrence: 1,
+      },
+      captureSequence,
+      configuredSecrets: [],
+      identityBoundRequestFields: [{ location: 'json', pointer: '/identity/opaque' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'carrier-capture', baseRevision: 1 },
+    });
+
+  const pairs = [
+    [
+      'GET /api/items?keep=1 HTTP/1.1\r\nHost: api.target.example\r\n\r\n',
+      'GET /api/items?keep=1&access_token=actor HTTP/1.1\r\nHost: api.target.example\r\n\r\n',
+    ],
+    [
+      'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nkeep=1',
+      'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/x-www-form-urlencoded\r\n\r\nkeep=1&csrf_token=actor',
+    ],
+    [
+      'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n{"keep":true,"identity":{}}',
+      'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n{"keep":true,"identity":{"opaque":"actor"}}',
+    ],
+  ];
+
+  for (const [source, actor] of pairs) {
+    assert.equal(normalize(source, 1).routeSignature, normalize(actor, 2).routeSignature);
+  }
+  assert.notEqual(
+    normalize('POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n{}', 1)
+      .routeSignature,
+    normalize(
+      'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n{"items":[]}',
+      2,
+    ).routeSignature,
+  );
+});
+
+test('route signatures preserve order and multiplicity around numeric JSON carriers', () => {
+  const normalize = (items, captureSequence) =>
+    normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: captureSequence === 1 ? 'victim' : 'attacker',
+      raw: {
+        request: `POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n${JSON.stringify({ items })}`,
+        response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{}',
+        notes: '',
+        occurrence: 1,
+      },
+      captureSequence,
+      configuredSecrets: [],
+      identityBoundRequestFields: [{ location: 'json', pointer: '/items/0/id' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'ordered-array-capture', baseRevision: 1 },
+    });
+
+  const source = [
+    { id: 'victim-item', kind: 'alpha', label: 'primary' },
+    { id: 'other-item', kind: 'beta' },
+    { id: 'other-item-2', kind: 'beta' },
+  ];
+  const reordered = [source[1], source[0], source[2]];
+  const duplicateRemoved = [source[0], source[1]];
+
+  assert.notEqual(normalize(source, 1).routeSignature, normalize(reordered, 2).routeSignature);
+  assert.notEqual(normalize(source, 1).routeSignature, normalize(duplicateRemoved, 3).routeSignature);
+});
+
+test('response candidates ignore request selector paths but exclude reflected carrier values', () => {
+  const normalize = (responseId, captureSequence) =>
+    normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: 'attacker',
+      raw: {
+        request: 'POST /api/items HTTP/1.1\r\nHost: api.target.example\r\nContent-Type: application/json\r\n\r\n{"id":"opaque-request-id"}',
+        response: `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":"${responseId}"}`,
+        notes: '',
+        occurrence: 1,
+      },
+      captureSequence,
+      configuredSecrets: [],
+      identityBoundRequestFields: [{ location: 'json', pointer: '/id' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'response-candidate-capture', baseRevision: 1 },
+    });
+
+  assert.deepEqual(normalize('resource-123', 1).candidateObjectReferences, ['resource-123']);
+  assert.deepEqual(normalize('opaque-request-id', 2).candidateObjectReferences, []);
+
+  const businessState = normalizeRawExchange({
+    targetOrigin: TARGET_ORIGIN,
+    rules: {},
+    identity: 'attacker',
+    raw: {
+      request: 'GET /api/items?state=resource-123 HTTP/1.1\r\nHost: api.target.example\r\n\r\n',
+      response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":"resource-123"}',
+      notes: '',
+      occurrence: 1,
+    },
+    captureSequence: 3,
+    configuredSecrets: [],
+    identityBoundRequestFields: [],
+    provenance: { actor: 'blackbox-recon', taskId: 'response-candidate-capture', baseRevision: 1 },
+  });
+  assert.deepEqual(businessState.candidateObjectReferences, ['resource-123']);
+
+  for (const [header, reflected] of [['Cookie: sid=short-cookie', 'short-cookie'], ['Authorization: Bearer short-bearer', 'short-bearer']]) {
+    const protectedReflection = normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: 'attacker',
+      raw: {
+        request: `GET /api/items HTTP/1.1\r\nHost: api.target.example\r\n${header}\r\n\r\n`,
+        response: `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":"${reflected}"}`,
+        notes: '',
+        occurrence: 1,
+      },
+      captureSequence: 4,
+      configuredSecrets: [],
+      identityBoundRequestFields: [],
+      provenance: { actor: 'blackbox-recon', taskId: 'response-candidate-capture', baseRevision: 1 },
+    });
+    assert.deepEqual(protectedReflection.candidateObjectReferences, []);
+  }
+});
+
+test('capture-token redaction preserves HTTP body framing', () => {
+  const request = [
+    'POST /echo HTTP/1.1',
+    'Host: api.target.example',
+    `Content-Length: ${CAPTURE_TOKEN.length}`,
+    'Content-Type: text/plain',
+    '',
+    CAPTURE_TOKEN,
+  ].join('\r\n');
+  const [selected] = filterCapturedTrafficByToken([captured({ ...payload(request), occurrence: 1 })], CAPTURE_TOKEN);
+  const parsed = parseHttpRequest(selected.request);
+
+  assert.equal(parsed.body.includes(CAPTURE_TOKEN), false);
+  assert.equal(Number(getHeaderValues(parsed.headers, 'content-length')[0]), Buffer.byteLength(parsed.body));
+  assert.notEqual(
+    normalizeRawExchange({
+      targetOrigin: TARGET_ORIGIN,
+      rules: {},
+      identity: 'anonymous',
+      raw: selected,
+      captureSequence: 1,
+      configuredSecrets: [],
+      identityBoundRequestFields: [],
+      provenance: { actor: 'blackbox-recon', taskId: 'framing-capture', baseRevision: 1 },
+    }),
+    null,
+  );
+});
+
 test('normalization retains request evidence when Burp has no response', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-burp-no-response-'));
   t.after(() => rm(root, { recursive: true, force: true }));
@@ -1084,10 +1419,12 @@ test('normalization retains request evidence when Burp has no response', async (
     rules: {},
     identity: 'attacker',
     before: snapshotHistory([]),
-    after: snapshotHistory([raw]),
+    after: snapshotHistory([captured(raw)]),
     rawDirectory: path.join(root, 'raw'),
     configuredSecrets: [],
     provenance: { actor: 'blackbox-recon', taskId: 'no-response-capture', baseRevision: 1 },
+    captureToken: CAPTURE_TOKEN,
+    identityBoundRequestFields: [],
   });
 
   assert.equal(exchanges.length, 1);

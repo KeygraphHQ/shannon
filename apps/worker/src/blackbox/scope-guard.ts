@@ -4,8 +4,9 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import type { Rule, Rules } from '../types/config.js';
+import { createHash } from 'node:crypto';
 import type { BlackboxRunScope } from '../types/blackbox.js';
+import type { IdentityBoundRequestField, Rule, Rules } from '../types/config.js';
 import type { ParsedHttpRequest } from './http-message.js';
 import { getHeaderValues } from './http-message.js';
 
@@ -13,6 +14,7 @@ const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
 
 export const DEFAULT_BURP_MCP_URL = 'http://host.docker.internal:9876';
 export const DEFAULT_BURP_MCP_HOST_HEADER = '127.0.0.1:9876';
+export const BLACKBOX_EVIDENCE_BINDING_VERSION = 1;
 
 export interface BlackboxScopeEnvironment {
   readonly SHANNON_BURP_MCP_URL?: string;
@@ -68,6 +70,7 @@ function normalizeEndpoint(value: string, label: string, protocols: ReadonlySet<
 export function createBlackboxRunScope(
   targetUrl: string,
   identities: readonly string[],
+  identityBoundRequestFields: readonly IdentityBoundRequestField[],
   environment: BlackboxScopeEnvironment,
 ): BlackboxRunScope {
   const proxy = environment.SHANNON_BURP_PROXY_URL?.trim();
@@ -88,7 +91,20 @@ export function createBlackboxRunScope(
     ),
     burpMcpHostHeader: hostHeader,
     burpProxyUrl: normalizeEndpoint(proxy, 'SHANNON_BURP_PROXY_URL', new Set(['http:'])),
+    evidenceBindingVersion: BLACKBOX_EVIDENCE_BINDING_VERSION,
+    identityBindingContractDigest: identityBindingContractDigest(identityBoundRequestFields),
   };
+}
+
+export function identityBindingContractDigest(fields: readonly IdentityBoundRequestField[]): string {
+  const canonical = fields
+    .map((field) =>
+      field.location === 'json'
+        ? `${field.location}\0${field.pointer}`
+        : `${field.location}\0${field.location === 'header' ? field.name.toLowerCase() : field.name}`,
+    )
+    .sort();
+  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
 export function assertSameBlackboxRunScope(
@@ -102,6 +118,8 @@ export function assertSameBlackboxRunScope(
     'burpMcpUrl',
     'burpMcpHostHeader',
     'burpProxyUrl',
+    'evidenceBindingVersion',
+    'identityBindingContractDigest',
   ];
   for (const field of fields) {
     const left = field === 'identities' ? [...existing.identities].sort() : existing[field];

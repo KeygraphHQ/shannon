@@ -7,13 +7,20 @@ import test from 'node:test';
 import { runInNewContext } from 'node:vm';
 
 import { createBlackboxActivities } from '../dist/blackbox/activities.js';
-import { BlackboardValidationError, StaleBlackboardRevisionError } from '../dist/blackbox/blackboard.js';
+import { publishBlackboxArtifacts } from '../dist/blackbox/artifacts.js';
+import {
+  BlackboardValidationError,
+  FileBlackboardStore,
+  StaleBlackboardRevisionError,
+} from '../dist/blackbox/blackboard.js';
 import { validateAndScheduleWave } from '../dist/blackbox/scheduler.js';
 
 const TARGET_ORIGIN = 'https://target.example';
 const SECRET = 'password-fixture-secret';
+const CAPTURE_TOKEN = 'capture_0123456789abcdef';
 
-const REQUEST = (id) => `GET /api/items/${id} HTTP/1.1\r\nHost: target.example\r\nAccept: application/json\r\n\r\n`;
+const REQUEST = (id, captureToken = CAPTURE_TOKEN) =>
+  `GET /api/items/${id} HTTP/1.1\r\nHost: target.example\r\nX-Shannon-Capture: ${captureToken}\r\nAccept: application/json\r\n\r\n`;
 const RESPONSE = (id) => `HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"id":"${id}","owner":"user"}`;
 
 function normalizedExchange(exchangeId, overrides = {}) {
@@ -39,12 +46,17 @@ function normalizedExchange(exchangeId, overrides = {}) {
 }
 
 function history(records) {
-  return records.map(({ id }) => JSON.stringify({ request: REQUEST(id), response: RESPONSE(id), notes: '' })).join('\n');
+  return records
+    .map(({ id, captureToken }) =>
+      JSON.stringify({ request: REQUEST(id, captureToken ?? CAPTURE_TOKEN), response: RESPONSE(id), notes: '' }),
+    )
+    .join('\n');
 }
 
 function rawConfig(identityNames = ['attacker', 'victim', 'backup']) {
   return {
     rules: {},
+    identity_bound_request_fields: [],
     identities: identityNames.map((name) => ({
       name,
       role: 'ordinary user',
@@ -236,9 +248,27 @@ function boardFake(options = {}) {
       };
       return structuredClone(snapshot);
     },
-    async setRunStatus(revision, operationKey, status) {
-      calls.push(['setRunStatus', revision, operationKey, status]);
-      snapshot = { ...snapshot, revision: snapshot.revision + 1, runStatus: status };
+    async setRunStatus(revision, operationKey, status, terminalFailure) {
+      calls.push(['setRunStatus', revision, operationKey, status, terminalFailure]);
+      if (options.setRunStatusError) throw options.setRunStatusError;
+      const existing = snapshot.operationReceipts?.find((receipt) => receipt.operationKey === operationKey);
+      if (existing) {
+        if (snapshot.runStatus !== status || (snapshot.terminalFailure ?? null) !== (terminalFailure ?? null)) {
+          throw new BlackboardValidationError(`Operation key ${operationKey} was already used with different content`);
+        }
+        return structuredClone(snapshot);
+      }
+      const nextRevision = snapshot.revision + 1;
+      snapshot = {
+        ...snapshot,
+        revision: nextRevision,
+        runStatus: status,
+        terminalFailure,
+        operationReceipts: [
+          ...(snapshot.operationReceipts ?? []),
+          { operationKey, requestDigest: 'a'.repeat(64), revision: nextRevision },
+        ],
+      };
       return structuredClone(snapshot);
     },
   };
@@ -267,7 +297,6 @@ async function makeDeps(t, root, options = {}) {
   const authCheckCursor = { index: 0 };
   const authExpressions = [];
   const openedSessions = new Set();
-  const loadedStateSessions = new Set();
   const environment = options.environment ?? { SHANNON_BURP_PROXY_URL: 'http://proxy.example:8080' };
   const replayCalls = [];
   const fileSystem = { readFile, writeFile, mkdir, rm };
@@ -296,9 +325,8 @@ async function makeDeps(t, root, options = {}) {
           throw new Error(`state-load requires an existing session: ${session}`);
         }
         if (openIndex >= 0) openedSessions.add(session);
-        if (stateLoadIndex >= 0) loadedStateSessions.add(session);
-        if (gotoIndex >= 0 && !loadedStateSessions.has(session)) {
-          throw new Error(`goto requires restored state: ${session}`);
+        if (gotoIndex >= 0 && !openedSessions.has(session)) {
+          throw new Error(`goto requires an existing session: ${session}`);
         }
       }
       if (stateSaveIndex >= 0 && commandArguments[stateSaveIndex + 1]) {
@@ -356,6 +384,7 @@ async function makeDeps(t, root, options = {}) {
     logger: logger(),
     getCancellationSignal: () => options.cancellationSignal,
     readEnvironment: () => environment,
+    createCaptureToken: options.createCaptureToken ?? (() => CAPTURE_TOKEN),
     fileSystem,
     createReplayRawStore: () => ({}),
     createReplayService(replayOptions) {
@@ -494,9 +523,24 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
     'bootstrap-victim',
     'bootstrap-backup',
   ]);
-  assert.deepEqual(browserCalls, [
-    ['playwright-cli', ['-s=blackbox-preflight', 'open', `${TARGET_ORIGIN}/login`], { cwd: root }],
-    ['playwright-cli', ['-s=blackbox-preflight', 'close'], { cwd: root }],
+  assert.deepEqual(browserCalls[0], [
+    'playwright-cli',
+    ['-s=blackbox-preflight', 'open', 'about:blank'],
+    { cwd: root },
+  ]);
+  assert.equal(browserCalls[1][1][0], '-s=blackbox-preflight');
+  assert.equal(browserCalls[1][1][1], 'run-code');
+  assert.match(browserCalls[1][1][2], /setExtraHTTPHeaders/);
+  assert.match(browserCalls[1][1][2], /X-Shannon-Capture/);
+  assert.deepEqual(browserCalls[2], [
+    'playwright-cli',
+    ['-s=blackbox-preflight', 'goto', `${TARGET_ORIGIN}/login`],
+    { cwd: root },
+  ]);
+  assert.deepEqual(browserCalls[3], [
+    'playwright-cli',
+    ['-s=blackbox-preflight', 'close'],
+    { cwd: root },
   ]);
   assert.equal(result.targetOrigin, TARGET_ORIGIN);
   assert.equal(result.revision, 1);
@@ -685,6 +729,68 @@ test('resume returns a committed terminal result without repeating external work
     'workflow-resume',
     ['workflow-1'],
   ]);
+});
+
+test('resume repairs missing artifacts for a committed terminal finalization', async (t) => {
+  const root = await tempRoot(t);
+  const outputPath = path.join(root, 'repaired-output');
+  const { deps, board, burpCalls, browserCalls, agents } = await makeDeps(t, root);
+  board.seed({
+    revision: 9,
+    runStatus: 'incomplete',
+    operationReceipts: [{
+      operationKey: 'workflow-1:8:finalize:',
+      requestDigest: `sha256:${'a'.repeat(64)}`,
+      revision: 9,
+    }],
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    outputPath,
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.equal(preflight.terminalResult.status, 'incomplete');
+  assert.deepEqual(preflight.terminalResult.failures, ['terminal artifact publication was interrupted; original terminal reason is unavailable']);
+  for (const artifactName of preflight.terminalResult.artifactNames) {
+    assert.equal(typeof await readFile(path.join(outputPath, artifactName), 'utf8'), 'string');
+  }
+  assert.deepEqual(board.calls.map(([name]) => name), ['initialize']);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(agents, []);
+});
+
+test('resume repairs missing artifacts with the committed terminal failure', async (t) => {
+  const root = await tempRoot(t);
+  const outputPath = path.join(root, 'repaired-output');
+  const terminalFailure = 'planner stopped after authenticated coverage failed';
+  const { deps, board } = await makeDeps(t, root);
+  board.seed({
+    revision: 9,
+    runStatus: 'incomplete',
+    terminalFailure,
+    operationReceipts: [{
+      operationKey: 'workflow-1:8:finalize:',
+      requestDigest: `sha256:${'a'.repeat(64)}`,
+      revision: 9,
+    }],
+  });
+
+  const preflight = await createBlackboxActivities(deps).preflightBlackbox({
+    ...input(root),
+    outputPath,
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+
+  assert.deepEqual(preflight.terminalResult.failures, [terminalFailure]);
+  const metadata = JSON.parse(
+    await readFile(path.join(root, '.shannon', 'deliverables', 'blackbox_blackboard.json'), 'utf8'),
+  );
+  assert.equal(metadata.failure, terminalFailure);
 });
 
 test('resume rejects a terminal board created by artifact-publication fallback', async (t) => {
@@ -930,6 +1036,17 @@ test('preflight rejects a browser navigation that produces no target history del
   assert.deepEqual(agents, []);
 });
 
+test('preflight rejects target history owned by another capture token', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, browserCalls, agents } = await makeDeps(t, root, {
+    historyQueue: [[], [{ id: 'foreign', captureToken: 'capture_other_0123456789' }]],
+  });
+
+  await assert.rejects(createBlackboxActivities(deps).preflightBlackbox(input(root)), /history|proxy|traffic/i);
+  assert.equal(browserCalls.some((args) => JSON.stringify(args).includes('close')), true);
+  assert.deepEqual(agents, []);
+});
+
 test('missing required Burp tools fails preflight before browser or model execution', async (t) => {
   const root = await tempRoot(t);
   const { deps, burpCalls, browserCalls, agents } = await makeDeps(t, root, {
@@ -1121,6 +1238,7 @@ test('identity capture recovers an agent-saved state in a fresh session after li
     [
       ['-s=bb-capture-recovery-attacker', 'open', 'about:blank'],
       ['-s=bb-capture-recovery-attacker', 'state-load', storagePath],
+      ['-s=bb-capture-recovery-attacker', 'run-code', browserCalls.find(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('run-code'))?.[1][2]],
       ['-s=bb-capture-recovery-attacker', 'goto', `${TARGET_ORIGIN}/login`],
       ['-s=bb-capture-recovery-attacker', 'eval', browserCalls.find(([, args]) => args[0] === '-s=bb-capture-recovery-attacker' && args.includes('eval'))?.[1][2]],
       ['-s=bb-capture-recovery-attacker', 'state-save', storagePath],
@@ -1893,7 +2011,16 @@ test('Burp close failure cannot replace a completed preflight or identity captur
 
 test('action executes the persisted replay plan and derives its result from the replay service', async (t) => {
   const root = await tempRoot(t);
-  const source = normalizedExchange('source-exchange');
+  const source = normalizedExchange('source-exchange', {
+    identity: 'victim',
+    routeSignature: 'route-items',
+    candidateObjectReferences: ['victim'],
+  });
+  const control = normalizedExchange('control-exchange', {
+    identity: 'attacker',
+    routeSignature: 'route-items',
+    candidateObjectReferences: ['attacker'],
+  });
   const replayed = normalizedExchange('action-exchange', {
     identity: 'attacker',
     path: '/api/items/victim',
@@ -1925,7 +2052,7 @@ test('action executes the persisted replay plan and derives its result from the 
     passed: true,
     baselineExchangeId: source.exchangeId,
     baselinePassed: true,
-    controlExchangeIds: [],
+    controlExchangeIds: [control.exchangeId],
     controlPassed: false,
     proofSourceRequestDigest: 'a'.repeat(64),
     proofSentRequestDigest: 'a'.repeat(64),
@@ -1985,16 +2112,27 @@ test('action executes the persisted replay plan and derives its result from the 
       authenticated: true,
       stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
     })),
-    exchanges: [source],
-    resources: [{
-      resourceId: 'resource-victim',
-      resourceType: 'private item',
-      objectReferences: ['victim'],
-      ownerIdentity: 'victim',
-      visibility: 'private',
-      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
-      provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
-    }],
+    exchanges: [source, control],
+    resources: [
+      {
+        resourceId: 'resource-victim',
+        resourceType: 'private item',
+        objectReferences: ['victim'],
+        ownerIdentity: 'victim',
+        visibility: 'private',
+        evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+        provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
+      },
+      {
+        resourceId: 'resource-attacker',
+        resourceType: 'private item',
+        objectReferences: ['attacker'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [{ id: control.exchangeId, kind: 'exchange' }],
+        provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-attacker', baseRevision: 1 },
+      },
+    ],
     hypotheses: [{
       hypothesisId: 'hypothesis-1',
       kind: 'horizontal',
@@ -2076,6 +2214,32 @@ test('action executes the persisted replay plan and derives its result from the 
     revision: 7,
   });
   assert.equal(nondiscriminating.candidateProofs, undefined);
+
+  deps.createReplayService = () => ({
+    async replay() {
+      return {
+        status: 'completed',
+        exchanges: [replayed],
+        comparison: {
+          baselineExchangeId: source.exchangeId,
+          observedExchangeId: replayed.exchangeId,
+          baselineStatus: 200,
+          observedStatus: 200,
+          statusChanged: false,
+          baselineFingerprint: 'sha256:source',
+          observedFingerprint: 'sha256:action',
+          fingerprintChanged: true,
+        },
+        observation: { ...observation, controlExchangeIds: [], controlPassed: false },
+      };
+    },
+  });
+  const uncontrolled = await createBlackboxActivities(deps).runBlackboxAction({
+    ...input(root),
+    task: persistedTask,
+    revision: 7,
+  });
+  assert.equal(uncontrolled.candidateProofs, undefined);
 
   deps.createReplayService = () => ({
     async replay() {
@@ -2163,7 +2327,16 @@ test('action persists every restored authenticated actor before replay work', as
 
 test('verifier replays the approved sequence under fresh identity state and derives immutable evidence fields', async (t) => {
   const root = await tempRoot(t);
-  const source = normalizedExchange('source-exchange');
+  const source = normalizedExchange('source-exchange', {
+    identity: 'victim',
+    routeSignature: 'route-items',
+    candidateObjectReferences: ['victim'],
+  });
+  const control = normalizedExchange('control-exchange', {
+    identity: 'attacker',
+    routeSignature: 'route-items',
+    candidateObjectReferences: ['attacker'],
+  });
   const actionExchange = normalizedExchange('action-exchange', {
     path: '/api/items/victim',
     provenance: { actor: 'blackbox-action', taskId: 'action-1', baseRevision: 7 },
@@ -2204,7 +2377,7 @@ test('verifier replays the approved sequence under fresh identity state and deri
     passed: true,
     baselineExchangeId: source.exchangeId,
     baselinePassed: true,
-    controlExchangeIds: [],
+    controlExchangeIds: [control.exchangeId],
     controlPassed: false,
     proofSourceRequestDigest: 'a'.repeat(64),
     proofSentRequestDigest: 'a'.repeat(64),
@@ -2300,16 +2473,27 @@ test('verifier replays the approved sequence under fresh identity state and deri
       authenticated: true,
       stateRef: `.shannon/blackbox/identities/${name}/storage-state.json`,
     })),
-    exchanges: [source, actionExchange],
-    resources: [{
-      resourceId: 'resource-victim',
-      resourceType: 'private item',
-      objectReferences: ['victim'],
-      ownerIdentity: 'victim',
-      visibility: 'private',
-      evidence: [{ id: source.exchangeId, kind: 'exchange' }],
-      provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
-    }],
+    exchanges: [source, control, actionExchange],
+    resources: [
+      {
+        resourceId: 'resource-victim',
+        resourceType: 'private item',
+        objectReferences: ['victim'],
+        ownerIdentity: 'victim',
+        visibility: 'private',
+        evidence: [{ id: source.exchangeId, kind: 'exchange' }],
+        provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-victim', baseRevision: 1 },
+      },
+      {
+        resourceId: 'resource-attacker',
+        resourceType: 'private item',
+        objectReferences: ['attacker'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [{ id: control.exchangeId, kind: 'exchange' }],
+        provenance: { actor: 'blackbox-recon', taskId: 'bootstrap-attacker', baseRevision: 1 },
+      },
+    ],
     hypotheses: [{
       hypothesisId: 'hypothesis-1',
       kind: 'horizontal',
@@ -2563,16 +2747,19 @@ test('control activities redact failures, evaluate persisted progress, and final
     'blackbox_authz_findings.json',
     'blackbox_authz_evidence.md',
   ]);
-  assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'incomplete');
+  const terminalCall = board.calls.findLast(([name]) => name === 'setRunStatus');
+  assert.equal(terminalCall[3], 'incomplete');
+  assert.equal(terminalCall[4], finalized.failures[0]);
+  assert.equal(terminalCall[4].includes(SECRET), false);
 });
 
-test('artifact publication failure records incomplete and never returns partial success', async (t) => {
+test('artifact publication failure occurs after terminal CAS and remains repairable', async (t) => {
   const root = await tempRoot(t);
   let publishCalls = 0;
   const { deps, board } = await makeDeps(t, root, {
     publishArtifacts: async () => {
       publishCalls += 1;
-      assert.equal(board.calls.some(([name]) => name === 'setRunStatus'), false);
+      assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'complete');
       throw new Error('third artifact write failed');
     },
   });
@@ -2595,11 +2782,87 @@ test('artifact publication failure records incomplete and never returns partial 
       operationKey,
       status,
     ]),
-    [[4, 'workflow-1:2:finalize::incomplete', 'incomplete']],
+    [[4, 'workflow-1:2:finalize:', 'complete']],
   );
 });
 
-test('output copy failure records incomplete before the workflow can report success', async (t) => {
+test('an incomplete publication outage resumes from the committed redacted failure', async (t) => {
+  const root = await tempRoot(t);
+  let publishCalls = 0;
+  const { deps } = await makeDeps(t, root);
+  const createBlackboardStore = (repoPath) => new FileBlackboardStore(repoPath);
+  const firstActivities = createBlackboxActivities({
+    ...deps,
+    createBlackboardStore,
+    publishArtifacts: async () => {
+      publishCalls += 1;
+      throw new Error('first artifact write failed');
+    },
+  });
+  const finalization = {
+    ...input(root),
+    revision: 0,
+    status: 'incomplete',
+    failure: `authenticated coverage failed with ${SECRET}`,
+    operationKey: 'workflow-1:2:finalize:',
+  };
+
+  await assert.rejects(firstActivities.finalizeBlackboxRun(finalization), /artifact write failed/);
+  const committed = await new FileBlackboardStore(root).read();
+  const committedFailure = committed.terminalFailure;
+  assert.equal(committedFailure.includes(SECRET), false);
+
+  const resumed = await createBlackboxActivities({
+    ...deps,
+    createBlackboardStore,
+    publishArtifacts: async (...args) => {
+      publishCalls += 1;
+      return publishBlackboxArtifacts(...args);
+    },
+  }).preflightBlackbox({
+    ...input(root),
+    workflowId: 'workflow-resume',
+    resumeFromWorkspace: 'run-1',
+  });
+  assert.deepEqual(resumed.terminalResult.failures, [committedFailure]);
+  const metadata = JSON.parse(
+    await readFile(path.join(root, '.shannon', 'deliverables', 'blackbox_blackboard.json'), 'utf8'),
+  );
+  assert.equal(metadata.failure, committedFailure);
+  assert.equal(publishCalls, 2);
+});
+
+test('failed terminal CAS does not publish artifacts or copy output', async (t) => {
+  const root = await tempRoot(t);
+  const outputPath = path.join(root, 'exported');
+  let publishCalls = 0;
+  let copyCalls = 0;
+  const { deps, board } = await makeDeps(t, root, {
+    setRunStatusError: new StaleBlackboardRevisionError('stale finalization revision'),
+    publishArtifacts: async () => { publishCalls += 1; return []; },
+    copyDeliverables: async () => { copyCalls += 1; },
+  });
+  board.seed({ revision: 4 });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).finalizeBlackboxRun({
+      ...input(root),
+      outputPath,
+      revision: 4,
+      status: 'complete',
+      operationKey: 'workflow-1:2:finalize:',
+    }),
+    /stale finalization revision/,
+  );
+
+  assert.equal(publishCalls, 0);
+  assert.equal(copyCalls, 0);
+  assert.deepEqual(board.calls.filter(([name]) => name === 'setRunStatus'), [
+    ['setRunStatus', 4, 'workflow-1:2:finalize:', 'complete', null],
+  ]);
+});
+
+test('output copy failure occurs after terminal CAS and remains repairable', async (t) => {
   const root = await tempRoot(t);
   const outputPath = path.join(root, 'exported');
   const copyCalls = [];
@@ -2612,7 +2875,7 @@ test('output copy failure records incomplete before the workflow can report succ
     ],
     copyDeliverables: async (...args) => {
       copyCalls.push(args);
-      assert.equal(board.calls.some(([name]) => name === 'setRunStatus'), false);
+      assert.equal(board.calls.findLast(([name]) => name === 'setRunStatus')[3], 'complete');
       throw new Error('output copy failed');
     },
   });
@@ -2641,8 +2904,56 @@ test('output copy failure records incomplete before the workflow can report succ
       operationKey,
       status,
     ]),
-    [[4, 'workflow-1:2:finalize::incomplete', 'incomplete']],
+    [[4, 'workflow-1:2:finalize:', 'complete']],
   );
+});
+
+test('matching terminal receipt retries publication and output copy', async (t) => {
+  const root = await tempRoot(t);
+  const outputPath = path.join(root, 'exported');
+  const published = [];
+  const copied = [];
+  let publishAttempts = 0;
+  const { deps, board } = await makeDeps(t, root, {
+    publishArtifacts: async (...args) => {
+      published.push(args);
+      publishAttempts += 1;
+      if (publishAttempts === 1) throw new Error('transient artifact write failed');
+      return [
+        'traffic_inventory.json',
+        'blackbox_blackboard.json',
+        'blackbox_authz_findings.json',
+        'blackbox_authz_evidence.md',
+      ];
+    },
+    copyDeliverables: async (...args) => { copied.push(args); },
+  });
+  board.seed({ revision: 4 });
+  const activities = createBlackboxActivities(deps);
+  const finalization = {
+    ...input(root),
+    outputPath,
+    revision: 4,
+    status: 'complete',
+    operationKey: 'workflow-1:2:finalize:',
+  };
+
+  await assert.rejects(activities.finalizeBlackboxRun(finalization), /transient artifact write failed/);
+  const repaired = await activities.finalizeBlackboxRun(finalization);
+
+  assert.equal(repaired.revision, 5);
+  assert.equal(repaired.status, 'no_findings');
+  assert.equal(published.length, 2);
+  assert.equal(copied.length, 1);
+  assert.equal(board.calls.filter(([name]) => name === 'setRunStatus').length, 2);
+  assert.equal(JSON.parse(published[1][1]['blackbox_blackboard.json']).revision, 5);
+
+  await assert.rejects(
+    activities.finalizeBlackboxRun({ ...finalization, failure: 'different terminal failure' }),
+    /different content/i,
+  );
+  assert.equal(published.length, 2);
+  assert.equal(copied.length, 1);
 });
 
 test('finalization publishes and counts only a replay-verified impact finding', async (t) => {
@@ -2676,7 +2987,7 @@ test('finalization publishes and counts only a replay-verified impact finding', 
     passed: true,
     baselineExchangeId: 'ex-baseline-control',
     baselinePassed: true,
-    controlExchangeIds: [],
+    controlExchangeIds: ['ex-peer-control'],
     controlPassed: false,
     proofSourceRequestDigest: 'a'.repeat(64),
     proofSentRequestDigest: 'a'.repeat(64),
@@ -2698,17 +3009,24 @@ test('finalization publishes and counts only a replay-verified impact finding', 
         identity: 'victim',
         candidateObjectReferences: ['object-1'],
       }),
-      normalizedExchange('ex-action-control', {
+      normalizedExchange('ex-peer-control', {
         routeSignature: 'route_control',
         identity: 'attacker',
         captureSequence: 2,
+        candidateObjectReferences: ['object-2'],
+        provenance: { actor: 'blackbox-recon', taskId: 'recon-peer-control', baseRevision: 3 },
+      }),
+      normalizedExchange('ex-action-control', {
+        routeSignature: 'route_control',
+        identity: 'attacker',
+        captureSequence: 3,
         candidateObjectReferences: ['object-1'],
         provenance: { actor: 'blackbox-action', taskId: 'action-control', baseRevision: 10 },
       }),
       normalizedExchange('ex-verify-control', {
         routeSignature: 'route_control',
         identity: 'attacker',
-        captureSequence: 3,
+        captureSequence: 4,
         candidateObjectReferences: ['object-1'],
         provenance: { actor: 'blackbox-verifier', taskId: 'verification-control', baseRevision: 11 },
       }),
@@ -2721,6 +3039,14 @@ test('finalization publishes and counts only a replay-verified impact finding', 
       visibility: 'private',
       evidence: [{ id: 'ex-baseline-control', kind: 'exchange' }],
       provenance: { actor: 'blackbox-recon', taskId: 'recon-control', baseRevision: 2 },
+    }, {
+      resourceId: 'resource-peer-control',
+      resourceType: 'private item',
+      objectReferences: ['object-2'],
+      ownerIdentity: 'attacker',
+      visibility: 'private',
+      evidence: [{ id: 'ex-peer-control', kind: 'exchange' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'recon-peer-control', baseRevision: 3 },
     }],
     hypotheses: [{
       hypothesisId: 'hypothesis-control',

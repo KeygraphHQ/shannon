@@ -36,8 +36,8 @@ import type {
 } from '../types/blackbox.js';
 import { SessionMutex } from '../utils/concurrency.js';
 import { atomicWrite, ensureDirectory, fileExists, readJson } from '../utils/file-io.js';
-import { assertSameBlackboxRunScope } from './scope-guard.js';
 import { replayPlansShareDispatchedStep } from './scheduler.js';
+import { assertSameBlackboxRunScope } from './scope-guard.js';
 
 const blackboardMutex = new SessionMutex();
 const SAFE_RECORD_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
@@ -523,12 +523,27 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
     runScope.identities.some((identity) => typeof identity !== 'string' || identity.length === 0) ||
     typeof runScope.burpMcpUrl !== 'string' ||
     typeof runScope.burpMcpHostHeader !== 'string' ||
-    typeof runScope.burpProxyUrl !== 'string'
+    typeof runScope.burpProxyUrl !== 'string' ||
+    runScope.evidenceBindingVersion !== 1 ||
+    typeof runScope.identityBindingContractDigest !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(runScope.identityBindingContractDigest)
   ) {
     throw new BlackboardValidationError('Blackboard runScope is invalid');
   }
   if (!['running', 'complete', 'incomplete', 'failed'].includes(String(document.runStatus))) {
     throw new BlackboardValidationError('Blackboard runStatus is invalid');
+  }
+  if (
+    document.terminalFailure !== undefined &&
+    document.terminalFailure !== null &&
+    (typeof document.terminalFailure !== 'string' ||
+      document.terminalFailure.length === 0 ||
+      document.terminalFailure.length > 500)
+  ) {
+    throw new BlackboardValidationError('Blackboard terminalFailure is invalid');
+  }
+  if (document.runStatus === 'running' && document.terminalFailure !== undefined && document.terminalFailure !== null) {
+    throw new BlackboardValidationError('A running blackboard cannot have a terminal failure');
   }
   if (document.planningDecision !== undefined && document.planningDecision !== null) {
     const planningDecision = document.planningDecision as Record<string, unknown>;
@@ -653,6 +668,7 @@ export class FileBlackboardStore implements BlackboardStore {
         tasks: [],
         rejectedTasks: [],
         runStatus: 'running',
+        terminalFailure: null,
         planningDecision: null,
         planningWave: null,
         operationReceipts: [],
@@ -1227,12 +1243,34 @@ export class FileBlackboardStore implements BlackboardStore {
     );
   }
 
-  async setRunStatus(baseRevision: number, operationKey: string, status: BlackboxRunStatus): Promise<BlackboxSnapshot> {
+  async setRunStatus(
+    baseRevision: number,
+    operationKey: string,
+    status: BlackboxRunStatus,
+    terminalFailure?: string | null,
+  ): Promise<BlackboxSnapshot> {
+    if (!['complete', 'incomplete', 'failed'].includes(String(status))) {
+      throw new BlackboardValidationError('Run status must be terminal');
+    }
+    if (
+      terminalFailure !== undefined &&
+      terminalFailure !== null &&
+      (typeof terminalFailure !== 'string' || terminalFailure.length === 0 || terminalFailure.length > 500)
+    ) {
+      throw new BlackboardValidationError('Terminal failure is invalid');
+    }
+    const request =
+      terminalFailure === undefined
+        ? { operation: 'setRunStatus', baseRevision, status }
+        : { operation: 'setRunStatus', baseRevision, status, terminalFailure };
     return this.keyedCompareAndSwap(
       baseRevision,
       operationKey,
-      { operation: 'setRunStatus', baseRevision, status },
-      (document) => ({ ...document, runStatus: status }),
+      request,
+      (document) =>
+        terminalFailure === undefined
+          ? { ...document, runStatus: status }
+          : { ...document, runStatus: status, terminalFailure },
     );
   }
 

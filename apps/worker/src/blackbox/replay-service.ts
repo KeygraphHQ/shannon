@@ -15,7 +15,7 @@ import type {
   ReplayStep,
   RequestMutation,
 } from '../types/blackbox.js';
-import type { Rules } from '../types/config.js';
+import type { IdentityBoundRequestField, Rules } from '../types/config.js';
 import { atomicWrite, ensureDirectory, fileExists, readJson } from '../utils/file-io.js';
 import type { BurpToolClient, RawHistoryRecord } from './burp-client.js';
 import { BURP_NO_REQUEST, BURP_NO_RESPONSE, BURP_TRUNCATION_MARKER, extractMcpText } from './burp-client.js';
@@ -23,11 +23,32 @@ import type { ParsedHttpResponse } from './http-message.js';
 import { getHeaderValues, parseHttpRequest, parseHttpResponse } from './http-message.js';
 import type { IdentityStateResolver } from './identity-state.js';
 import { assertRequestInScope, normalizeTargetOrigin } from './scope-guard.js';
-import { normalizeRawExchange, sha256 } from './traffic-normalizer.js';
+import {
+  isImplicitAuthenticationRequestFieldName,
+  isImplicitIdentityBoundRequestFieldName,
+  isSynchronizationRequestFieldName,
+  normalizeRawExchange,
+  SHANNON_CAPTURE_HEADER,
+  sha256,
+} from './traffic-normalizer.js';
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
-const FORBIDDEN_MODEL_HEADERS = new Set(['cookie', 'authorization', 'proxy-authorization', 'host', 'origin']);
+const FORBIDDEN_MODEL_HEADERS = new Set([
+  'authorization',
+  'connection',
+  'content-length',
+  'cookie',
+  'host',
+  'keep-alive',
+  'origin',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  SHANNON_CAPTURE_HEADER.toLowerCase(),
+]);
 const JSON_POINTER_DANGEROUS_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
 
 export type ReplayCommand = ReplaySequence;
@@ -82,6 +103,7 @@ export interface ReplayServiceOptions {
   readonly rawStore: ReplayRawStore;
   readonly identityState: IdentityStateResolver;
   readonly provenance: EvidenceProvenance;
+  readonly identityBoundRequestFields: readonly IdentityBoundRequestField[];
   readonly cancellationSignal?: AbortSignal;
 }
 
@@ -247,30 +269,69 @@ function containsConfiguredSecret(value: string, configuredSecrets: readonly str
   return configuredSecrets.some((secret) => secret.length > 0 && value.includes(secret));
 }
 
-function normalizedSensitiveName(name: string): string {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+function normalizeIdentityBoundRequestFields(
+  fields: readonly IdentityBoundRequestField[],
+): readonly IdentityBoundRequestField[] {
+  const seen = new Set<string>();
+  return fields.map((field): IdentityBoundRequestField => {
+    let normalized: IdentityBoundRequestField;
+    let key: string;
+    switch (field.location) {
+      case 'header': {
+        const name = field.name.toLowerCase();
+        if (!HEADER_NAME.test(name) || FORBIDDEN_MODEL_HEADERS.has(name)) {
+          throw new ReplayValidationError(`Invalid or reserved identity-bound header ${field.name}`);
+        }
+        normalized = { location: 'header', name };
+        key = `header\0${name}`;
+        break;
+      }
+      case 'query':
+      case 'form':
+        validateModelFieldName(field.name, field.location);
+        normalized = { location: field.location, name: field.name };
+        key = `${field.location}\0${field.name}`;
+        break;
+      case 'json':
+        parseJsonPointer(field.pointer);
+        normalized = { location: 'json', pointer: field.pointer };
+        key = `json\0${field.pointer}`;
+        break;
+      default: {
+        const exhaustive: never = field;
+        throw new ReplayValidationError(`Unsupported identity-bound request field ${(exhaustive as { location?: string }).location}`);
+      }
+    }
+    if (seen.has(key)) throw new ReplayValidationError('Duplicate identity-bound request field');
+    seen.add(key);
+    return normalized;
+  });
 }
 
-function isIdentityBoundName(name: string): boolean {
-  const normalized = normalizedSensitiveName(name);
-  if (['pass', 'state', 'nonce', 'key'].includes(normalized)) return true;
-  return [
-    'authorization',
-    'csrf',
-    'xsrf',
-    'token',
-    'password',
-    'passwd',
-    'secret',
-    'session',
-    'apikey',
-    'privatekey',
-    'authenticity',
-  ].some((marker) => normalized.includes(marker));
+function boundNames(
+  fields: readonly IdentityBoundRequestField[],
+  location: 'header' | 'query' | 'form',
+): ReadonlySet<string> {
+  return new Set(
+    fields.flatMap((field) => {
+      if (field.location === 'json' || field.location !== location) return [];
+      return [field.name];
+    }),
+  );
+}
+
+function boundJsonPointers(fields: readonly IdentityBoundRequestField[]): readonly string[] {
+  return fields
+    .filter((field): field is Extract<IdentityBoundRequestField, { location: 'json' }> => field.location === 'json')
+    .map((field) => field.pointer);
+}
+
+function rawContentType(request: MutableRequest): string {
+  return request.headers.find(({ name }) => name.toLowerCase() === 'content-type')?.value ?? '';
 }
 
 function contentType(request: MutableRequest): string {
-  return request.headers.find(({ name }) => name.toLowerCase() === 'content-type')?.value.toLowerCase() ?? '';
+  return rawContentType(request).toLowerCase();
 }
 
 function isJsonRequest(request: MutableRequest): boolean {
@@ -280,6 +341,49 @@ function isJsonRequest(request: MutableRequest): boolean {
 
 function isFormRequest(request: MutableRequest): boolean {
   return contentType(request).split(';', 1)[0]?.trim() === 'application/x-www-form-urlencoded';
+}
+
+function multipartPartNames(request: MutableRequest): Set<string> | null {
+  const header = rawContentType(request);
+  if (!header.toLowerCase().startsWith('multipart/')) return null;
+  const boundaryMatch = /(?:^|;)\s*boundary=(?:"([^"\r\n]+)"|([^;\s\r\n]+))/i.exec(header);
+  const boundary = boundaryMatch?.[1] ?? boundaryMatch?.[2];
+  if (!boundary || boundary.length > 70) return null;
+
+  const parts = request.body.split(`--${boundary}`);
+  if (parts.length < 3 || !parts.at(-1)?.trimStart().startsWith('--')) return null;
+
+  const names = new Set<string>();
+  for (const rawPart of parts.slice(1, -1)) {
+    const part = rawPart.replace(/^\r?\n/, '');
+    const separator = part.indexOf('\r\n\r\n');
+    const fallbackSeparator = separator < 0 ? part.indexOf('\n\n') : -1;
+    const headerEnd = separator >= 0 ? separator : fallbackSeparator;
+    if (headerEnd < 0) return null;
+    const disposition = part
+      .slice(0, headerEnd)
+      .split(/\r?\n/)
+      .find((line) => /^content-disposition\s*:/i.test(line));
+    if (!disposition) return null;
+    const nameMatch = /(?:^|;)\s*name=(?:"([^"\r\n]*)"|([^;\s\r\n]+))/i.exec(disposition);
+    const name = nameMatch?.[1] ?? nameMatch?.[2];
+    if (!name) return null;
+    names.add(name);
+  }
+  return names;
+}
+
+function assertMultipartReplaySafe(
+  request: MutableRequest,
+  identityBoundRequestFields: readonly IdentityBoundRequestField[],
+): void {
+  if (!contentType(request).startsWith('multipart/')) return;
+  const names = multipartPartNames(request);
+  if (!names) throw new ReplayValidationError('Multipart replay cannot safely classify its parts');
+  const configuredNames = boundNames(identityBoundRequestFields, 'form');
+  if (Array.from(names).some((name) => configuredNames.has(name) || isImplicitIdentityBoundRequestFieldName(name))) {
+    throw new ReplayValidationError('Multipart replay cannot safely rebind identity-bound parts');
+  }
 }
 
 function parseJsonBody(request: MutableRequest): unknown {
@@ -357,9 +461,15 @@ function cloneRequest(request: MutableRequest): MutableRequest {
   };
 }
 
-function requestBindingDigest(request: MutableRequest): string {
+function requestBindingDigest(
+  request: MutableRequest,
+  identityBoundRequestFields: readonly IdentityBoundRequestField[],
+): string {
+  const queryNames = boundNames(identityBoundRequestFields, 'query');
+  const formNames = boundNames(identityBoundRequestFields, 'form');
+  const headerNames = boundNames(identityBoundRequestFields, 'header');
   const query = [...request.target.searchParams.entries()]
-    .filter(([name]) => !isIdentityBoundName(name))
+    .filter(([name]) => !queryNames.has(name) && !isImplicitIdentityBoundRequestFieldName(name))
     .sort(
       ([leftName, leftValue], [rightName, rightValue]) =>
         leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue),
@@ -369,7 +479,9 @@ function requestBindingDigest(request: MutableRequest): string {
       const normalized = name.toLowerCase();
       return (
         !['authorization', 'proxy-authorization', 'cookie', 'host', 'origin', 'content-length'].includes(normalized) &&
-        !isIdentityBoundName(name)
+        normalized !== SHANNON_CAPTURE_HEADER.toLowerCase() &&
+        !headerNames.has(normalized) &&
+        !isImplicitIdentityBoundRequestFieldName(name)
       );
     })
     .map(({ name, value }) => [name.toLowerCase(), value] as const)
@@ -381,15 +493,23 @@ function requestBindingDigest(request: MutableRequest): string {
   let body: unknown = request.body;
   if (isFormRequest(request)) {
     body = [...parseFormBody(request).entries()]
-      .filter(([name]) => !isIdentityBoundName(name))
+      .filter(([name]) => !formNames.has(name) && !isImplicitIdentityBoundRequestFieldName(name))
       .sort(
         ([leftName, leftValue], [rightName, rightValue]) =>
           leftName.localeCompare(rightName) || leftValue.localeCompare(rightValue),
       );
   } else if (isJsonRequest(request)) {
-    body = structuredClone(parseJsonBody(request));
-    const paths = collectBoundJsonPaths(body).sort((left, right) => right.length - left.length);
-    for (const path_ of paths) deleteJsonPath(body, path_);
+    const parsedBody = parseJsonBody(request);
+    const pointers = boundJsonPointers(identityBoundRequestFields);
+    const paths = [
+      ...identityBoundJsonPaths(parsedBody, pointers),
+      ...pointers.map((pointer) => parseJsonPointer(pointer).map((segment) => (/^(?:0|[1-9]\d*)$/.test(segment) ? Number(segment) : segment))),
+    ];
+    const pathKeys = new Set(paths.map(jsonPathKey));
+    const prefixKeys = new Set(
+      paths.flatMap((path_) => path_.slice(0, -1).map((_, index) => jsonPathKey(path_.slice(0, index + 1)))),
+    );
+    body = projectIdentityIndependentJson(parsedBody, pathKeys, prefixKeys).value;
   }
 
   return digest({
@@ -418,30 +538,57 @@ function headerEntries(request: MutableRequest, name: string): readonly MutableH
   return request.headers.filter((header) => header.name.toLowerCase() === normalized);
 }
 
-function boundHeaderNames(request: MutableRequest): readonly string[] {
+function boundHeaderNames(
+  request: MutableRequest,
+  identityBoundRequestFields: readonly IdentityBoundRequestField[],
+): readonly string[] {
+  const configured = boundNames(identityBoundRequestFields, 'header');
   return [
     ...new Set(
       request.headers
         .map(({ name }) => name)
         .filter((name) => {
           const normalized = name.toLowerCase();
-          return !['cookie', 'proxy-authorization', 'host', 'origin'].includes(normalized) && isIdentityBoundName(name);
+          return (
+            normalized === 'authorization' ||
+            (!FORBIDDEN_MODEL_HEADERS.has(normalized) &&
+              (configured.has(normalized) || isImplicitIdentityBoundRequestFieldName(name)))
+          );
         })
         .map((name) => name.toLowerCase()),
     ),
   ];
 }
 
-function boundParameterNames(values: URLSearchParams): readonly string[] {
-  return [...new Set([...values.keys()].filter(isIdentityBoundName))];
+function boundParameterNames(values: URLSearchParams, names: ReadonlySet<string>): readonly string[] {
+  return [
+    ...new Set(
+      [...values.keys()].filter((name) => names.has(name) || isImplicitIdentityBoundRequestFieldName(name)),
+    ),
+  ];
 }
 
-function replaceBoundParameters(source: URLSearchParams, actor: URLSearchParams | null, anonymous: boolean): boolean {
-  for (const name of boundParameterNames(source)) {
+function isAuthenticationBoundField(name: string, _configuredNames: ReadonlySet<string>): boolean {
+  return isImplicitAuthenticationRequestFieldName(name);
+}
+
+function replaceBoundParameters(
+  source: URLSearchParams,
+  actor: URLSearchParams | null,
+  anonymous: boolean,
+  names: ReadonlySet<string>,
+): boolean {
+  const sourceBound = new Set(boundParameterNames(source, names));
+  const actorBound = new Set(actor ? boundParameterNames(actor, names) : []);
+  const bound = new Set([...sourceBound, ...actorBound]);
+  for (const name of bound) {
     source.delete(name);
     if (anonymous) continue;
     const replacements = actor?.getAll(name) ?? [];
-    if (replacements.length === 0) return false;
+    if (replacements.length === 0) {
+      if (sourceBound.has(name) && !isAuthenticationBoundField(name, names)) return false;
+      continue;
+    }
     for (const value of replacements) source.append(name, value);
   }
   return true;
@@ -449,20 +596,125 @@ function replaceBoundParameters(source: URLSearchParams, actor: URLSearchParams 
 
 type JsonPath = readonly (string | number)[];
 
-function collectBoundJsonPaths(value: unknown, path_: JsonPath = [], result: JsonPath[] = [], depth = 0): JsonPath[] {
+function collectHeuristicBoundJsonPaths(
+  value: unknown,
+  path_: JsonPath = [],
+  result: JsonPath[] = [],
+  depth = 0,
+): JsonPath[] {
   if (depth > 12 || value === null || typeof value !== 'object') return result;
   if (Array.isArray(value)) {
     value.forEach((entry, index) => {
-      collectBoundJsonPaths(entry, [...path_, index], result, depth + 1);
+      collectHeuristicBoundJsonPaths(entry, [...path_, index], result, depth + 1);
     });
     return result;
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     const next = [...path_, key];
-    if (isIdentityBoundName(key)) result.push(next);
-    else collectBoundJsonPaths(entry, next, result, depth + 1);
+    if (isImplicitIdentityBoundRequestFieldName(key)) {
+      // A conventional carrier name may be a structured namespace (for
+      // example { auth: { token, provider } }). Bind only the leaves that
+      // are themselves recognized carriers so business fields remain under
+      // the source request and explicit mutation controls.
+      if (entry !== null && typeof entry === 'object') {
+        collectHeuristicBoundJsonPaths(entry, next, result, depth + 1);
+      } else {
+        result.push(next);
+      }
+      continue;
+    }
+    collectHeuristicBoundJsonPaths(entry, next, result, depth + 1);
   }
   return result;
+}
+
+function resolveJsonPointerPath(value: unknown, pointer: string): JsonPath | null {
+  const segments = parseJsonPointer(pointer);
+  const path_: (string | number)[] = [];
+  let current = value;
+  for (const segment of segments) {
+    if (Array.isArray(current)) {
+      if (!/^(?:0|[1-9]\d*)$/.test(segment) || Number(segment) >= current.length) return null;
+      const index = Number(segment);
+      path_.push(index);
+      current = current[index];
+      continue;
+    }
+    if (!isRecord(current) || !Object.hasOwn(current, segment)) return null;
+    path_.push(segment);
+    current = current[segment];
+  }
+  return path_;
+}
+
+function resolveBoundJsonPaths(value: unknown, pointers: readonly string[]): JsonPath[] {
+  return pointers.flatMap((pointer) => {
+    const path_ = resolveJsonPointerPath(value, pointer);
+    return path_ ? [path_] : [];
+  });
+}
+
+function identityBoundJsonPaths(value: unknown, pointers: readonly string[]): JsonPath[] {
+  const unique = new Map<string, JsonPath>();
+  for (const path_ of [...collectHeuristicBoundJsonPaths(value), ...resolveBoundJsonPaths(value, pointers)]) {
+    unique.set(JSON.stringify(path_), path_);
+  }
+  return [...unique.values()];
+}
+
+function jsonPathKey(path_: JsonPath): string {
+  return JSON.stringify(path_);
+}
+
+function explicitJsonPathKeys(value: unknown, pointers: readonly string[]): ReadonlySet<string> {
+  return new Set(resolveBoundJsonPaths(value, pointers).map(jsonPathKey));
+}
+
+function isAuthenticationBoundJsonPath(path_: JsonPath, _explicitPaths: ReadonlySet<string>): boolean {
+  const final = path_.at(-1);
+  const name = typeof final === 'string' ? final : '';
+  return isImplicitAuthenticationRequestFieldName(name) && !isSynchronizationRequestFieldName(name);
+}
+
+function projectIdentityIndependentJson(
+  value: unknown,
+  boundPaths: ReadonlySet<string>,
+  boundPrefixes: ReadonlySet<string>,
+  path_: JsonPath = [],
+): { readonly included: boolean; readonly value: unknown } {
+  if (boundPaths.has(jsonPathKey(path_))) return { included: false, value: null };
+  if (value === null || typeof value !== 'object') return { included: true, value };
+  if (Array.isArray(value)) {
+    const entries = value.flatMap((entry, index) => {
+      const projected = projectIdentityIndependentJson(entry, boundPaths, boundPrefixes, [...path_, index]);
+      return projected.included ? [projected.value] : [];
+    });
+    return {
+      included:
+        path_.length === 0 ||
+        entries.length > 0 ||
+        (value.length === 0 && !boundPrefixes.has(jsonPathKey(path_))),
+      value: entries,
+    };
+  }
+  const entries = Object.entries(value as Record<string, unknown>).flatMap(([key, entry]) => {
+    const projected = projectIdentityIndependentJson(entry, boundPaths, boundPrefixes, [...path_, key]);
+    return projected.included ? [[key, projected.value] as const] : [];
+  });
+  return {
+    included:
+      path_.length === 0 ||
+      entries.length > 0 ||
+      (Object.keys(value as Record<string, unknown>).length === 0 && !boundPrefixes.has(jsonPathKey(path_))),
+    value: Object.fromEntries(entries),
+  };
+}
+
+function compareJsonDeleteOrder(left: JsonPath, right: JsonPath): number {
+  if (right.length !== left.length) return right.length - left.length;
+  const leftIndex = left.at(-1);
+  const rightIndex = right.at(-1);
+  return typeof leftIndex === 'number' && typeof rightIndex === 'number' ? rightIndex - leftIndex : 0;
 }
 
 function jsonPathValue(value: unknown, path_: JsonPath): { readonly found: boolean; readonly value: unknown } {
@@ -487,16 +739,34 @@ function jsonPathParent(value: unknown, path_: JsonPath): { parent: unknown; key
   return parent.found && key !== undefined ? { parent: parent.value, key } : null;
 }
 
-function setJsonPath(value: unknown, path_: JsonPath, replacement: unknown): boolean {
-  const resolved = jsonPathParent(value, path_);
-  if (!resolved) return false;
-  if (typeof resolved.key === 'number') {
-    if (!Array.isArray(resolved.parent) || resolved.key >= resolved.parent.length) return false;
-    resolved.parent[resolved.key] = structuredClone(replacement);
+function setOrCreateBoundJsonPath(value: unknown, path_: JsonPath, replacement: unknown): boolean {
+  if (path_.length === 0 || value === null || typeof value !== 'object') return false;
+  let current: unknown = value;
+  for (const [index, segment] of path_.slice(0, -1).entries()) {
+    const nextSegment = path_[index + 1];
+    if (typeof segment === 'number') {
+      if (!Array.isArray(current) || segment > current.length) return false;
+      if (segment === current.length) current.push(typeof nextSegment === 'number' ? [] : {});
+      const next = current[segment];
+      if (next === null || typeof next !== 'object') return false;
+      current = next;
+      continue;
+    }
+    if (!isRecord(current)) return false;
+    if (!Object.hasOwn(current, segment)) current[segment] = typeof nextSegment === 'number' ? [] : {};
+    const next = current[segment];
+    if (next === null || typeof next !== 'object') return false;
+    current = next;
+  }
+  const final = path_.at(-1);
+  if (typeof final === 'number') {
+    if (!Array.isArray(current) || final > current.length) return false;
+    if (final === current.length) current.push(structuredClone(replacement));
+    else current[final] = structuredClone(replacement);
     return true;
   }
-  if (!isRecord(resolved.parent)) return false;
-  resolved.parent[resolved.key] = structuredClone(replacement);
+  if (typeof final !== 'string' || !isRecord(current)) return false;
+  current[final] = structuredClone(replacement);
   return true;
 }
 
@@ -512,17 +782,109 @@ function deleteJsonPath(value: unknown, path_: JsonPath): boolean {
   return delete resolved.parent[resolved.key];
 }
 
-function replaceBoundJson(source: unknown, actor: unknown | null, anonymous: boolean): boolean {
-  const paths = collectBoundJsonPaths(source);
-  for (const path_ of paths) {
+function replaceBoundJson(
+  source: unknown,
+  actor: unknown | null,
+  anonymous: boolean,
+  pointers: readonly string[],
+): boolean {
+  const sourceBound = identityBoundJsonPaths(source, pointers);
+  const actorBound = actor === null ? [] : identityBoundJsonPaths(actor, pointers);
+  const explicitPaths = new Set([
+    ...explicitJsonPathKeys(source, pointers),
+    ...(actor === null ? [] : explicitJsonPathKeys(actor, pointers)),
+  ]);
+  const paths = new Map<string, JsonPath>();
+  for (const path_ of [...sourceBound, ...actorBound]) {
+    paths.set(jsonPathKey(path_), path_);
+  }
+  const sourceKeys = new Set(sourceBound.map(jsonPathKey));
+  const orderedPaths = [...paths.values()].sort(compareJsonDeleteOrder);
+  for (const path_ of orderedPaths) {
     if (anonymous) {
-      if (!deleteJsonPath(source, path_)) return false;
+      if (sourceKeys.has(jsonPathKey(path_)) && !deleteJsonPath(source, path_)) return false;
       continue;
     }
     const replacement = actor === null ? { found: false, value: undefined } : jsonPathValue(actor, path_);
-    if (!replacement.found || !setJsonPath(source, path_, replacement.value)) return false;
+    if (!replacement.found) {
+      if (
+        sourceKeys.has(jsonPathKey(path_)) &&
+        !isAuthenticationBoundJsonPath(path_, explicitPaths)
+      ) {
+        return false;
+      }
+      if (sourceKeys.has(jsonPathKey(path_)) && !deleteJsonPath(source, path_)) return false;
+      continue;
+    }
+    if (!setOrCreateBoundJsonPath(source, path_, replacement.value)) return false;
   }
   return true;
+}
+
+function hasIdentityBinding(request: MutableRequest, fields: readonly IdentityBoundRequestField[]): boolean {
+  const nonEmptyHeader = (name: string): boolean =>
+    headerEntries(request, name).some(({ value }) => value.trim().length > 0);
+  const nonEmptyCookie = headerEntries(request, 'cookie').some(({ value }) =>
+    value.split(';').some((part) => {
+      const separator = part.indexOf('=');
+      if (separator <= 0) return false;
+      const cookieValue = part.slice(separator + 1).trim();
+      return cookieValue.length > 0 && cookieValue !== '""';
+    }),
+  );
+  const nonEmptyAuthorization = (name: string): boolean => headerEntries(request, name).some(({ value }) => {
+    const match = /^\S+\s+(.+)$/.exec(value.trim());
+    if (!match) return false;
+    const credential = match[1]?.trim() ?? '';
+    return credential.length > 0 && credential !== '""';
+  });
+  const nonEmptyParameter = (values: URLSearchParams, name: string): boolean =>
+    values.getAll(name).some((value) => value.trim().length > 0);
+  const usableJsonValue = (value: unknown): boolean =>
+    (typeof value === 'string' && value.trim().length > 0) ||
+    (typeof value === 'number' && Number.isFinite(value));
+  if (nonEmptyCookie || nonEmptyAuthorization('authorization')) return true;
+  const headerNames = boundNames(fields, 'header');
+  if (
+    boundHeaderNames(request, fields).some(
+      (name) =>
+        isAuthenticationBoundField(name, headerNames) &&
+        (name === 'cookie'
+          ? nonEmptyCookie
+          : name === 'authorization' || name === 'proxy-authorization'
+            ? nonEmptyAuthorization(name)
+            : nonEmptyHeader(name)),
+    )
+  ) {
+    return true;
+  }
+  const queryNames = boundNames(fields, 'query');
+  if (
+    boundParameterNames(request.target.searchParams, queryNames).some((name) =>
+      isAuthenticationBoundField(name, queryNames) && nonEmptyParameter(request.target.searchParams, name),
+    )
+  ) {
+    return true;
+  }
+  if (isFormRequest(request)) {
+    const formNames = boundNames(fields, 'form');
+    if (
+      boundParameterNames(parseFormBody(request), formNames).some((name) =>
+        isAuthenticationBoundField(name, formNames) && nonEmptyParameter(parseFormBody(request), name),
+      )
+    ) {
+      return true;
+    }
+  }
+  if (!isJsonRequest(request)) return false;
+  const body = parseJsonBody(request);
+  const pointers = boundJsonPointers(fields);
+  const explicitPaths = explicitJsonPathKeys(body, pointers);
+  return identityBoundJsonPaths(body, pointers).some((path_) => {
+    if (!isAuthenticationBoundJsonPath(path_, explicitPaths)) return false;
+    const candidate = jsonPathValue(body, path_);
+    return candidate.found && usableJsonValue(candidate.value);
+  });
 }
 
 function parseJsonPointer(pointer: string): readonly string[] {
@@ -572,8 +934,16 @@ function setJsonPointer(value: unknown, pointer: string, replacement: unknown): 
 }
 
 function validateModelFieldName(name: string, kind: string): void {
-  if (name.length === 0 || /[\r\n\0]/.test(name)) throw new ReplayValidationError(`Invalid ${kind} name`);
-  if (isIdentityBoundName(name)) throw new ReplayValidationError(`Replay ${kind} cannot mutate identity-bound state`);
+  if (name.length === 0 || name.length > 128 || /[\r\n\0]/.test(name)) {
+    throw new ReplayValidationError(`Invalid ${kind} name`);
+  }
+}
+
+function jsonPointersOverlap(left: string, right: string): boolean {
+  const leftSegments = parseJsonPointer(left);
+  const rightSegments = parseJsonPointer(right);
+  const sharedLength = Math.min(leftSegments.length, rightSegments.length);
+  return leftSegments.slice(0, sharedLength).every((segment, index) => segment === rightSegments[index]);
 }
 
 function updateContentLength(request: MutableRequest): void {
@@ -582,7 +952,15 @@ function updateContentLength(request: MutableRequest): void {
     setHeader(request, values[0]?.name ?? 'Content-Length', [String(Buffer.byteLength(request.body))]);
 }
 
-function applyMutations(request: MutableRequest, mutations: readonly RequestMutation[]): void {
+function applyMutations(
+  request: MutableRequest,
+  mutations: readonly RequestMutation[],
+  identityBoundRequestFields: readonly IdentityBoundRequestField[],
+): void {
+  const queryNames = boundNames(identityBoundRequestFields, 'query');
+  const formNames = boundNames(identityBoundRequestFields, 'form');
+  const headerNames = boundNames(identityBoundRequestFields, 'header');
+  const jsonPointers = boundJsonPointers(identityBoundRequestFields);
   let bodyChanged = false;
   for (const mutation of mutations) {
     switch (mutation.type) {
@@ -599,10 +977,16 @@ function applyMutations(request: MutableRequest, mutations: readonly RequestMuta
         break;
       case 'set_query':
         validateModelFieldName(mutation.name, 'query');
+        if (queryNames.has(mutation.name) || isImplicitIdentityBoundRequestFieldName(mutation.name)) {
+          throw new ReplayValidationError('Replay cannot mutate identity-bound query state');
+        }
         request.target.searchParams.set(mutation.name, mutation.value);
         break;
       case 'remove_query':
         validateModelFieldName(mutation.name, 'query');
+        if (queryNames.has(mutation.name) || isImplicitIdentityBoundRequestFieldName(mutation.name)) {
+          throw new ReplayValidationError('Replay cannot mutate identity-bound query state');
+        }
         request.target.searchParams.delete(mutation.name);
         break;
       case 'set_header': {
@@ -610,7 +994,11 @@ function applyMutations(request: MutableRequest, mutations: readonly RequestMuta
           throw new ReplayValidationError('Invalid replay header mutation');
         }
         const normalized = mutation.name.toLowerCase();
-        if (FORBIDDEN_MODEL_HEADERS.has(normalized) || isIdentityBoundName(mutation.name)) {
+        if (
+          FORBIDDEN_MODEL_HEADERS.has(normalized) ||
+          headerNames.has(normalized) ||
+          isImplicitIdentityBoundRequestFieldName(mutation.name)
+        ) {
           throw new ReplayValidationError(`Replay cannot mutate protected header ${mutation.name}`);
         }
         setHeader(request, mutation.name, [mutation.value]);
@@ -619,7 +1007,11 @@ function applyMutations(request: MutableRequest, mutations: readonly RequestMuta
       case 'remove_header': {
         if (!HEADER_NAME.test(mutation.name)) throw new ReplayValidationError('Invalid replay header mutation');
         const normalized = mutation.name.toLowerCase();
-        if (FORBIDDEN_MODEL_HEADERS.has(normalized) || isIdentityBoundName(mutation.name)) {
+        if (
+          FORBIDDEN_MODEL_HEADERS.has(normalized) ||
+          headerNames.has(normalized) ||
+          isImplicitIdentityBoundRequestFieldName(mutation.name)
+        ) {
           throw new ReplayValidationError(`Replay cannot mutate protected header ${mutation.name}`);
         }
         removeHeaders(request, (name) => name === normalized);
@@ -627,6 +1019,9 @@ function applyMutations(request: MutableRequest, mutations: readonly RequestMuta
       }
       case 'set_form_field': {
         validateModelFieldName(mutation.name, 'form field');
+        if (formNames.has(mutation.name) || isImplicitIdentityBoundRequestFieldName(mutation.name)) {
+          throw new ReplayValidationError('Replay cannot mutate identity-bound form state');
+        }
         if (!isFormRequest(request)) throw new ReplayValidationError('set_form_field requires a form request body');
         const body = parseFormBody(request);
         body.set(mutation.name, mutation.value);
@@ -637,6 +1032,18 @@ function applyMutations(request: MutableRequest, mutations: readonly RequestMuta
       case 'set_json_pointer': {
         const finalSegment = parseJsonPointer(mutation.pointer).at(-1) ?? '';
         validateModelFieldName(finalSegment, 'JSON field');
+        const currentBody = isJsonRequest(request) ? parseJsonBody(request) : null;
+        const heuristicPointers = currentBody === null
+          ? []
+          : collectHeuristicBoundJsonPaths(currentBody).map((path_) =>
+              `/${path_.map((segment) => String(segment).replace(/~/g, '~0').replace(/\//g, '~1')).join('/')}`,
+            );
+        if (
+          isImplicitIdentityBoundRequestFieldName(finalSegment) ||
+          [...jsonPointers, ...heuristicPointers].some((pointer) => jsonPointersOverlap(pointer, mutation.pointer))
+        ) {
+          throw new ReplayValidationError('Replay cannot mutate identity-bound JSON state');
+        }
         if (!isJsonRequest(request)) throw new ReplayValidationError('set_json_pointer requires a JSON request body');
         const body = parseJsonBody(request);
         setJsonPointer(body, mutation.pointer, mutation.value);
@@ -901,6 +1308,7 @@ export class ReplayService {
   private readonly rawStore: ReplayRawStore;
   private readonly identityState: IdentityStateResolver;
   private readonly provenance: EvidenceProvenance;
+  private readonly identityBoundRequestFields: readonly IdentityBoundRequestField[];
   private readonly cancellationSignal: AbortSignal | undefined;
   private readonly captureSequences = new Map<string, number>();
 
@@ -923,6 +1331,7 @@ export class ReplayService {
     this.rawStore = options.rawStore;
     this.identityState = options.identityState;
     this.provenance = structuredClone(options.provenance);
+    this.identityBoundRequestFields = normalizeIdentityBoundRequestFields(options.identityBoundRequestFields);
     this.cancellationSignal = options.cancellationSignal;
   }
 
@@ -939,7 +1348,7 @@ export class ReplayService {
     condition: ProofCondition,
     baseline: NormalizedExchange,
   ): Promise<{ readonly exchangeIds: readonly string[]; readonly passed: boolean }> {
-    if (condition.type === 'persistent_state' || baseline.candidateObjectReferences.length === 0) {
+    if (condition.type === 'persistent_state') {
       return { exchangeIds: [], passed: false };
     }
     // A different actor viewing a different object on the same route is a
@@ -954,16 +1363,21 @@ export class ReplayService {
           exchange.routeSignature === baseline.routeSignature &&
           exchange.identity !== baseline.identity &&
           exchange.provenance.actor === 'blackbox-recon' &&
-          exchange.responseStatus >= 200 &&
-          exchange.responseStatus < 300 &&
-          exchange.candidateObjectReferences.length > 0 &&
-          exchange.candidateObjectReferences.every((reference) => !baselineReferences.has(reference)),
+          exchange.responseStatus >= 100 &&
+          exchange.responseStatus < 600,
       )
       .sort((left, right) => left.exchangeId.localeCompare(right.exchangeId));
+    const resourceControls = candidates.filter(
+      (exchange) =>
+        exchange.responseStatus >= 200 &&
+        exchange.responseStatus < 300 &&
+        exchange.candidateObjectReferences.some((reference) => !baselineReferences.has(reference)),
+    );
+    const selected = resourceControls.length > 0 ? resourceControls : candidates;
 
     const exchangeIds: string[] = [];
     let passed = false;
-    for (const candidate of candidates) {
+    for (const candidate of selected) {
       const record = await this.rawStore.readExchange(candidate.exchangeId);
       if (
         !record ||
@@ -1010,10 +1424,36 @@ export class ReplayService {
   }
 
   private sourceNeedsEquivalent(request: MutableRequest): boolean {
-    if (boundHeaderNames(request).length > 0) return true;
-    if (boundParameterNames(request.target.searchParams).length > 0) return true;
-    if (isFormRequest(request) && boundParameterNames(parseFormBody(request)).length > 0) return true;
-    if (isJsonRequest(request)) return collectBoundJsonPaths(parseJsonBody(request)).length > 0;
+    const headerNames = boundNames(this.identityBoundRequestFields, 'header');
+    if (boundHeaderNames(request, this.identityBoundRequestFields).some((name) => !isAuthenticationBoundField(name, headerNames))) {
+      return true;
+    }
+    const queryNames = boundNames(this.identityBoundRequestFields, 'query');
+    if (
+      boundParameterNames(request.target.searchParams, queryNames).some((name) =>
+        !isAuthenticationBoundField(name, queryNames),
+      )
+    ) {
+      return true;
+    }
+    if (isFormRequest(request)) {
+      const formNames = boundNames(this.identityBoundRequestFields, 'form');
+      if (
+        boundParameterNames(parseFormBody(request), formNames).some((name) =>
+          !isAuthenticationBoundField(name, formNames),
+        )
+      ) {
+        return true;
+      }
+    }
+    if (isJsonRequest(request)) {
+      const body = parseJsonBody(request);
+      const pointers = boundJsonPointers(this.identityBoundRequestFields);
+      const explicitPaths = explicitJsonPathKeys(body, pointers);
+      return identityBoundJsonPaths(body, pointers).some((path_) =>
+        !isAuthenticationBoundJsonPath(path_, explicitPaths),
+      );
+    }
     return false;
   }
 
@@ -1025,8 +1465,11 @@ export class ReplayService {
     if (request.method !== source.method) {
       throw new ReplayValidationError(`Raw replay exchange ${step.sourceExchangeId} does not match its metadata`);
     }
-    const originalHadCookie = headerEntries(request, 'cookie').length > 0;
-    const sourceRequestDigest = requestBindingDigest(request);
+    assertMultipartReplaySafe(request, this.identityBoundRequestFields);
+    const expectedRequest = cloneRequest(request);
+    applyMutations(expectedRequest, step.mutations, this.identityBoundRequestFields);
+    assertRequestInScope(parseHttpRequest(serializeHttp1(expectedRequest)), this.targetOrigin, this.rules);
+    const sourceRequestDigest = requestBindingDigest(expectedRequest, this.identityBoundRequestFields);
     const needsEquivalent = this.sourceNeedsEquivalent(request);
     const anonymous = step.actor === 'anonymous';
 
@@ -1038,25 +1481,45 @@ export class ReplayService {
       }
       try {
         cookieHeader = await this.identityState.getCookieHeader(step.actor, request.target);
-        if (needsEquivalent) equivalent = (await this.actorEquivalent(step.actor, source))?.request ?? null;
       } catch {
         return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
       }
-      if ((originalHadCookie && !cookieHeader) || (needsEquivalent && !equivalent)) {
+      const equivalentRequired = needsEquivalent || !cookieHeader;
+      try {
+        equivalent = (await this.actorEquivalent(step.actor, source))?.request ?? null;
+      } catch {
+        if (equivalentRequired) {
+          return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
+        }
+      }
+      if (equivalentRequired && !equivalent) {
         return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
       }
     }
 
     const prepared = cloneRequest(request);
-    const protectedHeaders = new Set(['cookie', 'authorization', 'proxy-authorization', ...boundHeaderNames(request)]);
+    const protectedHeaders = new Set([
+      'cookie',
+      'authorization',
+      'proxy-authorization',
+      SHANNON_CAPTURE_HEADER.toLowerCase(),
+      ...boundHeaderNames(request, this.identityBoundRequestFields),
+    ]);
     removeHeaders(prepared, (name) => protectedHeaders.has(name));
     if (!anonymous && cookieHeader) setHeader(prepared, 'Cookie', [cookieHeader]);
 
     if (!anonymous && equivalent) {
-      for (const name of boundHeaderNames(request)) {
+      const sourceBoundHeaders = new Set(boundHeaderNames(request, this.identityBoundRequestFields));
+      const actorBoundHeaders = new Set(boundHeaderNames(equivalent, this.identityBoundRequestFields));
+      const configuredHeaderNames = boundNames(this.identityBoundRequestFields, 'header');
+      const allBoundHeaders = new Set([...sourceBoundHeaders, ...actorBoundHeaders]);
+      for (const name of allBoundHeaders) {
         const values = headerEntries(equivalent, name);
         if (values.length === 0) {
-          return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
+          if (sourceBoundHeaders.has(name) && !isAuthenticationBoundField(name, configuredHeaderNames)) {
+            return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
+          }
+          continue;
         }
         setHeader(
           prepared,
@@ -1066,13 +1529,27 @@ export class ReplayService {
       }
     }
 
-    if (!replaceBoundParameters(prepared.target.searchParams, equivalent?.target.searchParams ?? null, anonymous)) {
+    if (
+      !replaceBoundParameters(
+        prepared.target.searchParams,
+        equivalent?.target.searchParams ?? null,
+        anonymous,
+        boundNames(this.identityBoundRequestFields, 'query'),
+      )
+    ) {
       return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
     }
     if (isFormRequest(prepared)) {
       const sourceForm = parseFormBody(prepared);
       const actorForm = equivalent && isFormRequest(equivalent) ? parseFormBody(equivalent) : null;
-      if (!replaceBoundParameters(sourceForm, actorForm, anonymous)) {
+      if (
+        !replaceBoundParameters(
+          sourceForm,
+          actorForm,
+          anonymous,
+          boundNames(this.identityBoundRequestFields, 'form'),
+        )
+      ) {
         return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
       }
       prepared.body = sourceForm.toString();
@@ -1080,17 +1557,21 @@ export class ReplayService {
     } else if (isJsonRequest(prepared)) {
       const sourceJson = parseJsonBody(prepared);
       const actorJson = equivalent && isJsonRequest(equivalent) ? parseJsonBody(equivalent) : null;
-      if (!replaceBoundJson(sourceJson, actorJson, anonymous)) {
+      if (!replaceBoundJson(sourceJson, actorJson, anonymous, boundJsonPointers(this.identityBoundRequestFields))) {
         return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
       }
       prepared.body = JSON.stringify(sourceJson);
       updateContentLength(prepared);
     }
 
+    if (!anonymous && !hasIdentityBinding(prepared, this.identityBoundRequestFields)) {
+      return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
+    }
+
     if (!allowNoMutations && step.mutations.length === 0 && step.actor === source.identity) {
       throw new ReplayValidationError(`Replay step ${step.stepId} requires an identity change or a mutation`);
     }
-    applyMutations(prepared, step.mutations);
+    applyMutations(prepared, step.mutations, this.identityBoundRequestFields);
     assertRequestInScope(parseHttpRequest(serializeHttp1(prepared)), this.targetOrigin, this.rules);
     return {
       status: 'ready',
@@ -1100,7 +1581,7 @@ export class ReplayService {
         source,
         request: prepared,
         sourceRequestDigest,
-        sentRequestDigest: requestBindingDigest(prepared),
+        sentRequestDigest: requestBindingDigest(prepared, this.identityBoundRequestFields),
       },
     };
   }
@@ -1289,6 +1770,7 @@ export class ReplayService {
         raw: record,
         captureSequence: this.nextCaptureSequence(preparedRequest.actor),
         configuredSecrets: this.configuredSecrets,
+        identityBoundRequestFields: this.identityBoundRequestFields,
         provenance: this.provenance,
       });
       if (!normalized) {

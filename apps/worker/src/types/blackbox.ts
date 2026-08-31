@@ -265,6 +265,8 @@ export interface BlackboxRunScope {
   readonly burpMcpUrl: string;
   readonly burpMcpHostHeader: string;
   readonly burpProxyUrl: string;
+  readonly evidenceBindingVersion: 1;
+  readonly identityBindingContractDigest: string;
 }
 
 export interface RejectedPlannerTask {
@@ -316,6 +318,8 @@ export interface BlackboxDocument {
   readonly tasks: readonly PlannerTask[];
   readonly rejectedTasks: readonly RejectedPlannerTask[];
   readonly runStatus: BlackboxRunStatus;
+  /** Optional for schema-version-1 workspaces created before terminal failures were committed atomically. */
+  readonly terminalFailure?: string | null;
   /** Optional for schema-version-1 workspaces created before durable planning decisions existed. */
   readonly planningDecision?: BlackboxPlanningDecision | null;
   /** Optional for schema-version-1 workspaces created before durable planning-wave reservations existed. */
@@ -347,5 +351,10 @@ export interface BlackboardStore {
     waveNumber: number,
     decision: BlackboxPlanningDecision['decision'],
   ): Promise<BlackboxSnapshot>;
-  setRunStatus(baseRevision: number, operationKey: string, status: BlackboxRunStatus): Promise<BlackboxSnapshot>;
+  setRunStatus(
+    baseRevision: number,
+    operationKey: string,
+    status: BlackboxRunStatus,
+    terminalFailure?: string | null,
+  ): Promise<BlackboxSnapshot>;
 }

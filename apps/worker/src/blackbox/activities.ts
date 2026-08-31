@@ -5,7 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
@@ -20,8 +20,8 @@ import type { ActivityLogger } from '../types/activity-logger.js';
 import type {
   BlackboardStore,
   BlackboxActionResult,
-  BlackboxRunStatus,
   BlackboxRunScope,
+  BlackboxRunStatus,
   BlackboxSnapshot,
   BlackboxVerificationAttempt,
   EvidenceRef,
@@ -30,6 +30,7 @@ import type {
   ProofCondition,
   ReplaySequence,
   VerificationResult,
+  VerifiedBlackboxFinding,
   WorkerContribution,
 } from '../types/blackbox.js';
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
@@ -50,7 +51,7 @@ import {
   type HistorySnapshot,
   readTargetHistory,
 } from './burp-client.js';
-import { collectVerifiedFindings } from './finding-validator.js';
+import { collectVerifiedFindings, hasValidBlackboxControlEvidence } from './finding-validator.js';
 import { type CaptureIndexEntry, FileIdentityStateResolver, type IdentityStateResolver } from './identity-state.js';
 import {
   FileReplayRawStore,
@@ -67,7 +68,13 @@ import {
 } from './scheduler.js';
 import { createBlackboxRunScope, normalizeTargetOrigin } from './scope-guard.js';
 import { createBlackboxTools } from './tools.js';
-import { diffHistory, normalizeCapturedTraffic, normalizeRawExchange } from './traffic-normalizer.js';
+import {
+  diffHistory,
+  filterCapturedTrafficByToken,
+  normalizeCapturedTraffic,
+  normalizeRawExchange,
+  SHANNON_CAPTURE_HEADER,
+} from './traffic-normalizer.js';
 
 const execFileAsync = promisify(execFile);
 const AUTH_SUCCESS_MARKER = '__SHANNON_AUTH_OK__';
@@ -177,6 +184,7 @@ export interface BlackboxActivityDependencies {
   readonly createIdentityStateResolver: (repoPath: string, identities: readonly string[]) => BlackboxIdentityState;
   readonly createReplayRawStore: (repoPath: string) => ReplayRawStore;
   readonly createReplayService: (options: ReplayServiceOptions) => BlackboxReplayServiceLike;
+  readonly createCaptureToken: () => string;
   readonly publishArtifacts: typeof publishBlackboxArtifacts;
   readonly copyDeliverables: typeof copyBlackboxDeliverables;
 }
@@ -343,6 +351,7 @@ const DEFAULT_DEPENDENCIES: BlackboxActivityDependencies = {
     new FileIdentityStateResolver({ targetRoot: repoPath, identities }),
   createReplayRawStore: (repoPath) => new FileReplayRawStore(rawDirectory(repoPath)),
   createReplayService: (options) => new ReplayService(options),
+  createCaptureToken: randomUUID,
   publishArtifacts: publishBlackboxArtifacts,
   copyDeliverables: copyBlackboxDeliverables,
 };
@@ -405,6 +414,7 @@ async function loadRuntimeContext(
   const runScope = createBlackboxRunScope(
     target.targetUrl,
     target.config.identities.map(({ name }) => name),
+    target.config.identityBoundRequestFields,
     dependencies.readEnvironment(),
   );
   return {
@@ -553,7 +563,7 @@ function authenticationInstructions(
   const flow = identity.authentication.login_flow?.map((step, index) => `${index + 1}. ${step}`).join('\n') ?? '';
   return [
     `Use only Playwright session bb-${identity.name}.`,
-    `Open ${identity.authentication.login_url} and authenticate as the assigned identity.`,
+    `The activity opened ${identity.authentication.login_url}; authenticate as the assigned identity in that session.`,
     `Login type: ${identity.authentication.login_type}.`,
     ...(flow ? ['Configured login flow:', flow] : []),
     `Verify ${identity.authentication.success_condition.type}: ${identity.authentication.success_condition.value}.`,
@@ -565,7 +575,7 @@ function authenticationInstructions(
 function anonymousInstructions(input: BlackboxActivityInput): string {
   return [
     'Use only the clean Playwright session bb-anonymous.',
-    `Open ${input.webUrl} without loading storage state or authenticating.`,
+    `The activity opened ${input.webUrl} without loading storage state. Do not authenticate.`,
     'Explore the reachable anonymous workflow and submit only observed evidence.',
   ].join('\n');
 }
@@ -622,12 +632,13 @@ function previewTraffic(
   before: HistorySnapshot,
   after: HistorySnapshot,
   context: TargetContext,
+  captureToken: string,
   identity: string | 'anonymous',
   taskId: string,
   baseRevision: number,
   captureSequenceOffset: number,
 ): readonly NormalizedExchange[] {
-  return diffHistory(before, after)
+  return filterCapturedTrafficByToken(diffHistory(before, after), captureToken)
     .map((raw, index) =>
       normalizeRawExchange({
         targetOrigin: context.targetOrigin,
@@ -636,6 +647,7 @@ function previewTraffic(
         raw,
         captureSequence: captureSequenceOffset + index + 1,
         configuredSecrets: context.configuredSecrets,
+        identityBoundRequestFields: context.config.identityBoundRequestFields,
         provenance: { actor: 'blackbox-recon', taskId, baseRevision },
       }),
     )
@@ -690,6 +702,13 @@ function supportsFindingCandidate(
     typeof observation.observedMarkerDigest !== 'string' ||
     !SHA256_DIGEST.test(observation.observedMarkerDigest) ||
     observation.observedTransitionId !== null
+  ) {
+    return false;
+  }
+  if (
+    condition.type === 'persistent_state'
+      ? observation.controlExchangeIds.length !== 0
+      : observation.controlExchangeIds.length === 0
   ) {
     return false;
   }
@@ -840,7 +859,7 @@ function verificationLoginInstructions(
   const flow = identity.authentication.login_flow?.map((step, index) => `${index + 1}. ${step}`).join('\n') ?? '';
   return [
     `Use only Playwright session ${session}.`,
-    `Open ${identity.authentication.login_url} and authenticate as ${identity.name}.`,
+    `The activity opened ${identity.authentication.login_url}; authenticate as ${identity.name} in that session.`,
     `Login type: ${identity.authentication.login_type}.`,
     ...(flow ? ['Configured login flow:', flow] : []),
     `Verify ${identity.authentication.success_condition.type}: ${identity.authentication.success_condition.value}.`,
@@ -909,9 +928,21 @@ async function readTerminalArtifactFailures(
   ) {
     throw new Error('Terminal black-box artifact metadata does not match the committed blackboard');
   }
-  if (record.failure === null) return [];
-  if (typeof record.failure !== 'string') throw new Error('Terminal black-box artifact failure metadata is invalid');
-  return [safeFailureReason(record.failure, configuredSecrets)];
+  const artifactFailure =
+    record.failure === null
+      ? null
+      : typeof record.failure === 'string'
+        ? safeFailureReason(record.failure, configuredSecrets)
+        : undefined;
+  if (artifactFailure === undefined) throw new Error('Terminal black-box artifact failure metadata is invalid');
+  if (Object.hasOwn(snapshot, 'terminalFailure')) {
+    const committedFailure = snapshot.terminalFailure ?? null;
+    if (artifactFailure !== committedFailure) {
+      throw new Error('Terminal black-box artifact failure does not match the committed blackboard');
+    }
+    return committedFailure ? [committedFailure] : [];
+  }
+  return artifactFailure ? [artifactFailure] : [];
 }
 
 function durablePlanningState(snapshot: BlackboxSnapshot): {
@@ -960,17 +991,59 @@ function cancellableBrowserOptions(repoPath: string, signal: AbortSignal | undef
   return signal ? { cwd: repoPath, signal } : { cwd: repoPath };
 }
 
+function createCaptureToken(dependencies: BlackboxActivityDependencies): string {
+  const token = dependencies.createCaptureToken();
+  if (token.length < 16 || token.length > 256 || !/^[\x21-\x7e]+$/.test(token)) {
+    throw new Error('Capture token generator returned an invalid header value');
+  }
+  return token;
+}
+
+async function bindBrowserCapture(
+  dependencies: BlackboxActivityDependencies,
+  repoPath: string,
+  session: string,
+  captureToken: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const headers = JSON.stringify({
+    'Accept-Language': 'en-US,en;q=0.9',
+    [SHANNON_CAPTURE_HEADER]: captureToken,
+  });
+  await dependencies.runBrowserCommand(
+    'playwright-cli',
+    [`-s=${session}`, 'run-code', `async (page) => { await page.context().setExtraHTTPHeaders(${headers}); }`],
+    cancellableBrowserOptions(repoPath, signal),
+  );
+}
+
+async function openCaptureBoundSession(
+  dependencies: BlackboxActivityDependencies,
+  repoPath: string,
+  session: string,
+  captureToken: string,
+  targetUrl: string,
+  signal: AbortSignal | undefined,
+): Promise<void> {
+  const options = cancellableBrowserOptions(repoPath, signal);
+  await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', 'about:blank'], options);
+  await bindBrowserCapture(dependencies, repoPath, session, captureToken, signal);
+  await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'goto', targetUrl], options);
+}
+
 async function restoreIdentityState(
   dependencies: BlackboxActivityDependencies,
   repoPath: string,
   session: string,
   storagePath: string,
+  captureToken: string,
   targetUrl: string,
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const options = cancellableBrowserOptions(repoPath, signal);
   await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'open', 'about:blank'], options);
   await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'state-load', storagePath], options);
+  await bindBrowserCapture(dependencies, repoPath, session, captureToken, signal);
   await dependencies.runBrowserCommand('playwright-cli', [`-s=${session}`, 'goto', targetUrl], options);
 }
 
@@ -985,6 +1058,32 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         error: error instanceof Error ? error.name : 'unknown',
       });
     }
+  };
+
+  const publishCommittedTerminalArtifacts = async (
+    input: BlackboxActivityInput,
+    context: RuntimeContext,
+    snapshot: BlackboxSnapshot,
+    legacyFailure: string | null = null,
+  ): Promise<{ readonly findings: readonly VerifiedBlackboxFinding[]; readonly artifactNames: typeof BLACKBOX_ARTIFACT_NAMES }> => {
+    if (snapshot.runStatus === 'running' || snapshot.revision < 1) {
+      throw new Error('Cannot publish artifacts before terminal state is committed');
+    }
+    const findings = collectVerifiedFindings(snapshot, context.targetOrigin);
+    const rendered = renderBlackboxArtifacts({
+      // Artifact projection advances the source revision by one. Render from
+      // the committed terminal revision's predecessor.
+      snapshot: { ...snapshot, revision: snapshot.revision - 1 },
+      findings,
+      status: snapshot.runStatus,
+      failure: Object.hasOwn(snapshot, 'terminalFailure') ? snapshot.terminalFailure ?? null : legacyFailure,
+      configuredSecrets: context.configuredSecrets,
+    });
+    const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
+    if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
+      throw new Error('Black-box artifact publisher returned an incomplete manifest');
+    }
+    return { findings, artifactNames: BLACKBOX_ARTIFACT_NAMES };
   };
 
   const initializeStore = async (input: BlackboxActivityInput, context: RuntimeContext) => {
@@ -1013,13 +1112,43 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       if (!terminalReceipt?.operationKey.endsWith(':finalize:')) {
         throw new Error('Terminal black-box artifact publication did not complete');
       }
-      validateBlackboxDeliverables(input.repoPath);
-      const failures = await readTerminalArtifactFailures(
-        dependencies.fileSystem,
-        input.repoPath,
-        initializedStore.snapshot,
-        context.configuredSecrets,
-      );
+      let failures: readonly string[];
+      try {
+        validateBlackboxDeliverables(input.repoPath);
+        failures = await readTerminalArtifactFailures(
+          dependencies.fileSystem,
+          input.repoPath,
+          initializedStore.snapshot,
+          context.configuredSecrets,
+        );
+      } catch {
+        let repairFailure: string | null = null;
+        if (initializedStore.snapshot.runStatus !== 'complete') {
+          if (Object.hasOwn(initializedStore.snapshot, 'terminalFailure')) {
+            repairFailure = initializedStore.snapshot.terminalFailure ?? null;
+          } else {
+            try {
+              repairFailure =
+                (await readTerminalArtifactFailures(
+                  dependencies.fileSystem,
+                  input.repoPath,
+                  initializedStore.snapshot,
+                  context.configuredSecrets,
+                ))[0] ?? null;
+            } catch {
+              repairFailure = 'terminal artifact publication was interrupted; original terminal reason is unavailable';
+            }
+          }
+        }
+        await publishCommittedTerminalArtifacts(input, context, initializedStore.snapshot, repairFailure);
+        validateBlackboxDeliverables(input.repoPath);
+        failures = await readTerminalArtifactFailures(
+          dependencies.fileSystem,
+          input.repoPath,
+          initializedStore.snapshot,
+          context.configuredSecrets,
+        );
+      }
       if (input.outputPath) {
         await dependencies.copyDeliverables(input.repoPath, input.outputPath, BLACKBOX_ARTIFACT_NAMES);
       }
@@ -1105,18 +1234,24 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         ignoreHTTPSErrors: true,
         overwrite: true,
       });
+      const captureToken = createCaptureToken(dependencies);
       const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
       try {
-        await dependencies.runBrowserCommand('playwright-cli', ['-s=blackbox-preflight', 'open', context.targetUrl], {
-          ...cancellableBrowserOptions(input.repoPath, cancellationSignal),
-        });
+        await openCaptureBoundSession(
+          dependencies,
+          input.repoPath,
+          'blackbox-preflight',
+          captureToken,
+          context.targetUrl,
+          cancellationSignal,
+        );
       } finally {
         await dependencies.runBrowserCommand('playwright-cli', ['-s=blackbox-preflight', 'close'], {
           cwd: input.repoPath,
         });
       }
       const after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
-      if (diffHistory(before, after).length === 0) {
+      if (filterCapturedTrafficByToken(diffHistory(before, after), captureToken).length === 0) {
         throw new Error('Proxied browser navigation produced no target-origin Burp history');
       }
 
@@ -1198,6 +1333,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       }
 
       const validationSession = `bb-resume-check-${actor}`;
+      const validationCaptureToken = createCaptureToken(dependencies);
       let reusable = capturedIdentity?.authenticated === true;
       try {
         if (!identity || !reusable) throw new Error('identity state is not marked authenticated');
@@ -1207,6 +1343,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           input.repoPath,
           validationSession,
           statePath(input.repoPath, actor),
+          validationCaptureToken,
           context.targetUrl,
           cancellationSignal,
         );
@@ -1276,12 +1413,21 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     let started: BlackboxSnapshot | null = null;
     let taskSettled = false;
     const session = `bb-${actor}`;
+    const captureToken = createCaptureToken(dependencies);
     try {
       await client.connect(cancellationSignal);
       started = await store.startTasks(snapshot.revision, `${input.workflowId}:0:start:${taskId}`, [taskId]);
       const runningTask = started.tasks.find((candidate) => candidate.taskId === taskId);
       if (!runningTask || runningTask.status !== 'running') throw new Error(`Bootstrap task ${taskId} did not start`);
       const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal);
+      await openCaptureBoundSession(
+        dependencies,
+        input.repoPath,
+        session,
+        captureToken,
+        identity?.authentication.login_url ?? context.targetUrl,
+        cancellationSignal,
+      );
       let after: HistorySnapshot;
       let submitted: WorkerContribution | null = null;
       let submissionFailure: unknown = null;
@@ -1302,6 +1448,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
                 before,
                 current,
                 context,
+                captureToken,
                 actor,
                 taskId,
                 started?.revision ?? 0,
@@ -1360,11 +1507,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           let recovered = false;
           try {
             await assertStorageState(dependencies.fileSystem, storagePath, identity.name);
+            const recoveryCaptureToken = createCaptureToken(dependencies);
             await restoreIdentityState(
               dependencies,
               input.repoPath,
               recoverySession,
               storagePath,
+              recoveryCaptureToken,
               context.targetUrl,
               cancellationSignal,
             );
@@ -1410,6 +1559,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         after,
         rawDirectory: rawDirectory(input.repoPath),
         configuredSecrets: context.configuredSecrets,
+        captureToken,
+        identityBoundRequestFields: context.config.identityBoundRequestFields,
         provenance: { actor: 'blackbox-recon', taskId, baseRevision: started.revision },
         captureSequenceOffset: captureSequenceOffset(snapshot.exchanges, actor),
       });
@@ -1550,6 +1701,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const client = dependencies.createBurpClient(context.burpSettings);
     await client.connect(cancellationSignal);
     const session = `bb-${actor}`;
+    const captureToken = createCaptureToken(dependencies);
     try {
       if (identity) {
         await restoreIdentityState(
@@ -1557,15 +1709,19 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           input.repoPath,
           session,
           statePath(input.repoPath, identity.name),
+          captureToken,
           context.targetUrl,
           cancellationSignal,
         );
       }
       if (!identity) {
-        await dependencies.runBrowserCommand(
-          'playwright-cli',
-          [`-s=${session}`, 'open', context.targetUrl],
-          cancellableBrowserOptions(input.repoPath, cancellationSignal),
+        await openCaptureBoundSession(
+          dependencies,
+          input.repoPath,
+          session,
+          captureToken,
+          context.targetUrl,
+          cancellationSignal,
         );
       }
       if (identity) {
@@ -1595,6 +1751,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               before,
               current,
               context,
+              captureToken,
               actor,
               persistedTask.taskId,
               input.revision,
@@ -1667,6 +1824,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         after,
         rawDirectory: rawDirectory(input.repoPath),
         configuredSecrets: context.configuredSecrets,
+        captureToken,
+        identityBoundRequestFields: context.config.identityBoundRequestFields,
         provenance: { actor: 'blackbox-recon', taskId: persistedTask.taskId, baseRevision: input.revision },
         captureSequenceOffset: captureSequenceOffset(snapshot.exchanges, actor),
       });
@@ -1723,18 +1882,30 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     }
     if (!task.hypothesisId) throw new Error('blackbox-action requires a linked hypothesis');
     const sequence = replaySequence(task);
-    const actors = [...new Set(sequence.steps.map(({ actor }) => actor))];
+    const actorNames = new Set(sequence.steps.map(({ actor }) => actor));
+    const actionProofCondition = sequence.proofCondition;
+    if (actionProofCondition.type === 'persistent_state') {
+      const verificationSource = snapshot.exchanges.find(
+        ({ exchangeId }) => exchangeId === actionProofCondition.verificationSourceExchangeId,
+      );
+      if (verificationSource) actorNames.add(verificationSource.identity);
+    }
+    const actors = [...actorNames];
     const knownIdentities = context.config.identities.map(({ name }) => name);
     const identityState = dependencies.createIdentityStateResolver(input.repoPath, knownIdentities);
     const client = dependencies.createBurpClient(context.burpSettings);
-    const sessions = actors.map((actor) => ({ actor, session: `bb-action-${task.taskId}-${actor}` }));
+    const sessions = actors.map((actor) => ({
+      actor,
+      session: `bb-action-${task.taskId}-${actor}`,
+      captureToken: createCaptureToken(dependencies),
+    }));
     const dynamicExchanges: NormalizedExchange[] = [];
     let outcome: ReplayOutcome | null = null;
     let requestedFreshActor: string | 'anonymous' | null = null;
 
     try {
       await client.connect(cancellationSignal);
-      for (const { actor, session } of sessions) {
+      for (const { actor, session, captureToken } of sessions) {
         const identity = context.config.identities.find(({ name }) => name === actor);
         if (actor !== 'anonymous' && !identity) throw new Error(`Unknown replay actor ${actor}`);
         if (identity) {
@@ -1743,14 +1914,18 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             input.repoPath,
             session,
             statePath(input.repoPath, identity.name),
+            captureToken,
             context.targetUrl,
             cancellationSignal,
           );
         } else {
-          await dependencies.runBrowserCommand(
-            'playwright-cli',
-            [`-s=${session}`, 'open', context.targetUrl],
-            cancellableBrowserOptions(input.repoPath, cancellationSignal),
+          await openCaptureBoundSession(
+            dependencies,
+            input.repoPath,
+            session,
+            captureToken,
+            context.targetUrl,
+            cancellationSignal,
           );
         }
         if (identity) {
@@ -1788,6 +1963,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           cancellationSignal,
         );
         if (requestedFreshActor) {
+          const requestedSession = sessions.find(({ actor }) => actor === requestedFreshActor);
+          if (!requestedSession) throw new Error(`No capture-bound session exists for ${requestedFreshActor}`);
           const captured = await normalizeCapturedTraffic({
             targetOrigin: context.targetOrigin,
             rules: context.config.rules,
@@ -1796,6 +1973,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             after: currentHistory,
             rawDirectory: rawDirectory(input.repoPath),
             configuredSecrets: context.configuredSecrets,
+            captureToken: requestedSession.captureToken,
+            identityBoundRequestFields: context.config.identityBoundRequestFields,
             provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
             captureSequenceOffset: captureSequenceOffset(
               [...snapshot.exchanges, ...dynamicExchanges],
@@ -1829,6 +2008,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           client,
           rawStore: dependencies.createReplayRawStore(input.repoPath),
           identityState,
+          identityBoundRequestFields: context.config.identityBoundRequestFields,
           provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
           ...(cancellationSignal ? { cancellationSignal } : {}),
         });
@@ -1903,6 +2083,17 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         observation: replayObservation(finalOutcome),
         provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: input.revision },
       };
+      const proposedCandidateProofs = submitted
+        ? namespaceContributionRecords(submitted, task.taskId).candidateProofs?.map((candidate) => ({
+            ...candidate,
+            actionId: task.taskId,
+            hypothesisId: task.hypothesisId as string,
+          }))
+        : undefined;
+      const validationSnapshot: BlackboxSnapshot = {
+        ...snapshot,
+        exchanges: [...snapshot.exchanges, ...allExchanges.values()],
+      };
       const candidateProofs =
         finalOutcome.status === 'completed' &&
         supportsFindingCandidate(
@@ -1910,12 +2101,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           sequence.proofCondition,
           observedExchanges.at(-1)?.exchangeId,
         ) &&
-        submitted
-          ? namespaceContributionRecords(submitted, task.taskId).candidateProofs?.map((candidate) => ({
-              ...candidate,
-              actionId: task.taskId,
-              hypothesisId: task.hypothesisId as string,
-            }))
+        proposedCandidateProofs
+          ? proposedCandidateProofs.filter((candidate) =>
+              hasValidBlackboxControlEvidence(validationSnapshot, candidate, action, context.targetOrigin),
+            )
           : undefined;
       return {
         taskId: task.taskId,
@@ -1923,7 +2112,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         baseRevision: input.revision,
         exchanges: [...allExchanges.values()],
         actions: [action],
-        ...(candidateProofs ? { candidateProofs } : {}),
+        ...(candidateProofs && candidateProofs.length > 0 ? { candidateProofs } : {}),
       };
     } finally {
       for (const { session } of sessions) {
@@ -1950,7 +2139,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     if (
       !action ||
       action.status !== 'completed' ||
-      !supportsFindingCandidate(action.observation, action.sequence.proofCondition, action.exchangeIds.at(-1))
+      !supportsFindingCandidate(action.observation, action.sequence.proofCondition, action.exchangeIds.at(-1)) ||
+      !hasValidBlackboxControlEvidence(snapshot, candidate, action, context.targetOrigin)
     ) {
       throw new Error(`Candidate ${input.candidateId} has no completed passing action`);
     }
@@ -1985,6 +2175,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       identity,
       session: `bb-verify-${verificationId}-${identity.name}`,
       storagePath: statePath(freshRoot, identity.name),
+      captureToken: createCaptureToken(dependencies),
     }));
     for (const { storagePath } of sessions) {
       await dependencies.fileSystem.mkdir(path.dirname(storagePath), { recursive: true });
@@ -1996,7 +2187,15 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     let requestedFreshActor: string | 'anonymous' | null = null;
     try {
       await client.connect(cancellationSignal);
-      for (const { identity, session, storagePath } of sessions) {
+      for (const { identity, session, storagePath, captureToken } of sessions) {
+        await openCaptureBoundSession(
+          dependencies,
+          input.repoPath,
+          session,
+          captureToken,
+          identity.authentication.login_url,
+          cancellationSignal,
+        );
         const loginTask = verificationLoginTask(verificationId, identity.name);
         const auditSession = dependencies.createAuditSession(input, context.runScope);
         await auditSession.initialize(input.workflowId);
@@ -2063,6 +2262,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           cancellationSignal,
         );
         if (requestedFreshActor) {
+          const requestedSession = sessions.find(({ identity }) => identity.name === requestedFreshActor);
+          if (!requestedSession) throw new Error(`No capture-bound verifier session exists for ${requestedFreshActor}`);
           const captured = await normalizeCapturedTraffic({
             targetOrigin: context.targetOrigin,
             rules: context.config.rules,
@@ -2071,6 +2272,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             after: currentHistory,
             rawDirectory: rawDirectory(input.repoPath),
             configuredSecrets: context.configuredSecrets,
+            captureToken: requestedSession.captureToken,
+            identityBoundRequestFields: context.config.identityBoundRequestFields,
             provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
             captureSequenceOffset: captureSequenceOffset(
               [...snapshot.exchanges, ...dynamicExchanges],
@@ -2100,6 +2303,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           client,
           rawStore: dependencies.createReplayRawStore(input.repoPath),
           identityState,
+          identityBoundRequestFields: context.config.identityBoundRequestFields,
           provenance: { actor: 'blackbox-verifier', taskId: verificationId, baseRevision: input.revision },
           ...(cancellationSignal ? { cancellationSignal } : {}),
         });
@@ -2395,14 +2599,22 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
     const failure = input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null;
-    const result = (findings: ReturnType<typeof collectVerifiedFindings>, revision: number): BlackboxWorkflowResult => {
+    const result = (
+      findings: ReturnType<typeof collectVerifiedFindings>,
+      terminalSnapshot: BlackboxSnapshot,
+      legacyFailure: string | null = null,
+    ): BlackboxWorkflowResult => {
+      const committedFailure = Object.hasOwn(terminalSnapshot, 'terminalFailure')
+        ? terminalSnapshot.terminalFailure ?? null
+        : legacyFailure;
       return {
         mode: 'blackbox',
-        status: input.status === 'complete' ? (findings.length > 0 ? 'findings' : 'no_findings') : 'incomplete',
-        revision,
+        status:
+          terminalSnapshot.runStatus === 'complete' ? (findings.length > 0 ? 'findings' : 'no_findings') : 'incomplete',
+        revision: terminalSnapshot.revision,
         findingCount: findings.length,
         artifactNames: BLACKBOX_ARTIFACT_NAMES,
-        failures: failure ? [failure] : [],
+        failures: committedFailure ? [committedFailure] : [],
       };
     };
 
@@ -2411,40 +2623,33 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         ({ operationKey }) => operationKey === input.operationKey,
       );
       if (snapshot.runStatus === input.status && completedOperation) {
-        return result(collectVerifiedFindings(snapshot, context.targetOrigin), snapshot.revision);
+        let terminalSnapshot = snapshot;
+        if (Object.hasOwn(snapshot, 'terminalFailure')) {
+          if ((snapshot.terminalFailure ?? null) !== failure) {
+            throw new Error(`Operation key ${input.operationKey} was already used with different content`);
+          }
+          terminalSnapshot = await store.setRunStatus(input.revision, input.operationKey, input.status, failure);
+        }
+        const { findings, artifactNames } = await publishCommittedTerminalArtifacts(
+          input,
+          context,
+          terminalSnapshot,
+          failure,
+        );
+        if (input.outputPath) {
+          await dependencies.copyDeliverables(input.repoPath, input.outputPath, artifactNames);
+        }
+        return result(findings, terminalSnapshot, failure);
       }
       throw new Error(`Blackboard is already terminal with status ${snapshot.runStatus}`);
     }
 
-    try {
-      const findings = collectVerifiedFindings(snapshot, context.targetOrigin);
-      const rendered = renderBlackboxArtifacts({
-        snapshot,
-        findings,
-        status: input.status,
-        failure,
-        configuredSecrets: context.configuredSecrets,
-      });
-      const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
-      if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
-        throw new Error('Black-box artifact publisher returned an incomplete manifest');
-      }
-      if (input.outputPath) {
-        await dependencies.copyDeliverables(input.repoPath, input.outputPath, artifactNames);
-      }
-      const next = await store.setRunStatus(input.revision, input.operationKey, input.status);
-      return result(findings, next.revision);
-    } catch (error) {
-      try {
-        await store.setRunStatus(input.revision, `${input.operationKey}:incomplete`, 'incomplete');
-      } catch (statusError) {
-        throw new AggregateError(
-          [error, statusError],
-          'Black-box artifact publication failed and the blackboard could not record incomplete',
-        );
-      }
-      throw error;
+    const next = await store.setRunStatus(input.revision, input.operationKey, input.status, failure);
+    const published = await publishCommittedTerminalArtifacts(input, context, next);
+    if (input.outputPath) {
+      await dependencies.copyDeliverables(input.repoPath, input.outputPath, published.artifactNames);
     }
+    return result(published.findings, next);
   };
 
   return {

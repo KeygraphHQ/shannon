@@ -67,6 +67,7 @@ In black-box mode:
 The target configuration adds named identities. Each identity reuses the existing authentication contract:
 
 ```yaml
+identity_bound_request_fields: []
 identities:
   - name: alice
     role: regular-user

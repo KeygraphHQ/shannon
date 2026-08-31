@@ -25,6 +25,13 @@ export const BLACKBOX_ARTIFACT_NAMES = [
   'blackbox_authz_evidence.md',
 ] as const;
 
+const BLACKBOX_ARTIFACT_PUBLICATION_ORDER = [
+  'traffic_inventory.json',
+  'blackbox_authz_findings.json',
+  'blackbox_authz_evidence.md',
+  'blackbox_blackboard.json',
+] as const satisfies readonly (typeof BLACKBOX_ARTIFACT_NAMES)[number][];
+
 export type BlackboxArtifactName = (typeof BLACKBOX_ARTIFACT_NAMES)[number];
 export type RenderedBlackboxArtifacts = Readonly<Record<BlackboxArtifactName, string>>;
 
@@ -345,7 +352,10 @@ export async function publishBlackboxArtifacts(
 ): Promise<readonly BlackboxArtifactName[]> {
   const deliverablesDirectory = path.resolve(repoPath, '.shannon', 'deliverables');
   await io.ensureDirectory(deliverablesDirectory);
-  for (const name of BLACKBOX_ARTIFACT_NAMES) {
+  // The blackboard projection is the set's commit marker. Write it only after
+  // every companion artifact has been atomically replaced so resume cannot
+  // accept a partially published terminal set.
+  for (const name of BLACKBOX_ARTIFACT_PUBLICATION_ORDER) {
     await io.atomicWrite(path.join(deliverablesDirectory, name), artifacts[name]);
   }
   return [...BLACKBOX_ARTIFACT_NAMES];

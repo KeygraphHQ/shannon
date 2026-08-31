@@ -75,10 +75,15 @@ export interface BlackboxIdentity {
   readonly authentication: Authentication;
 }
 
+export type IdentityBoundRequestField =
+  | { readonly location: 'header' | 'query' | 'form'; readonly name: string }
+  | { readonly location: 'json'; readonly pointer: string };
+
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   identities?: BlackboxIdentity[];
+  identity_bound_request_fields?: IdentityBoundRequestField[];
   description?: string;
   vuln_classes?: VulnClass[];
   exploit?: 'true' | 'false';
@@ -88,6 +93,7 @@ export interface Config {
 
 export interface BlackboxConfig extends Config {
   readonly identities: BlackboxIdentity[];
+  readonly identity_bound_request_fields: IdentityBoundRequestField[];
   readonly authentication?: never;
   readonly vuln_classes?: ['authz'];
   readonly exploit?: 'true';
@@ -95,6 +101,7 @@ export interface BlackboxConfig extends Config {
 
 export interface NormalizedBlackboxConfig {
   readonly identities: readonly BlackboxIdentity[];
+  readonly identityBoundRequestFields: readonly IdentityBoundRequestField[];
   readonly rules: Rules;
   readonly description: string;
   readonly vulnClasses: readonly ['authz'];

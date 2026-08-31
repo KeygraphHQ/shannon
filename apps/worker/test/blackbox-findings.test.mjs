@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
-import { collectVerifiedFindings } from '../dist/blackbox/finding-validator.js';
+import {
+  collectVerifiedFindings,
+  hasValidBlackboxControlEvidence,
+} from '../dist/blackbox/finding-validator.js';
 
 const TARGET_ORIGIN = 'https://target.example';
 const MARKER = 'victim-private-record-7';
@@ -17,7 +20,7 @@ function exchange(exchangeId, identity, provenance, overrides = {}) {
     method: 'GET',
     origin: TARGET_ORIGIN,
     path: '/api/objects/7',
-    queryKeys: [],
+    queryKeys: ['view'],
     bodyShape: 'none',
     requestContentType: null,
     responseStatus: 200,
@@ -36,7 +39,7 @@ function validSnapshot() {
       stepId: 'read-as-attacker',
       sourceExchangeId: 'ex-baseline',
       actor: 'attacker',
-      mutations: [{ type: 'set_path', path: '/api/objects/7' }],
+      mutations: [{ type: 'set_query', name: 'view', value: 'private' }],
     }],
     proofCondition: { type: 'body_contains', marker: MARKER },
   };
@@ -45,7 +48,7 @@ function validSnapshot() {
     passed: true,
     baselineExchangeId: 'ex-baseline',
     baselinePassed: true,
-    controlExchangeIds: [],
+    controlExchangeIds: ['ex-control'],
     controlPassed: false,
     proofSourceRequestDigest: 'a'.repeat(64),
     proofSentRequestDigest: 'a'.repeat(64),
@@ -86,6 +89,9 @@ function validSnapshot() {
         captureSequence: 3,
         responseFingerprint: 'sha256:private-record',
       }),
+      exchange('ex-control', 'attacker', { actor: 'blackbox-recon', taskId: 'recon-attacker', baseRevision: 1 }, {
+        candidateObjectReferences: ['8'],
+      }),
     ],
     resources: [{
       resourceId: 'resource-1',
@@ -95,6 +101,14 @@ function validSnapshot() {
       visibility: 'private',
       evidence: [{ id: 'ex-baseline', kind: 'exchange' }],
       provenance: { actor: 'blackbox-recon', taskId: 'recon-victim', baseRevision: 1 },
+    }, {
+      resourceId: 'resource-peer',
+      resourceType: 'private record',
+      objectReferences: ['8'],
+      ownerIdentity: 'attacker',
+      visibility: 'private',
+      evidence: [{ id: 'ex-control', kind: 'exchange' }],
+      provenance: { actor: 'blackbox-recon', taskId: 'recon-attacker', baseRevision: 1 },
     }],
     transitions: [],
     hypotheses: [{
@@ -206,9 +220,145 @@ test('accepts a victim-owned slug resource without relying on identifier-shape e
     exchange.path = '/api/profiles/alice';
     exchange.candidateObjectReferences = [];
   }
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-control').path = '/api/profiles/bob';
+  snapshot.resources.find(({ resourceId }) => resourceId === 'resource-peer').objectReferences = ['bob'];
   snapshot.actions[0].sequence.steps[0].mutations = [{ type: 'set_path', path: '/api/profiles/alice' }];
   snapshot.tasks[0].replayPlan.steps[0].mutations = [{ type: 'set_path', path: '/api/profiles/alice' }];
 
+  assert.equal(collectVerifiedFindings(snapshot, TARGET_ORIGIN).length, 1);
+});
+
+test('rejects a peer slug that is not grounded in its control exchange', () => {
+  const snapshot = validSnapshot();
+  snapshot.resources[0].objectReferences = ['alice'];
+  snapshot.resources.find(({ resourceId }) => resourceId === 'resource-peer').objectReferences = ['bob'];
+  for (const exchange of snapshot.exchanges) {
+    exchange.path = '/api/profiles/alice';
+    exchange.candidateObjectReferences = [];
+  }
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('rejects a static route segment presented as a peer object reference', () => {
+  const snapshot = validSnapshot();
+  snapshot.resources[0].objectReferences = ['alice'];
+  snapshot.resources.find(({ resourceId }) => resourceId === 'resource-peer').objectReferences = ['profiles'];
+  for (const exchange of snapshot.exchanges) {
+    exchange.path = '/api/profiles/alice';
+    exchange.candidateObjectReferences = [];
+  }
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('rejects a denied horizontal peer control', () => {
+  const snapshot = validSnapshot();
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-control').responseStatus = 403;
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('requires a peer control for same-role private access even when the hypothesis is mislabeled', () => {
+  const snapshot = validSnapshot();
+  snapshot.hypotheses[0].kind = 'workflow';
+  snapshot.resources[0].visibility = 'role-scoped';
+  snapshot.resources = snapshot.resources.filter(({ resourceId }) => resourceId !== 'resource-peer');
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('rejects a common 200 denial marker when nonpersistent controls are empty', () => {
+  const snapshot = validSnapshot();
+  const condition = { type: 'body_contains', marker: 'Access denied' };
+  const digest = createHash('sha256').update(condition.marker).digest('hex');
+  snapshot.actions[0].sequence.proofCondition = condition;
+  snapshot.tasks[0].replayPlan.proofCondition = condition;
+  for (const observation of [snapshot.actions[0].observation, snapshot.verifications[0].observation]) {
+    observation.condition = condition;
+    observation.observedMarkerDigest = digest;
+    observation.controlExchangeIds = [];
+    observation.controlPassed = false;
+  }
+  for (const exchange of snapshot.exchanges.filter(({ exchangeId }) => exchangeId !== 'ex-baseline')) {
+    exchange.responseFingerprint = 'sha256:access-denied';
+  }
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('accepts a vertical negative control without requiring horizontal peer ownership', () => {
+  const snapshot = validSnapshot();
+  snapshot.hypotheses[0].kind = 'vertical';
+  snapshot.identities.find(({ name }) => name === 'victim').role = 'administrator';
+  snapshot.resources[0].visibility = 'role-scoped';
+  snapshot.resources = snapshot.resources.filter(({ resourceId }) => resourceId !== 'resource-peer');
+  const control = snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-control');
+  control.responseStatus = 403;
+  control.candidateObjectReferences = [];
+  for (const observation of [snapshot.actions[0].observation, snapshot.verifications[0].observation]) {
+    observation.controlExchangeIds = ['ex-control'];
+    observation.controlPassed = false;
+  }
+
+  assert.equal(
+    hasValidBlackboxControlEvidence(snapshot, snapshot.candidateProofs[0], snapshot.actions[0], TARGET_ORIGIN),
+    true,
+  );
+  assert.equal(collectVerifiedFindings(snapshot, TARGET_ORIGIN).length, 1);
+
+  snapshot.actions[0].observation.controlExchangeIds = [];
+  snapshot.verifications[0].observation.controlExchangeIds = [];
+  assert.equal(
+    hasValidBlackboxControlEvidence(snapshot, snapshot.candidateProofs[0], snapshot.actions[0], TARGET_ORIGIN),
+    false,
+  );
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('accepts an anonymous-to-role vertical control without requiring an impossible peer owner', () => {
+  const snapshot = validSnapshot();
+  snapshot.candidateProofs[0].attackerIdentity = 'anonymous';
+  snapshot.identities.find(({ name }) => name === 'victim').role = 'administrator';
+  snapshot.resources[0].visibility = 'role-scoped';
+  snapshot.resources = snapshot.resources.filter(({ resourceId }) => resourceId !== 'resource-peer');
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-control').responseStatus = 403;
+
+  assert.equal(
+    hasValidBlackboxControlEvidence(snapshot, snapshot.candidateProofs[0], snapshot.actions[0], TARGET_ORIGIN),
+    true,
+  );
+});
+
+test('accepts horizontal controls with a differing leaf reference under shared context', () => {
+  const snapshot = validSnapshot();
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-baseline').candidateObjectReferences = ['tenant-1', 'record-7'];
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-control').candidateObjectReferences = ['tenant-1', 'record-8'];
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-action').candidateObjectReferences = ['tenant-1', 'record-7'];
+  snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-verify').candidateObjectReferences = ['tenant-1', 'record-7'];
+  snapshot.resources.find(({ resourceId }) => resourceId === 'resource-1').objectReferences = ['tenant-1', 'record-7'];
+  snapshot.resources.find(({ resourceId }) => resourceId === 'resource-peer').objectReferences = ['tenant-1', 'record-8'];
+
+  assert.equal(collectVerifiedFindings(snapshot, TARGET_ORIGIN).length, 1);
+});
+
+test('rejects a nonpersistent control exchange without a peer resource', () => {
+  const snapshot = validSnapshot();
+  snapshot.resources = snapshot.resources.filter(({ resourceId }) => resourceId !== 'resource-peer');
+  for (const observation of [snapshot.actions[0].observation, snapshot.verifications[0].observation]) {
+    observation.controlExchangeIds = ['ex-control'];
+    observation.controlPassed = false;
+  }
+
+  assert.deepEqual(collectVerifiedFindings(snapshot, TARGET_ORIGIN), []);
+});
+
+test('accepts a nonpersistent control exchange backed by a distinct peer resource', () => {
+  const snapshot = validSnapshot();
+  assert.equal(
+    hasValidBlackboxControlEvidence(snapshot, snapshot.candidateProofs[0], snapshot.actions[0], TARGET_ORIGIN),
+    true,
+  );
   assert.equal(collectVerifiedFindings(snapshot, TARGET_ORIGIN).length, 1);
 });
 
@@ -286,6 +436,12 @@ function persistentSnapshot() {
 
 test('accepts a replayed persistent-state marker only when the victim baseline fails first', () => {
   const snapshot = persistentSnapshot();
+  assert.deepEqual(snapshot.actions[0].observation.controlExchangeIds, []);
+  assert.deepEqual(snapshot.verifications[0].observation.controlExchangeIds, []);
+  assert.equal(
+    hasValidBlackboxControlEvidence(snapshot, snapshot.candidateProofs[0], snapshot.actions[0], TARGET_ORIGIN),
+    true,
+  );
   assert.equal(collectVerifiedFindings(snapshot, TARGET_ORIGIN).length, 1);
   snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-action-check').responseFingerprint =
     snapshot.exchanges.find(({ exchangeId }) => exchangeId === 'ex-action-precheck').responseFingerprint;

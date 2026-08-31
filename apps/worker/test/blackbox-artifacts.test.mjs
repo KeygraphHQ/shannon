@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -343,7 +343,7 @@ test('discovered proof strings redact values without renaming artifact fields', 
   assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.marker, '<redacted>');
 });
 
-test('publishes only the fixed manifest with per-file atomic writes', async (t) => {
+test('publishes only the fixed manifest with the blackboard commit marker last', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackbox-artifacts-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const rendered = renderBlackboxArtifacts({
@@ -354,9 +354,24 @@ test('publishes only the fixed manifest with per-file atomic writes', async (t) 
     configuredSecrets: [SECRET],
   });
 
-  const names = await publishBlackboxArtifacts(root, rendered);
+  const writes = [];
+  const names = await publishBlackboxArtifacts(root, rendered, {
+    async ensureDirectory(directoryPath) {
+      await mkdir(directoryPath, { recursive: true });
+    },
+    async atomicWrite(filePath, data) {
+      writes.push(path.basename(filePath));
+      await writeFile(filePath, data);
+    },
+  });
   const directory = path.join(root, '.shannon', 'deliverables');
   assert.deepEqual(names, [...BLACKBOX_ARTIFACT_NAMES]);
+  assert.deepEqual(writes, [
+    'traffic_inventory.json',
+    'blackbox_authz_findings.json',
+    'blackbox_authz_evidence.md',
+    'blackbox_blackboard.json',
+  ]);
   assert.deepEqual((await readdir(directory)).sort(), [...BLACKBOX_ARTIFACT_NAMES].sort());
   for (const name of names) {
     assert.equal(await readFile(path.join(directory, name), 'utf8'), rendered[name]);
@@ -383,5 +398,10 @@ test('never returns a partial-success manifest when an artifact write fails', as
     }),
     /simulated write failure/,
   );
-  assert.deepEqual(writes, BLACKBOX_ARTIFACT_NAMES.slice(0, 3));
+  assert.deepEqual(writes, [
+    'traffic_inventory.json',
+    'blackbox_authz_findings.json',
+    'blackbox_authz_evidence.md',
+  ]);
+  assert.equal(writes.includes('blackbox_blackboard.json'), false);
 });

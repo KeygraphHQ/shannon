@@ -24,6 +24,8 @@ function initialization() {
       burpMcpUrl: 'http://host.docker.internal:9876/',
       burpMcpHostHeader: '127.0.0.1:9876',
       burpProxyUrl: 'http://host.docker.internal:18080/',
+      evidenceBindingVersion: 1,
+      identityBindingContractDigest: 'a'.repeat(64),
     },
     identities: [
       {
@@ -350,6 +352,8 @@ test('resume compares the complete black-box scope independent of identity order
     ['burpMcpUrl', 'http://host.docker.internal:9999/'],
     ['burpMcpHostHeader', '127.0.0.1:9999'],
     ['burpProxyUrl', 'http://host.docker.internal:19090/'],
+    ['evidenceBindingVersion', 2],
+    ['identityBindingContractDigest', 'b'.repeat(64)],
   ]) {
     const changed = initialization();
     changed.runScope = { ...changed.runScope, [field]: value };
@@ -551,9 +555,9 @@ test('every keyed lifecycle transition is idempotent', async (t) => {
   const settled = await store.settleTasks(settlement);
   assert.deepEqual(await store.settleTasks(settlement), settled);
 
-  const finalized = await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete');
+  const finalized = await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete', null);
   assert.deepEqual(
-    await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete'),
+    await store.setRunStatus(settled.revision, 'lifecycle:finalize', 'complete', null),
     finalized,
   );
   assert.equal(finalized.operationReceipts.length, 4);
@@ -613,16 +617,18 @@ test('planning waves are reserved before model work and preserve stop until eval
   assert.deepEqual(evaluated.planningDecision, { waveNumber: 1, decision: 'complete' });
 });
 
-test('schema-version-one documents written before operation receipts remain readable', async (t) => {
+test('schema-version-one documents written before operation receipts and terminal failures remain readable', async (t) => {
   const { root, store } = await makeStore(t);
   const boardPath = path.join(root, '.shannon', 'blackbox', 'blackboard.json');
   const legacy = JSON.parse(await readFile(boardPath, 'utf8'));
   delete legacy.operationReceipts;
+  delete legacy.terminalFailure;
   await writeFile(boardPath, JSON.stringify(legacy), 'utf8');
 
   const snapshot = await store.read();
   assert.equal(snapshot.revision, 0);
   assert.equal(snapshot.operationReceipts, undefined);
+  assert.equal(snapshot.terminalFailure, undefined);
 });
 
 test('task registration queues action hypotheses and closes exhausted hypotheses atomically', async (t) => {
@@ -1266,10 +1272,22 @@ test('accepted and rejected tasks share one task ID namespace', async (t) => {
 
 test('terminal status freezes the blackboard while preserving idempotent finalization retry', async (t) => {
   const { store } = await makeStore(t);
-  const terminal = await store.setRunStatus(0, 'finalize:complete', 'complete');
+  const initial = await store.read();
+  await assert.rejects(
+    store.setRunStatus(0, 'finalize:invalid', 'paused'),
+    /status must be terminal/i,
+  );
+  assert.deepEqual(await store.read(), initial);
 
-  const retried = await store.setRunStatus(0, 'finalize:complete', 'complete');
+  const terminal = await store.setRunStatus(0, 'finalize:complete', 'failed', 'replay evidence was unavailable');
+
+  assert.equal(terminal.terminalFailure, 'replay evidence was unavailable');
+  const retried = await store.setRunStatus(0, 'finalize:complete', 'failed', 'replay evidence was unavailable');
   assert.deepEqual(retried, terminal);
+  await assert.rejects(
+    store.setRunStatus(0, 'finalize:complete', 'failed', 'a different failure'),
+    /different content/i,
+  );
   await assert.rejects(
     store.registerTasks(terminal.revision, {
       operationKey: 'register:after-finalize',
@@ -1279,7 +1297,7 @@ test('terminal status freezes the blackboard while preserving idempotent finaliz
     /terminal|final|running/i,
   );
   await assert.rejects(
-    store.setRunStatus(terminal.revision, 'finalize:changed', 'failed'),
+    store.setRunStatus(terminal.revision, 'finalize:changed', 'failed', 'changed terminal state'),
     /terminal|final|running/i,
   );
   assert.deepEqual(await store.read(), terminal);

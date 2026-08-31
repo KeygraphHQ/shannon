@@ -13,6 +13,7 @@ import {
   workflowNameFor,
 } from '../dist/temporal/worker-cli.js';
 import { MetricsTracker } from '../dist/audit/metrics-tracker.js';
+import { identityBindingContractDigest } from '../dist/blackbox/scope-guard.js';
 
 const ARTIFACTS = [
   'traffic_inventory.json',
@@ -28,6 +29,8 @@ const SCOPE = {
   burpMcpUrl: 'http://host.docker.internal:9876/',
   burpMcpHostHeader: '127.0.0.1:9876',
   burpProxyUrl: 'http://host.docker.internal:18080/',
+  evidenceBindingVersion: 1,
+  identityBindingContractDigest: 'a'.repeat(64),
 };
 
 test('derived workflow IDs stay within the control-key identifier limit', () => {
@@ -109,6 +112,8 @@ test('resume treats legacy sessions as white-box and compares canonical black-bo
     ['burpMcpUrl', 'http://host.docker.internal:9999/'],
     ['burpMcpHostHeader', '127.0.0.1:9999'],
     ['burpProxyUrl', 'http://host.docker.internal:19090/'],
+    ['evidenceBindingVersion', 2],
+    ['identityBindingContractDigest', 'b'.repeat(64)],
   ]) {
     assert.throws(
       () => assertResumeCompatible(session, { mode: 'blackbox', webUrl: 'https://target.example' }, {
@@ -118,6 +123,25 @@ test('resume treats legacy sessions as white-box and compares canonical black-bo
       new RegExp(field.replace(/[A-Z]/g, (letter) => `.?${letter.toLowerCase()}`), 'i'),
     );
   }
+});
+
+test('identity binding scope digest is canonical and detects contract changes', () => {
+  const fields = [
+    { location: 'header', name: 'X-User-Context' },
+    { location: 'query', name: 'subject' },
+    { location: 'json', pointer: '/identity/opaque' },
+  ];
+  const reordered = [
+    { location: 'json', pointer: '/identity/opaque' },
+    { location: 'query', name: 'subject' },
+    { location: 'header', name: 'x-user-context' },
+  ];
+
+  assert.equal(identityBindingContractDigest(fields), identityBindingContractDigest(reordered));
+  assert.notEqual(
+    identityBindingContractDigest(fields),
+    identityBindingContractDigest([{ ...fields[0] }, { ...fields[1] }, { location: 'json', pointer: '/identity/other' }]),
+  );
 });
 
 test('black-box resume fails closed when a running predecessor cannot be terminated', () => {

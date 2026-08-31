@@ -9,7 +9,9 @@ import { isDeepStrictEqual } from 'node:util';
 import { redactSensitive } from '../ai/sensitive-redaction.js';
 import type {
   BlackboxActionResult,
+  BlackboxResource,
   BlackboxSnapshot,
+  CandidateProof,
   DeterministicProofObservation,
   EvidenceRef,
   NormalizedExchange,
@@ -73,9 +75,26 @@ function exactArray(left: readonly string[], right: readonly string[]): boolean 
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function overlaps(left: readonly string[], right: readonly string[]): boolean {
-  const rightValues = new Set(right);
-  return left.some((value) => rightValues.has(value));
+function decodedPathSegments(pathname: string): ReadonlySet<string> {
+  const segments = new Set<string>();
+  for (const segment of pathname.split('/')) {
+    if (segment.length === 0) continue;
+    try {
+      segments.add(decodeURIComponent(segment));
+    } catch {
+      segments.add(segment);
+    }
+  }
+  return segments;
+}
+
+function groundedObjectReferences(exchange: NormalizedExchange): ReadonlySet<string> {
+  return new Set([...exchange.candidateObjectReferences, ...decodedPathSegments(exchange.path)]);
+}
+
+function groundsAnyObjectReference(exchange: NormalizedExchange, references: readonly string[]): boolean {
+  const grounded = groundedObjectReferences(exchange);
+  return references.some((reference) => grounded.has(reference));
 }
 
 function targetExchange(
@@ -156,32 +175,108 @@ function validObservation(
 }
 
 function validControlEvidence(
+  snapshot: BlackboxSnapshot,
   observation: DeterministicProofObservation,
   condition: ProofCondition,
   baseline: NormalizedExchange,
   exchanges: ReadonlyMap<string, NormalizedExchange>,
+  resources: ReadonlyMap<string, BlackboxResource>,
+  victimResourceId: string,
+  requirePeerControl: boolean,
   targetOrigin: string,
 ): boolean {
   const controlIds = observation.controlExchangeIds;
   if (!controlIds) return false;
   if (condition.type === 'persistent_state') return controlIds.length === 0;
-  if (controlIds.length === 0) return true;
-  const baselineReferences = new Set(baseline.candidateObjectReferences);
-  if (baselineReferences.size === 0) return false;
-  return controlIds.every((exchangeId) => {
-    const control = targetExchange(exchanges, exchangeId, targetOrigin);
-    return (
-      control !== null &&
-      control.exchangeId !== baseline.exchangeId &&
-      control.routeSignature === baseline.routeSignature &&
-      control.identity !== baseline.identity &&
-      control.provenance.actor === 'blackbox-recon' &&
-      control.responseStatus >= 200 &&
-      control.responseStatus < 300 &&
-      control.candidateObjectReferences.length > 0 &&
-      control.candidateObjectReferences.every((reference) => !baselineReferences.has(reference))
-    );
+  if (controlIds.length === 0) return false;
+  const victimResource = resources.get(victimResourceId);
+  const baselineReferences = new Set([
+    ...baseline.candidateObjectReferences,
+    ...(victimResource?.objectReferences ?? []),
+    ...decodedPathSegments(baseline.path),
+  ]);
+  if (requirePeerControl && baselineReferences.size === 0) return false;
+  const controls = controlIds.map((exchangeId) => targetExchange(exchanges, exchangeId, targetOrigin));
+  if (
+    !controls.every(
+      (control) =>
+        control !== null &&
+        control.exchangeId !== baseline.exchangeId &&
+        control.routeSignature === baseline.routeSignature &&
+        control.identity !== baseline.identity &&
+        control.provenance.actor === 'blackbox-recon' &&
+        control.responseStatus >= 100 &&
+        control.responseStatus < 600,
+    )
+  ) {
+    return false;
+  }
+  if (!requirePeerControl) return true;
+  return controls.some((control) => {
+    if (!control || control.responseStatus < 200 || control.responseStatus >= 300) return false;
+    const groundedReferences = groundedObjectReferences(control);
+    return [...resources.values()].some((resource) => {
+      const peerOnlyReferences = resource.objectReferences.filter((reference) => !baselineReferences.has(reference));
+      return (
+        resource.resourceId !== victimResourceId &&
+        resource.ownerIdentity === control.identity &&
+        (resource.visibility === 'private' || resource.visibility === 'role-scoped') &&
+        resource.provenance.actor === 'blackbox-recon' &&
+        peerOnlyReferences.length > 0 &&
+        peerOnlyReferences.some((reference) => groundedReferences.has(reference)) &&
+        resource.evidence.some(({ id, kind }) => id === control.exchangeId && kind === 'exchange') &&
+        resource.evidence.every((reference) => evidenceExists(snapshot, reference, targetOrigin))
+      );
+    });
   });
+}
+
+function requiresPeerOwnershipControl(
+  snapshot: BlackboxSnapshot,
+  candidate: CandidateProof,
+  resource: BlackboxResource,
+): boolean {
+  if (resource.visibility !== 'private' && resource.visibility !== 'role-scoped') return false;
+  if (candidate.attackerIdentity === 'anonymous') return resource.visibility === 'private';
+  const victimRole = snapshot.identities.find(({ name }) => name === candidate.victimIdentity)?.role;
+  const attackerRole = snapshot.identities.find(({ name }) => name === candidate.attackerIdentity)?.role;
+  return (
+    candidate.attackerIdentity !== candidate.victimIdentity &&
+    victimRole !== undefined &&
+    attackerRole !== undefined &&
+    victimRole === attackerRole
+  );
+}
+
+/**
+ * Validate the control evidence attached to an action candidate before it is promoted.
+ * Persistent-state proofs intentionally remain valid with no controls.
+ */
+export function hasValidBlackboxControlEvidence(
+  snapshot: BlackboxSnapshot,
+  candidate: CandidateProof,
+  action: BlackboxActionResult,
+  targetOrigin: string,
+): boolean {
+  const normalizedOrigin = normalizeTargetOrigin(targetOrigin);
+  if (snapshot.targetOrigin !== normalizedOrigin || !action.observation) return false;
+  const exchanges = uniqueIndex(snapshot.exchanges, ({ exchangeId }) => exchangeId);
+  const resources = uniqueIndex(snapshot.resources, ({ resourceId }) => resourceId);
+  const hypothesis = snapshot.hypotheses.find(({ hypothesisId }) => hypothesisId === candidate.hypothesisId);
+  const resource = resources?.get(candidate.victimResourceId);
+  const baseline = exchanges && targetExchange(exchanges, candidate.baselineExchangeId, normalizedOrigin);
+  if (!exchanges || !resources || !hypothesis || !resource || !baseline) return false;
+  return validControlEvidence(
+    snapshot,
+    action.observation,
+    action.sequence.proofCondition,
+    baseline,
+    exchanges,
+    resources,
+    candidate.victimResourceId,
+    requiresPeerOwnershipControl(snapshot, candidate, resource),
+    normalizedOrigin,
+  );
 }
 
 function expectedReplayActors(
@@ -312,9 +407,7 @@ export function collectVerifiedFindings(
       baseline.provenance.actor !== 'blackbox-recon' ||
       resource.provenance.actor !== 'blackbox-recon' ||
       !resource.evidence.some(({ id, kind }) => id === baseline.exchangeId && kind === 'exchange') ||
-      (resource.objectReferences.length > 0 &&
-        baseline.candidateObjectReferences.length > 0 &&
-        !overlaps(resource.objectReferences, baseline.candidateObjectReferences)) ||
+      (resource.objectReferences.length > 0 && !groundsAnyObjectReference(baseline, resource.objectReferences)) ||
       !resource.evidence.every((reference) => evidenceExists(snapshot, reference, normalizedOrigin))
     ) {
       continue;
@@ -415,11 +508,9 @@ export function collectVerifiedFindings(
           actionProofExchange.routeSignature !== baseline.routeSignature ||
           verificationProofExchange.routeSignature !== baseline.routeSignature ||
           (resource.objectReferences.length > 0 &&
-            actionProofExchange.candidateObjectReferences.length > 0 &&
-            !overlaps(resource.objectReferences, actionProofExchange.candidateObjectReferences)) ||
+            !groundsAnyObjectReference(actionProofExchange, resource.objectReferences)) ||
           (resource.objectReferences.length > 0 &&
-            verificationProofExchange.candidateObjectReferences.length > 0 &&
-            !overlaps(resource.objectReferences, verificationProofExchange.candidateObjectReferences)))) ||
+            !groundsAnyObjectReference(verificationProofExchange, resource.objectReferences)))) ||
       (persistentProof &&
         (proofSource.identity !== candidate.victimIdentity ||
           action.sequence.steps.some(({ actor }) => actor !== candidate.attackerIdentity) ||
@@ -441,18 +532,16 @@ export function collectVerifiedFindings(
         !persistentProof,
         verificationProofExchangeId,
       ) ||
+      !hasValidBlackboxControlEvidence(snapshot, candidate, action, normalizedOrigin) ||
       !validControlEvidence(
-        action.observation,
-        action.sequence.proofCondition,
-        actionProofBaseline,
-        exchanges,
-        normalizedOrigin,
-      ) ||
-      !validControlEvidence(
+        snapshot,
         verification.observation,
         action.sequence.proofCondition,
         verificationProofBaseline,
         exchanges,
+        resources,
+        candidate.victimResourceId,
+        requiresPeerOwnershipControl(snapshot, candidate, resource),
         normalizedOrigin,
       ) ||
       !exactArray(action.observation.controlExchangeIds ?? [], verification.observation.controlExchangeIds ?? []) ||

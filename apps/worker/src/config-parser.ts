@@ -18,6 +18,7 @@ import {
   type Config,
   type ConfigMode,
   type DistributedConfig,
+  type IdentityBoundRequestField,
   type NormalizedBlackboxConfig,
   type Rule,
   type Rules,
@@ -410,6 +411,12 @@ const validateMode = (config: Config, mode: ConfigMode): void => {
     if (config.identities !== undefined) {
       throwConfigValidation('identities is only allowed in blackbox mode', { field: 'identities', mode });
     }
+    if (config.identity_bound_request_fields !== undefined) {
+      throwConfigValidation('identity_bound_request_fields is only allowed in blackbox mode', {
+        field: 'identity_bound_request_fields',
+        mode,
+      });
+    }
     return;
   }
 
@@ -418,6 +425,15 @@ const validateMode = (config: Config, mode: ConfigMode): void => {
     throwConfigValidation('identities is required in blackbox mode', { field: 'identities', mode });
     return;
   }
+  const identityBoundRequestFields = config.identity_bound_request_fields;
+  if (identityBoundRequestFields === undefined) {
+    throwConfigValidation('identity_bound_request_fields is required in blackbox mode', {
+      field: 'identity_bound_request_fields',
+      mode,
+    });
+    return;
+  }
+  normalizeIdentityBoundRequestFields(identityBoundRequestFields);
   if (config.authentication !== undefined) {
     throwConfigValidation('authentication is not allowed in blackbox mode; use identities', {
       field: 'authentication',
@@ -455,6 +471,82 @@ const validateMode = (config: Config, mode: ConfigMode): void => {
     });
   }
 };
+
+const RESERVED_IDENTITY_HEADER_NAMES = new Set([
+  'authorization',
+  'connection',
+  'content-length',
+  'cookie',
+  'host',
+  'keep-alive',
+  'origin',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+  'x-shannon-capture',
+]);
+const JSON_POINTER_DANGEROUS_SEGMENTS = new Set(['__proto__', 'prototype', 'constructor']);
+
+function validateIdentityJsonPointer(pointer: string): void {
+  if (pointer.length === 0 || pointer.length > 512 || !pointer.startsWith('/') || /[\r\n\0]/.test(pointer)) {
+    throwConfigValidation('Invalid JSON pointer in identity_bound_request_fields', {
+      field: 'identity_bound_request_fields.pointer',
+    });
+  }
+  for (const encoded of pointer.slice(1).split('/')) {
+    if (/~(?:[^01]|$)/.test(encoded)) {
+      throwConfigValidation('Invalid JSON pointer escape in identity_bound_request_fields', {
+        field: 'identity_bound_request_fields.pointer',
+      });
+    }
+    const segment = encoded.replace(/~1/g, '/').replace(/~0/g, '~');
+    if (JSON_POINTER_DANGEROUS_SEGMENTS.has(segment)) {
+      throwConfigValidation('Unsafe JSON pointer in identity_bound_request_fields', {
+        field: 'identity_bound_request_fields.pointer',
+      });
+    }
+  }
+}
+
+function normalizeIdentityBoundRequestFields(
+  fields: readonly IdentityBoundRequestField[],
+): readonly IdentityBoundRequestField[] {
+  const seen = new Set<string>();
+  return fields.map((field): IdentityBoundRequestField => {
+    let normalized: IdentityBoundRequestField;
+    let identity: string;
+    if (field.location === 'json') {
+      validateIdentityJsonPointer(field.pointer);
+      normalized = { location: 'json', pointer: field.pointer };
+      identity = `json\0${field.pointer}`;
+    } else {
+      if (field.name.length === 0 || field.name.length > 128 || field.name.trim() !== field.name || /[\r\n\0]/.test(field.name)) {
+        throwConfigValidation(`Invalid ${field.location} name in identity_bound_request_fields`, {
+          field: 'identity_bound_request_fields.name',
+          location: field.location,
+        });
+      }
+      const name = field.location === 'header' ? field.name.toLowerCase() : field.name;
+      if (field.location === 'header' && RESERVED_IDENTITY_HEADER_NAMES.has(name)) {
+        throwConfigValidation(`Reserved header ${field.name} cannot be declared identity-bound`, {
+          field: 'identity_bound_request_fields.name',
+          location: field.location,
+        });
+      }
+      normalized = { location: field.location, name };
+      identity = `${field.location}\0${name}`;
+    }
+    if (seen.has(identity)) {
+      throwConfigValidation('Duplicate identity_bound_request_fields selector', {
+        field: 'identity_bound_request_fields',
+      });
+    }
+    seen.add(identity);
+    return normalized;
+  });
+}
 
 const throwConfigValidation = (message: string, context: Record<string, unknown>): never => {
   throw new PentestError(message, 'config', false, context, ErrorCode.CONFIG_VALIDATION_FAILED);
@@ -793,6 +885,9 @@ export function normalizeBlackboxConfig(config: Config): NormalizedBlackboxConfi
         role: identity.role.trim(),
         authentication: sanitizeAuthentication(identity.authentication),
       }),
+    ),
+    identityBoundRequestFields: normalizeIdentityBoundRequestFields(
+      (config as BlackboxConfig).identity_bound_request_fields,
     ),
     rules,
     description: config.description?.trim() ?? '',

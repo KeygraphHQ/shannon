@@ -10,7 +10,16 @@ import { FileReplayRawStore, ReplayService } from '../dist/blackbox/replay-servi
 
 const TARGET_ORIGIN = 'https://api.target.example:8443';
 const PROVENANCE = { actor: 'blackbox-action', taskId: 'action-task', baseRevision: 3 };
+const CAPTURE_TOKEN = 'capture-token-must-never-replay';
+const IDENTITY_BOUND_REQUEST_FIELDS = [
+  { location: 'header', name: 'x-csrf-token' },
+  { location: 'header', name: 'x-request-token' },
+  { location: 'query', name: 'csrf_token' },
+  { location: 'form', name: 'csrf_token' },
+  { location: 'json', pointer: '/csrf_token' },
+];
 const CONFIGURED_SECRETS = [
+  CAPTURE_TOKEN,
   'victim-cookie',
   'victim-bearer',
   'victim-proxy',
@@ -32,6 +41,7 @@ const SOURCE_REQUEST = [
   'Cookie: session=victim-cookie',
   'Authorization: Bearer victim-bearer',
   'Proxy-Authorization: Basic victim-proxy',
+  `X-Shannon-Capture: ${CAPTURE_TOKEN}`,
   'X-CSRF-Token: victim-header-csrf',
   'X-Request-Token: victim-request-token',
   'X-Keep: keep-header',
@@ -51,6 +61,7 @@ const ACTOR_REQUEST = [
   'Host: api.target.example:8443',
   'Cookie: stale=do-not-copy',
   'Authorization: Bearer attacker-bearer',
+  `X-Shannon-Capture: ${CAPTURE_TOKEN}`,
   'X-CSRF-Token: attacker-header-csrf',
   'X-Request-Token: attacker-request-token',
   'X-Keep: actor-header',
@@ -236,6 +247,7 @@ function harness({
   rawStore: injectedRawStore,
   identityState,
   configuredSecrets,
+  identityBoundRequestFields = IDENTITY_BOUND_REQUEST_FIELDS,
   cancellationSignal,
 } = {}) {
   const catalog =
@@ -275,6 +287,7 @@ function harness({
     rawStore,
     identityState: resolver,
     provenance: PROVENANCE,
+    identityBoundRequestFields,
     cancellationSignal,
   });
   return { service, client, rawStore, identityState: resolver };
@@ -349,6 +362,7 @@ test('identity-bound replay strips victim state, substitutes the actor, preserve
     'Bearer attacker-bearer',
   );
   assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'proxy-authorization'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'x-shannon-capture'), false);
   assert.equal(
     outbound.headers.find(({ name }) => name.toLowerCase() === 'x-csrf-token')?.value,
     'attacker-header-csrf',
@@ -443,6 +457,81 @@ test('identity substitution alone can replay a victim request as the attacker', 
   assert.equal(JSON.parse(outbound.body).object_id, '100');
 });
 
+test('declared opaque carriers are exhaustively rebound or removed and excluded from binding digests', async () => {
+  const sourceRequest = [
+    'POST /api/users/100?subject=victim-subject&keep=yes HTTP/1.1',
+    'Host: api.target.example:8443',
+    'X-User-Context: victim-context',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({ identity: { opaque: 'victim-opaque' }, keep: 'unchanged' }),
+  ].join('\r\n');
+  const actorRequest = [
+    'POST /api/users/100?subject=attacker-subject&keep=yes HTTP/1.1',
+    'Host: api.target.example:8443',
+    'X-User-Context: attacker-context',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({ identity: { opaque: 'attacker-opaque' }, keep: 'unchanged' }),
+  ].join('\r\n');
+  const options = {
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_users', { method: 'POST' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_users', { method: 'POST', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+    identityBoundRequestFields: [
+      { location: 'header', name: 'x-user-context' },
+      { location: 'query', name: 'subject' },
+      { location: 'json', pointer: '/identity/opaque' },
+    ],
+    configuredSecrets: [
+      'victim-subject',
+      'victim-context',
+      'victim-opaque',
+      'attacker-subject',
+      'attacker-context',
+      'attacker-opaque',
+    ],
+  };
+
+  const named = harness(options);
+  const namedOutcome = await named.service.replay(replayCommand('act_opaque_named', {
+    steps: [{ stepId: 'step_opaque_named', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+  const rebound = parseHttpRequest(named.client.calls[0].arguments_.content);
+  assert.equal(new URL(rebound.target, TARGET_ORIGIN).searchParams.get('subject'), 'attacker-subject');
+  assert.equal(rebound.headers.find(({ name }) => name.toLowerCase() === 'x-user-context')?.value, 'attacker-context');
+  assert.equal(JSON.parse(rebound.body).identity.opaque, 'attacker-opaque');
+  assert.equal(namedOutcome.observation.proofSourceRequestDigest, namedOutcome.observation.proofSentRequestDigest);
+
+  const protectedMutation = harness(options);
+  await assert.rejects(
+    protectedMutation.service.replay(replayCommand('act_opaque_parent_mutation', {
+      steps: [{
+        stepId: 'step_opaque_parent_mutation',
+        sourceExchangeId: 'ex_source',
+        actor: 'attacker',
+        mutations: [{ type: 'set_json_pointer', pointer: '/identity', value: { opaque: 'model-value' } }],
+      }],
+    })),
+    /identity-bound|protected/i,
+  );
+  assert.equal(protectedMutation.client.calls.length, 0);
+
+  const anonymous = harness(options);
+  await anonymous.service.replay(replayCommand('act_opaque_anonymous', {
+    steps: [{ stepId: 'step_opaque_anonymous', sourceExchangeId: 'ex_source', actor: 'anonymous', mutations: [] }],
+  }));
+  const stripped = parseHttpRequest(anonymous.client.calls[0].arguments_.content);
+  assert.equal(new URL(stripped.target, TARGET_ORIGIN).searchParams.has('subject'), false);
+  assert.equal(stripped.headers.some(({ name }) => name.toLowerCase() === 'x-user-context'), false);
+  assert.deepEqual(JSON.parse(stripped.body), { identity: {}, keep: 'unchanged' });
+});
+
 test('identity-bound replay replaces form CSRF from the actor equivalent request', async () => {
   const sourceRequest = [
     'POST /api/users/100 HTTP/1.1',
@@ -471,6 +560,23 @@ test('identity-bound replay replaces form CSRF from the actor equivalent request
     ]),
   });
 
+  await assert.rejects(
+    service.replay(
+      replayCommand('act_form_csrf_mutation', {
+        steps: [
+          {
+            stepId: 'step_form_csrf_mutation',
+            sourceExchangeId: 'ex_source',
+            actor: 'attacker',
+            mutations: [{ type: 'set_form_field', name: 'csrf_token', value: 'model-secret' }],
+          },
+        ],
+      }),
+    ),
+    /identity-bound|protected/i,
+  );
+  assert.equal(client.calls.length, 0);
+
   const outcome = await service.replay(
     replayCommand('act_form_csrf', {
       steps: [
@@ -491,6 +597,80 @@ test('identity-bound replay replaces form CSRF from the actor equivalent request
     keep: 'unchanged',
     csrf_token: 'attacker-body-csrf',
   });
+});
+
+test('multipart replay blocks configured and conventional identity carriers before dispatch', async () => {
+  const cases = [
+    { name: 'csrf_token', configured: true },
+    { name: 'access_token', configured: false },
+  ];
+  for (const { name, configured } of cases) {
+    const boundary = `boundary-${name}`;
+    const sourceRequest = [
+      'POST /api/upload HTTP/1.1',
+      'Host: api.target.example:8443',
+      'Cookie: session=victim-cookie',
+      `Content-Type: multipart/form-data; boundary=${boundary}`,
+      '',
+      `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\nvictim-value\r\n--${boundary}--\r\n`,
+    ].join('\r\n');
+    const actorRequest = sourceRequest.replace('victim-value', 'attacker-value');
+    const { service, client } = harness({
+      identityBoundRequestFields: configured ? [{ location: 'form', name }] : [],
+      exchanges: [
+        exchange('ex_source', 'victim', 'route_upload', { method: 'POST' }),
+        exchange('ex_attacker_latest', 'attacker', 'route_upload', { method: 'POST', captureSequence: 9 }),
+      ],
+      records: new Map([
+        ['ex_source', raw(sourceRequest)],
+        ['ex_attacker_latest', raw(actorRequest)],
+      ]),
+    });
+
+    await assert.rejects(
+      service.replay(replayCommand(`act_multipart_${name}`, {
+        steps: [{ stepId: `step_multipart_${name}`, sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+      })),
+      /multipart|identity-bound/i,
+    );
+    assert.equal(client.calls.length, 0);
+  }
+});
+
+test('multipart replay keeps ordinary parts usable when no identity carrier is present', async () => {
+  const boundary = 'WebKitFormBoundaryOrdinaryUpload';
+  const multipartBody = `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="note.txt"\r\nContent-Type: text/plain\r\n\r\nhello\r\n--${boundary}--\r\n`;
+  const sourceRequest = [
+    'POST /api/upload HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Cookie: session=victim-cookie',
+    `Content-Type: multipart/form-data; boundary=${boundary}`,
+    '',
+    multipartBody,
+  ].join('\r\n');
+  const { service, client } = harness({
+    identityBoundRequestFields: [],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_upload', { method: 'POST' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_upload', { method: 'POST', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(sourceRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_multipart_ordinary', {
+    steps: [{
+      stepId: 'step_multipart_ordinary',
+      sourceExchangeId: 'ex_source',
+      actor: 'attacker',
+      mutations: [{ type: 'set_path', path: '/api/upload' }],
+    }],
+  }));
+  assert.equal(outcome.status, 'completed');
+  assert.equal(client.calls.length, 1);
+  assert.equal(parseHttpRequest(client.calls[0].arguments_.content).body, multipartBody);
 });
 
 test('anonymous replay removes all inherited authentication without consulting identity state', async () => {
@@ -518,6 +698,396 @@ test('anonymous replay removes all inherited authentication without consulting i
   assert.equal(outcome.observation.passed, false);
 });
 
+test('an empty declared-field contract still protects conventional identity token fields', async () => {
+  const { service, client } = harness({ identityBoundRequestFields: [] });
+  await service.replay(replayCommand('act_builtin_identity_only', {
+    steps: [{ stepId: 'step_builtin_identity_only', sourceExchangeId: 'ex_source', actor: 'anonymous', mutations: [] }],
+  }));
+
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'cookie'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'authorization'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'x-csrf-token'), false);
+  assert.equal(new URL(outbound.target, TARGET_ORIGIN).searchParams.has('csrf_token'), false);
+  assert.equal(Object.hasOwn(JSON.parse(outbound.body), 'csrf_token'), false);
+});
+
+test('an empty declared-field contract also strips conventional secret carriers', async () => {
+  const source = [
+    'PATCH /api/users/100?view=full&jwt=victim-query-jwt&cookie=victim-query-cookie&client_secret=victim-query-secret HTTP/1.1',
+    'Host: api.target.example:8443',
+    'X-JWT: victim-header-jwt',
+    'X-Cookie-State: victim-header-cookie',
+    'X-Client-Secret: victim-header-secret',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({
+      jwt: 'victim-body-jwt',
+      cookie: 'victim-body-cookie',
+      client_secret: 'victim-body-secret',
+      keep: 'unchanged',
+    }),
+  ].join('\r\n');
+  const { service, client } = harness({
+    identityBoundRequestFields: [],
+    records: new Map([
+      ['ex_source', raw(source)],
+      ['ex_attacker_latest', raw(ACTOR_REQUEST)],
+    ]),
+  });
+  await service.replay(replayCommand('act_builtin_jwt_cookie', {
+    steps: [{ stepId: 'step_builtin_jwt_cookie', sourceExchangeId: 'ex_source', actor: 'anonymous', mutations: [] }],
+  }));
+
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  const target = new URL(outbound.target, TARGET_ORIGIN);
+  assert.equal(target.searchParams.has('jwt'), false);
+  assert.equal(target.searchParams.has('cookie'), false);
+  assert.equal(target.searchParams.has('client_secret'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'x-jwt'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'x-cookie-state'), false);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'x-client-secret'), false);
+  assert.equal(Object.hasOwn(JSON.parse(outbound.body), 'jwt'), false);
+  assert.equal(Object.hasOwn(JSON.parse(outbound.body), 'cookie'), false);
+  assert.equal(Object.hasOwn(JSON.parse(outbound.body), 'client_secret'), false);
+});
+
+test('a named replay imports actor authorization when the source request is public', async () => {
+  const sourceRequest = 'GET /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\nAccept: application/json\r\n\r\n';
+  const actorRequest = [
+    'GET /api/users/999 HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Authorization: Bearer attacker-bearer',
+    'Accept: application/json',
+    '',
+    '',
+  ].join('\r\n');
+  const exchanges = [
+    exchange('ex_source', 'victim', 'route_users', { method: 'GET' }),
+    exchange('ex_attacker_latest', 'attacker', 'route_users', { method: 'GET', captureSequence: 9 }),
+  ];
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  const options = {
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges,
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  };
+  const first = harness(options);
+  const outcome = await first.service.replay(replayCommand('act_public_to_named', {
+    steps: [{ stepId: 'step_public_to_named', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+
+  assert.equal(outcome.status, 'completed');
+  const outbound = parseHttpRequest(first.client.calls[0].arguments_.content);
+  assert.equal(
+    outbound.headers.find(({ name }) => name.toLowerCase() === 'authorization')?.value,
+    'Bearer attacker-bearer',
+  );
+
+  const missingState = new FakeIdentityStateResolver();
+  missingState.cookies.delete('attacker');
+  missingState.latest.delete('attacker\0route_users');
+  const missing = harness({ ...options, identityState: missingState });
+  const missingOutcome = await missing.service.replay(replayCommand('act_public_missing_actor', {
+    steps: [{ stepId: 'step_public_missing_actor', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+  assert.equal(missingOutcome.status, 'needs_fresh_actor_request');
+  assert.equal(missing.client.calls.length, 0);
+});
+
+test('a named replay can replace a victim cookie with actor authorization', async () => {
+  const sourceRequest = [
+    'GET /api/users/100 HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Cookie: session=victim-cookie',
+    'Accept: application/json',
+    '',
+    '',
+  ].join('\r\n');
+  const actorRequest = [
+    'GET /api/users/999 HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Authorization: Bearer attacker-bearer',
+    'Accept: application/json',
+    '',
+    '',
+  ].join('\r\n');
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  const { service, client } = harness({
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_users', { method: 'GET' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_users', { method: 'GET', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_cookie_to_bearer', {
+    steps: [{ stepId: 'step_cookie_to_bearer', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+
+  assert.equal(outcome.status, 'completed');
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(outbound.headers.some(({ name }) => name.toLowerCase() === 'cookie'), false);
+  assert.equal(
+    outbound.headers.find(({ name }) => name.toLowerCase() === 'authorization')?.value,
+    'Bearer attacker-bearer',
+  );
+
+  const reverse = harness({
+    identityBoundRequestFields: [],
+    records: new Map([[
+      'ex_source',
+      raw('PATCH /api/users/100 HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer victim-bearer\r\n\r\n'),
+    ]]),
+  });
+  const reverseOutcome = await reverse.service.replay(replayCommand('act_bearer_to_cookie', {
+    steps: [{ stepId: 'step_bearer_to_cookie', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+  assert.equal(reverseOutcome.status, 'completed');
+  const reverseOutbound = parseHttpRequest(reverse.client.calls[0].arguments_.content);
+  assert.equal(reverseOutbound.headers.some(({ name }) => name.toLowerCase() === 'authorization'), false);
+  assert.equal(reverseOutbound.headers.find(({ name }) => name.toLowerCase() === 'cookie')?.value, 'session=attacker-cookie');
+});
+
+test('anti-CSRF material alone never proves a named actor binding', async () => {
+  const sourceRequest = [
+    'POST /api/preferences HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Content-Type: application/x-www-form-urlencoded',
+    '',
+    'theme=light&csrf_token=victim-body-csrf',
+  ].join('\r\n');
+  const actorRequest = sourceRequest.replace('victim-body-csrf', 'attacker-body-csrf');
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  const { service, client } = harness({
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_preferences', { method: 'POST' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_preferences', { method: 'POST', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_csrf_only_actor', {
+    steps: [{ stepId: 'step_csrf_only_actor', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+
+  assert.equal(outcome.status, 'needs_fresh_actor_request');
+  assert.equal(client.calls.length, 0);
+});
+
+test('empty conventional carriers never prove a named actor binding', async () => {
+  const cases = [
+    {
+      method: 'GET',
+      source: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n',
+      actor: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization:\r\n\r\n',
+    },
+    {
+      method: 'GET',
+      source: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n',
+      actor: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer\r\n\r\n',
+    },
+    {
+      method: 'GET',
+      source: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n',
+      actor: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nCookie: sid=\r\n\r\n',
+    },
+    {
+      method: 'GET',
+      source: 'GET /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n',
+      actor: 'GET /api/items?access_token= HTTP/1.1\r\nHost: api.target.example:8443\r\n\r\n',
+    },
+    {
+      method: 'POST',
+      source: 'POST /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nContent-Type: application/json\r\n\r\n{}',
+      actor: 'POST /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nContent-Type: application/json\r\n\r\n{"access_token":null}',
+    },
+  ];
+
+  for (const [index, testCase] of cases.entries()) {
+    const state = new FakeIdentityStateResolver();
+    state.cookies.delete('attacker');
+    state.latest.set('attacker\0route_empty_auth', 'ex_attacker_latest');
+    const current = harness({
+      identityState: state,
+      identityBoundRequestFields: [],
+      exchanges: [
+        exchange('ex_source', 'victim', 'route_empty_auth', { method: testCase.method }),
+        exchange('ex_attacker_latest', 'attacker', 'route_empty_auth', { method: testCase.method, captureSequence: 9 }),
+      ],
+      records: new Map([
+        ['ex_source', raw(testCase.source)],
+        ['ex_attacker_latest', raw(testCase.actor)],
+      ]),
+    });
+    const outcome = await current.service.replay(replayCommand(`act_empty_auth_${index}`, {
+      steps: [{ stepId: `step_empty_auth_${index}`, sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+    }));
+    assert.equal(outcome.status, 'needs_fresh_actor_request');
+    assert.equal(current.client.calls.length, 0);
+  }
+});
+
+test('an actor-only nested JSON carrier is imported without changing business content', async () => {
+  const sourceRequest = 'POST /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nContent-Type: application/json\r\n\r\n{"keep":true,"identity":{}}';
+  const actorRequest = 'POST /api/items HTTP/1.1\r\nHost: api.target.example:8443\r\nAuthorization: Bearer attacker-bearer\r\nContent-Type: application/json\r\n\r\n{"keep":true,"identity":{"opaque":"actor-value"}}';
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  state.latest.set('attacker\0route_nested_carrier', 'ex_attacker_latest');
+  const { service, client } = harness({
+    identityState: state,
+    identityBoundRequestFields: [{ location: 'json', pointer: '/identity/opaque' }],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_nested_carrier', { method: 'POST' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_nested_carrier', { method: 'POST', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_nested_carrier', {
+    steps: [{ stepId: 'step_nested_carrier', sourceExchangeId: 'ex_source', actor: 'attacker', mutations: [] }],
+  }));
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(JSON.parse(parseHttpRequest(client.calls[0].arguments_.content).body), {
+    keep: true,
+    identity: { opaque: 'actor-value' },
+  });
+  assert.equal(outcome.observation.proofSourceRequestDigest, outcome.observation.proofSentRequestDigest);
+});
+
+test('implicit JSON carrier containers bind carrier leaves while preserving nested business fields', async () => {
+  const sourceRequest = [
+    'POST /api/items HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({ auth: { token: 'victim-token', profile: { display: 'victim' } }, keep: true }),
+  ].join('\r\n');
+  const actorRequest = [
+    'POST /api/items HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Content-Type: application/json',
+    '',
+    JSON.stringify({ auth: { token: 'attacker-token', profile: { display: 'attacker' } }, keep: true }),
+  ].join('\r\n');
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  state.latest.set('attacker\0route_implicit_nested_carrier', 'ex_attacker_latest');
+  const { service, client } = harness({
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_implicit_nested_carrier', { method: 'POST' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_implicit_nested_carrier', { method: 'POST', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_implicit_nested_carrier', {
+    steps: [{
+      stepId: 'step_implicit_nested_carrier',
+      sourceExchangeId: 'ex_source',
+      actor: 'attacker',
+      mutations: [{ type: 'set_json_pointer', pointer: '/auth/profile/display', value: 'mutated' }],
+    }],
+  }));
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(JSON.parse(parseHttpRequest(client.calls[0].arguments_.content).body), {
+    auth: { token: 'attacker-token', profile: { display: 'mutated' } },
+    keep: true,
+  });
+});
+
+test('session carriers are rebound while workflow and pagination tokens remain mutable', async () => {
+  const sourceRequest = [
+    'GET /api/invitations?user_session_id=victim-session&page_token=old-page&reset_token=old-reset HTTP/1.1',
+    'Host: api.target.example:8443',
+    '',
+    '',
+  ].join('\r\n');
+  const actorRequest = sourceRequest.replace('victim-session', 'attacker-session');
+  const state = new FakeIdentityStateResolver();
+  state.cookies.delete('attacker');
+  state.latest.set('attacker\0route_invitations', 'ex_attacker_latest');
+  const { service, client } = harness({
+    identityState: state,
+    identityBoundRequestFields: [],
+    exchanges: [
+      exchange('ex_source', 'victim', 'route_invitations', { method: 'GET' }),
+      exchange('ex_attacker_latest', 'attacker', 'route_invitations', { method: 'GET', captureSequence: 9 }),
+    ],
+    records: new Map([
+      ['ex_source', raw(sourceRequest)],
+      ['ex_attacker_latest', raw(actorRequest)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_session_and_workflow_tokens', {
+    steps: [{
+      stepId: 'step_session_and_workflow_tokens',
+      sourceExchangeId: 'ex_source',
+      actor: 'attacker',
+      mutations: [
+        { type: 'set_query', name: 'page_token', value: 'next-page' },
+        { type: 'set_query', name: 'reset_token', value: 'candidate-reset' },
+        { type: 'set_query', name: 'password_reset_token', value: 'candidate-password-reset' },
+      ],
+    }],
+  }));
+
+  assert.equal(outcome.status, 'completed');
+  const target = new URL(parseHttpRequest(client.calls[0].arguments_.content).target, TARGET_ORIGIN);
+  assert.equal(target.searchParams.get('user_session_id'), 'attacker-session');
+  assert.equal(target.searchParams.get('page_token'), 'next-page');
+  assert.equal(target.searchParams.get('reset_token'), 'candidate-reset');
+  assert.equal(target.searchParams.get('password_reset_token'), 'candidate-password-reset');
+});
+
+test('an undeclared business state field remains replayable', async () => {
+  const sourceRequest =
+    'GET /api/users/100?state=enabled HTTP/1.1\r\nHost: api.target.example:8443\r\nAccept: application/json\r\n\r\n';
+  const { service, client } = harness({
+    identityBoundRequestFields: [],
+    exchanges: [exchange('ex_source', 'victim', 'route_users', { method: 'GET', queryKeys: ['state'] })],
+    records: new Map([['ex_source', raw(sourceRequest)]]),
+  });
+  const outcome = await service.replay(replayCommand('act_business_state', {
+    steps: [{
+      stepId: 'step_business_state',
+      sourceExchangeId: 'ex_source',
+      actor: 'anonymous',
+      mutations: [{ type: 'set_query', name: 'state', value: 'disabled' }],
+    }],
+  }));
+
+  assert.equal(outcome.status, 'completed');
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(new URL(outbound.target, TARGET_ORIGIN).searchParams.get('state'), 'disabled');
+});
+
 test('all actor-bound state resolves before dispatch and missing equivalents request a fresh capture', async () => {
   const state = new FakeIdentityStateResolver();
   state.latest.set('operator\0route_users', 'ex_missing_operator');
@@ -538,6 +1108,26 @@ test('all actor-bound state resolves before dispatch and missing equivalents req
   assert.deepEqual(outcome, {
     status: 'needs_fresh_actor_request',
     stepId: 'step_operator',
+    routeSignature: 'route_users',
+  });
+  assert.equal(client.calls.length, 0);
+  assert.equal(rawStore.rawWrites.length, 0);
+});
+
+test('a same-route actor request missing one declared carrier requests a fresh capture without dispatch', async () => {
+  const actorWithoutOpaqueHeader = ACTOR_REQUEST.replace('X-Request-Token: attacker-request-token\r\n', '');
+  const { service, client, rawStore } = harness({
+    records: new Map([
+      ['ex_source', raw(SOURCE_REQUEST)],
+      ['ex_attacker_latest', raw(actorWithoutOpaqueHeader)],
+    ]),
+  });
+
+  const outcome = await service.replay(replayCommand('act_missing_declared_carrier'));
+
+  assert.deepEqual(outcome, {
+    status: 'needs_fresh_actor_request',
+    stepId: 'step_auth',
     routeSignature: 'route_users',
   });
   assert.equal(client.calls.length, 0);
@@ -638,11 +1228,17 @@ test('replay rejects fabricated references, oversized commands, forbidden state,
         },
       ],
     }),
-    ...['Cookie', 'authorization', 'PROXY-AUTHORIZATION', 'Host', 'origin', 'X-CSRF-Token'].map((name, index) =>
+    ...['Cookie', 'authorization', 'PROXY-AUTHORIZATION', 'Host', 'origin', 'X-CSRF-Token', 'X-Shannon-Capture'].map((name, index) =>
       replayCommand(`act_header_${index}`, {
         steps: [{ ...replayCommand().steps[0], mutations: [{ type: 'set_header', name, value: 'model-secret' }] }],
       }),
     ),
+    replayCommand('act_bound_query', {
+      steps: [{ ...replayCommand().steps[0], mutations: [{ type: 'set_query', name: 'csrf_token', value: 'model-secret' }] }],
+    }),
+    replayCommand('act_bound_json', {
+      steps: [{ ...replayCommand().steps[0], mutations: [{ type: 'set_json_pointer', pointer: '/csrf_token', value: 'model-secret' }] }],
+    }),
     replayCommand('act_absolute_path', {
       steps: [{ ...replayCommand().steps[0], mutations: [{ type: 'set_path', path: 'https://other.example/admin' }] }],
     }),
@@ -832,7 +1428,7 @@ test('service derives body, JSON, and persistent-state proof observations itself
   assert.equal(bodyOutcome.observation.baselinePassed, true);
   assert.deepEqual(bodyOutcome.observation.controlExchangeIds, ['ex_attacker_latest']);
   assert.equal(bodyOutcome.observation.controlPassed, false);
-  assert.notEqual(
+  assert.equal(
     bodyOutcome.observation.proofSourceRequestDigest,
     bodyOutcome.observation.proofSentRequestDigest,
   );
@@ -899,6 +1495,10 @@ test('service derives body, JSON, and persistent-state proof observations itself
   assert.deepEqual(persistentOutcome.observation.controlExchangeIds, []);
   assert.equal(persistentOutcome.observation.controlPassed, false);
   assert.equal(persistentOutcome.observation.verificationExchangeId, persistentOutcome.exchanges[2].exchangeId);
+  assert.equal(
+    persistentOutcome.observation.proofSourceRequestDigest,
+    persistentOutcome.observation.proofSentRequestDigest,
+  );
 
   const alreadyChanged = harness({
     exchanges: [
@@ -952,6 +1552,31 @@ test('host marks a read proof as nondiscriminating when a captured cross-identit
   assert.equal(outcome.observation.baselinePassed, true);
   assert.deepEqual(outcome.observation.controlExchangeIds, ['ex_attacker_latest']);
   assert.equal(outcome.observation.controlPassed, true);
+});
+
+test('host records a same-route denied response as a negative control without object references', async () => {
+  const denied = response('Forbidden', 403);
+  const { service } = harness({
+    exchanges: [
+      exchange('ex_source', 'victim'),
+      exchange('ex_attacker_latest', 'attacker', 'route_users', {
+        responseStatus: 403,
+        candidateObjectReferences: [],
+        captureSequence: 9,
+      }),
+    ],
+    records: new Map([
+      ['ex_source', raw(SOURCE_REQUEST)],
+      ['ex_attacker_latest', raw(ACTOR_REQUEST, denied)],
+    ]),
+    burpResults: [response('{"marker":"victim-private-marker"}')],
+  });
+
+  const outcome = await service.replay(replayCommand('act_denied_control'));
+
+  assert.equal(outcome.status, 'completed');
+  assert.deepEqual(outcome.observation.controlExchangeIds, ['ex_attacker_latest']);
+  assert.equal(outcome.observation.controlPassed, false);
 });
 
 test('completed and uncertain actions are idempotent and invalid responses never become proof', async () => {

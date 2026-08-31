@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import test from 'node:test';
+
+import Ajv from 'ajv';
 
 import * as configParser from '../dist/config-parser.js';
 
@@ -25,7 +28,12 @@ function identity(name, role, auth = AUTH) {
 }
 
 function blackboxYaml(identities, suffix = '') {
-  return ['identities:', ...identities.map((entry) => entry.split('\n').map((line) => `  ${line}`).join('\n')), suffix]
+  return [
+    'identity_bound_request_fields: []',
+    'identities:',
+    ...identities.map((entry) => entry.split('\n').map((line) => `  ${line}`).join('\n')),
+    suffix,
+  ]
     .filter(Boolean)
     .join('\n');
 }
@@ -42,6 +50,82 @@ test('blackbox mode parses two unique identities', () => {
       { name: 'victim', role: 'ordinary user' },
     ],
   );
+});
+
+test('blackbox mode requires and normalizes exhaustive identity-bound request fields', () => {
+  const yaml = blackboxYaml(
+    TWO_IDENTITIES,
+    [
+      'identity_bound_request_fields:',
+      '  - location: header',
+      '    name: X-User-Context',
+      '  - location: query',
+      '    name: subject',
+      '  - location: form',
+      '    name: opaque_session',
+      '  - location: json',
+      '    pointer: /identity/opaque~1token',
+    ].join('\n'),
+  ).replace('identity_bound_request_fields: []\n', '');
+  const normalized = configParser.normalizeBlackboxConfig(configParser.parseConfigYAML(yaml, 'blackbox'));
+
+  assert.deepEqual(normalized.identityBoundRequestFields, [
+    { location: 'header', name: 'x-user-context' },
+    { location: 'query', name: 'subject' },
+    { location: 'form', name: 'opaque_session' },
+    { location: 'json', pointer: '/identity/opaque~1token' },
+  ]);
+
+  assert.throws(
+    () => configParser.parseConfigYAML(blackboxYaml(TWO_IDENTITIES).replace('identity_bound_request_fields: []\n', ''), 'blackbox'),
+    /identity_bound_request_fields|required/i,
+  );
+});
+
+test('JSON schema requires the identity-bound field contract with identities', async () => {
+  const testDir = dirname(fileURLToPath(import.meta.url));
+  const schema = JSON.parse(await readFile(join(testDir, '..', 'configs', 'config-schema.json'), 'utf8'));
+  const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+  const authentication = {
+    login_type: 'form',
+    login_url: 'https://target.example/login',
+    credentials: { username: 'user@example.com', password: 'password' },
+    success_condition: { type: 'url_contains', value: '/dashboard' },
+  };
+  const candidate = {
+    identities: [
+      { name: 'attacker', role: 'ordinary user', authentication },
+      { name: 'victim', role: 'ordinary user', authentication },
+    ],
+  };
+
+  assert.equal(validate(candidate), false);
+  assert.equal(validate({ ...candidate, identity_bound_request_fields: [] }), true, JSON.stringify(validate.errors));
+});
+
+test('identity-bound request field contract rejects duplicates, reserved headers, and invalid selectors', () => {
+  const contract = (lines) =>
+    blackboxYaml(TWO_IDENTITIES, ['identity_bound_request_fields:', ...lines].join('\n')).replace(
+      'identity_bound_request_fields: []\n',
+      '',
+    );
+
+  for (const lines of [
+    ['  - location: header', '    name: X-Subject', '  - location: header', '    name: x-subject'],
+    ['  - location: header', '    name: Cookie'],
+    ['  - location: header', '    name: Authorization'],
+    ['  - location: header', '    name: X-Shannon-Capture'],
+    ['  - location: header', '    name: Content-Length'],
+    ['  - location: json', '    pointer: identity/token'],
+    ['  - location: json', '    pointer: /identity/~2token'],
+    ['  - location: json', '    pointer: /identity/__proto__'],
+    ['  - location: path', '    name: subject'],
+  ]) {
+    assert.throws(
+      () => configParser.parseConfigYAML(contract(lines), 'blackbox'),
+      /duplicate|reserved|unsafe|pointer|location|configuration validation/i,
+    );
+  }
 });
 
 test('blackbox mode accepts two through five identities', () => {
@@ -138,6 +222,14 @@ test('blackbox normalization supplies authz and exploit defaults', () => {
 
 test('whitebox mode rejects identities and preserves the existing fixture', async () => {
   assert.throws(() => configParser.parseConfigYAML(blackboxYaml(TWO_IDENTITIES), 'whitebox'), /identit/i);
+  assert.throws(
+    () =>
+      configParser.parseConfigYAML(
+        ['identity_bound_request_fields: []', 'authentication:', ...AUTH.map((line) => `  ${line}`)].join('\n'),
+        'whitebox',
+      ),
+    /identity_bound_request_fields|blackbox/i,
+  );
 
   const testDir = dirname(fileURLToPath(import.meta.url));
   const fixturePath = join(testDir, '..', 'configs', 'example-config.yaml');
