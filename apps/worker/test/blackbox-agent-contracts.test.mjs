@@ -267,6 +267,45 @@ test('submit schemas reject stable identifiers that downstream scheduling cannot
   assert.equal(Value.Check(VERIFICATION_RESULT_SCHEMA, { ...VALID.verification, candidateId: invalid }), false);
 });
 
+test('recon submissions accept unavailable response status zero and reject low nonzero statuses', async () => {
+  const exchange = {
+    exchangeId: 'exchange-status-zero',
+    routeSignature: 'GET /objects/{id}',
+    identity: 'attacker',
+    captureSequence: 1,
+    method: 'GET',
+    origin: 'https://target.example',
+    path: '/objects/1',
+    queryKeys: [],
+    bodyShape: 'none',
+    requestContentType: null,
+    responseStatus: 0,
+    responseContentType: null,
+    responseFingerprint: 'sha256:unavailable-response',
+    candidateObjectReferences: [],
+    rawRecordRef: 'raw/exchange-status-zero.json',
+    provenance: { actor: 'blackbox-recon', taskId: 'recon-status-zero', baseRevision: 0 },
+  };
+  const contribution = {
+    ...VALID.contribution,
+    taskId: 'recon-status-zero',
+    exchanges: [exchange],
+  };
+
+  const accepted = createBlackboxSubmitTool('blackbox-recon');
+  await accepted.tool.execute('submit-status-zero', contribution);
+  assert.equal(accepted.getCaptured().exchanges[0].responseStatus, 0);
+
+  const rejected = createBlackboxSubmitTool('blackbox-recon');
+  await assert.rejects(
+    rejected.tool.execute('submit-low-status', {
+      ...contribution,
+      exchanges: [{ ...exchange, responseStatus: 99 }],
+    }),
+    /invalid structured result/i,
+  );
+});
+
 test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {
   const secret = 'bootstrap-password-123';
   const value = {

@@ -133,7 +133,7 @@ const NormalizedExchangeSchema = Type.Object(
     queryKeys: Type.Array(Type.String()),
     bodyShape: Type.String(),
     requestContentType: Type.Union([Type.String(), Type.Null()]),
-    responseStatus: Type.Integer({ minimum: 100, maximum: 599 }),
+    responseStatus: Type.Union([Type.Literal(0), Type.Integer({ minimum: 100, maximum: 599 })]),
     responseContentType: Type.Union([Type.String(), Type.Null()]),
     responseFingerprint: Type.String(),
     candidateObjectReferences: Type.Array(Type.String()),
