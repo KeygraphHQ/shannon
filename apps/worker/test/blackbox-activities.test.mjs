@@ -6,6 +6,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 import { createBlackboxActivities } from '../dist/blackbox/activities.js';
+import { BlackboardValidationError, StaleBlackboardRevisionError } from '../dist/blackbox/blackboard.js';
 import { validateAndScheduleWave } from '../dist/blackbox/scheduler.js';
 
 const TARGET_ORIGIN = 'https://target.example';
@@ -99,6 +100,7 @@ function boardFake(options = {}) {
     runStatus: 'running',
   };
   const calls = [];
+  const settleCursor = { index: 0 };
   return {
     calls,
     seed(value) { snapshot = { ...snapshot, ...structuredClone(value) }; },
@@ -175,6 +177,15 @@ function boardFake(options = {}) {
     },
     async settleTasks(batch) {
       calls.push(['settleTasks', batch]);
+      const perCallError = options.settleErrors?.[settleCursor.index++];
+      if (perCallError) throw perCallError;
+      if (options.settleError) throw options.settleError;
+      if (
+        options.rejectSemanticEnrichment &&
+        batch.contributions.some(({ resources, transitions }) => (resources?.length ?? 0) > 0 || (transitions?.length ?? 0) > 0)
+      ) {
+        throw new BlackboardValidationError('Unknown exchange reference in semantic enrichment');
+      }
       const completed = new Set(batch.contributions.map(({ taskId }) => taskId));
       const failed = new Set(batch.failures.map(({ taskId }) => taskId));
       snapshot = {
@@ -995,6 +1006,236 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
   assert.equal(anonymous.authenticated, false);
   assert.equal(anonymous.successEvidence, null);
   assert.equal(anonymous.failureReason, null);
+});
+
+test('capture retries observed traffic when blackboard validation rejects model enrichment', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    rejectSemanticEnrichment: true,
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      resources: [{
+        resourceId: 'resource-model-bogus',
+        resourceType: 'item',
+        objectReferences: ['model-bogus-object'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [{ id: 'model-bogus-exchange', kind: 'exchange' }],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+      transitions: [{
+        transitionId: 'transition-model-bogus',
+        identity: 'attacker',
+        fromState: 'before',
+        toState: 'after',
+        triggerExchangeId: 'model-bogus-exchange',
+        captureSequence: 1,
+        resourceId: 'resource-model-bogus',
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.equal(capture.exchangeIds.length, 1);
+  const settlements = board.calls.filter(([name]) => name === 'settleTasks').map(([, batch]) => batch);
+  assert.equal(settlements.length, 2);
+  assert.equal(settlements[0].contributions[0].resources.length, 1);
+  assert.equal(settlements[0].contributions[0].transitions.length, 1);
+  assert.deepEqual(settlements[1].contributions[0].exchanges.map(({ exchangeId }) => exchangeId), capture.exchangeIds);
+  assert.equal(settlements[1].contributions[0].resources, undefined);
+  assert.equal(settlements[1].contributions[0].transitions, undefined);
+  assert.deepEqual(settlements[1].identityCaptures, [{
+    identity: 'attacker',
+    stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+  }]);
+  assert.equal(settlements[0].operationKey, `${runInput.workflowId}:0:settle:bootstrap-attacker`);
+  assert.equal(settlements[1].operationKey, `${runInput.workflowId}:0:settle-observed-only:bootstrap-attacker`);
+  const warning = deps.logger.entries.find(([, message]) => /model enrichment/i.test(message));
+  assert.deepEqual(warning?.[2], {
+    actor: 'attacker',
+    error: 'BlackboardValidationError',
+    reason: 'Unknown exchange reference in semantic enrichment',
+  });
+});
+
+test('capture does not retry observed traffic for a non-validation settlement failure', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    settleError: new Error('persistence unavailable'),
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      resources: [{
+        resourceId: 'resource-model-bogus',
+        resourceType: 'item',
+        objectReferences: ['model-bogus-object'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  await assert.rejects(activities.captureIdentity(runInput, 'attacker'), /persistence unavailable/i);
+  const settlements = board.calls.filter(([name]) => name === 'settleTasks').map(([, batch]) => batch);
+  assert.equal(settlements.length, 2);
+  assert.equal(settlements[0].contributions[0].resources.length, 1);
+  assert.deepEqual(settlements[1].contributions, []);
+  assert.equal(deps.logger.entries.some(([, message]) => /model enrichment/i.test(message)), false);
+});
+
+test('capture does not use the observed-only key after a stale full settlement', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    settleErrors: [new StaleBlackboardRevisionError(1, 2)],
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      exchanges: [],
+      resources: [{
+        resourceId: 'resource-model',
+        resourceType: 'item',
+        objectReferences: [],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+      transitions: [],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, false);
+  const settlementKeys = board.calls
+    .filter(([name]) => name === 'settleTasks')
+    .map(([, batch]) => batch.operationKey);
+  assert.deepEqual(settlementKeys, [
+    `${runInput.workflowId}:0:settle:bootstrap-attacker`,
+    `${runInput.workflowId}:0:settle-failed:bootstrap-attacker`,
+  ]);
+  assert.equal(settlementKeys.some((key) => key.includes('settle-observed-only')), false);
+});
+
+test('capture remains unauthenticated when observed-only settlement also fails validation', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    settleErrors: [
+      new BlackboardValidationError('model enrichment reference is unknown'),
+      new BlackboardValidationError('observed exchange reference is unknown'),
+    ],
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      exchanges: [],
+      resources: [{
+        resourceId: 'resource-model',
+        resourceType: 'item',
+        objectReferences: [],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+      transitions: [],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, false);
+  const settlementKeys = board.calls
+    .filter(([name]) => name === 'settleTasks')
+    .map(([, batch]) => batch.operationKey);
+  assert.deepEqual(settlementKeys, [
+    `${runInput.workflowId}:0:settle:bootstrap-attacker`,
+    `${runInput.workflowId}:0:settle-observed-only:bootstrap-attacker`,
+    `${runInput.workflowId}:0:settle-failed:bootstrap-attacker`,
+  ]);
+  const failedSettlement = board.calls
+    .filter(([name]) => name === 'settleTasks')
+    .at(-1)[1];
+  assert.equal(failedSettlement.identityCaptures, undefined);
+});
+
+test('capture redacts configured secrets from enrichment rejection warnings', async (t) => {
+  const root = await tempRoot(t);
+  const { deps } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    settleErrors: [new BlackboardValidationError(`unknown reference contains ${SECRET}`)],
+    historyQueue: [
+      [], [{ id: 'preflight' }],
+      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+    agentHandler: async (runInput) => ({
+      taskId: runInput.task.taskId,
+      role: 'blackbox-recon',
+      baseRevision: runInput.snapshot.revision,
+      exchanges: [],
+      resources: [{
+        resourceId: 'resource-model',
+        resourceType: 'item',
+        objectReferences: [],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [],
+        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
+      }],
+      transitions: [],
+    }),
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  const warning = deps.logger.entries.find(([, message]) => /model enrichment/i.test(message));
+  assert.equal(warning?.[2].reason, `unknown reference contains <redacted>`);
+  assert.equal(warning?.[2].reason.includes(SECRET), false);
 });
 
 test('one failed identity returns a safe failure while two successful identities remain possible', async (t) => {

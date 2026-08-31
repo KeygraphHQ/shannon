@@ -42,7 +42,7 @@ import {
   renderBlackboxArtifacts,
   validateBlackboxDeliverables,
 } from './artifacts.js';
-import { FileBlackboardStore } from './blackboard.js';
+import { BlackboardValidationError, FileBlackboardStore } from './blackboard.js';
 import {
   BurpMcpClient,
   type BurpMcpSettings,
@@ -1394,13 +1394,33 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         ...(namespaced?.resources ? { resources: namespaced.resources } : {}),
         ...(namespaced?.transitions ? { transitions: namespaced.transitions } : {}),
       };
-      const settled = await store.settleTasks({
-        operationKey: `${input.workflowId}:0:settle:${taskId}`,
-        baseRevision: started.revision,
-        contributions: [contribution],
-        failures: [],
-        ...(identity ? { identityCaptures: [{ identity: identity.name, stateRef: stateRef(identity.name) }] } : {}),
-      });
+      const identityCaptures = identity ? [{ identity: identity.name, stateRef: stateRef(identity.name) }] : undefined;
+      const semanticEnrichmentPresent =
+        (contribution.resources?.length ?? 0) > 0 || (contribution.transitions?.length ?? 0) > 0;
+      let settled: BlackboxSnapshot;
+      try {
+        settled = await store.settleTasks({
+          operationKey: `${input.workflowId}:0:settle:${taskId}`,
+          baseRevision: started.revision,
+          contributions: [contribution],
+          failures: [],
+          ...(identityCaptures ? { identityCaptures } : {}),
+        });
+      } catch (error) {
+        if (!(error instanceof BlackboardValidationError) || !semanticEnrichmentPresent) throw error;
+        activityLogger().warn('Blackboard rejected model enrichment; retrying observed capture', {
+          actor,
+          error: error.name,
+          reason: safeFailureReason(error, context.configuredSecrets),
+        });
+        settled = await store.settleTasks({
+          operationKey: `${input.workflowId}:0:settle-observed-only:${taskId}`,
+          baseRevision: started.revision,
+          contributions: [{ taskId, role: 'blackbox-recon', baseRevision: started.revision, exchanges }],
+          failures: [],
+          ...(identityCaptures ? { identityCaptures } : {}),
+        });
+      }
       taskSettled = true;
       return {
         identity: actor,
