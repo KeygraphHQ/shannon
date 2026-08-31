@@ -124,6 +124,13 @@ test('HTTP parser preserves start lines, duplicate headers, and empty CRLF/LF bo
   assert.equal(parseHttpResponse(RESPONSE_LF).body, '');
 });
 
+test('HTTP response parser accepts an empty reason phrase after the status separator', () => {
+  const response = parseHttpResponse('HTTP/1.1 200 \r\nContent-Length: 0\r\n\r\n');
+
+  assert.equal(response.status, 200);
+  assert.equal(response.reason, '');
+});
+
 test('Burp history parser accepts only JSON records, blanks, and the exact footer', () => {
   assert.equal(BURP_END_OF_ITEMS, EXPECTED_BURP_END_OF_ITEMS);
   const text = `\n${JSON.stringify(payload())}\n${JSON.stringify(payload(REQUEST_CRLF, RESPONSE_CRLF, 'second'))}\n${EXPECTED_BURP_END_OF_ITEMS}`;

@@ -114,7 +114,7 @@ function parseMessage(raw: string, kind: 'request' | 'response'): ParsedHead {
   const body = raw.slice(separator.bodyStart);
   const lines = splitHeadLines(head, separator.lineEnding);
   const startLine = lines.shift();
-  if (!startLine || startLine.trim() !== startLine || /[\r\n]/.test(startLine)) {
+  if (!startLine || startLine.trimStart() !== startLine || /[\r\n]/.test(startLine)) {
     throw new HttpMessageParseError(`Malformed HTTP ${kind} start line`);
   }
 
