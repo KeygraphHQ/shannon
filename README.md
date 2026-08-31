@@ -60,7 +60,7 @@ Shannon closes that gap by providing on-demand, automated penetration testing th
 ## Shannon in Action
 
 <p align="center">
-  <img src="assets/Shannon3.0GIF.gif" alt="Shannon running an autonomous pentest" width="100%">
+  <img src="assets/Shannon3GIF.gif" alt="Shannon running an autonomous pentest" width="100%">
 </p>
 
 Sample penetration test reports from intentionally vulnerable applications, produced by Shannon Open Source:
