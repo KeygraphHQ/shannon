@@ -16,6 +16,7 @@ import {
   GENERIC_API_KEY_ENV,
   isCuratedProvider,
   parseModelSpec,
+  PROVIDER_API_KEY_ENV,
 } from '../model-spec.js';
 
 // === TOML ↔ Env Mapping ===
@@ -261,12 +262,23 @@ export function resolveConfig(): void {
     );
   }
 
-  for (const mapping of CONFIG_MAP) {
-    if (process.env[mapping.env]) continue;
+  // 5. A gateway-scoped curated key overrides an env var, because that key is
+  //    only meaningful for the named gateway. Only applies when base_url is set
+  //    for the same provider that core.model selects.
+  const selectedProvider = parseModelSpec(toml.core?.model ?? DEFAULT_MODEL_SPEC);
+  const gatewayBaseUrl = typeof toml.core?.base_url === 'string' ? toml.core.base_url : undefined;
+  const gatewayScopedOverride =
+    typeof selectedProvider !== 'string' && isCuratedProvider(selectedProvider.providerId) && gatewayBaseUrl
+      ? PROVIDER_API_KEY_ENV[selectedProvider.providerId][0]
+      : undefined;
 
+  for (const mapping of CONFIG_MAP) {
     const value = getTomlValue(toml, mapping);
-    if (value) {
-      process.env[mapping.env] = value;
-    }
+    if (!value) continue;
+
+    const isGatewayScopedKey = mapping.env === gatewayScopedOverride;
+    if (process.env[mapping.env] && !isGatewayScopedKey) continue;
+
+    process.env[mapping.env] = value;
   }
 }
