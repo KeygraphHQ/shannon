@@ -117,9 +117,11 @@ const PREFLIGHT_RETRY = {
   nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
 };
 
-// Activity proxy for preflight validation (short timeout)
+// Activity proxy for preflight validation. Must be long enough for a remote
+// gateway's first token: model probe + a short pi session can take several
+// minutes when the endpoint is a proxy with cold model loading.
 const preflightActs = proxyActivities<typeof activities>({
-  startToCloseTimeout: '2 minutes',
+  startToCloseTimeout: '15 minutes',
   heartbeatTimeout: '2 minutes',
   retry: PREFLIGHT_RETRY,
   cancellationType: ActivityCancellationType.TRY_CANCEL,
