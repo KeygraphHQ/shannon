@@ -457,13 +457,6 @@ function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined
     return { request: `${BURP_NO_REQUEST}${BURP_TRUNCATION_MARKER}`, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
   }
 
-  const responseField = ',"response":"';
-  if (!prefix.startsWith(responseField, requestValueEnd + 1)) return undefined;
-  const responseValueStart = requestValueEnd + 1 + responseField.length - 1;
-  if (findUnescapedQuote(prefix, responseValueStart + 1) >= 0 || !isJsonStringPrefix(prefix, responseValueStart + 1)) {
-    return undefined;
-  }
-
   let request: unknown;
   try {
     request = JSON.parse(prefix.slice(requestValueStart, requestValueEnd + 1)) as unknown;
@@ -471,6 +464,18 @@ function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined
     return undefined;
   }
   if (typeof request !== 'string' || request.length === 0) return undefined;
+
+  const responseField = ',"response":"';
+  const responseFieldPrefix = prefix.slice(requestValueEnd + 1);
+  if (responseFieldPrefix.length < responseField.length) {
+    if (!responseField.startsWith(responseFieldPrefix)) return undefined;
+    return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+  }
+  if (!responseFieldPrefix.startsWith(responseField)) return undefined;
+  const responseValueStart = requestValueEnd + 1 + responseField.length - 1;
+  if (findUnescapedQuote(prefix, responseValueStart + 1) >= 0 || !isJsonStringPrefix(prefix, responseValueStart + 1)) {
+    return undefined;
+  }
   return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
 }
 

@@ -151,6 +151,37 @@ test('Burp history parser recovers complete requests from truncated response env
   ]);
 });
 
+test('Burp history parser accepts cuts immediately after the request and within the response delimiter', () => {
+  const responseField = ',"response":"';
+  const oversizedResponse = 'response-byte'.repeat(600);
+  const requestForCut = (cutSuffixLength) => {
+    const targetResponseFieldIndex = 5000 - cutSuffixLength;
+    let request = 'GET /boundary HTTP/1.1';
+    const responseFieldIndex = () => JSON.stringify({ request, response: oversizedResponse }).indexOf(responseField);
+    while (responseFieldIndex() < targetResponseFieldIndex) request += 'a';
+    while (responseFieldIndex() > targetResponseFieldIndex) request = request.slice(0, -1);
+    assert.equal(responseFieldIndex(), targetResponseFieldIndex);
+    return request;
+  };
+
+  for (let cutSuffixLength = 0; cutSuffixLength < responseField.length; cutSuffixLength += 1) {
+    const request = requestForCut(cutSuffixLength);
+    const serialized = JSON.stringify({ request, response: oversizedResponse });
+    const truncated = `${serialized.slice(0, 5000)}${BURP_TRUNCATION_MARKER}`;
+    assert.deepEqual(parseHistoryText(truncated), [
+      { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 },
+    ]);
+  }
+
+  const request = requestForCut(responseField.length - 1);
+  const serialized = JSON.stringify({ request, response: oversizedResponse });
+  const malformedPrefix = `${serialized.slice(0, 5000 - 1)}x`;
+  assert.throws(
+    () => parseHistoryText(`${malformedPrefix}${BURP_TRUNCATION_MARKER}`),
+    /history line 1/i,
+  );
+});
+
 test('Burp history parser keeps truncated requests countable but excludes them from target history', async () => {
   const oversized = JSON.stringify({
     request: `GET /${'request-byte'.repeat(600)} HTTP/1.1\r\nHost: api.target.example\r\n\r\n`,
