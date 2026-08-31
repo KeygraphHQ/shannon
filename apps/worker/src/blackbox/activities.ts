@@ -605,6 +605,9 @@ function successExpression(condition: SuccessCondition): string {
     case 'text_contains':
       predicate = `(document.body?.innerText ?? '').includes(${value})`;
       break;
+    case 'local_storage_key_present':
+      predicate = `localStorage.getItem(${value}) !== null`;
+      break;
   }
   return `(async () => {
   const deadline = Date.now() + 5000;

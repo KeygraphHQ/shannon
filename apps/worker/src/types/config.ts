@@ -42,7 +42,7 @@ export interface ReportConfig {
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
 
 export interface SuccessCondition {
-  type: 'url_contains' | 'element_present' | 'url_equals_exactly' | 'text_contains';
+  type: 'url_contains' | 'element_present' | 'url_equals_exactly' | 'text_contains' | 'local_storage_key_present';
   value: string;
 }
 

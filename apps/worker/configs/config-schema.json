@@ -85,7 +85,13 @@
           "properties": {
             "type": {
               "type": "string",
-              "enum": ["url_contains", "element_present", "url_equals_exactly", "text_contains"],
+              "enum": [
+                "url_contains",
+                "element_present",
+                "url_equals_exactly",
+                "text_contains",
+                "local_storage_key_present"
+              ],
               "description": "Type of success condition to check"
             },
             "value": {

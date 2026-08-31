@@ -52,6 +52,23 @@ test('blackbox mode parses two unique identities', () => {
   );
 });
 
+test('blackbox mode accepts a local-storage key as an authentication success condition', () => {
+  const storageAuth = AUTH.map((line) =>
+    line === '  type: url_contains' ? '  type: local_storage_key_present' : line === '  value: "/dashboard"' ? '  value: "token"' : line,
+  );
+  const parsed = configParser.normalizeBlackboxConfig(
+    configParser.parseConfigYAML(
+      blackboxYaml([identity('attacker', 'ordinary user', storageAuth), identity('victim', 'ordinary user', storageAuth)]),
+      'blackbox',
+    ),
+  );
+
+  assert.deepEqual(parsed.identities[0].authentication.success_condition, {
+    type: 'local_storage_key_present',
+    value: 'token',
+  });
+});
+
 test('blackbox mode requires and normalizes exhaustive identity-bound request fields', () => {
   const yaml = blackboxYaml(
     TWO_IDENTITIES,

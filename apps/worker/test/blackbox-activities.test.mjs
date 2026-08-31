@@ -290,6 +290,9 @@ async function makeDeps(t, root, options = {}) {
   const burpCalls = [];
   const browserCalls = [];
   const config = rawConfig(options.identityNames);
+  if (options.successCondition) {
+    for (const identity of config.identities) identity.authentication.success_condition = options.successCondition;
+  }
   const board = boardFake(options);
   const agents = [];
   const auditCalls = [];
@@ -1294,6 +1297,23 @@ test('identity auth checks poll the configured condition before saving browser s
   const neverTrueCheck = runInNewContext(`(${authExpressions[0]})`, neverTrueContext);
   assert.equal(await neverTrueCheck(), '__SHANNON_AUTH_FAILED__');
   assert.equal(waits, 1);
+});
+
+test('identity auth checks can require an application local-storage key', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, authExpressions } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    successCondition: { type: 'local_storage_key_present', value: 'token' },
+    historyQueue: [[], [{ id: 'preflight' }], [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }]],
+  });
+  const activities = createBlackboxActivities(deps);
+
+  await activities.preflightBlackbox(input(root));
+  const capture = await activities.captureIdentity(input(root), 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.ok(authExpressions.length > 0);
+  assert.match(authExpressions.at(-1), /localStorage\.getItem\("token"\)/);
 });
 
 test('initial capture does not persist identity state when authentication fails', async (t) => {
