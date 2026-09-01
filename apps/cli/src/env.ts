@@ -145,6 +145,38 @@ function configuredProviders(): CuratedProviderId[] {
   return CURATED_PROVIDERS.filter((providerId) => hasNamedCredential(providerId));
 }
 
+/** Whether SHANNON_AI_MODEL was set by the user, rather than falling back to the default. */
+function modelExplicitlySelected(): boolean {
+  return Boolean(process.env.SHANNON_AI_MODEL?.trim());
+}
+
+/**
+ * Explain why the selected provider has no usable credential. With no model chosen
+ * the provider is only the default (anthropic), so the real state is "nothing
+ * configured" — or, if another provider's key is set, an unselected model.
+ */
+function describeMissingCredential(providerId: string): string {
+  if (modelExplicitlySelected()) {
+    const requirement = isCuratedProvider(providerId) ? PROVIDER_CREDENTIAL_HINT[providerId] : GENERIC_API_KEY_ENV;
+    const hint =
+      getMode() === 'local'
+        ? `Set ${requirement} in .env or export it.`
+        : `Export the variables or run 'npx @keygraph/shannon setup'.`;
+    return `No credentials found for provider "${providerId}". ${hint}`;
+  }
+
+  const [provider] = configuredProviders();
+  if (provider) {
+    return `A credential for "${provider}" is set, but no model is selected. Set SHANNON_AI_MODEL=${provider}:<model-id> to use it.`;
+  }
+
+  const hint =
+    getMode() === 'local'
+      ? 'Set a provider API key in .env (for example ANTHROPIC_API_KEY).'
+      : "Run 'npx @keygraph/shannon setup' to get started.";
+  return `No credentials configured. ${hint}`;
+}
+
 /**
  * Validate that the model selection parses and its provider has a credential.
  * Runs before any Docker work so mistakes fail immediately.
@@ -170,17 +202,7 @@ export function validateCredentials(): CredentialValidation {
 
   // 2. The selected provider must have a credential
   if (!hasCredential(spec.providerId)) {
-    const requirement = isCuratedProvider(spec.providerId)
-      ? PROVIDER_CREDENTIAL_HINT[spec.providerId]
-      : GENERIC_API_KEY_ENV;
-    const hint =
-      getMode() === 'local'
-        ? `Set ${requirement} in .env or export it.`
-        : `Export the variables or run 'npx @keygraph/shannon setup'.`;
-    return {
-      valid: false,
-      error: `No credentials found for provider "${spec.providerId}". ${hint}`,
-    };
+    return { valid: false, error: describeMissingCredential(spec.providerId) };
   }
 
   // 3. Exactly one provider may be configured. Several complete credentials make
