@@ -349,6 +349,7 @@ function contentType(request: MutableRequest): string {
 }
 
 function isJsonRequest(request: MutableRequest): boolean {
+  if (request.body.length === 0) return false;
   const mediaType = contentType(request).split(';', 1)[0]?.trim() ?? '';
   return mediaType === 'application/json' || mediaType.endsWith('+json') || /^[\t\r\n ]*[[{]/.test(request.body);
 }

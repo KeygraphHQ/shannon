@@ -1407,6 +1407,48 @@ test('replay rejects fabricated references, oversized commands, forbidden state,
   assert.equal(malformed.client.calls.length, 0);
 });
 
+test('replay dispatches a bodyless GET that declares a JSON content type', async () => {
+  const sourceRequest = [
+    'GET /api/reports?report_id=7 HTTP/1.1',
+    'Host: api.target.example:8443',
+    'Content-Type: application/json',
+    '',
+    '',
+  ].join('\r\n');
+  const source = exchange('ex_bodyless_json_get', 'victim', 'route_reports', {
+    method: 'GET',
+    path: '/api/reports',
+    requestContentType: 'application/json',
+  });
+  const { service, client } = harness({
+    exchanges: [source],
+    records: new Map([['ex_bodyless_json_get', raw(sourceRequest)]]),
+    configuredSecrets: [],
+    burpResults: [response('victim-private-marker')],
+  });
+
+  const outcome = await service.replay({
+    actionId: 'act_bodyless_json_get',
+    steps: [
+      {
+        stepId: 'step_bodyless_json_get',
+        sourceExchangeId: 'ex_bodyless_json_get',
+        actor: 'anonymous',
+        mutations: [{ type: 'set_query', name: 'report_id', value: '6' }],
+      },
+    ],
+    proofCondition: { type: 'body_contains', marker: 'victim-private-marker' },
+  });
+
+  assert.equal(outcome.status, 'completed');
+  assert.equal(client.calls.length, 1);
+  const outbound = parseHttpRequest(client.calls[0].arguments_.content);
+  assert.equal(outbound.method, 'GET');
+  assert.equal(outbound.target, '/api/reports?report_id=6');
+  assert.equal(outbound.headers.find(({ name }) => name.toLowerCase() === 'content-type')?.value, 'application/json');
+  assert.equal(outbound.body, '');
+});
+
 test('four steps retain order, stop after a dispatched failure, and are never resent', async () => {
   const simpleRequest = 'GET /api/items/1 HTTP/1.1\r\nHost: api.target.example:8443\r\nX-Keep: yes\r\n\r\n';
   const catalog = Array.from({ length: 4 }, (_, index) =>
