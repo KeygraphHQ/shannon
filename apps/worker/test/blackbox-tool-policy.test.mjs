@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { Value } from 'typebox/value';
 
 import {
   DEFAULT_PI_TOOL_POLICY,
@@ -124,7 +125,7 @@ test('black-box role definitions expose only the planned capability surface', ()
   }
 });
 
-test('target replay is bound to one approved action and permits one fresh-actor retry only', async () => {
+test('target replay derives its approved action from the assignment and permits one fresh-actor retry only', async () => {
   const calls = [];
   const tools = createBlackboxTools({
     role: 'blackbox-action',
@@ -137,11 +138,12 @@ test('target replay is bound to one approved action and permits one fresh-actor 
   const replay = tools.find((tool) => tool.name === 'replay_target_request');
   assert.ok(replay);
 
-  await replay.execute('call-1', { actionId: 'action-17' });
-  await replay.execute('call-2', { actionId: 'action-17' });
+  assert.equal(Value.Check(replay.parameters, {}), true);
+  assert.equal(Value.Check(replay.parameters, { actionId: 'action-17' }), false);
+  await replay.execute('call-1', {});
+  await replay.execute('call-2', {});
   assert.deepEqual(calls, [0, 0]);
-  await assert.rejects(replay.execute('call-3', { actionId: 'action-17' }), /second|only|already|call/i);
-  await assert.rejects(replay.execute('call-4', { actionId: 'other-action' }), /bound|assigned|mismatch|action/i);
+  await assert.rejects(replay.execute('call-3', {}), /second|only|already|call/i);
   assert.deepEqual(calls, [0, 0]);
 });
 
@@ -157,9 +159,9 @@ test('a fresh-actor response on the retry does not permit a third request', asyn
   });
   const replay = tools.find((tool) => tool.name === 'replay_target_request');
 
-  await replay.execute('call-1', { actionId: 'action-retry' });
-  await replay.execute('call-2', { actionId: 'action-retry' });
-  await assert.rejects(replay.execute('call-3', { actionId: 'action-retry' }), /only|call|already/i);
+  await replay.execute('call-1', {});
+  await replay.execute('call-2', {});
+  await assert.rejects(replay.execute('call-3', {}), /only|call|already/i);
   assert.equal(calls, 2);
 });
 

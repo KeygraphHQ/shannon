@@ -128,9 +128,7 @@ export function createBlackboxSubmitTool(
         'submit_planner_tasks',
         PLANNER_BATCH_SCHEMA,
         'Submit the bounded planner task batch.',
-        options.existingHypothesisIds === undefined
-          ? {}
-          : { existingHypothesisIds: options.existingHypothesisIds },
+        options.existingHypothesisIds === undefined ? {} : { existingHypothesisIds: options.existingHypothesisIds },
       );
     case 'blackbox-verifier':
     case 'verification':
@@ -198,8 +196,12 @@ export interface BlackboxToolFactoryOptions {
 }
 
 const EMPTY_PARAMS = Type.Object({}, { additionalProperties: false });
-const ACTION_PARAMS = Type.Object({ actionId: Type.String({ minLength: 1 }) }, { additionalProperties: false });
 const CANDIDATE_PARAMS = Type.Object({ candidateId: Type.String({ minLength: 1 }) }, { additionalProperties: false });
+
+interface ReplayParameterBinding {
+  readonly parameterName: 'candidateId';
+  readonly expectedId: string;
+}
 
 function callbackTool(
   name: string,
@@ -225,27 +227,24 @@ function callbackTool(
 
 function boundedReplayTool(
   name: 'replay_target_request' | 'replay_verification_request',
-  expectedId: string,
-  parameterName: 'actionId' | 'candidateId',
+  binding: ReplayParameterBinding | null,
   callback: () => unknown | Promise<unknown>,
 ): ToolDefinition {
   let calls = 0;
   let retryPermitted = false;
-  const parameters = parameterName === 'actionId' ? ACTION_PARAMS : CANDIDATE_PARAMS;
-  return callbackTool(
-    name,
-    `Execute the orchestrator-approved ${parameterName} replay.`,
-    parameters,
-    async (params) => {
-      const supplied = params[parameterName];
-      if (supplied !== expectedId) throw new Error(`Replay ${parameterName} is not bound to this assignment`);
-      if (calls >= 2 || (calls > 0 && !retryPermitted)) throw new Error(`Only one ${name} retry is allowed`);
-      calls += 1;
-      const result = await callback();
-      retryPermitted = name === 'replay_target_request' && isFreshActorRetry(result);
-      return result;
-    },
-  );
+  const description = binding
+    ? `Execute the orchestrator-approved ${binding.parameterName} replay.`
+    : 'Execute the orchestrator-approved action bound to this assignment; supply no arguments.';
+  return callbackTool(name, description, binding ? CANDIDATE_PARAMS : EMPTY_PARAMS, async (params) => {
+    if (binding && params[binding.parameterName] !== binding.expectedId) {
+      throw new Error(`Replay ${binding.parameterName} is not bound to this assignment`);
+    }
+    if (calls >= 2 || (calls > 0 && !retryPermitted)) throw new Error(`Only one ${name} retry is allowed`);
+    calls += 1;
+    const result = await callback();
+    retryPermitted = name === 'replay_target_request' && isFreshActorRetry(result);
+    return result;
+  });
 }
 
 function isFreshActorRetry(value: unknown): boolean {
@@ -274,10 +273,9 @@ export function createBlackboxTools(options: BlackboxToolFactoryOptions): ToolDe
     );
   }
   if (options.role === 'blackbox-action') {
-    const actionId = options.task?.taskId;
-    if (!actionId) throw new Error('blackbox-action requires an assigned task');
+    if (!options.task?.taskId) throw new Error('blackbox-action requires an assigned task');
     if (!options.replayTargetRequest) throw new Error('blackbox-action requires a configured replay callback');
-    tools.push(boundedReplayTool('replay_target_request', actionId, 'actionId', options.replayTargetRequest));
+    tools.push(boundedReplayTool('replay_target_request', null, options.replayTargetRequest));
   }
   if (options.role === 'blackbox-verifier') {
     const candidateId = options.candidateId;
@@ -286,7 +284,11 @@ export function createBlackboxTools(options: BlackboxToolFactoryOptions): ToolDe
       throw new Error('blackbox-verifier requires a configured replay callback');
     }
     tools.push(
-      boundedReplayTool('replay_verification_request', candidateId, 'candidateId', options.replayVerificationRequest),
+      boundedReplayTool(
+        'replay_verification_request',
+        { parameterName: 'candidateId', expectedId: candidateId },
+        options.replayVerificationRequest,
+      ),
     );
   }
 

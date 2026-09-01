@@ -2266,7 +2266,7 @@ test('action executes the persisted replay plan and derives its result from the 
     }),
     agentHandler: async (runInput) => {
       const replay = runInput.customTools.find(({ name }) => name === 'replay_target_request');
-      actionToolResult = await replay.execute('replay-1', { actionId: persistedTask.taskId });
+      actionToolResult = await replay.execute('replay-1', {});
       return {
         taskId: persistedTask.taskId,
         role: 'blackbox-action',
@@ -2434,7 +2434,7 @@ test('action executes the persisted replay plan and derives its result from the 
   deps.createAgentRunner = () => ({
     async run(runInput) {
       const replay = runInput.customTools.find(({ name }) => name === 'replay_target_request');
-      await replay.execute('replay-delivery-unknown', { actionId: persistedTask.taskId });
+      await replay.execute('replay-delivery-unknown', {});
       throw new Error('model failed after dispatch');
     },
   });
