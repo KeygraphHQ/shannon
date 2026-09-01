@@ -377,6 +377,16 @@ export class BurpMcpClient implements BurpToolClient {
 
   async connect(cancellationSignal?: AbortSignal): Promise<void> {
     if (this.connected) return;
+    try {
+      await this.connectOnce(cancellationSignal);
+    } catch (error) {
+      cancellationSignal?.throwIfAborted();
+      if (!isMcpRequestTimeout(error)) throw error;
+      await this.connectOnce(cancellationSignal);
+    }
+  }
+
+  private async connectOnce(cancellationSignal?: AbortSignal): Promise<void> {
     cancellationSignal?.throwIfAborted();
 
     const client = this.createClient();

@@ -508,6 +508,54 @@ test('Burp adapter reconnects once after a read-only history request times out',
   ]);
 });
 
+test('Burp adapter retries connection setup once when tool discovery times out', async () => {
+  const events = [];
+  let clientNumber = 0;
+  const createClient = () => {
+    const number = ++clientNumber;
+    return {
+      async connect() {
+        events.push(['connect', number]);
+      },
+      async listTools() {
+        events.push(['listTools', number]);
+        if (number === 1) {
+          throw Object.assign(new Error('Request timed out'), { code: -32001 });
+        }
+        return {
+          tools: [
+            { name: 'get_proxy_http_history_regex' },
+            { name: 'send_http1_request' },
+            { name: 'send_http2_request' },
+          ],
+        };
+      },
+      async callTool() {
+        return { content: [{ type: 'text', text: EXPECTED_BURP_END_OF_ITEMS }] };
+      },
+      async close() {
+        events.push(['close', number]);
+      },
+    };
+  };
+  const client = new BurpMcpClient(
+    { url: 'http://host.docker.internal:9876', hostHeader: '127.0.0.1:9876' },
+    { createClient, createTransport: () => ({ kind: 'fake-transport' }) },
+  );
+
+  await client.connect();
+  await client.close();
+
+  assert.deepEqual(events, [
+    ['connect', 1],
+    ['listTools', 1],
+    ['close', 1],
+    ['connect', 2],
+    ['listTools', 2],
+    ['close', 2],
+  ]);
+});
+
 test('Burp adapter does not retry a timed-out state-changing request', async () => {
   let createdClients = 0;
   let closeCalls = 0;
