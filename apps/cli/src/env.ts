@@ -115,6 +115,17 @@ interface CredentialValidation {
   error?: string;
 }
 
+/**
+ * Whether the shell environment already carries a usable credential — the host's
+ * pi login, or an API key for the selected provider. Reads process.env only.
+ */
+export function hasExportedCredentials(): boolean {
+  if (shouldUsePiAuth()) return true;
+  const spec = resolveModelSpec();
+  if (typeof spec === 'string') return false;
+  return hasCredential(spec.providerId);
+}
+
 /** Whether a curated provider has its own named credential set (API key plus any extra var). */
 function hasNamedCredential(providerId: CuratedProviderId): boolean {
   const apiKeys = PROVIDER_API_KEY_ENV[providerId];

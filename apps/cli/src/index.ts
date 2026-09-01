@@ -18,8 +18,10 @@ import { setup } from './commands/setup.js';
 import { start } from './commands/start.js';
 import { status } from './commands/status.js';
 import { stop } from './commands/stop.js';
+import { hasExportedCredentials } from './env.js';
 import { crash, enableJsonErrors, fail, failUsage, failWith, jsonErrorsEnabled } from './errors.js';
 import { availableCommands, helpTopics, isHelpableCommand, printCommandHelp, START_OPTIONS } from './help.js';
+import { configFileExists } from './home.js';
 import { commandPrefix, getMode, isLocal, type Mode } from './mode.js';
 import { displaySplash } from './splash.js';
 import { closestMatch } from './suggest.js';
@@ -135,6 +137,21 @@ Docs & source: https://github.com/KeygraphHQ/shannon
 `);
 }
 
+/**
+ * First-run guidance for a bare `npx @keygraph/shannon` invocation when neither a
+ * credentials file nor an exported shell credential exists. Walks the user to `setup`.
+ */
+function showSetupPrompt(): void {
+  const prefix = commandPrefix();
+  console.log(`
+Welcome to Shannon — AI Pentester by Keygraph
+
+No credentials configured yet. To get started, run:
+
+  ${prefix} setup
+`);
+}
+
 interface ParsedStartArgs {
   url: string;
   repo: string;
@@ -240,7 +257,12 @@ async function main(): Promise<void> {
     } else {
       const bare = command === undefined;
       if (bare && stdoutIsTerminal()) displaySplash(isLocal() ? undefined : getVersion());
-      showHelp(bare);
+      const needsSetup = bare && !isLocal() && !configFileExists() && !hasExportedCredentials();
+      if (needsSetup) {
+        showSetupPrompt();
+      } else {
+        showHelp(bare);
+      }
     }
     return;
   }
