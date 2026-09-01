@@ -32,7 +32,10 @@ function capturedSubmitTool<T>(
   name: string,
   schema: TSchema,
   description: string,
-  contributionRole?: BlackboxAgentKind,
+  options: {
+    readonly contributionRole?: BlackboxAgentKind;
+    readonly existingHypothesisIds?: readonly string[];
+  } = {},
 ): CapturedBlackboxSubmitTool<T> {
   let captured: T | undefined;
   let callCount = 0;
@@ -48,9 +51,11 @@ function capturedSubmitTool<T>(
     parameters: Type.Unsafe(schema),
     async execute(_toolCallId, params) {
       if (!Value.Check(schema, params)) throw new Error(`${name} received an invalid structured result`);
-      if (name === 'submit_planner_tasks') validatePlannerBatch(params as PlannerBatch);
-      if (name === 'submit_worker_contribution' && contributionRole) {
-        validateContribution(contributionRole, params as Record<string, unknown>);
+      if (name === 'submit_planner_tasks') {
+        validatePlannerBatch(params as PlannerBatch, options.existingHypothesisIds ?? []);
+      }
+      if (name === 'submit_worker_contribution' && options.contributionRole) {
+        validateContribution(options.contributionRole, params as Record<string, unknown>);
       }
       if (name === 'submit_verification') validateVerification(params as Record<string, unknown>);
       callCount += 1;
@@ -66,7 +71,8 @@ function capturedSubmitTool<T>(
   };
 }
 
-function validatePlannerBatch(batch: PlannerBatch): void {
+function validatePlannerBatch(batch: PlannerBatch, existingHypothesisIds: readonly string[]): void {
+  const existingHypotheses = new Set(existingHypothesisIds);
   if (batch.closeHypothesisIds !== undefined && batch.closeHypothesisIds.length > 0) {
     if (!batch.stop || batch.tasks.length !== 0) {
       throw new Error('Hypotheses may close only when the planner stops with no tasks');
@@ -75,6 +81,11 @@ function validatePlannerBatch(batch: PlannerBatch): void {
   for (const task of batch.tasks) {
     if (task.kind === 'action' && task.hypothesisId === null) {
       throw new Error('Action task requires a hypothesis');
+    }
+    if (task.hypothesisId !== null && !existingHypotheses.has(task.hypothesisId)) {
+      throw new Error(
+        `Task references unknown hypothesis ${task.hypothesisId}; schedule an analysis task before its dependent action`,
+      );
     }
   }
 }
@@ -109,6 +120,7 @@ function validateVerification(value: Record<string, unknown>): void {
 
 export function createBlackboxSubmitTool(
   kind: BlackboxAgentKind | 'contribution' | 'verification',
+  options: { readonly existingHypothesisIds?: readonly string[] } = {},
 ): CapturedBlackboxSubmitTool<PlannerBatch | unknown> {
   switch (kind) {
     case 'planner':
@@ -116,6 +128,9 @@ export function createBlackboxSubmitTool(
         'submit_planner_tasks',
         PLANNER_BATCH_SCHEMA,
         'Submit the bounded planner task batch.',
+        options.existingHypothesisIds === undefined
+          ? {}
+          : { existingHypothesisIds: options.existingHypothesisIds },
       );
     case 'blackbox-verifier':
     case 'verification':
@@ -129,7 +144,7 @@ export function createBlackboxSubmitTool(
         'submit_worker_contribution',
         contributionSchema(kind),
         'Submit one role-permitted worker contribution.',
-        kind === 'contribution' ? undefined : kind,
+        kind === 'contribution' ? {} : { contributionRole: kind },
       );
     }
   }

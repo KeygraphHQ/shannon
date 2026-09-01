@@ -10,3 +10,4 @@ Use only identifiers made from letters, digits, underscores, and hyphens, starti
 
 Information-only hypotheses do not qualify. Add every exhausted information-only hypothesis ID to closeHypothesisIds so the orchestrator can close it as no_demonstrated_impact. Never claim a finding, severity, or impact in the planner output. Set stop only when no useful task or plausible-impact hypothesis remains.
 Close hypotheses only when stop is true and there are no tasks; every action task must include a hypothesisId.
+You cannot create hypotheses. Every non-null hypothesisId must exactly match an ID in snapshot.hypotheses. When evidence suggests a new hypothesis, schedule an analysis task with identityLease and hypothesisId set to null and no replayPlan. Schedule its dependent action only in a later wave after the analysis contribution is persisted.

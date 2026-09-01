@@ -111,7 +111,15 @@ test('black-box contracts are separate from white-box execution order', () => {
 
 test('each role prompt states the impact invariant and its boundary', async () => {
   const expected = {
-    planner: ['ownership', 'transition', 'no_demonstrated_impact', 'never claim'],
+    planner: [
+      'ownership',
+      'transition',
+      'no_demonstrated_impact',
+      'never claim',
+      'snapshot.hypotheses',
+      'analysis task',
+      'later wave',
+    ],
     'blackbox-recon': ['one assigned workflow', 'leased identity', 'object', 'state change', 'arbitrary target'],
     'blackbox-analysis': ['compare', 'falsifiable', 'do not send'],
     'blackbox-action': ['assigned replay', 'proof condition', 'observed outcomes', 'severity'],
@@ -371,6 +379,104 @@ test('planner submissions reject action tasks without a hypothesis', async () =>
   );
   assert.equal(submit.getCaptured(), undefined);
   assert.equal(submit.getCallCount(), 0);
+});
+
+test('planner submissions correct unknown action hypotheses through analysis before terminating', async () => {
+  const submit = createBlackboxSubmitTool('planner', { existingHypothesisIds: [] });
+  const evidence = [{ id: 'exchange-1', kind: 'exchange' }];
+
+  await assert.rejects(
+    submit.tool.execute('submit-unknown-action', {
+      ...VALID.planner,
+      tasks: [
+        {
+          taskId: 'action-unknown',
+          kind: 'action',
+          objective: 'Replay the ownership boundary',
+          evidence,
+          identityLease: 'attacker',
+          hypothesisId: 'hypothesis-invented',
+          status: 'pending',
+          replayPlan: {
+            steps: [
+              {
+                stepId: 'step-unknown',
+                sourceExchangeId: 'exchange-1',
+                actor: 'attacker',
+                mutations: [],
+              },
+            ],
+            proofCondition: { type: 'body_contains', marker: 'victim-marker' },
+          },
+        },
+      ],
+    }),
+    /unknown hypothesis hypothesis-invented.*analysis task/i,
+  );
+  assert.equal(submit.getCaptured(), undefined);
+  assert.equal(submit.getCallCount(), 0);
+
+  const corrected = {
+    ...VALID.planner,
+    tasks: [
+      {
+        taskId: 'analysis-ownership-boundary',
+        kind: 'analysis',
+        objective: 'Establish whether the observed ownership boundary is vulnerable',
+        evidence,
+        identityLease: null,
+        hypothesisId: null,
+        status: 'pending',
+      },
+    ],
+  };
+  await submit.tool.execute('submit-analysis', corrected);
+  assert.deepEqual(submit.getCaptured(), corrected);
+  assert.equal(submit.getCallCount(), 1);
+});
+
+test('planner runner binds action submissions to hypotheses in its snapshot', async () => {
+  const action = {
+    ...VALID.planner,
+    tasks: [
+      {
+        taskId: 'action-existing',
+        kind: 'action',
+        objective: 'Replay the persisted authorization hypothesis',
+        evidence: [{ id: 'exchange-1', kind: 'exchange' }],
+        identityLease: 'attacker',
+        hypothesisId: 'hypothesis-existing',
+        status: 'pending',
+        replayPlan: {
+          steps: [
+            {
+              stepId: 'step-existing',
+              sourceExchangeId: 'exchange-1',
+              actor: 'attacker',
+              mutations: [],
+            },
+          ],
+          proofCondition: { type: 'body_contains', marker: 'victim-marker' },
+        },
+      },
+    ],
+  };
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-existing-action', action);
+      return { success: true, structuredOutput: action, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+  const base = runnerInput();
+  const result = await runner.run(runnerInput('planner', {
+    snapshot: {
+      ...base.snapshot,
+      hypotheses: [{ hypothesisId: 'hypothesis-existing', status: 'open' }],
+    },
+  }));
+
+  assert.deepEqual(result, action);
 });
 
 test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {

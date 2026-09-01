@@ -334,6 +334,14 @@ function submissionSchema(kind: BlackboxAgentKind): TSchema {
   return WORKER_CONTRIBUTION_SCHEMA;
 }
 
+function snapshotHypothesisIds(hypotheses: readonly unknown[]): string[] {
+  return hypotheses.flatMap((hypothesis) => {
+    if (!hypothesis || typeof hypothesis !== 'object' || Array.isArray(hypothesis)) return [];
+    const hypothesisId = (hypothesis as { readonly hypothesisId?: unknown }).hypothesisId;
+    return typeof hypothesisId === 'string' ? [hypothesisId] : [];
+  });
+}
+
 function failure(code: BlackboxAgentFailure['code'], message: string, retryable: boolean): BlackboxAgentError {
   return new BlackboxAgentError({ code, message, retryable });
 }
@@ -412,7 +420,10 @@ export class BlackboxAgentRunner {
       throw failure('agent_failed', `${input.kind} agent setup failed`, true);
     }
 
-    const submitTool = createBlackboxSubmitTool(input.kind);
+    const submitTool = createBlackboxSubmitTool(
+      input.kind,
+      input.kind === 'planner' ? { existingHypothesisIds: snapshotHypothesisIds(input.snapshot.hypotheses) } : {},
+    );
     let result: Awaited<ReturnType<typeof runPiPrompt>>;
     try {
       result = await this.executePrompt(
