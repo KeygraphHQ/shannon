@@ -111,13 +111,28 @@ function renderUsage(prefix: string, mode: Mode): string {
   return rows.map(([command, desc]) => `  ${command.padEnd(commandWidth)}   ${desc}`).join('\n');
 }
 
+/**
+ * A boxed "start your first scan" call to action, shown in help when no scans exist
+ * yet. Prefix-aware, so local mode renders `./shannon start …`.
+ */
+function renderFirstScanBox(prefix: string): string {
+  const command = `${prefix} start -u <url> -r <path>`;
+  const title = 'Start your first scan';
+  const padX = 3;
+  const inner = Math.max(command.length, title.length) + padX * 2;
+  const rule = (left: string, right: string): string => `  ${left}${'─'.repeat(inner)}${right}`;
+  const line = (text: string): string => `  │${' '.repeat(padX)}${text}${' '.repeat(inner - padX - text.length)}│`;
+  return [rule('╭', '╮'), line(title), line(''), line(command), rule('╰', '╯')].join('\n');
+}
+
 function showHelp(withSplash: boolean): void {
   const mode = getMode();
   const prefix = commandPrefix();
 
   const header = withSplash ? '' : '\nShannon — AI Pentester by Keygraph\n';
+  const firstScan = stdoutIsTerminal() ? `\n${renderFirstScanBox(prefix)}\n` : '';
 
-  console.log(`${header}
+  console.log(`${header}${firstScan}
 Usage:
 ${renderUsage(prefix, mode)}
 
