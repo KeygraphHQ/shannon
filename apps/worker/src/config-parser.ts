@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -10,14 +10,20 @@ import type { FormatsPlugin } from 'ajv-formats';
 import yaml from 'js-yaml';
 import { fs } from 'zx';
 import { PentestError } from './services/error-handling.js';
-import {
-  ALL_VULN_CLASSES,
-  type Authentication,
-  type Config,
-  type DistributedConfig,
-  type Rule,
-} from './types/config.js';
+import type { Authentication, Config, DistributedConfig, Rule } from './types/config.js';
 import { ErrorCode } from './types/errors.js';
+
+/**
+ * Parses and validates scan configuration YAML against config-schema.json, then
+ * distributes it into the plain values consumed by prompts and services.
+ *
+ * The schema is closed: every object in config-schema.json sets `additionalProperties:
+ * false`, so an unrecognized field anywhere in the config is a hard validation failure
+ * rather than a silently ignored typo. There is no public way to select which analysis
+ * classes run; the schema only exposes steering knobs (rules, authentication,
+ * agentic_sast.enabled, exploit, report, rules_of_engagement) on top of the fixed
+ * five-class pipeline.
+ */
 
 // Handle ESM/CJS interop for ajv-formats using require
 const require = createRequire(import.meta.url);
@@ -42,6 +48,10 @@ try {
   });
 }
 
+// Free-text config fields (description, rules_of_engagement, rule values, login fields,
+// report.guidance) get interpolated verbatim into agent prompts via prompt-manager.ts.
+// These patterns block the more obvious ways a scan config could smuggle markup, script
+// URLs, or path traversal into that prompt text or into a rendered value.
 const DANGEROUS_PATTERNS: RegExp[] = [
   /\.\.\//, // Path traversal
   /[<>]/, // HTML/XML injection
@@ -312,6 +322,9 @@ export const parseConfigYAML = (yamlContent: string): Config => {
   return config as Config;
 };
 
+// Runs before schema validation so a renamed field fails with a specific "renamed to X"
+// message instead of the generic "additionalProperties" rejection the closed schema
+// would otherwise produce for the old field name.
 function checkDeprecatedFields(config: Config): void {
   const messages: string[] = [];
 
@@ -387,7 +400,7 @@ const validateConfig = (config: Config): void => {
     !!config.rules ||
     !!config.authentication ||
     !!config.description ||
-    !!config.vuln_classes ||
+    !!config.agentic_sast ||
     config.exploit !== undefined ||
     !!config.report ||
     !!config.rules_of_engagement;
@@ -673,9 +686,10 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
   const authentication = config?.authentication || null;
   const description = config?.description?.trim() || '';
 
-  const vuln_classes =
-    config?.vuln_classes && config.vuln_classes.length > 0 ? [...config.vuln_classes] : [...ALL_VULN_CLASSES];
-
+  // The schema types boolean-shaped fields (exploit, report.sarif, agentic_sast.enabled)
+  // as a string enum ("true"/"false") rather than JSON boolean, since YAML's FAILSAFE_SCHEMA
+  // parses bareword true/false as strings. The string comparison here is intentional, not
+  // a leftover from a looser type.
   const exploit = config?.exploit !== undefined ? config.exploit === 'true' : true;
 
   const report = {
@@ -693,7 +707,7 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
     focus: focus.map(sanitizeRule),
     authentication: authentication ? sanitizeAuthentication(authentication) : null,
     description,
-    vuln_classes,
+    ...(config?.agentic_sast?.enabled === 'true' && { agenticSast: true as const }),
     exploit,
     report,
     rules_of_engagement,

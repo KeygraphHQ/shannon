@@ -7,7 +7,12 @@
 
 export type { ActivityInput } from './activities.js';
 export type {
+  AgenticSastInput,
+  AgenticSastState,
   AgentMetrics,
+  NonFatalFailure,
+  OperationalMetrics,
+  OperationalStageState,
   PipelineInput,
   PipelineState,
   PipelineSummary,

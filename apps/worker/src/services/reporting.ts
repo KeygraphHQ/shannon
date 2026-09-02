@@ -1,55 +1,155 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
 import { fs, path } from 'zx';
-import {
-  ASSEMBLED_REPORT_FILENAME,
-  ASSEMBLED_REPORT_PDF_FILENAME,
-  deliverablesDir,
-  FINAL_REPORT_MD_FILENAME,
-  FINAL_REPORT_PDF_FILENAME,
-  resolveSessionJsonPath,
-  SARIF_FILENAME,
-} from '../paths.js';
+import { ASSEMBLED_REPORT_FILENAME, deliverablesDir } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
+import type { ReconciliationClass } from '../types/reconciliation.js';
 import { PentestError } from './error-handling.js';
+import { renderExploitDeliverable } from './exploit-renderer.js';
+import { readCommittedFile } from './git-manager.js';
+import { surfaceReportOutputs } from './report-output-surface.js';
 
 interface DeliverableFile {
+  vulnerabilityClass: ReconciliationClass;
   name: string;
   /** Candidate filenames in priority order. First one that exists wins. */
   paths: readonly string[];
   required: boolean;
 }
 
-// Pure function: Assemble final report from specialist deliverables.
-// Per class, prefer the exploit-agent's evidence file; fall back to renderer-produced findings.
-// Both never coexist for a workspace because scope (exploit flag) is locked.
-export async function assembleFinalReport(
+const DELIVERABLE_BY_CLASS: Readonly<
+  Record<ReconciliationClass, { readonly name: string; readonly exploit: string; readonly analysis: string }>
+> = Object.freeze({
+  injection: {
+    name: 'Injection',
+    exploit: 'injection_exploitation_evidence.md',
+    analysis: 'injection_findings.md',
+  },
+  xss: { name: 'XSS', exploit: 'xss_exploitation_evidence.md', analysis: 'xss_findings.md' },
+  auth: {
+    name: 'Authentication',
+    exploit: 'auth_exploitation_evidence.md',
+    analysis: 'auth_findings.md',
+  },
+  ssrf: { name: 'SSRF', exploit: 'ssrf_exploitation_evidence.md', analysis: 'ssrf_findings.md' },
+  authz: {
+    name: 'Authorization',
+    exploit: 'authz_exploitation_evidence.md',
+    analysis: 'authz_findings.md',
+  },
+  miscellaneous: {
+    name: 'Miscellaneous',
+    exploit: 'miscellaneous_exploitation_evidence.md',
+    analysis: 'miscellaneous_findings.md',
+  },
+});
+
+// `miscellaneous` is absent on purpose: it joins the report only when the workflow passes it in
+// `participatingClasses`, since the class exists only on runs that produced miscellaneous-class tasks.
+const DEFAULT_REPORT_CLASS_ORDER = [
+  'injection',
+  'xss',
+  'auth',
+  'ssrf',
+  'authz',
+] as const satisfies readonly ReconciliationClass[];
+
+export interface AssembleFinalReportOptions {
+  /** Explicit mode prevents an exploitative report from falling back to analysis artifacts. */
+  readonly exploit?: boolean;
+  /** Caller-owned order is preserved verbatim. */
+  readonly participatingClasses?: readonly ReconciliationClass[];
+  /** Classes already known to have failed during analysis-only findings rendering. */
+  readonly knownFailedClasses?: readonly ReconciliationClass[];
+}
+
+export interface AssembleFinalReportResult {
+  readonly content: string;
+  readonly failedClasses: readonly ReconciliationClass[];
+}
+
+/**
+ * Distinguish an assessed class with no actionable findings from a class whose exploit evidence
+ * disappeared. The committed reconciled queue is authoritative across retries and resume; the
+ * workflow's in-memory skipped-agent list is not.
+ */
+async function renderCommittedEmptyClass(dir: string, vulnerabilityClass: ReconciliationClass): Promise<string | null> {
+  const queueRead = await readCommittedFile(dir, `${vulnerabilityClass}_exploitation_queue.json`);
+  if (queueRead.state !== 'present') return null;
+
+  let queue: unknown;
+  try {
+    queue = JSON.parse(queueRead.contents) as unknown;
+  } catch {
+    return null;
+  }
+  if (
+    queue === null ||
+    typeof queue !== 'object' ||
+    !Array.isArray((queue as { vulnerabilities?: unknown }).vulnerabilities) ||
+    (queue as { vulnerabilities: unknown[] }).vulnerabilities.length !== 0
+  ) {
+    return null;
+  }
+
+  return renderExploitDeliverable(vulnerabilityClass, [], new Map());
+}
+
+async function assembleFinalReportInternal(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
-): Promise<string> {
-  const deliverableFiles: readonly DeliverableFile[] = [
-    { name: 'Injection', paths: ['injection_exploitation_evidence.md', 'injection_findings.md'], required: false },
-    { name: 'XSS', paths: ['xss_exploitation_evidence.md', 'xss_findings.md'], required: false },
-    { name: 'Authentication', paths: ['auth_exploitation_evidence.md', 'auth_findings.md'], required: false },
-    { name: 'SSRF', paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'], required: false },
-    { name: 'Authorization', paths: ['authz_exploitation_evidence.md', 'authz_findings.md'], required: false },
-  ];
+  options: AssembleFinalReportOptions,
+  collectClassFailures: boolean,
+): Promise<AssembleFinalReportResult> {
+  const participatingClasses = options.participatingClasses ?? DEFAULT_REPORT_CLASS_ORDER;
+  const deliverableFiles: readonly DeliverableFile[] = participatingClasses.map((vulnerabilityClass) => {
+    const definition = DELIVERABLE_BY_CLASS[vulnerabilityClass];
+    let paths: readonly string[];
+    if (options.exploit === true) {
+      paths = [definition.exploit];
+    } else if (options.exploit === false) {
+      paths = [definition.analysis];
+    } else {
+      paths = [definition.exploit, definition.analysis];
+    }
+    return { vulnerabilityClass, name: definition.name, paths, required: false };
+  });
 
   const dir = deliverablesDir(sourceDir, deliverablesSubdir);
   const sections: string[] = [];
+  const failedClassSet = new Set(options.knownFailedClasses ?? []);
 
   for (const file of deliverableFiles) {
+    if (failedClassSet.has(file.vulnerabilityClass)) {
+      logger.warn(`${file.name}: omitted because findings rendering failed`);
+      continue;
+    }
     let added = false;
     for (const candidate of file.paths) {
-      const filePath = path.join(dir, candidate);
       try {
-        if (await fs.pathExists(filePath)) {
+        // Exploit runs assemble from committed Git state, not the worktree: evidence is only
+        // trustworthy once checkpointed, and a corrupt committed object is a class failure
+        // rather than a silently skipped section.
+        if (options.exploit === true) {
+          const committed = await readCommittedFile(dir, candidate);
+          if (committed.state === 'corrupt') {
+            throw new Error('committed artifact is corrupt');
+          }
+          if (committed.state === 'present') {
+            sections.push(committed.contents);
+            logger.info(`Added ${file.name} section from ${candidate}`);
+            added = true;
+            break;
+          }
+        } else {
+          const filePath = path.join(dir, candidate);
+          if (!(await fs.pathExists(filePath))) continue;
           const content = await fs.readFile(filePath, 'utf8');
           sections.push(content);
           logger.info(`Added ${file.name} section from ${candidate}`);
@@ -57,8 +157,19 @@ export async function assembleFinalReport(
           break;
         }
       } catch (error) {
+        if (!collectClassFailures) throw error;
         const err = error as Error;
         logger.warn(`Could not read ${candidate}: ${err.message}`);
+        failedClassSet.add(file.vulnerabilityClass);
+        break;
+      }
+    }
+    if (!added && options.exploit === true && !failedClassSet.has(file.vulnerabilityClass)) {
+      const emptyClassSection = await renderCommittedEmptyClass(dir, file.vulnerabilityClass);
+      if (emptyClassSection !== null) {
+        sections.push(emptyClassSection);
+        logger.info(`Added ${file.name} section from its committed empty exploitation queue`);
+        added = true;
       }
     }
     if (!added) {
@@ -72,6 +183,7 @@ export async function assembleFinalReport(
         );
       }
       logger.info(`No ${file.name} deliverable found`);
+      failedClassSet.add(file.vulnerabilityClass);
     }
   }
 
@@ -90,87 +202,48 @@ export async function assembleFinalReport(
     });
   }
 
-  return finalContent;
+  return {
+    content: finalContent,
+    failedClasses: participatingClasses.filter((vulnerabilityClass) => failedClassSet.has(vulnerabilityClass)),
+  };
 }
 
 /**
- * Inject model information into the final security report.
- * Reads session.json to get the model(s) used, then injects a "Model:" line
- * into the Executive Summary section of the report.
+ * Assemble report inputs while returning class-local omissions for `not_assessed` integration.
+ * Canonical output write failures still throw.
  */
-export async function injectModelIntoReport(
-  repoPath: string,
+export async function assembleFinalReportWithEvidence(
+  sourceDir: string,
   deliverablesSubdir: string | undefined,
-  outputPath: string,
   logger: ActivityLogger,
-): Promise<void> {
-  // 1. Read session.json to get model information
-  const sessionJsonPath = resolveSessionJsonPath(outputPath);
+  options: AssembleFinalReportOptions = {},
+): Promise<AssembleFinalReportResult> {
+  return assembleFinalReportInternal(sourceDir, deliverablesSubdir, logger, options, true);
+}
 
-  if (!(await fs.pathExists(sessionJsonPath))) {
-    logger.warn('session.json not found, skipping model injection');
-    return;
-  }
-
-  interface SessionData {
-    metrics: {
-      agents: Record<string, { model?: string }>;
-    };
-  }
-
-  const sessionData: SessionData = await fs.readJson(sessionJsonPath);
-
-  // 2. Extract unique models from all agents
-  const models = new Set<string>();
-  for (const agent of Object.values(sessionData.metrics.agents)) {
-    if (agent.model) {
-      models.add(agent.model);
-    }
-  }
-
-  if (models.size === 0) {
-    logger.warn('No model information found in session.json');
-    return;
-  }
-
-  const modelStr = Array.from(models).join(', ');
-  logger.info(`Injecting model info into report: ${modelStr}`);
-
-  // 3. Read the final report
-  const reportPath = path.join(deliverablesDir(repoPath, deliverablesSubdir), ASSEMBLED_REPORT_FILENAME);
-
-  if (!(await fs.pathExists(reportPath))) {
-    logger.warn('Final report not found, skipping model injection');
-    return;
-  }
-
-  let reportContent = await fs.readFile(reportPath, 'utf8');
-
-  // 4. Find and inject model line after "Assessment Date" in Executive Summary
-  // Pattern: "- Assessment Date: <date>" followed by a newline
-  const assessmentDatePattern = /^(- Assessment Date: .+)$/m;
-  const match = reportContent.match(assessmentDatePattern);
-
-  if (match) {
-    // Inject model line after Assessment Date
-    const modelLine = `- Model: ${modelStr}`;
-    reportContent = reportContent.replace(assessmentDatePattern, `$1\n${modelLine}`);
-    logger.info('Model info injected into Executive Summary');
-  } else {
-    // If no Assessment Date line found, try to add after Executive Summary header
-    const execSummaryPattern = /^## Executive Summary$/m;
-    if (reportContent.match(execSummaryPattern)) {
-      // Add model as first item in Executive Summary
-      reportContent = reportContent.replace(execSummaryPattern, `## Executive Summary\n- Model: ${modelStr}`);
-      logger.info('Model info added to Executive Summary header');
-    } else {
-      logger.warn('Could not find Executive Summary section');
-      return;
-    }
-  }
-
-  // 5. Write modified report back
-  await fs.writeFile(reportPath, reportContent);
+/**
+ * Assemble the final report from per-class deliverables and return only the content. With an
+ * explicit exploit mode each class reads exactly its evidence or findings file; without one,
+ * evidence is preferred and findings are the fallback. The boolean form of the last parameter
+ * is shorthand for `{ exploit }`. In exploit mode a read failure throws instead of being
+ * collected, because canonical evidence assembly must not silently omit a class.
+ */
+export async function assembleFinalReport(
+  sourceDir: string,
+  deliverablesSubdir: string | undefined,
+  logger: ActivityLogger,
+  optionsOrExploit: AssembleFinalReportOptions | boolean = {},
+): Promise<string> {
+  const options: AssembleFinalReportOptions =
+    typeof optionsOrExploit === 'boolean' ? { exploit: optionsOrExploit } : optionsOrExploit;
+  const result = await assembleFinalReportInternal(
+    sourceDir,
+    deliverablesSubdir,
+    logger,
+    options,
+    options.exploit !== true,
+  );
+  return result.content;
 }
 
 /**
@@ -190,29 +263,5 @@ export async function copyReportToRunRoot(
   logger: ActivityLogger,
 ): Promise<void> {
   const dir = deliverablesDir(repoPath, deliverablesSubdir);
-
-  const pdfSource = path.join(dir, ASSEMBLED_REPORT_PDF_FILENAME);
-  if (await fs.pathExists(pdfSource)) {
-    const destination = path.join(runDir, FINAL_REPORT_PDF_FILENAME);
-    await fs.copy(pdfSource, destination, { overwrite: true });
-    logger.info(`Surfaced PDF report at ${destination}`);
-  } else {
-    logger.warn(`PDF report not found, skipping ${FINAL_REPORT_PDF_FILENAME}`);
-  }
-
-  const markdownSource = path.join(dir, ASSEMBLED_REPORT_FILENAME);
-  if (await fs.pathExists(markdownSource)) {
-    const destination = path.join(runDir, FINAL_REPORT_MD_FILENAME);
-    await fs.copy(markdownSource, destination, { overwrite: true });
-    logger.info(`Surfaced markdown report at ${destination}`);
-  } else {
-    logger.warn(`Markdown report not found, skipping ${FINAL_REPORT_MD_FILENAME}`);
-  }
-
-  const sarifSource = path.join(dir, SARIF_FILENAME);
-  if (await fs.pathExists(sarifSource)) {
-    const sarifDestination = path.join(runDir, SARIF_FILENAME);
-    await fs.copy(sarifSource, sarifDestination, { overwrite: true });
-    logger.info(`Surfaced SARIF log at ${sarifDestination}`);
-  }
+  await surfaceReportOutputs({ deliverablesDir: dir, customerDir: runDir, logger });
 }

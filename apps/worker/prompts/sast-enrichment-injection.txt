@@ -1,0 +1,16 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are SQL injection, command injection, path traversal, and related injection classes. Each finding must be transformed into a vulnerability object matching the schema.
+
+CRITICAL RULES:
+- witness_payload MUST be tailored to the actual sink code. If the sink is `db.query("SELECT * FROM users WHERE name LIKE '%" + input + "%'")`, use `%' OR '%'='` not a generic `' OR 1=1--`.
+- slot_type MUST reflect the actual SQL/command/file context from the code snippet.
+- If dataflow path is provided, use it to build an accurate `path` field.
+- If sanitization functions appear in the path, list them in `sanitization_observed` and explain in `mismatch_reason` why they're insufficient.
+- Set externally_exploitable=true only if the source is user-controlled input (HTTP params, headers, request body, cookies).
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+- For XML injection (CWE-91): slot_type is XML-element or XML-attribute depending on where user input lands in the XML structure.
+- For prompt injection (CWE-1427): slot_type is PROMPT-instruction. witness_payload should demonstrate instruction override, not generic text.
+- For prototype pollution (CWE-1321): slot_type is PROTO-property. witness_payload should use __proto__ or constructor.prototype paths specific to the sink.
+
+SAST FINDINGS:

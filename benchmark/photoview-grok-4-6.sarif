@@ -1,0 +1,988 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Shannon",
+          "informationUri": "https://github.com/KeygraphHQ/shannon",
+          "rules": [
+            {
+              "id": "shannon/injection",
+              "name": "Injection",
+              "shortDescription": {
+                "text": "Injection"
+              },
+              "fullDescription": {
+                "text": "Untrusted input reaches an interpreter sink (SQL, OS command, template, file path or deserializer) at a position where it can alter the structure of the statement rather than only supply data."
+              },
+              "help": {
+                "text": "Separate code from data at the sink: bind SQL parameters, pass command arguments as an array, and allowlist file paths. Escaping is a weaker control than parameterisation and breaks whenever the sink context changes."
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "shannon"
+                ]
+              }
+            },
+            {
+              "id": "shannon/auth",
+              "name": "Authentication",
+              "shortDescription": {
+                "text": "Authentication"
+              },
+              "fullDescription": {
+                "text": "A weakness in credential verification or session lifecycle that lets an attacker assume another identity or retain access they should have lost."
+              },
+              "help": {
+                "text": "Issue a fresh session identifier on every privilege change, set HttpOnly, Secure and SameSite on session cookies, rate-limit credential endpoints, and verify the signature and algorithm of externally issued tokens."
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "shannon"
+                ]
+              }
+            },
+            {
+              "id": "shannon/authz",
+              "name": "Authorization",
+              "shortDescription": {
+                "text": "Authorization"
+              },
+              "fullDescription": {
+                "text": "An access control decision is missing, evaluated in the client, or applied at the wrong layer, letting a caller act on resources they do not own."
+              },
+              "help": {
+                "text": "Check ownership and role on the server for every object reference, and enforce it in the data-access layer rather than per route, denying by default. An unguessable identifier is not an access control."
+              },
+              "properties": {
+                "tags": [
+                  "security",
+                  "shannon"
+                ]
+              }
+            }
+          ]
+        }
+      },
+      "automationDetails": {
+        "id": "shannon/exploit/grok-4-6-wan-2026-08-29-photoview"
+      },
+      "invocations": [
+        {
+          "executionSuccessful": true
+        }
+      ],
+      "taxonomies": [
+        {
+          "name": "OWASP Top Ten 2025",
+          "organization": "OWASP",
+          "informationUri": "https://owasp.org/Top10/",
+          "shortDescription": {
+            "text": "OWASP Top Ten 2025 categories."
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "name": "Broken Access Control"
+            },
+            {
+              "id": "A05:2025",
+              "name": "Injection"
+            },
+            {
+              "id": "A07:2025",
+              "name": "Authentication Failures"
+            }
+          ]
+        }
+      ],
+      "results": [
+        {
+          "ruleId": "shannon/injection",
+          "level": "error",
+          "message": {
+            "text": "Unauthenticated stacked SQL injection in album download path parameter. The album_id path parameter on GET /api/download/album/{album_id}/{media_purpose} is passed unsanitized into GORM Find before authentication. Non-numeric values become a raw WHERE clause, and the MySQL DSN enables MultiStatements. An unauthenticated attacker can therefore run stacked queries that insert session tokens and exfiltrate data through a stacked UPDATE side channel.",
+            "markdown": "**Unauthenticated stacked SQL injection in album download path parameter**\n\nThe album_id path parameter on GET /api/download/album/{album_id}/{media_purpose} is passed unsanitized into GORM Find before authentication. Non-numeric values become a raw WHERE clause, and the MySQL DSN enables MultiStatements. An unauthenticated attacker can therefore run stacked queries that insert session tokens and exfiltrate data through a stacked UPDATE side channel.\n\n**Impact**\n\nUnauthenticated attacker minted a valid admin session token (access_tokens id=18, user_id=1, value=Inj01ProofTokAAAAAAAAAA) and used it to call GraphQL as admin. Also extracted MariaDB version 12.3.3-MariaDB-ubu2404, database photoview, DB user photoview@172.19.0.3, all 14 table names, users columns, both user rows (id=1 admin / id=2 user), and both bcrypt password hashes.\n\n**Remediation**\n\nParse album_id with strconv.Atoi (or bind it as an integer primary key) before any database call so non-numeric values never reach GORM Find. Run authenticateAlbum before the query, not after. Disable MultiStatements in the MySQL DSN. Reject requests that fail integer conversion with 400 rather than interpolating the path segment as SQL.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/routes/downloads.go"
+                },
+                "region": {
+                  "startLine": 25,
+                  "endLine": 29
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "RegisterDownloadRoutes",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/routes/downloads.go"
+                },
+                "region": {
+                  "startLine": 19,
+                  "endLine": 20
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "RegisterDownloadRoutes",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/auth/auth.go"
+                },
+                "region": {
+                  "startLine": 26,
+                  "endLine": 48
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Middleware",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            },
+            {
+              "id": 3,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/database/database.go"
+                },
+                "region": {
+                  "startLine": 33,
+                  "endLine": 33
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GetMysqlAddress",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "GET",
+            "target": "http://host.docker.internal:8000/api/download/album/{album_id}/{media_purpose}"
+          },
+          "taxa": [
+            {
+              "id": "A05:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "INJ-01",
+            "parameter": "album_id",
+            "status": "exploited",
+            "authState": "Unauthenticated",
+            "prerequisites": "None. The injection runs before authenticateAlbum; a missing auth-token cookie is sufficient. Do not send an invalid auth-token cookie (that 403s before the handler)."
+          },
+          "ruleIndex": 0
+        },
+        {
+          "ruleId": "shannon/auth",
+          "level": "warning",
+          "message": {
+            "text": "No rate limiting or lockout on authorizeUser login. The public GraphQL login mutation authorizeUser has no per-IP or per-account rate limit, lockout, CAPTCHA, backoff, or failed-login monitoring. Consecutive failed password guesses against the built-in admin and user accounts all returned HTTP 200 with status \"invalid credentials\" in ~190ms each, after which the correct password still issued a valid 24-character session token.",
+            "markdown": "**No rate limiting or lockout on authorizeUser login**\n\nThe public GraphQL login mutation authorizeUser has no per-IP or per-account rate limit, lockout, CAPTCHA, backoff, or failed-login monitoring. Consecutive failed password guesses against the built-in admin and user accounts all returned HTTP 200 with status \"invalid credentials\" in ~190ms each, after which the correct password still issued a valid 24-character session token.\n\n**Impact**\n\nSubmitted 110 failed authorizeUser attempts (40 common passwords × {admin, user} plus 30 unique bruteforceNN passwords against admin) with zero HTTP 429s, zero lockout language, and no latency increase (min 185.6ms, max 239.4ms, avg 190.1ms, all HTTP 200). Immediately afterwards, authorizeUser with the correct password returned success:true and token jvzpob3zBMR9XDThTnmLJDUW, which authorized query myUser as id=1 username=admin admin=true.\n\n**Remediation**\n\nAdd per-account and per-IP rate limiting plus lockout on authorizeUser (for example, exponential backoff after 5 failures and a temporary lock after 10). Return HTTP 429 on the GraphQL transport when the limit is hit. Log GraphQL operation name and login outcome in LoggingMiddleware so failed-login sprays are visible. Consider CAPTCHA after a small number of failures.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/user.go"
+                },
+                "region": {
+                  "startLine": 75,
+                  "endLine": 104
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AuthorizeUser",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/user.go"
+                },
+                "region": {
+                  "startLine": 76,
+                  "endLine": 99
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AuthorizeUser",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A07:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTH-01",
+            "parameter": "authorizeUser",
+            "status": "exploited",
+            "authState": "Unauthenticated",
+            "prerequisites": "None. The mutation is unauthenticated. Usernames admin and user are the instance's known accounts (also typical defaults)."
+          },
+          "ruleIndex": 1
+        },
+        {
+          "ruleId": "shannon/auth",
+          "level": "warning",
+          "message": {
+            "text": "Logout does not revoke access tokens. Photoview logout only clears the client auth-token cookie. The corresponding access_tokens row is never deleted, so a captured 24-character token remains valid until its original 14-day Expire. After the victim visited /logout (cookie gone, UI on /login), the same token still authorized myUser as admin and the admin user list; a second concurrent login token remained valid as well. Changing the account password also left the old token working.",
+            "markdown": "**Logout does not revoke access tokens**\n\nPhotoview logout only clears the client auth-token cookie. The corresponding access_tokens row is never deleted, so a captured 24-character token remains valid until its original 14-day Expire. After the victim visited /logout (cookie gone, UI on /login), the same token still authorized myUser as admin and the admin user list; a second concurrent login token remained valid as well. Changing the account password also left the old token working.\n\n**Impact**\n\nDemonstrated that after the victim browser hit GET /logout (document.cookie empty, URL /login), replaying Cookie: auth-token=O0KW9cWvupuqWRSeMopSqHwa still returned myUser id=1 username=admin admin=true and the full admin user list. A second token minted by a later login (YW2XsmzghrPqSJ6zZWBu0fE6) also remained valid. A separate account (revoketest) kept its old token after admin updateUser changed the password.\n\n**Remediation**\n\nAdd a GraphQL logout mutation that DELETEs the current access_tokens row (and optionally all rows for that user_id). Have GET /logout and Apollo onError call that mutation before clearTokenCookie. On password change, delete every access_tokens row for that user_id so existing sessions are invalidated. Consider rotating the token on each login instead of accumulating independent 14-day rows.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ui/src/components/routes/Routes.tsx"
+                },
+                "region": {
+                  "startLine": 151,
+                  "endLine": 155
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "LogoutPage",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/user.go"
+                },
+                "region": {
+                  "startLine": 126,
+                  "endLine": 154
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "GenerateAccessToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/dataloader/userLoader.go"
+                },
+                "region": {
+                  "startLine": 16,
+                  "endLine": 22
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "NewUserLoaderByToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "GET",
+            "target": "http://host.docker.internal:8000/logout"
+          },
+          "taxa": [
+            {
+              "id": "A07:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTH-02",
+            "status": "exploited",
+            "authState": "Any authenticated user",
+            "prerequisites": "A valid auth-token for the victim (from a prior authorizeUser login). The victim then visits GET /logout in their own browser."
+          },
+          "ruleIndex": 1
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "error",
+          "message": {
+            "text": "shareAlbum mints a public token for any existing album. AddAlbumShare counts whether the caller owns some album, then inserts ShareToken{AlbumID: client-supplied albumId} without binding albums.id. Any user who owns at least one album can mint an 8-character public share for an album they cannot query, then read that album anonymously via shareToken / album(id, tokenCredentials).",
+            "markdown": "**shareAlbum mints a public token for any existing album**\n\nAddAlbumShare counts whether the caller owns some album, then inserts ShareToken{AlbumID: client-supplied albumId} without binding albums.id. Any user who owns at least one album can mint an 8-character public share for an album they cannot query, then read that album anonymously via shareToken / album(id, tokenCredentials).\n\n**Impact**\n\nAs user id=2, album(id: 5) returned forbidden. shareAlbum(albumId: 5) returned token SkLSTOMD. An anonymous client then queried album 5 with that token and received title \"ui\", filePath /app/ui, and all three photos (apple-touch-icon.png, logo192.png, logo512.png) including filesystem paths. GET /api/photo/apple-touch-icon_EzymEX5Q.png?token=SkLSTOMD returned HTTP 200 (13706 bytes). The same pattern worked for admin albums 3 (/tmp) and 6 (/app).\n\n**Remediation**\n\nBind AddAlbumShare to the requested albumId: require EXISTS user_albums for that specific album (same pattern already used by shareMedia), not merely that the caller owns some album. Reject album IDs the caller does not own with forbidden before inserting ShareToken.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/actions/share_token_actions.go"
+                },
+                "region": {
+                  "startLine": 59,
+                  "endLine": 103
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AddAlbumShare",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/share_token.go"
+                },
+                "region": {
+                  "startLine": 96,
+                  "endLine": 102
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "ShareAlbum",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/actions/share_token_actions.go"
+                },
+                "region": {
+                  "startLine": 62,
+                  "endLine": 73
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AddAlbumShare",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-01",
+            "parameter": "shareAlbum.albumId",
+            "status": "exploited",
+            "authState": "Any authenticated user who owns at least one album",
+            "prerequisites": "Authenticated user who owns at least one album (user id=2 owns album 1). A second album the caller does not own (here album 5 /app/ui, album 3 /tmp, album 6 /app). Users with zero albums are blocked (count==0). Nonexistent album IDs fail the FK."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "error",
+          "message": {
+            "text": "Media-only share nested resolvers expand into the whole album. A media-share token is correctly bound at the root media(id) resolver (MediaID must match). Nested mediaResolver.Album does Find(&album, obj.AlbumID) with no token re-bind, and Album.media/subAlbums/shares/thumbnail list by FK only. An anonymous visitor with a single-photo share can walk into the containing album, every sibling’s path/URLs, and every share token on those objects.",
+            "markdown": "**Media-only share nested resolvers expand into the whole album**\n\nA media-share token is correctly bound at the root media(id) resolver (MediaID must match). Nested mediaResolver.Album does Find(&album, obj.AlbumID) with no token re-bind, and Album.media/subAlbums/shares/thumbnail list by FK only. An anonymous visitor with a single-photo share can walk into the containing album, every sibling’s path/URLs, and every share token on those objects.\n\n**Impact**\n\nAnonymous query media(id: 1, tokenCredentials: {token: rsOllx2j}) returned not only buttercup_close_summer_yellow.jpg but album 2 (album1, /photos/album1) with all four photos’ paths and thumbnail/high-res URLs, plus album share tokens pWgOTQvy and Nz70077l. Root album(id: 5, token: HOvqUL4N) and media(id: 8, token: HOvqUL4N) correctly returned unauthorized. GET sibling thumbnail with the media-only token returned 403; GET the shared photo returned 200.\n\n**Remediation**\n\nRe-check the share token in nested resolvers: Media.album should only return the parent when the token is an album-level share (or the caller owns the album), not when it is a media-only ShareToken. Album.media, Album.subAlbums, Album.shares, and Media.shares must not list siblings or other tokens for a media-scoped credential. Mirror the REST authenticateMedia binding that already 403s sibling files.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/media.go"
+                },
+                "region": {
+                  "startLine": 98,
+                  "endLine": 104
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Album",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/album.go"
+                },
+                "region": {
+                  "startLine": 23,
+                  "endLine": 50
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Album",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-02",
+            "parameter": "media.tokenCredentials",
+            "status": "exploited",
+            "authState": "Unauthenticated (valid media-only share token)",
+            "prerequisites": "A media-only share token for a photo that sits in an album with other media (here admin share HOvqUL4N on media 5; user share rsOllx2j on media 1). No authentication required for the exploit query."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "error",
+          "message": {
+            "text": "Album.shares and Media.shares leak every token for the object. Album.shares and Media.shares query WHERE album_id/media_id = ? with no owner_id filter. The schema comment claims the list is owned by the logged in user, but ShareToken.token is a public String. Anyone who can load the Album or Media — including an anonymous share-token visitor — receives every share-token value on that object, including unpassworded sibling tokens that are independent capabilities.",
+            "markdown": "**Album.shares and Media.shares leak every token for the object**\n\nAlbum.shares and Media.shares query WHERE album_id/media_id = ? with no owner_id filter. The schema comment claims the list is owned by the logged in user, but ShareToken.token is a public String. Anyone who can load the Album or Media — including an anonymous share-token visitor — receives every share-token value on that object, including unpassworded sibling tokens that are independent capabilities.\n\n**Impact**\n\nAnonymous album(id: 5, token: SkLSTOMD) returned shares SkLSTOMD (user-minted) and CVZfxBqb (admin-minted). Nested from media share HOvqUL4N the same two album tokens plus the media token were listed. album(id: 2, token: pWgOTQvy) later listed pWgOTQvy, expired Nz70077l, and passworded ZM2ALtOW (hasPassword: true). GET lilac thumbnail with stolen album token pWgOTQvy returned HTTP 200 (19570 bytes) even though the visitor started from a different share.\n\n**Remediation**\n\nFilter Album.shares and Media.shares to Owner.id = current user, matching the schema comment. Do not return ShareToken.token to anonymous share visitors; if a public listing is needed, return only the current credential’s token or a boolean hasShares. Passworded sibling tokens should not leak their identifier to holders of a different share.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/album.go"
+                },
+                "region": {
+                  "startLine": 118,
+                  "endLine": 126
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Shares",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/schema.graphql"
+                },
+                "region": {
+                  "startLine": 341,
+                  "endLine": 343
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Album.shares",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-03",
+            "parameter": "Album.shares",
+            "status": "exploited",
+            "authState": "Unauthenticated (any valid share token for the object)",
+            "prerequisites": "Ability to load the Album or Media object — owner session, co-owner, or any valid share token for that object. On this instance album 5 had both a user-minted token (SkLSTOMD) and an admin-minted token (CVZfxBqb); album 2 had pWgOTQvy plus later tokens."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "warning",
+          "message": {
+            "text": "favoriteMedia returns foreign media without ownership check. favoriteMedia is gated only by @isAuthorized. It upserts user_media_data for any mediaId and then loads that Media row with no user_albums join. A non-admin user whose media(id) query is denied can still pull the foreign photo’s title, filesystem path, containing album, sibling list, download URLs, and EXIF by starring it.",
+            "markdown": "**favoriteMedia returns foreign media without ownership check**\n\nfavoriteMedia is gated only by @isAuthorized. It upserts user_media_data for any mediaId and then loads that Media row with no user_albums join. A non-admin user whose media(id) query is denied can still pull the foreign photo’s title, filesystem path, containing album, sibling list, download URLs, and EXIF by starring it.\n\n**Impact**\n\nAs user id=2, media(id: 5) returned record-not-found, but favoriteMedia(mediaId: 5) returned apple-touch-icon.png with path /app/ui/apple-touch-icon.png, album {id: 5, title: \"ui\", filePath: \"/app/ui\"}, sibling media 8 and 11, thumbnail/high-res URLs, and EXIF id 5. The same user cannot open those files via GET /api/photo (403).\n\n**Remediation**\n\nJoin user_albums on the media’s album before the upsert, matching query media(id) and mediaList(ids). Return forbidden or record not found when the caller does not own the media. Do not return nested Album.media or Album.shares from this mutation for unowned objects.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/user.go"
+                },
+                "region": {
+                  "startLine": 191,
+                  "endLine": 209
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "FavoriteMedia",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/media.go"
+                },
+                "region": {
+                  "startLine": 195,
+                  "endLine": 202
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "FavoriteMedia",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/directive.go"
+                },
+                "region": {
+                  "startLine": 20,
+                  "endLine": 27
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "IsAuthorized",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-04",
+            "parameter": "favoriteMedia.mediaId",
+            "status": "exploited",
+            "authState": "Any authenticated user",
+            "prerequisites": "Authenticated non-admin session (user id=2). At least one Media row the caller does not own — here media id=5 in admin-only album 5 (/app/ui), created by adding that root and scanning. Anonymous callers are rejected."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "warning",
+          "message": {
+            "text": "getUserToken inverts admin check so any user can manage admin shares. getUserToken filters Owner.id = caller OR Owner.admin = TRUE. The predicate is on the token owner, not the caller: any authenticated user can delete or set/clear the password on shares created by an admin, while admins cannot manage regular users’ tokens. Combined with Album.shares leaking admin token values, a non-admin can revoke or hijack admin shares.",
+            "markdown": "**getUserToken inverts admin check so any user can manage admin shares**\n\ngetUserToken filters Owner.id = caller OR Owner.admin = TRUE. The predicate is on the token owner, not the caller: any authenticated user can delete or set/clear the password on shares created by an admin, while admins cannot manage regular users’ tokens. Combined with Album.shares leaking admin token values, a non-admin can revoke or hijack admin shares.\n\n**Impact**\n\nAs user id=2, protectShareToken(CVZfxBqb, \"hijacked\") succeeded on an admin-owned album-5 share (hasPassword became true; anonymous shareToken without password then failed; with password hijacked it still opened album 5). protectShareToken(HOvqUL4N) likewise locked the admin media share. deleteShareToken(LwFhbVPT) deleted the admin album-2 share; subsequent shareToken returned \"share not found\". The admin session could not protect user token pWgOTQvy or delete user token rsOllx2j (record not found).\n\n**Remediation**\n\nChange getUserToken to filter Owner.id = caller, and separately allow the caller’s Admin flag (user.Admin == true) to manage any token. Do not treat Owner.admin as a substitute for the caller being admin. After the fix, non-admins should only mutate their own share_tokens rows.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/actions/share_token_actions.go"
+                },
+                "region": {
+                  "startLine": 147,
+                  "endLine": 164
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "getUserToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/share_token.go"
+                },
+                "region": {
+                  "startLine": 114,
+                  "endLine": 129
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "DeleteShareToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/actions/share_token_actions.go"
+                },
+                "region": {
+                  "startLine": 151,
+                  "endLine": 157
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "getUserToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "guard"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-05",
+            "parameter": "protectShareToken.token",
+            "status": "exploited",
+            "authState": "Any authenticated user",
+            "prerequisites": "Authenticated non-admin who knows an admin-created share token value. On this instance those values were listed by Album.shares on albums both users can load (album 2) or that the attacker already shared (album 5 via AUTHZ-01)."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "warning",
+          "message": {
+            "text": "Notification subscription broadcasts every user’s scanner events. Subscribe requires a logged-in user, but BroadcastNotification iterates every in-memory listener with no user filter. A non-admin with an open GraphQL websocket receives other users’ scanner notifications, including album titles and absolute media filesystem paths.",
+            "markdown": "**Notification subscription broadcasts every user’s scanner events**\n\nSubscribe requires a logged-in user, but BroadcastNotification iterates every in-memory listener with no user filter. A non-admin with an open GraphQL websocket receives other users’ scanner notifications, including album titles and absolute media filesystem paths.\n\n**Impact**\n\nUser id=2 subscribed to notification. Admin scanAll/scanUser then pushed events for admin-only cache albums, e.g. header \"Found new media in album '5'\" content \"Found /home/photoview/media-cache/5/5/thumbnail_apple-touch-icon_png_ZgL33ow4.jpg\" and similarly for logo512/logo192 under albums the user cannot query (album(id: 5) is forbidden). Anonymous subscription is unauthorized. Regular users cannot call scanAll (user must be admin).\n\n**Remediation**\n\nFilter BroadcastNotification to the listener whose user_id matches the scan’s owner (or only emit global-scanner-progress to admins). RegisterListener already stores the user; consult that field before writing to the websocket. Do not include absolute filesystem paths in notification content for other principals.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/notification/Notification.go"
+                },
+                "region": {
+                  "startLine": 70,
+                  "endLine": 81
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "BroadcastNotification",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/notification.go"
+                },
+                "region": {
+                  "startLine": 11,
+                  "endLine": 20
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "Notification",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            },
+            {
+              "id": 2,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/scanner/scanner_tasks/notification_task.go"
+                },
+                "region": {
+                  "startLine": 32,
+                  "endLine": 37
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AfterMediaFound",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "WS",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-06",
+            "parameter": "subscription.notification",
+            "status": "exploited",
+            "authState": "Any authenticated user",
+            "prerequisites": "Authenticated GraphQL websocket (cookie on upgrade). An in-progress scan that calls BroadcastNotification — admin scanAll/scanUser or periodic scanner. Empty library yields little path data until media is indexed."
+          },
+          "ruleIndex": 2
+        },
+        {
+          "ruleId": "shannon/authz",
+          "level": "warning",
+          "message": {
+            "text": "Share-token expire is stored but never enforced. shareAlbum/shareMedia persist optional expire, and ShareToken.expire is returned to clients, but GraphQL shareToken, shareTokenValidatePassword, album/media with tokenCredentials, and REST shareTokenFromRequest never compare Expire to now. A token created with expire in the past still authorizes the full share payload and original photo bytes.",
+            "markdown": "**Share-token expire is stored but never enforced**\n\nshareAlbum/shareMedia persist optional expire, and ShareToken.expire is returned to clients, but GraphQL shareToken, shareTokenValidatePassword, album/media with tokenCredentials, and REST shareTokenFromRequest never compare Expire to now. A token created with expire in the past still authorizes the full share payload and original photo bytes.\n\n**Impact**\n\nshareAlbum(albumId: 2, expire: 2020-01-01T00:00:00Z) returned token Nz70077l with that expire. Anonymous shareToken and album(id: 2, tokenCredentials) still returned all four photos. GET /api/photo/lilac_lilac_bush_lilac_uSdx9urR.jpg?token=xzWjBjfC (media share expire 2019-06-15) returned HTTP 200, 46372 bytes. GET /api/download/album/2/original?token=Nz70077l returned HTTP 200 application/zip, 2526356 bytes (filename album1.zip). shareTokenValidatePassword(Nz70077l) returned true. Missing token is 403; bogus token is 500.\n\n**Remediation**\n\nReject share tokens whose Expire is non-null and earlier than now in shareToken, shareTokenValidatePassword, album/media tokenCredentials, and REST shareTokenFromRequest — the same expire > now check already used by UserFromAccessToken. Treat expired tokens as share not found rather than valid credentials.\n\nFull exploitation evidence: `Security-Assessment-Report.pdf`"
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/resolvers/share_token.go"
+                },
+                "region": {
+                  "startLine": 43,
+                  "endLine": 65
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "ShareToken",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "sink"
+              }
+            }
+          ],
+          "relatedLocations": [
+            {
+              "id": 1,
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "api/graphql/models/actions/share_token_actions.go"
+                },
+                "region": {
+                  "startLine": 84,
+                  "endLine": 91
+                }
+              },
+              "logicalLocations": [
+                {
+                  "name": "AddAlbumShare",
+                  "kind": "function"
+                }
+              ],
+              "message": {
+                "text": "source"
+              }
+            }
+          ],
+          "webRequest": {
+            "method": "POST",
+            "target": "http://host.docker.internal:8000/api/graphql"
+          },
+          "taxa": [
+            {
+              "id": "A01:2025",
+              "toolComponent": {
+                "name": "OWASP Top Ten 2025"
+              }
+            }
+          ],
+          "properties": {
+            "findingId": "AUTHZ-07",
+            "parameter": "shareToken.credentials.token",
+            "status": "exploited",
+            "authState": "Unauthenticated",
+            "prerequisites": "Ability to create a share with expire set (any authenticated owner; GraphQL Time argument). The stock Sharing dialog does not send expire, so a non-UI client is required. The resulting token is then used anonymously."
+          },
+          "ruleIndex": 2
+        }
+      ],
+      "properties": {
+        "target": "http://host.docker.internal:8000",
+        "assessmentDate": "2026-08-28",
+        "model": "grok-4.6"
+      }
+    }
+  ]
+}

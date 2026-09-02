@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -16,11 +16,13 @@
 export type TypstSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
 export type TypstStatus = 'Exploited' | 'OutOfScope' | 'BlockedByConstraints' | 'FalsePositive';
 export type TypstConfidence = 'High' | 'Medium' | 'Low';
-export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Injection' | 'SSRF' | 'Other';
+export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Injection' | 'SSRF' | 'Miscellaneous';
 
 export interface CodeBlock {
   readonly language: string;
   readonly content: string;
+  /** PDF-only projection with inserted visual line breaks; `content` remains exact. */
+  readonly displayContent: string;
 }
 
 export type StepItem =
@@ -52,6 +54,16 @@ export interface Meta {
   readonly classification: string;
 }
 
+export interface ReportLimitation {
+  readonly code: string;
+  readonly message: string;
+}
+
+export interface ReportCoverage {
+  readonly status: 'complete' | 'partial';
+  readonly limitations: readonly ReportLimitation[];
+}
+
 export interface CategoryCount {
   readonly category: TypstCategory;
   readonly count: number;
@@ -74,11 +86,13 @@ export interface ExploitFinding {
   readonly title: string;
   readonly category: TypstCategory;
   readonly severity: TypstSeverity;
-  readonly status: TypstStatus;
+  readonly owaspCategory: string;
+  readonly authState?: string;
   readonly summary: FindingSummary;
   readonly prerequisites: string;
   readonly exploitationSteps: readonly Step[];
   readonly proofOfImpact: readonly StepItem[];
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }
@@ -92,7 +106,9 @@ export interface ExploitedByTypeEntry {
 export interface ExploitsReportData {
   readonly mode: 'exploits';
   readonly meta: Meta;
+  readonly executiveSummary: string;
   readonly scope: string;
+  readonly coverage: ReportCoverage;
   readonly exploitedByType: readonly ExploitedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;
@@ -124,7 +140,9 @@ export interface AnalysisFinding {
   readonly category: TypstCategory;
   readonly severity: TypstSeverity;
   readonly confidence: TypstConfidence;
+  readonly owaspCategory: string;
   readonly summary: FindingSummary;
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }
@@ -138,7 +156,9 @@ export interface IdentifiedByTypeEntry {
 export interface FindingsReportData {
   readonly mode: 'findings';
   readonly meta: Meta;
+  readonly executiveSummary: string;
   readonly scope: string;
+  readonly coverage: ReportCoverage;
   readonly identifiedByType: readonly IdentifiedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -17,8 +17,9 @@
  */
 
 import { execFile } from 'node:child_process';
+import { createHash, randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
-import { copyFile, cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -35,6 +36,15 @@ const DATA_FILENAME = 'data.json';
 const TEMPLATE_FILENAME = 'report.typ';
 const OUTPUT_FILENAME = 'report.pdf';
 
+export const PDF_RENDERER_VERSION = '1';
+
+export interface PdfProvenance {
+  readonly pdf_sha256: string;
+  readonly canonical_report_sha256: string;
+  readonly renderer_version: string;
+  readonly template_version: string;
+}
+
 export interface RenderReportPdfOptions {
   /** Structured report data (report.json contents), pre-assembly. */
   readonly reportData: ReportData;
@@ -46,6 +56,86 @@ export interface RenderReportPdfOptions {
   readonly tester?: string;
   /** Wordmark shown on the cover. Defaults to "Shannon | AI Pentester by Keygraph". */
   readonly brand?: string;
+}
+
+function sha256(contents: Uint8Array): string {
+  return createHash('sha256').update(contents).digest('hex');
+}
+
+function isSha256(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+/** Validate the closed durable provenance shape used for PDF reuse. */
+export function isPdfProvenance(value: unknown): value is PdfProvenance {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    Object.keys(candidate).length === 4 &&
+    isSha256(candidate.pdf_sha256) &&
+    isSha256(candidate.canonical_report_sha256) &&
+    typeof candidate.renderer_version === 'string' &&
+    candidate.renderer_version.length > 0 &&
+    typeof candidate.template_version === 'string' &&
+    candidate.template_version.length > 0
+  );
+}
+
+/** Build provenance only after the renderer has atomically published verified PDF bytes. */
+export async function readPdfProvenance(args: {
+  readonly pdfPath: string;
+  readonly canonicalReportSha256: string;
+  readonly templatePath: string;
+}): Promise<PdfProvenance> {
+  const [pdfBytes, templateBytes] = await Promise.all([readFile(args.pdfPath), readFile(args.templatePath)]);
+  return {
+    pdf_sha256: sha256(pdfBytes),
+    canonical_report_sha256: args.canonicalReportSha256,
+    renderer_version: PDF_RENDERER_VERSION,
+    template_version: sha256(templateBytes),
+  };
+}
+
+/** Recompute the PDF digest before trusting persisted provenance for the current report. */
+export async function pdfMatchesProvenance(args: {
+  readonly pdfPath: string;
+  readonly canonicalReportSha256: string;
+  readonly provenance: PdfProvenance;
+}): Promise<boolean> {
+  if (!isPdfProvenance(args.provenance) || args.provenance.canonical_report_sha256 !== args.canonicalReportSha256) {
+    return false;
+  }
+  try {
+    return sha256(await readFile(args.pdfPath)) === args.provenance.pdf_sha256;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Full currency check: the PDF is current only when its bytes, canonical report digest,
+ * renderer version, and template version all match the provenance record. A record from an
+ * older renderer or template is stale even when it is internally consistent.
+ */
+export async function pdfProvenanceIsCurrent(args: {
+  readonly pdfPath: string;
+  readonly canonicalReportSha256: string;
+  readonly provenance: PdfProvenance;
+  readonly templatePath: string;
+}): Promise<boolean> {
+  if (args.provenance.renderer_version !== PDF_RENDERER_VERSION) return false;
+  let templateSha256: string;
+  try {
+    templateSha256 = sha256(await readFile(args.templatePath));
+  } catch {
+    return false;
+  }
+  if (args.provenance.template_version !== templateSha256) return false;
+  return pdfMatchesProvenance({
+    pdfPath: args.pdfPath,
+    canonicalReportSha256: args.canonicalReportSha256,
+    provenance: args.provenance,
+  });
 }
 
 /**
@@ -92,7 +182,16 @@ export async function renderReportPdf(options: RenderReportPdfOptions): Promise<
     ]);
 
     await mkdir(path.dirname(outputPath), { recursive: true });
-    await copyFile(pdfInWorkDir, outputPath);
+    // Publish the compiled PDF by atomic rename, so a reader never observes a half-written file
+    // at outputPath and provenance can be recorded only after the complete bytes are in place.
+    const outputAttemptPath = `${outputPath}.tmp-${randomUUID()}`;
+    try {
+      await copyFile(pdfInWorkDir, outputAttemptPath);
+      await rename(outputAttemptPath, outputPath);
+    } catch (error) {
+      await unlink(outputAttemptPath).catch(() => undefined);
+      throw error;
+    }
   } finally {
     await rm(workDir, { recursive: true, force: true });
   }

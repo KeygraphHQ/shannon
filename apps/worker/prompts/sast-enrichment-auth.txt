@@ -1,0 +1,13 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are authentication vulnerabilities.
+
+CRITICAL RULES:
+- exploitation_hypothesis must describe what an attacker ACHIEVES, not just confirm the vulnerability exists.
+- suggested_exploit_technique must be an actionable attack the exploitation agent can execute against a live application.
+- source_endpoint: infer the HTTP method and path from the code context (route definitions, handler functions).
+- For hard-coded credentials (CWE-798): exploitation_hypothesis should specify using the found credentials.
+- For CSRF (CWE-352): include the state-changing action that can be forged.
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+
+SAST FINDINGS:

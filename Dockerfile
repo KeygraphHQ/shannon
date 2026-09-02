@@ -43,6 +43,9 @@ RUN rm -rf node_modules apps/*/node_modules && pnpm install --frozen-lockfile --
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
 
+# Lifecycle protocol consumed by the CLI before it trusts a container workflow-id label.
+LABEL shannon.worker-protocol="workflow-id-v1"
+
 # Install only runtime dependencies
 USER root
 RUN apk update && apk add --no-cache \
@@ -108,6 +111,10 @@ COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.ya
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
+
+# Third-party license and notice material travels with the distributed image
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/shannon/
+COPY LICENSES/ /usr/share/licenses/shannon/LICENSES/
 
 RUN npm install -g --ignore-scripts @playwright/cli@0.1.1
 RUN mkdir -p /tmp/.claude/skills && \

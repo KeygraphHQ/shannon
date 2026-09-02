@@ -18,6 +18,7 @@ xben-benchmark-results/
 # Development files
 *.md
 !CLAUDE.md
+!THIRD_PARTY_NOTICES.md
 .DS_Store
 Thumbs.db
 
@@ -69,4 +70,5 @@ coverage/
 docs/
 README.md
 LICENSE
+!LICENSE
 CHANGELOG.md

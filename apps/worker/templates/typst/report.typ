@@ -12,6 +12,8 @@
 //   exploits → ExploitsReportData (exploit=true runs, full reproduction)
 //   findings → FindingsReportData (exploit=false runs, analysis-only)
 #let mode = data.at("mode", default: "exploits")
+#let coverage = data.at("coverage", default: (status: "complete", limitations: ()))
+#let assessment-status = if coverage.status == "partial" { "Completed with limitations" } else { "Complete" }
 
 #let tester-override = sys.inputs.at("tester", default: "Shannon")
 #let brand = sys.inputs.at("brand", default: "Shannon | AI Pentester by Keygraph")
@@ -77,8 +79,7 @@
 #set text(size: 10.5pt, fill: ink)
 #set par(leading: 0.7em, justify: false)
 
-#show heading.where(level: 1): it => [
-  #pagebreak(weak: true)
+#show heading.where(level: 1): it => block(sticky: true)[
   #v(4pt)
   #set text(size: 24pt, weight: "bold", fill: ink)
   #it.body
@@ -86,13 +87,13 @@
   #line(length: 100%, stroke: 0.4pt + rule)
   #v(10pt)
 ]
-#show heading.where(level: 2): it => [
+#show heading.where(level: 2): it => block(sticky: true)[
   #v(10pt)
   #set text(size: 14pt, weight: "semibold", fill: ink)
   #it.body
   #v(2pt)
 ]
-#show heading.where(level: 3): it => [
+#show heading.where(level: 3): it => block(sticky: true)[
   #v(8pt)
   #set text(size: 11.5pt, weight: "semibold", fill: ink)
   #it.body
@@ -127,14 +128,11 @@
   text(fill: white, weight: "bold", size: 7.5pt, tracking: 0.3pt, upper(label)),
 )
 
-#let categories-in-order = (
-  "Authentication",
-  "Authorization",
-  "XSS",
-  "Injection",
-  "SSRF",
-  "Other",
-)
+#let categories-in-order = if mode == "exploits" {
+  data.exploitedByType.map(entry => entry.category)
+} else {
+  data.identifiedByType.map(entry => entry.category)
+}
 
 #let sev-chip(level) = chip(level, sev-color(level))
 #let confidence-chip(c) = chip(c + " confidence", confidence-color(c))
@@ -159,12 +157,21 @@
   out
 }
 
+// Preserve blank-line paragraph boundaries in model-authored report prose while
+// retaining the inline-code treatment used by the rest of the template.
+#let render-paragraphs(s) = {
+  if type(s) != str { return s }
+  for paragraph in s.split(regex("\\r?\\n\\s*\\r?\\n")) {
+    par(inline-code(paragraph))
+  }
+}
+
 #let render-items(items) = {
   for item in items {
     if item.kind == "prose" [
       #par(inline-code(item.text))
     ] else if item.kind == "code" [
-      #raw(item.block.content, lang: item.block.language, block: true)
+      #raw(item.block.displayContent, lang: item.block.language, block: true)
     ]
   }
 }
@@ -176,20 +183,28 @@
     if item.kind == "prose" [
       - #inline-code(item.text)
     ] else if item.kind == "code" [
-      #raw(item.block.content, lang: item.block.language, block: true)
+      #raw(item.block.displayContent, lang: item.block.language, block: true)
     ]
   }
 }
 
 // Render step items as a numbered list; prose items become enumerated,
 // code items break the list and render as code blocks in between.
+// A code item interrupts the enum grouping, so each prose item carries an
+// explicit number — `auto` would restart the count after every code block.
+#let strip-leading-item-number(s) = s.replace(regex("^\\s*[0-9]+[.)]\\s+"), "")
+
 #let render-numbered-items(items) = {
+  let index = 0
   for item in items {
-    if item.kind == "prose" [
-      + #inline-code(item.text)
-    ] else if item.kind == "code" [
-      #raw(item.block.content, lang: item.block.language, block: true)
-    ]
+    if item.kind == "prose" {
+      index += 1
+      enum.item(index)[#inline-code(strip-leading-item-number(item.text))]
+    } else if item.kind == "code" {
+      block(sticky: true)[
+        #raw(item.block.displayContent, lang: item.block.language, block: true)
+      ]
+    }
   }
 }
 
@@ -279,6 +294,7 @@
 #outline(title: [Contents], depth: 3, indent: auto)
 
 // ---------- EXECUTIVE SUMMARY -----------------------------------------------
+#pagebreak(weak: true)
 = Executive Summary
 
 #grid(
@@ -291,11 +307,20 @@
     (text(fill: muted, size: 10pt)[Application], text(size: 10.5pt)[#inline-code(data.meta.application)])
   } else { () }),
   text(fill: muted, size: 10pt)[Tester],       text(size: 10.5pt)[#tester-override],
+  text(fill: muted, size: 10pt)[Assessment Status], text(size: 10.5pt)[#assessment-status],
 )
+
+#render-paragraphs(data.executiveSummary)
 
 == Scope
 
 #inline-code(data.scope)
+
+#if coverage.status == "partial" and coverage.limitations.len() > 0 [
+  == Limitations
+
+  #list(..coverage.limitations.map(limitation => [#inline-code(limitation.message)]))
+]
 
 // ---------- BY TYPE ---------------------------------------------------------
 #let by-type-entries = if mode == "exploits" { data.exploitedByType } else { data.identifiedByType }
@@ -320,6 +345,7 @@
 ]
 
 // ---------- SUMMARY ---------------------------------------------------------
+#pagebreak(weak: true)
 = Summary
 
 #let s = data.summary
@@ -422,11 +448,14 @@
   ]
 ]
 
-== Critical Findings
+#if s.criticalFindings.len() > 0 [
+  == Critical Findings
 
-#enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+  #enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+]
 
 // ---------- FINDINGS OVERVIEW -----------------------------------------------
+#pagebreak(weak: true)
 = Findings Overview
 
 #let show-confidence-col = mode == "findings"
@@ -434,7 +463,7 @@
 #table(
   columns: if show-confidence-col { (auto, 1fr, auto, auto, auto) } else { (auto, 1fr, auto, auto) },
   stroke: none,
-  inset: (x: 8pt, y: 7pt),
+  inset: (x: 8pt, y: if data.findings.len() > 30 { 6pt } else { 7pt }),
   align: if show-confidence-col { (left, left, left, center, center) } else { (left, left, left, center) },
   fill: (_, row) => if row == 0 { none } else if calc.even(row) { code-bg } else { none },
   table.header(
@@ -454,66 +483,88 @@
 )
 
 // ---------- FINDING RENDER --------------------------------------------------
-#let render-finding-summary(f) = [
-  #v(8pt)
+#let render-finding-owasp(f) = [
+  #grid(
+    columns: (auto, 1fr),
+    column-gutter: 18pt,
+    row-gutter: 12pt,
+    text(fill: muted, size: 9.5pt)[OWASP], text(size: 10pt)[#inline-code(f.owaspCategory)],
+  )
+]
+
+#let render-finding-summary-remainder(f) = [
+  #v(12pt)
   #grid(
     columns: (auto, 1fr),
     column-gutter: 18pt,
     row-gutter: 12pt,
     text(fill: muted, size: 9.5pt)[Location], text(size: 10pt)[#inline-code(f.summary.vulnerableLocation)],
+    ..(if "authState" in f and f.authState != none and f.authState != "" {
+      (text(fill: muted, size: 9.5pt)[Auth state], text(size: 10pt)[#inline-code(f.authState)])
+    } else { () }),
+    ..(if "prerequisites" in f and f.prerequisites != none and f.prerequisites != "" {
+      (text(fill: muted, size: 9.5pt)[Prerequisites], text(size: 10pt)[#inline-code(f.prerequisites)])
+    } else { () }),
     text(fill: muted, size: 9.5pt)[Overview], text(size: 10pt)[#inline-code(f.summary.overview)],
     text(fill: muted, size: 9.5pt)[Impact],   text(size: 10pt)[#inline-code(f.summary.impact)],
   )
 ]
 
-#let render-finding-extras(f) = [
-  #if "notes" in f and f.notes != none and f.notes.len() > 0 [
-    #heading(level: 3, outlined: false)[Notes]
-    #render-bulleted-items(f.notes)
+#let render-remediation(f) = {
+  heading(level: 3, outlined: false)[Remediation]
+  render-paragraphs(f.remediation)
+}
+
+#let render-finding-extras(f) = {
+  if "notes" in f and f.notes != none and f.notes.len() > 0 {
+    heading(level: 3, outlined: false)[Notes]
+    render-bulleted-items(f.notes)
+  }
+
+  if "additionalSections" in f and f.additionalSections != none {
+    for extra in f.additionalSections {
+      heading(level: 3, outlined: false)[#inline-code(extra.heading)]
+      render-items(extra.items)
+    }
+  }
+}
+
+#let render-exploit(f) = {
+  block(breakable: false)[
+    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #sev-chip(f.severity)
+    #v(8pt)
+    #render-finding-owasp(f)
   ]
+  render-finding-summary-remainder(f)
 
-  #if "additionalSections" in f and f.additionalSections != none [
-    #for extra in f.additionalSections [
-      #heading(level: 3, outlined: false)[#inline-code(extra.heading)]
-      #render-items(extra.items)
-    ]
+  heading(level: 3, outlined: false)[Exploitation Steps]
+  for step in f.exploitationSteps {
+    [#text(weight: "semibold")[Step #step.number#if "title" in step and step.title != none [ — #inline-code(step.title)]]]
+    render-items(step.items)
+  }
+
+  heading(level: 3, outlined: false)[Proof of Impact]
+  render-numbered-items(f.proofOfImpact)
+  render-remediation(f)
+  render-finding-extras(f)
+  v(16pt)
+}
+
+#let render-analysis(f) = {
+  block(breakable: false)[
+    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #sev-chip(f.severity)
+    #h(4pt)
+    #confidence-chip(f.confidence)
+    #v(8pt)
+    #render-finding-owasp(f)
   ]
-]
-
-#let render-exploit(f) = [
-  == #f.id: #inline-code(f.title)
-  #sev-chip(f.severity)
-
-  #render-finding-summary(f)
-
-  === Prerequisites
-  #inline-code(f.prerequisites)
-
-  === Exploitation Steps
-  #for step in f.exploitationSteps [
-    #text(weight: "semibold")[Step #step.number#if "title" in step and step.title != none [ — #inline-code(step.title)]]
-
-    #render-items(step.items)
-  ]
-
-  === Proof of Impact
-  #render-numbered-items(f.proofOfImpact)
-
-  #render-finding-extras(f)
-
-  #v(16pt)
-]
-
-#let render-analysis(f) = [
-  == #f.id: #inline-code(f.title)
-  #sev-chip(f.severity) #h(4pt) #confidence-chip(f.confidence)
-
-  #render-finding-summary(f)
-
-  #render-finding-extras(f)
-
-  #v(16pt)
-]
+  render-finding-summary-remainder(f)
+  render-remediation(f)
+  render-finding-extras(f)
+  v(16pt)
+}
 
 #let render-finding(f) = if mode == "exploits" { render-exploit(f) } else { render-analysis(f) }
 
@@ -524,12 +575,13 @@
   "Findings"
 }
 
+#pagebreak(weak: true)
 #for cat in categories-in-order {
   let cat-findings = data.findings.filter(f => f.category == cat)
-  if cat-findings.len() > 0 [
-    = #cat #category-section-label(cat-findings.len()) (#cat-findings.len() #if cat-findings.len() == 1 [finding] else [findings])
-    #for f in cat-findings {
+  if cat-findings.len() > 0 {
+    heading(level: 1)[#cat #category-section-label(cat-findings.len()) (#cat-findings.len() #if cat-findings.len() == 1 [finding] else [findings])]
+    for f in cat-findings {
       render-finding(f)
     }
-  ]
+  }
 }

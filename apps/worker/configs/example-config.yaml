@@ -4,8 +4,14 @@
 # Description of the target environment (optional, max 500 chars)
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .env files contain local-only credentials, not deployed to production."
 
-# Limit which vulnerability classes run end-to-end (optional, default: all five)
-# vuln_classes: [injection, xss, auth, authz, ssrf]
+# Every scan runs all five vulnerability classes: injection, xss, auth, authz, and ssrf.
+# There is no setting to narrow that.
+
+# Agentic static analysis (optional, default: "false").
+# Reads the repository for vulnerabilities before the pentest and feeds them into exploitation.
+# It costs extra model time, and if it fails the scan finishes as "partial" without its findings.
+# agentic_sast:
+#   enabled: "true"
 
 # Skip the exploitation phase (optional, default: "true")
 # exploit: "false"

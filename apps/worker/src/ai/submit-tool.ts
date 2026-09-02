@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -20,6 +20,12 @@ import { Type } from 'typebox';
 export interface CapturedSubmitTool {
   readonly tool: ToolDefinition;
   readonly getCaptured: () => unknown | undefined;
+  /**
+   * A closed, safe result count for trace logging: the length of this tool's known
+   * submitted array. Omitted when the payload has no such array to count. Never derived
+   * from parsing an arbitrary result body.
+   */
+  readonly safeCount?: () => number | undefined;
   readonly directive?: string;
 }
 

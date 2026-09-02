@@ -16,6 +16,11 @@ export function getConfigFile(): string {
   return path.join(SHANNON_HOME, 'config.toml');
 }
 
+/** Whether the npx-mode credential file (`~/.shannon/config.toml`) exists on disk. */
+export function configFileExists(): boolean {
+  return fs.existsSync(getConfigFile());
+}
+
 export function getWorkspacesDir(): string {
   return getMode() === 'local' ? path.resolve('workspaces') : path.join(SHANNON_HOME, 'workspaces');
 }

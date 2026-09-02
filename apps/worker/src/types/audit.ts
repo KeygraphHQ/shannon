@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -35,6 +35,7 @@ export interface AgentEndResult {
   success: boolean;
   model?: string | undefined;
   error?: string | undefined;
+  errorCode?: import('./errors.js').ErrorCode | undefined;
   checkpoint?: string | undefined;
   isFinalAttempt?: boolean | undefined;
 }

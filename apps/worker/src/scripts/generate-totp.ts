@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -11,6 +11,11 @@
  *
  * Generates a TOTP code for the target's MFA.
  * Based on RFC 6238 (TOTP) and RFC 4226 (HOTP).
+ *
+ * The login flow prompt has the agent run this via the `bash` tool with the TOTP secret
+ * substituted in, rather than asking the model to work out HOTP/TOTP arithmetic itself.
+ * The secret is only ever held in memory here; nothing is written to disk, and the
+ * result is emitted as JSON on stdout for the caller to parse.
  *
  * Usage:
  *   generate-totp --secret JBSWY3DPEHPK3PXP
@@ -64,7 +69,10 @@ function generateHOTP(secret: string, counter: number, digits: number = 6): stri
   hmac.update(counterBuffer);
   const hash = hmac.digest();
 
-  // Dynamic truncation (SHA-1 always produces 20 bytes)
+  // Dynamic truncation (SHA-1 always produces 20 bytes). The low nibble of the last byte
+  // picks a 4-byte window anywhere in the hash; masking the top bit of that window's first
+  // byte (0x7f) keeps the result a positive 31-bit int per RFC 4226, regardless of JS's
+  // signed 32-bit bitwise operators.
   const lastByte = hash[hash.length - 1] ?? 0;
   const offset = lastByte & 0x0f;
   const code =

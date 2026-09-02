@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -16,7 +16,13 @@
  * pipeline knows nothing about the Typst shape.
  */
 
-import type { AddFindingInput, AdditionalSection, StepItem, StructuredStep } from '../collectors/finding-collector.js';
+import type {
+  AddFindingInput,
+  AdditionalSection,
+  StepItem as CollectorStepItem,
+  StructuredStep,
+} from '../collectors/finding-collector.js';
+import { orderFindings } from './finding-order.js';
 import type {
   ExploitsReportData,
   FindingsReportData,
@@ -25,8 +31,11 @@ import type {
   ReportData as TypstReportData,
   TypstSeverity,
   TypstStatus,
+  StepItem as TypstStepItem,
 } from './report-output-schema.js';
 import type { ReportData } from './report-renderer.js';
+
+const COMPLETE_COVERAGE = { status: 'complete' as const, limitations: [] as const };
 
 // ============================================================================
 // CASING TRANSFORMS
@@ -58,7 +67,7 @@ const VALID_CATEGORIES = new Set<TypstCategory>([
   'XSS',
   'Injection',
   'SSRF',
-  'Other',
+  'Miscellaneous',
 ]);
 
 function toTypstSeverity(s: string): TypstSeverity {
@@ -75,18 +84,47 @@ function toTypstConfidence(s: string): TypstConfidence {
 
 function toTypstCategory(s: string): TypstCategory {
   if (VALID_CATEGORIES.has(s as TypstCategory)) return s as TypstCategory;
-  return 'Other';
+  return 'Miscellaneous';
 }
 
 // ============================================================================
 // STEP / ITEM TRANSFORMS
 // ============================================================================
 
-function adaptStepItem(item: StepItem): StepItem {
-  return item;
+// Typst raw blocks do not wrap long lines. Keep the exact payload in `content` and derive a separate
+// display-only projection with inserted line breaks for the PDF. Canonical JSON, Markdown, SARIF,
+// and the exact Typst-side payload remain byte-for-byte intact.
+const PDF_CODE_LINE_COLUMNS = 84;
+
+function wrapCodeForPdf(content: string): string {
+  return content
+    .split('\n')
+    .flatMap((line) => {
+      const characters = Array.from(line);
+      if (characters.length <= PDF_CODE_LINE_COLUMNS) return [line];
+
+      const wrapped: string[] = [];
+      for (let offset = 0; offset < characters.length; offset += PDF_CODE_LINE_COLUMNS) {
+        wrapped.push(characters.slice(offset, offset + PDF_CODE_LINE_COLUMNS).join(''));
+      }
+      return wrapped;
+    })
+    .join('\n');
 }
 
-function adaptStep(step: StructuredStep, index: number): { number: number; title?: string; items: StepItem[] } {
+function adaptStepItem(item: CollectorStepItem): TypstStepItem {
+  if (item.kind === 'prose') return item;
+  return {
+    kind: 'code',
+    block: {
+      language: item.block.language,
+      content: item.block.content,
+      displayContent: wrapCodeForPdf(item.block.content),
+    },
+  };
+}
+
+function adaptStep(step: StructuredStep, index: number): { number: number; title?: string; items: TypstStepItem[] } {
   return {
     number: index + 1,
     ...(step.title && { title: step.title }),
@@ -94,7 +132,7 @@ function adaptStep(step: StructuredStep, index: number): { number: number; title
   };
 }
 
-function adaptAdditionalSection(section: AdditionalSection): { heading: string; items: StepItem[] } {
+function adaptAdditionalSection(section: AdditionalSection): { heading: string; items: TypstStepItem[] } {
   return {
     heading: section.heading,
     items: section.items.map(adaptStepItem),
@@ -110,6 +148,9 @@ interface CategoryGroup {
   findings: AddFindingInput[];
 }
 
+// Groups in insertion order, so callers must pass findings already ordered by category
+// (orderFindings) for the resulting groups to come out in CATEGORY_ORDER: this function does
+// not re-sort the groups it produces.
 function groupByCategory(findings: readonly AddFindingInput[]): CategoryGroup[] {
   const map = new Map<TypstCategory, AddFindingInput[]>();
   for (const f of findings) {
@@ -140,7 +181,8 @@ function countBySeverity(findings: readonly AddFindingInput[]): Record<TypstSeve
 // ============================================================================
 
 function adaptExploitsMode(data: ReportData): ExploitsReportData {
-  const { report_meta, findings } = data;
+  const { report_meta } = data;
+  const findings = orderFindings(data.findings);
   const groups = groupByCategory(findings);
   const sevCounts = countBySeverity(findings);
 
@@ -159,7 +201,9 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       assessmentDate: report_meta.assessment_date,
       classification: 'CONFIDENTIAL',
     },
+    executiveSummary: report_meta.executive_summary,
     scope: report_meta.scope,
+    coverage: report_meta.coverage ?? COMPLETE_COVERAGE,
     exploitedByType: groups.map((g) => {
       const exploited = g.findings.filter((f) => (f.status ?? 'exploited') === 'exploited');
       if (exploited.length === 0) {
@@ -189,7 +233,8 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       title: f.title,
       category: toTypstCategory(f.category),
       severity: toTypstSeverity(f.severity),
-      status: toTypstStatus(f.status ?? 'exploited'),
+      owaspCategory: f.owasp_category,
+      ...(f.auth_state && { authState: f.auth_state }),
       summary: {
         vulnerableLocation: f.vulnerable_location,
         overview: f.overview,
@@ -200,6 +245,7 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
       prerequisites: f.prerequisites ?? '',
       exploitationSteps: (f.exploitation_steps ?? []).map(adaptStep),
       proofOfImpact: (f.proof_of_impact ?? []).map(adaptStepItem),
+      remediation: f.remediation,
       ...(f.notes && f.notes.length > 0 && { notes: f.notes.map(adaptStepItem) }),
       ...(f.additional_sections &&
         f.additional_sections.length > 0 && {
@@ -218,7 +264,8 @@ function adaptExploitsMode(data: ReportData): ExploitsReportData {
 // ============================================================================
 
 function adaptFindingsMode(data: ReportData): FindingsReportData {
-  const { report_meta, findings } = data;
+  const { report_meta } = data;
+  const findings = orderFindings(data.findings);
   const groups = groupByCategory(findings);
   const sevCounts = countBySeverity(findings);
 
@@ -235,7 +282,9 @@ function adaptFindingsMode(data: ReportData): FindingsReportData {
       assessmentDate: report_meta.assessment_date,
       classification: 'CONFIDENTIAL',
     },
+    executiveSummary: report_meta.executive_summary,
     scope: report_meta.scope,
+    coverage: report_meta.coverage ?? COMPLETE_COVERAGE,
     identifiedByType: groups.map((g) => {
       if (g.findings.length === 0) {
         return {
@@ -262,11 +311,13 @@ function adaptFindingsMode(data: ReportData): FindingsReportData {
       category: toTypstCategory(f.category),
       severity: toTypstSeverity(f.severity),
       confidence: toTypstConfidence(f.confidence ?? 'medium'),
+      owaspCategory: f.owasp_category,
       summary: {
         vulnerableLocation: f.vulnerable_location,
         overview: f.overview,
         impact: f.impact,
       },
+      remediation: f.remediation,
       ...(f.notes && f.notes.length > 0 && { notes: f.notes.map(adaptStepItem) }),
       ...(f.additional_sections &&
         f.additional_sections.length > 0 && {

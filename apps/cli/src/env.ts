@@ -31,6 +31,10 @@ const COMMON_FORWARD_VARS = [
   'SHANNON_AI_MODEL',
   'SHANNON_AI_BASE_URL',
   'SHANNON_AI_OPENAI_FORMAT',
+  // Opt-in debug flag: when set, the worker persists a bounded, sanitized snippet of a failed
+  // provider turn's raw error message to error.log. Off by default; provider prose stays out of
+  // durable state unless an operator deliberately enables it for a diagnosis.
+  'SHANNON_DEBUG_PROVIDER_ERRORS',
   GENERIC_API_KEY_ENV,
 ] as const;
 
@@ -111,6 +115,17 @@ interface CredentialValidation {
   error?: string;
 }
 
+/**
+ * Whether the shell environment already carries a usable credential — the host's
+ * pi login, or an API key for the selected provider. Reads process.env only.
+ */
+export function hasExportedCredentials(): boolean {
+  if (shouldUsePiAuth()) return true;
+  const spec = resolveModelSpec();
+  if (typeof spec === 'string') return false;
+  return hasCredential(spec.providerId);
+}
+
 /** Whether a curated provider has its own named credential set (API key plus any extra var). */
 function hasNamedCredential(providerId: CuratedProviderId): boolean {
   const apiKeys = PROVIDER_API_KEY_ENV[providerId];
@@ -128,6 +143,38 @@ function hasCredential(providerId: string): boolean {
 /** Curated providers with a named credential. The generic key is neutral, so it never counts toward ambiguity. */
 function configuredProviders(): CuratedProviderId[] {
   return CURATED_PROVIDERS.filter((providerId) => hasNamedCredential(providerId));
+}
+
+/** Whether SHANNON_AI_MODEL was set by the user, rather than falling back to the default. */
+function modelExplicitlySelected(): boolean {
+  return Boolean(process.env.SHANNON_AI_MODEL?.trim());
+}
+
+/**
+ * Explain why the selected provider has no usable credential. With no model chosen
+ * the provider is only the default (anthropic), so the real state is "nothing
+ * configured" — or, if another provider's key is set, an unselected model.
+ */
+function describeMissingCredential(providerId: string): string {
+  if (modelExplicitlySelected()) {
+    const requirement = isCuratedProvider(providerId) ? PROVIDER_CREDENTIAL_HINT[providerId] : GENERIC_API_KEY_ENV;
+    const hint =
+      getMode() === 'local'
+        ? `Set ${requirement} in .env or export it.`
+        : `Export the variables or run 'npx @keygraph/shannon setup'.`;
+    return `No credentials found for provider "${providerId}". ${hint}`;
+  }
+
+  const [provider] = configuredProviders();
+  if (provider) {
+    return `A credential for "${provider}" is set, but no model is selected. Set SHANNON_AI_MODEL=${provider}:<model-id> to use it.`;
+  }
+
+  const hint =
+    getMode() === 'local'
+      ? 'Set a provider API key in .env (for example ANTHROPIC_API_KEY).'
+      : "Run 'npx @keygraph/shannon setup' to get started.";
+  return `No credentials configured. ${hint}`;
 }
 
 /**
@@ -155,17 +202,7 @@ export function validateCredentials(): CredentialValidation {
 
   // 2. The selected provider must have a credential
   if (!hasCredential(spec.providerId)) {
-    const requirement = isCuratedProvider(spec.providerId)
-      ? PROVIDER_CREDENTIAL_HINT[spec.providerId]
-      : GENERIC_API_KEY_ENV;
-    const hint =
-      getMode() === 'local'
-        ? `Set ${requirement} in .env or export it.`
-        : `Export the variables or run 'npx @keygraph/shannon setup'.`;
-    return {
-      valid: false,
-      error: `No credentials found for provider "${spec.providerId}". ${hint}`,
-    };
+    return { valid: false, error: describeMissingCredential(spec.providerId) };
   }
 
   // 3. Exactly one provider may be configured. Several complete credentials make

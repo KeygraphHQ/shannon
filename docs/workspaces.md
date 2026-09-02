@@ -36,7 +36,7 @@ Resume an auto-named workspace:
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w example-com_shannon-1771007534808
 ```
 
-List completed scans:
+List running and completed scans:
 
 ```bash
 npx @keygraph/shannon scans

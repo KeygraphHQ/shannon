@@ -1,0 +1,12 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are authorization vulnerabilities.
+
+CRITICAL RULES:
+- Horizontal: same role accessing another user's data. Vertical: lower role accessing higher role's functions. Context_Workflow: bypassing a required step/state. Mass_Assignment: adding privileged fields (role, isAdmin, permissions) to request body that the server binds without filtering.
+- If a proof-of-concept exists in the SAST data, use its inputs to craft a specific minimal_witness.
+- guard_evidence must describe what's MISSING, not what exists.
+- side_effect must be a concrete unauthorized action (e.g., "read other user's medical records"), not vague ("unauthorized access").
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+
+SAST FINDINGS:
