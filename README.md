@@ -94,7 +94,7 @@ Penetration test reports from Shannon Open Source scanning Photoview 2.4.0. Read
 | Grok 4.6          | [View report](benchmark/photoview-grok-4-6.pdf)          | [SARIF](benchmark/photoview-grok-4-6.sarif)          |
 | Claude Opus 5     | [View report](benchmark/photoview-opus-5.pdf)            | [SARIF](benchmark/photoview-opus-5.sarif)            |
 
-[benchmark]: benchmark/shannonv3-photoview-benchmark.md
+[benchmark]: docs/shannon-xbow-aikido-benchmark.md
 
 
 
