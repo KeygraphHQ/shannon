@@ -85,7 +85,7 @@ Shannon shifts pentesting left into the software development lifecycle (SDLC). U
 
 ![Shannon running an autonomous pentest](assets/Shannon3GIF.gif)
 
-Penetration test reports from Shannon Open Source scanning Photoview 2.4.0. Read the full [benchmark writeup][benchmark] for methodology, cost, and the comparison against Aikido and XBOW.
+Penetration test reports from Shannon Open Source scanning Photoview 2.4.0. Read the [announcement][announcement] and the full [benchmark writeup][benchmark] for methodology, cost, and the comparison against Aikido and XBOW.
 
 
 | Model             | Report                                                                       | SARIF                                                            |
@@ -94,6 +94,7 @@ Penetration test reports from Shannon Open Source scanning Photoview 2.4.0. Read
 | Grok 4.6          | [View report](benchmark/photoview-grok-4-6.pdf)          | [SARIF](benchmark/photoview-grok-4-6.sarif)          |
 | Claude Opus 5     | [View report](benchmark/photoview-opus-5.pdf)            | [SARIF](benchmark/photoview-opus-5.sarif)            |
 
+[announcement]: https://github.com/KeygraphHQ/shannon/discussions/439
 [benchmark]: docs/shannon-xbow-aikido-benchmark.md
 
 
