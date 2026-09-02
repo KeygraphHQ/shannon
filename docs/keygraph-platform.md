@@ -33,13 +33,15 @@ The platform connects discovery, triage, remediation, and verification in one co
 
 ## Exhaustive Agentic SAST
 
-Shannon 3.0's open-source code analysis is tuned for fast, everyday pentest runs. The Enterprise engine is designed for exhaustive audits. It parses the codebase and builds structural context before asking agents to reason about security:
+Shannon 3.0's open-source code analysis runs a multi-stage agentic workflow. It models application architecture, trust boundaries, exposed interfaces, and data flows, opens targeted investigations, reviews the candidates they turn up, and hands the survivors to live pentesting agents. That workflow is built for practical local and CI/CD runs.
+
+The Enterprise engine goes further, for audits at organization scale. It parses the codebase and builds persistent structural context before agents start reasoning about security:
 
 - **Repository and architecture modeling** identifies services, frameworks, entry points, assets, trust boundaries, and cross-repository relationships.
 - **Interprocedural call and data-flow analysis** traces values across functions, files, fields, containers, and framework-managed request lifecycles.
 - **Source, sink, and sanitizer modeling** follows untrusted input to sensitive operations and records where validation, encoding, authorization, or other controls alter the path.
 - **Threat-driven decomposition** breaks large applications into risk, taint-flow, framework, and specialist analysis tasks so deep scans remain systematic.
-- **Adversarial verification** challenges each candidate as a potential false positive and weighs code evidence before it becomes a finding.
+- **Exhaustive adversarial verification** challenges candidates across multiple review passes, weighing structural evidence against what the agents found, then asks whether each one is viable in the application's production configuration.
 - **Semantic deduplication and exploit-chain analysis** consolidate variants of the same defect and identify combinations whose impact is greater than any isolated issue.
 - **Business-logic invariant testing** derives rules the code is supposed to preserve—such as tenant isolation, workflow order, approval limits, balances, and state transitions—then agents fuzz those invariants for application-specific flaws.
 
@@ -117,10 +119,10 @@ Keygraph maintains a SOC 2 Type II audit and makes the current report available 
 | | Shannon Open Source | Keygraph Enterprise Platform |
 | --- | --- | --- |
 | Best for | Individual developers and teams running pentests locally or in CI/CD | Security organizations running a continuous AppSec program across many teams and repositories |
-| Code analysis | Fast, attack-oriented analysis maps routes, data flows, architecture, and likely attack paths | Exhaustive agentic SAST traces interprocedural source-to-sink paths, models sanitizers, adversarially verifies candidates, deduplicates findings, and analyzes exploit chains |
+| Code analysis | Multi-stage agentic review maps architecture, trust boundaries, exposed interfaces, and data flows, filters candidate vulnerabilities, and hands the survivors to live pentesting agents | Exhaustive parsed-code analysis: persistent Code Property Graphs, interprocedural source-to-sink and sanitizer modeling, cross-repository context, exploit-chain analysis, and business-logic invariant testing |
 | Pentesting | On-demand, source-aware white-box pentesting with proof by exploitation | Continuous white-box, black-box, and grey-box pentesting across applications and environments |
 | Additional AppSec coverage | Not included | SCA with reachability, secrets scanning, and business-logic invariant testing |
-| CI/CD and reporting | GitHub Actions and GitLab workflows, severity gating, PDF, Markdown, JSON, and SARIF | Central policies and gating, APIs and integrations, canonical findings, dashboards, analytics, SLA tracking, and compliance evidence |
+| CI/CD and reporting | Official GitHub Action and reusable GitLab CI/CD component; staging, release, merge-request, and scheduled pentests; demonstrated-vulnerability severity gates; PDF, Markdown, JSON, SARIF, artifacts, and native security-workflow ingestion | Organization-wide policies and gating, centrally managed integrations, canonical findings, dashboards, analytics, SLA tracking, and compliance evidence |
 | Automated remediation and verification | Not included | AI-authored pull requests with targeted code and exploit verification |
 | Enterprise governance | N/A — local, single-operator CLI | SSO, SCIM, teams, ReBAC/ABAC/RBAC, audit logs, API keys, ownership, and SLA policies |
 | Deployment and AI | Self-hosted, no telemetry, BYOM, and fully air-gapped with a local model | Fully on-premises or air-gapped, BYOK/BYOM, and granular routing through customer-controlled gateways |
