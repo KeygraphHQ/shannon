@@ -1,9 +1,15 @@
 > [!NOTE]
 > **Shannon 3.0 is live:** deeper security code analysis, a rebuilt terminal experience, native CI/CD workflows, professional PDF reports, and SARIF—still fully open source, self-hosted, and bring-your-own-model.
 
-![Shannon, AI Pentester for Web Apps and APIs, by Keygraph](./assets/github-banner-light.png)
+<div align="center">
 
-![KeygraphHQ%2Fshannon | Trendshift](https://trendshift.io/api/badge/repositories/15604)
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="./assets/github-banner-dark.png">
+<source media="(prefers-color-scheme: light)" srcset="./assets/github-banner-light.png">
+<img src="./assets/github-banner-light.png" alt="Shannon, AI Pentester for Web Apps and APIs, by Keygraph" width="100%">
+</picture>
+
+<a href="https://trendshift.io/repositories/15604" target="_blank"><img src="https://trendshift.io/api/badge/repositories/15604" alt="KeygraphHQ%2Fshannon | Trendshift" style="width: 250px; height: 55px;" width="250" height="55"/></a>
 
 ### Shannon is an autonomous, AI pentester for web applications and APIs.
 
@@ -13,9 +19,11 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 
 ---
 
-![Join Discord](./assets/discord_button_light.png)      ![Visit Keygraph.io](./assets/keygraph_button_light.png)
+<a href="https://discord.gg/9ZqQPuhJB7"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/discord_button_dark.png"><source media="(prefers-color-scheme: light)" srcset="./assets/discord_button_light.png"><img src="./assets/discord_button_light.png" height="40" alt="Join Discord"></picture></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://keygraph.io/"><picture><source media="(prefers-color-scheme: dark)" srcset="./assets/keygraph_button_dark.png"><source media="(prefers-color-scheme: light)" srcset="./assets/keygraph_button_light.png"><img src="./assets/keygraph_button_light.png" height="40" alt="Visit Keygraph.io"></picture></a>
 
 ---
+
+</div>
 
 > [!TIP]
 > **AI agents and LLMs:** start with [llms.txt](llms.txt) for a concise map of this repository, or use [llms-full.txt](llms-full.txt) for the README and docs combined into one file.
