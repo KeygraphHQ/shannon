@@ -1,8 +1,6 @@
 > [!NOTE]
 > **Shannon 3.0 is live:** deeper security code analysis, a rebuilt terminal experience, native CI/CD workflows, professional PDF reports, and SARIF—still fully open source, self-hosted, and bring-your-own-model.
 
-
-
 ![Shannon, AI Pentester for Web Apps and APIs, by Keygraph](./assets/github-banner-light.png)
 
 ![KeygraphHQ%2Fshannon | Trendshift](https://trendshift.io/api/badge/repositories/15604)
@@ -18,8 +16,6 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 ![Join Discord](./assets/discord_button_light.png)      ![Visit Keygraph.io](./assets/keygraph_button_light.png)
 
 ---
-
-
 
 > [!TIP]
 > **AI agents and LLMs:** start with [llms.txt](llms.txt) for a concise map of this repository, or use [llms-full.txt](llms-full.txt) for the README and docs combined into one file.
@@ -89,14 +85,16 @@ Shannon shifts pentesting left into the software development lifecycle (SDLC). U
 
 ![Shannon running an autonomous pentest](assets/Shannon3GIF.gif)
 
-Sample penetration test reports from intentionally vulnerable applications, produced by Shannon Open Source:
+Penetration test reports from Shannon Open Source scanning Photoview 2.4.0. Read the full [benchmark writeup][benchmark] for methodology, cost, and the comparison against Aikido and XBOW.
 
 
-| Target           | Summary                                                                                                                  | Report                                                      |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- |
-| OWASP Juice Shop | 20+ vulnerabilities, including authentication bypass, SQL injection, IDOR, and SSRF.                                     | [View report](sample-reports/shannon-report-juice-shop.md)  |
-| c{api}tal API    | Approximately 15 critical and high-severity API findings, including command injection, auth bypass, and mass assignment. | [View report](sample-reports/shannon-report-capital-api.md) |
-| OWASP crAPI      | 15+ critical and high-severity findings across JWT, injection, SSRF, and API authorization paths.                        | [View report](sample-reports/shannon-report-crapi.md)       |
+| Model             | Report                                                                       | SARIF                                                            |
+| ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
+| DeepSeek v4 Flash | [View report](benchmark/photoview-deepseek-v4-flash.pdf) | [SARIF](benchmark/photoview-deepseek-v4-flash.sarif) |
+| Grok 4.6          | [View report](benchmark/photoview-grok-4-6.pdf)          | [SARIF](benchmark/photoview-grok-4-6.sarif)          |
+| Claude Opus 5     | [View report](benchmark/photoview-opus-5.pdf)            | [SARIF](benchmark/photoview-opus-5.sarif)            |
+
+[benchmark]: benchmark/shannonv3-photoview-benchmark.md
 
 
 
