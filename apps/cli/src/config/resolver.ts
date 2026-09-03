@@ -40,9 +40,8 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
 
-  // OpenAI — format picks the wire API a gateway serves
+  // OpenAI
   { env: 'OPENAI_API_KEY', toml: 'openai.api_key', type: 'string' },
-  { env: 'SHANNON_AI_OPENAI_FORMAT', toml: 'openai.format', type: 'string' },
 
   // xAI
   { env: 'XAI_API_KEY', toml: 'xai.api_key', type: 'string' },

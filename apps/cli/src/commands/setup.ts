@@ -10,7 +10,7 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
-import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider, type OpenAiFormat } from '../model-spec.js';
+import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider } from '../model-spec.js';
 import { displaySplash } from '../splash.js';
 import { requireInteractive } from '../tty.js';
 import { getVersion } from '../version.js';
@@ -22,24 +22,16 @@ const CUSTOM_BASE_URL = '__custom_base_url__';
 const OTHER_PROVIDER = '__other_provider__';
 
 /**
- * Wire formats reachable through the gateway route. The format picks the provider
- * that supplies the credential, and for OpenAI it also picks which of the two
- * OpenAI APIs Shannon calls.
+ * API dialects reachable through the gateway route. The dialect picks the provider
+ * that supplies the credential and names the wire protocol the endpoint must speak.
  */
 const GATEWAY_DIALECTS: readonly {
   value: string;
   label: string;
   provider: 'anthropic' | 'openai';
-  format?: OpenAiFormat;
 }[] = [
   { value: 'anthropic', label: 'Anthropic Messages', provider: 'anthropic' },
-  {
-    value: 'openai-chat-completions',
-    label: 'OpenAI Chat Completions',
-    provider: 'openai',
-    format: 'chat-completions',
-  },
-  { value: 'openai-responses', label: 'OpenAI Responses', provider: 'openai', format: 'responses' },
+  { value: 'openai', label: 'OpenAI Responses', provider: 'openai' },
 ];
 
 /** Suggested models per curated provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
@@ -101,7 +93,6 @@ export async function setup(): Promise<void> {
   const configPath = path.join(SHANNON_HOME, 'config.toml');
   const summary = [`Provider   ${provider}`, `Model      ${modelId}`];
   if (gateway) summary.push(`Endpoint   ${gateway.baseUrl}`);
-  if (gateway?.format) summary.push(`API        ${gateway.format}`);
 
   p.log.success(`Configuration saved to ${configPath}`);
   p.log.info(summary.join('\n'));
@@ -200,11 +191,10 @@ interface GatewaySetup {
   provider: CuratedProviderId;
   config: ShannonConfig;
   baseUrl: string;
-  format?: OpenAiFormat;
 }
 
 /**
- * Gateway route: the endpoint decides where requests go, but the format still
+ * Gateway route: the endpoint decides where requests go, but the dialect still
  * picks a real provider, because that is what supplies the credential and the
  * wire protocol.
  */
@@ -236,11 +226,9 @@ async function setupGateway(): Promise<GatewaySetup> {
 
   const authToken = await promptSecret('Enter the auth token for the endpoint');
   const config: ShannonConfig =
-    provider === 'anthropic'
-      ? { anthropic: { api_key: authToken } }
-      : { openai: { api_key: authToken, ...(dialect.format && { format: dialect.format }) } };
+    provider === 'anthropic' ? { anthropic: { api_key: authToken } } : { openai: { api_key: authToken } };
 
-  return { provider, config, baseUrl, ...(dialect.format && { format: dialect.format }) };
+  return { provider, config, baseUrl };
 }
 
 // === Model Selection ===

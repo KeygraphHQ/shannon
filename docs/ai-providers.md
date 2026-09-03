@@ -109,10 +109,13 @@ To route model traffic through your own infrastructure — a corporate proxy, an
 | Gateway serves | Model prefix | API key |
 | --- | --- | --- |
 | Anthropic Messages | `anthropic:` | `SHANNON_AI_API_KEY` |
-| OpenAI Chat Completions | `openai:` | `SHANNON_AI_API_KEY` |
-| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `SHANNON_AI_API_KEY` |
+| OpenAI Responses | `openai:` | `SHANNON_AI_API_KEY` |
 
 The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
+
+A custom base URL is only for `anthropic` and `openai` models routed through a custom gateway or proxy. To use any other provider, point Shannon at that provider directly (`SHANNON_AI_MODEL=<provider>:<model-id>` with its own credential passed through `SHANNON_AI_API_KEY`). Browse the providers and models you can choose from at [pi.dev/models](https://pi.dev/models).
+
+If you do want to set a custom base URL for any other provider, you can — `SHANNON_AI_BASE_URL` overrides the endpoint for whichever provider `SHANNON_AI_MODEL` names, keeping that provider's own API dialect.
 
 Anthropic Messages:
 
@@ -122,7 +125,7 @@ export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
 
-OpenAI Chat Completions:
+OpenAI Responses:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
@@ -131,16 +134,6 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
 `SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not.
-
-OpenAI is the one provider serving two APIs, so a gateway run picks one:
-
-```bash
-export SHANNON_AI_OPENAI_FORMAT=responses          # default: chat-completions
-```
-
-Chat Completions is the default because that is what most gateway software exposes. Set `responses` for a gateway that passes the Responses API through — it preserves reasoning state between turns, which Chat Completions cannot. `openai:gpt-5` with no base URL always calls OpenAI's Responses API directly.
-
-The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, xAI, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
 
 `npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
 
