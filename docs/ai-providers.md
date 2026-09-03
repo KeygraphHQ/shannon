@@ -28,8 +28,9 @@ Shannon forwards only the selected provider's credential into the scan container
 Shannon accepts any provider and model present in the Pi harness catalogue. Browse them at [pi.dev/models](https://pi.dev/models).
 
 ```bash
-export SHANNON_AI_API_KEY=your-api-key                 # the provider's API key
-export SHANNON_AI_MODEL=openrouter:moonshotai/kimi-k3  # <provider>:<model-id>
+export SHANNON_AI_API_KEY=your-api-key                     # the provider's key — or the gateway's when a base URL is set
+export SHANNON_AI_MODEL=openrouter:moonshotai/kimi-k3      # <provider>:<model-id>
+export SHANNON_AI_BASE_URL=https://llm-gateway.example.com # optional: route through a proxy or LLM gateway
 ```
 
 This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
