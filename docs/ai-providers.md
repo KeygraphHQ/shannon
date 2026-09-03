@@ -28,8 +28,9 @@ Shannon forwards only the selected provider's credential into the scan container
 Shannon accepts any provider and model present in the Pi harness catalogue. Browse them at [pi.dev/models](https://pi.dev/models).
 
 ```bash
-export SHANNON_AI_API_KEY=your-api-key                 # the provider's API key
-export SHANNON_AI_MODEL=openrouter:moonshotai/kimi-k3  # <provider>:<model-id>
+export SHANNON_AI_API_KEY=your-api-key                     # the provider's key — or the gateway's when a base URL is set
+export SHANNON_AI_MODEL=openrouter:moonshotai/kimi-k3      # <provider>:<model-id>
+export SHANNON_AI_BASE_URL=https://llm-gateway.example.com # optional: route through a proxy or LLM gateway
 ```
 
 This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
@@ -48,7 +49,7 @@ Review each vendor's guidance and complete the verification or enrollment they a
 - Anthropic - [Real-time cyber safeguards on Claude Opus and Sonnet](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet)
 - OpenAI - [Cyber](https://chatgpt.com/cyber)
 
-This applies to the Anthropic and OpenAI providers, including when either is reached through a gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
+This applies to the Anthropic and OpenAI providers, including when either is reached through an LLM gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
 
 ## Suggested models
 
@@ -104,17 +105,16 @@ Bedrock uses bearer-token authentication only. IAM access keys, session tokens, 
 
 ## Custom base URL
 
-To route model traffic through your own infrastructure — a corporate proxy, an LLM gateway such as LiteLLM, or a regional endpoint — set a base URL alongside your normal model selection. The provider half of `SHANNON_AI_MODEL` decides which key is sent and which API Shannon speaks, so pick the one your gateway serves:
+`SHANNON_AI_BASE_URL` routes model traffic through a proxy or LLM gateway instead of the provider's default endpoint — an LLM gateway such as LiteLLM, a regional endpoint, or any other host you choose. It is a plain endpoint override: it changes only *where* requests go. The provider half of `SHANNON_AI_MODEL` still decides which credential is sent and which API dialect is spoken, and that is unchanged by the base URL.
 
-| Gateway serves | Model prefix | API key |
-| --- | --- | --- |
-| Anthropic Messages | `anthropic:` | `SHANNON_AI_API_KEY` |
-| OpenAI Chat Completions | `openai:` | `SHANNON_AI_API_KEY` |
-| OpenAI Responses | `openai:` + `SHANNON_AI_OPENAI_FORMAT=responses` | `SHANNON_AI_API_KEY` |
+This works for **any** provider, curated or not. The one rule is that a provider's dialect is fixed, so the endpoint you point at must speak that provider's dialect:
 
-The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
+| Provider prefix | Dialect the endpoint must speak |
+| --- | --- |
+| `anthropic:` | Anthropic Messages |
+| `openai:` | OpenAI Responses |
 
-Anthropic Messages:
+Anthropic Messages LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-ant-...
@@ -122,7 +122,7 @@ export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
 
-OpenAI Chat Completions:
+OpenAI Responses LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
@@ -130,19 +130,7 @@ export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not.
-
-OpenAI is the one provider serving two APIs, so a gateway run picks one:
-
-```bash
-export SHANNON_AI_OPENAI_FORMAT=responses          # default: chat-completions
-```
-
-Chat Completions is the default because that is what most gateway software exposes. Set `responses` for a gateway that passes the Responses API through — it preserves reasoning state between turns, which Chat Completions cannot. `openai:gpt-5` with no base URL always calls OpenAI's Responses API directly.
-
-The variable is rejected in preflight where it cannot take effect: with a non-`openai` model, since Anthropic, xAI, and Bedrock each serve one API, and with no `SHANNON_AI_BASE_URL`, since a direct OpenAI run is always Responses.
-
-`npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
+`npx @keygraph/shannon setup` configures a base URL two ways: **Custom Base URL** covers the common Anthropic Messages and OpenAI Responses LLM gateways, and **Other provider** takes any provider ID plus an optional base URL of its own.
 
 ## OpenAI Codex (ChatGPT Plus/Pro subscription)
 
@@ -209,7 +197,7 @@ These instructions apply only to `shannon-v1`.
 
 Checks run before a scan starts, so mistakes fail immediately rather than partway through a run:
 
-- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since a gateway may serve its own names.
+- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since an LLM gateway may serve its own names.
 - **Credential presence** — validated for the selected provider, or read from Pi when `SHANNON_USE_PI_AUTH=1`.
 - **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
 

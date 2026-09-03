@@ -30,7 +30,6 @@ import {
 const COMMON_FORWARD_VARS = [
   'SHANNON_AI_MODEL',
   'SHANNON_AI_BASE_URL',
-  'SHANNON_AI_OPENAI_FORMAT',
   // Opt-in debug flag: when set, the worker persists a bounded, sanitized snippet of a failed
   // provider turn's raw error message to error.log. Off by default; provider prose stays out of
   // durable state unless an operator deliberately enables it for a diagnosis.
