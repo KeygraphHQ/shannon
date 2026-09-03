@@ -121,8 +121,8 @@ body:
         - "xAI"
         - "AWS Bedrock"
         - "Custom base URL - Anthropic Messages"
-        - "Custom base URL - OpenAI Chat Completions"
         - "Custom base URL - OpenAI Responses"
+        - "Other provider (Pi catalogue)"
     validations:
       required: true
 

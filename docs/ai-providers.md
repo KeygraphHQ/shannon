@@ -48,7 +48,7 @@ Review each vendor's guidance and complete the verification or enrollment they a
 - Anthropic - [Real-time cyber safeguards on Claude Opus and Sonnet](https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet)
 - OpenAI - [Cyber](https://chatgpt.com/cyber)
 
-This applies to the Anthropic and OpenAI providers, including when either is reached through a gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
+This applies to the Anthropic and OpenAI providers, including when either is reached through an LLM gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
 
 ## Suggested models
 
@@ -104,20 +104,16 @@ Bedrock uses bearer-token authentication only. IAM access keys, session tokens, 
 
 ## Custom base URL
 
-To route model traffic through your own infrastructure — a corporate proxy, an LLM gateway such as LiteLLM, or a regional endpoint — set a base URL alongside your normal model selection. The provider half of `SHANNON_AI_MODEL` decides which key is sent and which API Shannon speaks, so pick the one your gateway serves:
+`SHANNON_AI_BASE_URL` routes model traffic through a proxy or LLM gateway instead of the provider's default endpoint — an LLM gateway such as LiteLLM, a regional endpoint, or any other host you choose. It is a plain endpoint override: it changes only *where* requests go. The provider half of `SHANNON_AI_MODEL` still decides which credential is sent and which API dialect is spoken, and that is unchanged by the base URL.
 
-| Gateway serves | Model prefix | API key |
-| --- | --- | --- |
-| Anthropic Messages | `anthropic:` | `SHANNON_AI_API_KEY` |
-| OpenAI Responses | `openai:` | `SHANNON_AI_API_KEY` |
+This works for **any** provider, curated or not. The one rule is that a provider's dialect is fixed, so the endpoint you point at must speak that provider's dialect:
 
-The model ID is whatever name your gateway serves it under; it does not have to exist in Shannon's catalogue.
+| Provider prefix | Dialect the endpoint must speak |
+| --- | --- |
+| `anthropic:` | Anthropic Messages |
+| `openai:` | OpenAI Responses |
 
-A custom base URL is only for `anthropic` and `openai` models routed through a custom gateway or proxy. To use any other provider, point Shannon at that provider directly (`SHANNON_AI_MODEL=<provider>:<model-id>` with its own credential passed through `SHANNON_AI_API_KEY`). Browse the providers and models you can choose from at [pi.dev/models](https://pi.dev/models).
-
-If you do want to set a custom base URL for any other provider, you can — `SHANNON_AI_BASE_URL` overrides the endpoint for whichever provider `SHANNON_AI_MODEL` names, keeping that provider's own API dialect.
-
-Anthropic Messages:
+Anthropic Messages LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-ant-...
@@ -125,7 +121,7 @@ export SHANNON_AI_MODEL=anthropic:claude-sonnet-4-6
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com
 ```
 
-OpenAI Responses:
+OpenAI Responses LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
@@ -133,9 +129,7 @@ export SHANNON_AI_MODEL=openai:gpt-5.6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
-`SHANNON_AI_MODEL` is always `<provider>:<model-id>`, gateway or not.
-
-`npx @keygraph/shannon setup` covers this under **Custom Base URL**, which asks which API your gateway serves and configures the matching provider for you.
+`npx @keygraph/shannon setup` configures a base URL two ways: **Custom Base URL** covers the common Anthropic Messages and OpenAI Responses LLM gateways, and **Other provider** takes any provider ID plus an optional base URL of its own.
 
 ## OpenAI Codex (ChatGPT Plus/Pro subscription)
 
@@ -202,7 +196,7 @@ These instructions apply only to `shannon-v1`.
 
 Checks run before a scan starts, so mistakes fail immediately rather than partway through a run:
 
-- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since a gateway may serve its own names.
+- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since an LLM gateway may serve its own names.
 - **Credential presence** — validated for the selected provider, or read from Pi when `SHANNON_USE_PI_AUTH=1`.
 - **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
 

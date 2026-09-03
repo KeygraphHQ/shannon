@@ -70,7 +70,11 @@ export async function setup(): Promise<void> {
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
-      { value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL, label: 'Custom Base URL', hint: 'your own proxy or gateway' },
+      {
+        value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL,
+        label: 'Custom Base URL',
+        hint: 'route through a proxy or LLM gateway',
+      },
       {
         value: OTHER_PROVIDER as typeof OTHER_PROVIDER,
         label: 'Other provider',
@@ -80,19 +84,21 @@ export async function setup(): Promise<void> {
   });
   if (p.isCancel(selected)) return cancelAndExit();
 
-  // 2. Credentials — and, on the gateway route, the endpoint and its dialect.
-  const { provider, config, gateway } = await setupSelection(selected);
+  // 2. Credentials, and any endpoint override. A base URL overrides the endpoint
+  //    for whichever provider is chosen — the curated gateway route names it via
+  //    the dialect, the "Other provider" route asks for it directly.
+  const { provider, config, baseUrl } = await setupSelection(selected);
 
   // 3. The model that runs every phase.
   const modelId = await promptModel(provider);
   config.core = { ...config.core, model: `${provider}:${modelId}` };
-  if (gateway) config.core = { ...config.core, base_url: gateway.baseUrl };
+  if (baseUrl) config.core = { ...config.core, base_url: baseUrl };
 
   saveConfig(config);
 
   const configPath = path.join(SHANNON_HOME, 'config.toml');
   const summary = [`Provider   ${provider}`, `Model      ${modelId}`];
-  if (gateway) summary.push(`Endpoint   ${gateway.baseUrl}`);
+  if (baseUrl) summary.push(`Endpoint   ${baseUrl}`);
 
   p.log.success(`Configuration saved to ${configPath}`);
   p.log.info(summary.join('\n'));
@@ -102,7 +108,7 @@ export async function setup(): Promise<void> {
 interface Selection {
   provider: string;
   config: ShannonConfig;
-  gateway?: GatewaySetup;
+  baseUrl?: string;
 }
 
 /** Resolve the provider selection into a provider id and its credential config. */
@@ -111,7 +117,7 @@ async function setupSelection(
 ): Promise<Selection> {
   if (selected === CUSTOM_BASE_URL) {
     const gateway = await setupGateway();
-    return { provider: gateway.provider, config: gateway.config, gateway };
+    return { provider: gateway.provider, config: gateway.config, baseUrl: gateway.baseUrl };
   }
   if (selected === OTHER_PROVIDER) {
     return setupOtherProvider();
@@ -135,6 +141,8 @@ async function setupProvider(provider: CuratedProviderId): Promise<ShannonConfig
 /**
  * Any pi provider Shannon does not curate. The id is free text — the worker's
  * preflight validates it — and the key is stored generically as SHANNON_AI_API_KEY.
+ * An optional base URL points that provider at a proxy or LLM gateway; left blank, the
+ * provider's own endpoint is used.
  */
 async function setupOtherProvider(): Promise<Selection> {
   p.log.info('Browse supported providers and models at https://pi.dev/models');
@@ -150,7 +158,13 @@ async function setupOtherProvider(): Promise<Selection> {
   if (p.isCancel(provider)) return cancelAndExit();
 
   const apiKey = await promptSecret('Enter the API key');
-  return { provider: provider.trim(), config: { provider: { api_key: apiKey } } };
+  const baseUrl = await promptOptionalBaseUrl();
+
+  return {
+    provider: provider.trim(),
+    config: { provider: { api_key: apiKey } },
+    ...(baseUrl && { baseUrl }),
+  };
 }
 
 // === Provider Setup Flows ===
@@ -295,6 +309,31 @@ async function promptModelId(provider: string, placeholder?: string): Promise<st
 }
 
 // === Helpers ===
+
+/**
+ * Optional endpoint override. Empty input means the provider's default endpoint;
+ * any value must be a valid URL.
+ */
+async function promptOptionalBaseUrl(): Promise<string | undefined> {
+  const baseUrl = await p.text({
+    message: 'Custom base URL (optional, leave blank for the provider default)',
+    placeholder: 'https://llm-gateway.example.com',
+    validate: (value) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return undefined;
+      try {
+        new URL(trimmed);
+      } catch {
+        return 'Must be a valid URL';
+      }
+      return undefined;
+    },
+  });
+  if (p.isCancel(baseUrl)) return cancelAndExit();
+
+  const trimmed = baseUrl?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 async function promptSecret(message: string): Promise<string> {
   const value = await p.password({

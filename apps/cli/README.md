@@ -22,7 +22,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, any other provider in the harness catalogue, and any endpoint that speaks the Anthropic Messages API or the OpenAI Responses API through a custom base URL. You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic.
+- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and any other provider in the harness catalogue — each of which you can point at a proxy or LLM gateway through a custom base URL. You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic.
 - **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run.
 
 ### Run Shannon
