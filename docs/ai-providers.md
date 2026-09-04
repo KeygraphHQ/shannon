@@ -16,8 +16,9 @@ The provider half decides where the request goes, which credential is used, and 
 | OpenAI | `openai` | `SHANNON_AI_API_KEY` |
 | xAI | `xai` | `SHANNON_AI_API_KEY` |
 | AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
+| Google Antigravity | `antigravity` | None (Local AgentAPI daemon / proxy) |
 
-`SHANNON_AI_API_KEY` holds the key for whichever provider `SHANNON_AI_MODEL` names. Bedrock is the exception — it authenticates through its `AWS_` variables only. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
+`SHANNON_AI_API_KEY` holds the key for whichever provider `SHANNON_AI_MODEL` names. Bedrock and Antigravity are exceptions — Bedrock authenticates through its `AWS_` variables only, and Antigravity connects to your local Antigravity environment without an external API key. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
 
 Anthropic, OpenAI, and xAI also accept their native variables (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`); if one of those is set, it is used instead of `SHANNON_AI_API_KEY`.
 
@@ -61,6 +62,7 @@ These are the models `npx @keygraph/shannon setup` offers, best-first. They are 
 | `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
 | `xai` | `grok-4.6`, `grok-4.5` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
+| `antigravity` | `gemini-3.8-flash-high`, `gemini-3.8-flash`, `gemini-3.7-flash-high`, `gemini-3.7-flash`, `gemini-3.1-pro-high`, `gemini-3.1-pro`, `gemini-2.5-pro` |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
 
@@ -89,6 +91,12 @@ export SHANNON_AI_API_KEY=xai-...
 export SHANNON_AI_MODEL=xai:grok-4.5
 ```
 
+Google Antigravity (no API key required):
+
+```bash
+export SHANNON_AI_MODEL=antigravity:gemini-3.8-flash-high
+```
+
 Source-build mode reads the same variables from a `.env` file.
 
 ## AWS Bedrock
@@ -102,6 +110,67 @@ export SHANNON_AI_MODEL=amazon-bedrock:us.anthropic.claude-opus-4-8
 ```
 
 Bedrock uses bearer-token authentication only. IAM access keys, session tokens, assumed roles, and instance profiles are not supported. The model must be enabled in your region.
+
+## Google Antigravity
+
+Google Antigravity uses the local Antigravity runtime (the `agentapi` daemon) without requiring any external public API key or third-party platform credentials. Authentication is maintained locally by the Antigravity session daemon.
+
+### 1. Launch the local Antigravity bridge proxy
+
+Shannon connects to an OpenAI-compatible bridge proxy that interfaces with Antigravity's AgentAPI:
+
+```bash
+python tools/antigravity_proxy.py
+```
+
+By default, the proxy runs on `http://127.0.0.1:8000/v1` and health-checks the running Antigravity daemon (`agentapi`).
+
+### 2. Configure Shannon
+
+Run `npx @keygraph/shannon setup` and select **Google Antigravity**, or set the model directly:
+
+```bash
+export SHANNON_AI_MODEL=antigravity:gemini-3.8-flash-high
+```
+
+If you run the proxy on a custom port or remote host, configure `ANTIGRAVITY_PROXY_URL` or `SHANNON_AI_BASE_URL`:
+
+```bash
+export ANTIGRAVITY_PROXY_URL=http://127.0.0.1:8000/v1
+```
+
+In `~/.shannon/config.toml`, this can be saved as:
+
+```toml
+[core]
+model = "antigravity:gemini-3.8-flash-high"
+
+[antigravity]
+proxy_url = "http://127.0.0.1:8000/v1"
+```
+
+### Supported Models & Thinking Tiers
+
+Antigravity supports Gemini 3.8 Flash, 3.7 Flash, 3.1 Pro, and 2.5 series models with configurable thinking effort levels:
+
+| Model ID | Base Model | Thinking Effort | Description |
+| --- | --- | --- | --- |
+| `gemini-3.8-flash-high` | Gemini 3.8 Flash | High (64k budget) | Maximum reasoning depth for complex exploitation analysis |
+| `gemini-3.8-flash-medium` | Gemini 3.8 Flash | Medium (16k budget) | Balanced reasoning and throughput |
+| `gemini-3.8-flash-low` | Gemini 3.8 Flash | Low (4k budget) | Fast, light thinking for high-speed scanning |
+| `gemini-3.8-flash` | Gemini 3.8 Flash | High (Default) | Default 3.8 Flash configuration |
+| `gemini-3.7-flash-high` | Gemini 3.7 Flash | High (64k budget) | Deep thinking for recon and vulnerability correlation |
+| `gemini-3.7-flash-medium` | Gemini 3.7 Flash | Medium (16k budget) | Standard balanced tier |
+| `gemini-3.7-flash-low` | Gemini 3.7 Flash | Low (4k budget) | Fast reasoning tier |
+| `gemini-3.7-flash` | Gemini 3.7 Flash | High (Default) | Default 3.7 Flash configuration |
+| `gemini-3.1-pro-high` | Gemini 3.1 Pro | High (64k budget) | Flagship reasoning capability |
+| `gemini-3.1-pro-medium` | Gemini 3.1 Pro | Medium (16k budget) | Moderate thinking budget |
+| `gemini-3.1-pro-low` | Gemini 3.1 Pro | Low (4k budget) | Lightweight thinking budget |
+| `gemini-3.1-pro` | Gemini 3.1 Pro | High (Default) | Default 3.1 Pro flagship model |
+| `gemini-3.1-pro-preview` | Gemini 3.1 Pro | High | Experimental preview model |
+| `gemini-2.5-pro` | Gemini 2.5 Pro | Default | Deep reasoning model |
+| `gemini-2.5-flash` | Gemini 2.5 Flash | Default | Fast multimodal model |
+| `gemini-2.5-flash-lite` | Gemini 2.5 Flash Lite | Default | Ultra-lightweight model |
 
 ## Custom base URL
 

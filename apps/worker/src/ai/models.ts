@@ -43,7 +43,7 @@ import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
  * gate its "Other provider" setup option. A curated provider missing from one
  * copy is silently treated as generic on that side.
  */
-export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
+export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock', 'antigravity'] as const;
 
 export type CuratedProviderId = (typeof CURATED_PROVIDERS)[number];
 
@@ -54,11 +54,59 @@ function isCuratedProvider(value: string): value is CuratedProviderId {
 /** Generic API key, honored for any provider Shannon does not curate. */
 export const GENERIC_API_KEY_ENV = 'SHANNON_AI_API_KEY';
 
+/** Default local proxy endpoint for the Antigravity SDK/agent proxy. */
+export const DEFAULT_ANTIGRAVITY_BASE_URL = 'http://127.0.0.1:8000/v1';
+
+const ANTIGRAVITY_INPUT: ('text' | 'image')[] = ['text', 'image'];
+const ANTIGRAVITY_COST = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+
+function defModel(id: string, name: string, reasoning = true, maxTokens = 65536, contextWindow = 1048576) {
+  return {
+    id,
+    name,
+    contextWindow,
+    maxTokens,
+    reasoning,
+    cost: ANTIGRAVITY_COST,
+    input: ANTIGRAVITY_INPUT,
+  };
+}
+
+/** Curated Antigravity model definitions and thinking-effort variants. */
+export const ANTIGRAVITY_MODELS = [
+  // Gemini 3.8 Flash series
+  defModel('gemini-3.8-flash', 'Gemini 3.8 Flash (Default High)'),
+  defModel('gemini-3.8-flash-high', 'Gemini 3.8 Flash (High Thinking)'),
+  defModel('gemini-3.8-flash-medium', 'Gemini 3.8 Flash (Medium Thinking)'),
+  defModel('gemini-3.8-flash-low', 'Gemini 3.8 Flash (Low Thinking)'),
+
+  // Gemini 3.7 Flash series with thinking-level variants
+  defModel('gemini-3.7-flash', 'Gemini 3.7 Flash'),
+  defModel('gemini-3.7-flash-high', 'Gemini 3.7 Flash (High Thinking)'),
+  defModel('gemini-3.7-flash-medium', 'Gemini 3.7 Flash (Medium Thinking)'),
+  defModel('gemini-3.7-flash-low', 'Gemini 3.7 Flash (Low Thinking)'),
+
+  // Gemini 3.1 Pro series with thinking-level variants
+  defModel('gemini-3.1-pro', 'Gemini 3.1 Pro'),
+  defModel('gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview'),
+  defModel('gemini-3.1-pro-high', 'Gemini 3.1 Pro (High Thinking)'),
+  defModel('gemini-3.1-pro-medium', 'Gemini 3.1 Pro (Medium Thinking)'),
+  defModel('gemini-3.1-pro-low', 'Gemini 3.1 Pro (Low Thinking)'),
+
+  // Gemini 2.5 series
+  defModel('gemini-2.5-pro', 'Gemini 2.5 Pro'),
+  defModel('gemini-2.5-flash', 'Gemini 2.5 Flash', false),
+  defModel('gemini-2.5-flash-lite', 'Gemini 2.5 Flash Lite', false),
+
+  // Default alias
+  defModel('default', 'Antigravity Default (Gemini 3.8 Flash High)'),
+];
+
 /**
  * Env vars carrying each curated provider's API key, in precedence order. Shannon
  * does not invent credential names — these are the variables each provider's own
  * tooling uses. Bedrock pairs its bearer token with AWS_REGION, which is provider
- * config rather than a credential.
+ * config rather than a credential. Antigravity requires no API keys (uses SDK / proxy).
  *
  * Mirrored by the CLI's own table of the same name, used there to decide which
  * env vars to forward into the worker container. A variable added here without
@@ -70,6 +118,7 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly s
   openai: ['OPENAI_API_KEY'],
   xai: ['XAI_API_KEY'],
   'amazon-bedrock': ['AWS_BEARER_TOKEN_BEDROCK'],
+  antigravity: ['ANTIGRAVITY_API_KEY'],
 };
 
 /** Model used when SHANNON_AI_MODEL is unset. */
@@ -128,6 +177,13 @@ export interface ProviderCredentials {
  */
 export function resolveProviderCredentials(providerId: string): ProviderCredentials {
   const credentials: ProviderCredentials = {};
+
+  if (providerId === 'antigravity') {
+    credentials.baseUrl =
+      process.env.ANTIGRAVITY_PROXY_URL || process.env.SHANNON_AI_BASE_URL || DEFAULT_ANTIGRAVITY_BASE_URL;
+    credentials.apiKey = process.env.ANTIGRAVITY_API_KEY || process.env.SHANNON_AI_API_KEY || 'antigravity-local';
+    return credentials;
+  }
 
   const namedVars = isCuratedProvider(providerId) ? PROVIDER_API_KEY_ENV[providerId] : [];
   for (const name of namedVars) {
@@ -206,10 +262,21 @@ export function piAuthPresent(): boolean {
  * refreshes persist to the host for subsequent runs.
  */
 export async function createModelRuntime(providerId: string, apiKey: string | undefined): Promise<ModelRuntime> {
-  if (piAuthPresent()) {
-    return ModelRuntime.create({ authPath: piAuthPath() });
-  }
-  return ModelRuntime.create({ credentials: new RuntimeCredentialStore(providerId, apiKey) });
+  const runtime = piAuthPresent()
+    ? await ModelRuntime.create({ authPath: piAuthPath() })
+    : await ModelRuntime.create({ credentials: new RuntimeCredentialStore(providerId, apiKey) });
+
+  const antigravityBaseUrl =
+    process.env.ANTIGRAVITY_PROXY_URL || process.env.SHANNON_AI_BASE_URL || DEFAULT_ANTIGRAVITY_BASE_URL;
+
+  runtime.registerProvider('antigravity', {
+    name: 'Google Antigravity',
+    api: 'openai-responses',
+    baseUrl: antigravityBaseUrl,
+    models: ANTIGRAVITY_MODELS,
+  });
+
+  return runtime;
 }
 
 export interface ModelSelection {
@@ -269,7 +336,9 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
   }
 
   let credentialSource: ModelSelection['credentialSource'] = 'ambient';
-  if (mountedPiAuth) {
+  if (providerId === 'antigravity') {
+    credentialSource = 'ambient';
+  } else if (mountedPiAuth) {
     credentialSource = 'pi-auth';
   } else if (credentials.apiKey) {
     credentialSource = 'api-key';

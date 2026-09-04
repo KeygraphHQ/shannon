@@ -11,7 +11,7 @@
  * and setup flows. Any other pi provider is reachable via the generic credential
  * path. Mirrors CURATED_PROVIDERS in apps/worker/src/ai/models.ts.
  */
-export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
+export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock', 'antigravity'] as const;
 
 export type CuratedProviderId = (typeof CURATED_PROVIDERS)[number];
 
@@ -31,6 +31,7 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly s
   openai: ['OPENAI_API_KEY'],
   xai: ['XAI_API_KEY'],
   'amazon-bedrock': ['AWS_BEARER_TOKEN_BEDROCK'],
+  antigravity: ['ANTIGRAVITY_API_KEY'],
 };
 
 /** Additional env vars a curated provider requires beyond its API key. All must be set. */
@@ -39,6 +40,7 @@ export const PROVIDER_EXTRA_ENV: Readonly<Record<CuratedProviderId, readonly str
   openai: [],
   xai: [],
   'amazon-bedrock': ['AWS_REGION'],
+  antigravity: [],
 };
 
 /** Human-readable credential requirement, used in "nothing configured" errors. */
@@ -47,6 +49,7 @@ export const PROVIDER_CREDENTIAL_HINT: Readonly<Record<CuratedProviderId, string
   openai: 'OPENAI_API_KEY',
   xai: 'XAI_API_KEY',
   'amazon-bedrock': 'AWS_REGION and AWS_BEARER_TOKEN_BEDROCK',
+  antigravity: 'Antigravity Proxy (http://127.0.0.1:8000/v1 or SHANNON_AI_BASE_URL)',
 };
 
 /** Model used when SHANNON_AI_MODEL is unset. */

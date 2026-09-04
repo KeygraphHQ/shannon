@@ -30,6 +30,7 @@ import {
 const COMMON_FORWARD_VARS = [
   'SHANNON_AI_MODEL',
   'SHANNON_AI_BASE_URL',
+  'ANTIGRAVITY_PROXY_URL',
   // Opt-in debug flag: when set, the worker persists a bounded, sanitized snippet of a failed
   // provider turn's raw error message to error.log. Off by default; provider prose stays out of
   // durable state unless an operator deliberately enables it for a diagnosis.
@@ -134,6 +135,7 @@ function hasNamedCredential(providerId: CuratedProviderId): boolean {
 
 /** Whether the selected provider has a credential. Bedrock needs its AWS_ vars; the generic key never stands in for it. */
 function hasCredential(providerId: string): boolean {
+  if (providerId === 'antigravity') return true;
   if (providerId === 'amazon-bedrock') return hasNamedCredential('amazon-bedrock');
   if (isCuratedProvider(providerId) && hasNamedCredential(providerId)) return true;
   return Boolean(process.env[GENERIC_API_KEY_ENV]);
