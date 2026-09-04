@@ -287,6 +287,7 @@ const PROVIDER_CREDENTIAL_HINT: Readonly<Record<CuratedProviderId, string>> = {
   openai: 'OPENAI_API_KEY',
   xai: 'XAI_API_KEY',
   'amazon-bedrock': 'AWS_BEARER_TOKEN_BEDROCK and AWS_REGION',
+  antigravity: 'Antigravity Proxy (running at http://127.0.0.1:8000/v1 or set SHANNON_AI_BASE_URL)',
 };
 
 /** Which variable to set when a provider's credential is missing. */
@@ -297,6 +298,7 @@ function credentialHint(providerId: string): string {
 
 /** Human-readable label for which credential path a run is using. */
 function describeAuth(providerId: string, baseUrl: string | undefined): string {
+  if (providerId === 'antigravity') return `Antigravity local proxy / SDK (${baseUrl ?? 'http://127.0.0.1:8000/v1'})`;
   if (baseUrl) return `custom endpoint (${baseUrl})`;
   if (piAuthPresent()) return `${providerId} credentials from pi auth.json`;
   if (providerId === 'amazon-bedrock') return 'Bedrock bearer token';
@@ -323,15 +325,16 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   }
   logger.info(`Model: ${spec.providerId}:${spec.modelId}`);
 
-  // 2. Credential presence. Bedrock needs both AWS_ vars; every other provider
-  //    needs one API key.
+  // 2. Credential presence. Bedrock needs both AWS_ vars; Antigravity uses local proxy/SDK;
+  //    every other provider needs one API key.
   const credentials = resolveProviderCredentials(spec.providerId);
+  const isAntigravity = spec.providerId === 'antigravity';
 
   // With a mounted pi auth.json the env-var checks don't apply — step 4's probe validates it.
   const isBedrock = spec.providerId === 'amazon-bedrock';
   const missing =
     isBedrock && !piAuthPresent() ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
-  if (!piAuthPresent() && (missing.length > 0 || (!isBedrock && !credentials.apiKey))) {
+  if (!isAntigravity && !piAuthPresent() && (missing.length > 0 || (!isBedrock && !credentials.apiKey))) {
     return err(
       new PentestError(
         `No credentials found for provider "${spec.providerId}". Set ${credentialHint(spec.providerId)} in .env.`,

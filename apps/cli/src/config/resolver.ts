@@ -52,6 +52,10 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
 
   // Generic — credential for any provider Shannon does not curate
   { env: GENERIC_API_KEY_ENV, toml: 'provider.api_key', type: 'string' },
+
+  // Antigravity
+  { env: 'ANTIGRAVITY_PROXY_URL', toml: 'antigravity.proxy_url', type: 'string' },
+  { env: 'ANTIGRAVITY_API_KEY', toml: 'antigravity.api_key', type: 'string' },
 ] as const;
 
 /** TOML section holding each curated provider's credentials, keyed by provider id. */
@@ -60,6 +64,7 @@ const PROVIDER_SECTIONS: Readonly<Record<CuratedProviderId, string>> = {
   openai: 'openai',
   xai: 'xai',
   'amazon-bedrock': 'bedrock',
+  antigravity: 'antigravity',
 };
 
 /** TOML section holding the generic credential for uncurated providers. */

@@ -40,6 +40,21 @@ const MODEL_SUGGESTIONS: Readonly<Record<CuratedProviderId, readonly string[]>> 
   openai: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
   xai: ['grok-4.5'],
   'amazon-bedrock': ['us.anthropic.claude-sonnet-4-6', 'us.anthropic.claude-opus-4-8', 'us.anthropic.claude-opus-4-7'],
+  antigravity: [
+    'gemini-3.8-flash',
+    'gemini-3.8-flash-high',
+    'gemini-3.8-flash-medium',
+    'gemini-3.8-flash-low',
+    'gemini-3.7-flash',
+    'gemini-3.7-flash-high',
+    'gemini-3.7-flash-medium',
+    'gemini-3.7-flash-low',
+    'gemini-3.1-pro',
+    'gemini-3.1-pro-high',
+    'gemini-3.1-pro-medium',
+    'gemini-3.1-pro-low',
+    'gemini-2.5-pro',
+  ],
 };
 
 /** Placeholder shown in the free-text model ID prompt, per curated provider. */
@@ -48,6 +63,7 @@ const MODEL_ID_PLACEHOLDER: Readonly<Record<CuratedProviderId, string>> = {
   openai: 'gpt-5.6-sol',
   xai: 'grok-4.5',
   'amazon-bedrock': 'us.anthropic.claude-opus-4-8',
+  antigravity: 'gemini-3.8-flash',
 };
 
 /** Model ID placeholder for a provider, absent when the provider is not curated. */
@@ -66,6 +82,7 @@ export async function setup(): Promise<void> {
   const selected = await p.select({
     message: 'Select your AI provider',
     options: [
+      { value: 'antigravity' as const, label: 'Google Antigravity', hint: 'Gemini 3.8, 3.7, 3.1 models via proxy/SDK' },
       { value: 'anthropic' as const, label: 'Anthropic', hint: 'Claude models - recommended' },
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
@@ -135,7 +152,24 @@ async function setupProvider(provider: CuratedProviderId): Promise<ShannonConfig
       return { openai: { api_key: await promptSecret('Enter your OpenAI API key') } };
     case 'xai':
       return { xai: { api_key: await promptSecret('Enter your xAI API key') } };
+    case 'antigravity':
+      return setupAntigravity();
   }
+}
+
+async function setupAntigravity(): Promise<ShannonConfig> {
+  const proxyUrl = await p.text({
+    message: 'Antigravity Proxy URL',
+    placeholder: 'http://127.0.0.1:8000/v1',
+    defaultValue: 'http://127.0.0.1:8000/v1',
+  });
+  if (p.isCancel(proxyUrl)) return cancelAndExit();
+
+  const url = typeof proxyUrl === 'string' && proxyUrl.trim() ? proxyUrl.trim() : 'http://127.0.0.1:8000/v1';
+  return {
+    antigravity: { proxy_url: url },
+    core: { base_url: url },
+  };
 }
 
 /**
