@@ -11,7 +11,8 @@ import type { IdentityBoundRequestField } from '../types/config.js';
 import { atomicWrite, ensureDirectory } from '../utils/file-io.js';
 import type { HistorySnapshot, RawHistoryRecord, TrafficCaptureInput } from './burp-client.js';
 import { BURP_NO_REQUEST, BURP_NO_RESPONSE, BURP_TRUNCATION_MARKER } from './burp-client.js';
-import { getHeaderValues, parseHttpRequest, parseHttpResponse } from './http-message.js';
+import type { ParsedHttpRequest, ParsedHttpResponse } from './http-message.js';
+import { getHeaderValues, HttpMessageParseError, parseHttpRequest, parseHttpResponse } from './http-message.js';
 import { assertRequestInScope, requestMatchesScope } from './scope-guard.js';
 
 const REDACTED_NAME = '<redacted>';
@@ -153,7 +154,9 @@ export function isImplicitIdentityBoundRequestFieldName(name: string): boolean {
   if (/(?:csrf|xsrf|jwt)/.test(compact)) return true;
   const workflowToken =
     parts.includes('token') &&
-    parts.some((part) => ['page', 'pagination', 'cursor', 'continuation', 'next', 'reset', 'invite', 'recovery'].includes(part));
+    parts.some((part) =>
+      ['page', 'pagination', 'cursor', 'continuation', 'next', 'reset', 'invite', 'recovery'].includes(part),
+    );
   if (workflowToken) return false;
   if (parts.includes('password') || parts.includes('passwd')) {
     return !parts.some((part) => ['new', 'confirm', 'confirmation'].includes(part));
@@ -162,7 +165,9 @@ export function isImplicitIdentityBoundRequestFieldName(name: string): boolean {
     parts.includes('token') &&
     (parts.length === 1 ||
       parts.some((part) =>
-        ['access', 'auth', 'bearer', 'id', 'refresh', 'session', 'api', 'oauth', 'oauth2', 'sso', 'security'].includes(part),
+        ['access', 'auth', 'bearer', 'id', 'refresh', 'session', 'api', 'oauth', 'oauth2', 'sso', 'security'].includes(
+          part,
+        ),
       ))
   ) {
     return true;
@@ -316,13 +321,17 @@ function isIdentityBoundJsonPath(path_: readonly (string | number)[], selectors:
 function isIdentityBoundJsonPrefix(path_: readonly (string | number)[], selectors: IdentityBoundSelectors): boolean {
   return selectors.jsonPaths.some(
     (candidate) =>
-      candidate.length > path_.length && candidate.slice(0, path_.length).every((segment, index) => segment === String(path_[index])),
+      candidate.length > path_.length &&
+      candidate.slice(0, path_.length).every((segment, index) => segment === String(path_[index])),
   );
 }
 
 function isImplicitCarrierContainer(path_: readonly (string | number)[]): boolean {
   const final = path_.at(-1);
-  return typeof final === 'string' && ['auth', 'authentication', 'credentials', 'identity', 'session'].includes(final.toLowerCase());
+  return (
+    typeof final === 'string' &&
+    ['auth', 'authentication', 'credentials', 'identity', 'session'].includes(final.toLowerCase())
+  );
 }
 
 function isObjectIdentifier(value: string): boolean {
@@ -404,7 +413,11 @@ function jsonShape(
   if (value === null) return 'null';
   if (Array.isArray(value)) {
     const shapes = [
-      ...new Set(value.slice(0, 8).map((entry, index) => jsonShape(entry, configuredSecrets, selectors, [...path_, index], depth + 1))),
+      ...new Set(
+        value
+          .slice(0, 8)
+          .map((entry, index) => jsonShape(entry, configuredSecrets, selectors, [...path_, index], depth + 1)),
+      ),
     ].sort();
     return `[${shapes.join('|')}]`;
   }
@@ -421,9 +434,7 @@ function jsonShape(
             ? REDACTED_NAME
             : safeRequestShapeFieldName(key, configuredSecrets);
           return `${safeKey}:${
-            safeKey === REDACTED_NAME
-              ? 'redacted'
-              : jsonShape(entry, configuredSecrets, selectors, nextPath, depth + 1)
+            safeKey === REDACTED_NAME ? 'redacted' : jsonShape(entry, configuredSecrets, selectors, nextPath, depth + 1)
           }`;
         })
         .sort();
@@ -637,10 +648,41 @@ function collectBodyCandidates(
   }
 }
 
+// NOTE: A capture window can hold a request Burp recorded verbatim from a non-conforming
+// client, which this strict parser rejects. Such a record carries no attributable evidence
+// and is skipped on its own, rather than aborting the window and discarding every valid
+// exchange captured alongside it. The catch stays narrow so genuine programming errors
+// still surface.
+function parseUsableRequest(raw: string): ParsedHttpRequest | null {
+  try {
+    return parseHttpRequest(raw);
+  } catch (error) {
+    if (error instanceof HttpMessageParseError) return null;
+    throw error;
+  }
+}
+
+// NOTE: Burp records exactly what the peer sent, so a dropped connection or a
+// non-conforming server yields a message this strict parser rejects. Such a response is
+// treated as if none had been captured rather than aborting the surrounding capture
+// window. The catch stays narrow so genuine programming errors still surface.
+function parseUsableResponse(raw: string): ParsedHttpResponse | null {
+  try {
+    return parseHttpResponse(raw);
+  } catch (error) {
+    if (error instanceof HttpMessageParseError) return null;
+    throw error;
+  }
+}
+
+/**
+ * Identity of an exchange for de-duplication. `captureSequence` is deliberately absent: it is
+ * an ordinal stamped on each accepted record, so including it would make every key unique and
+ * the collapse a no-op. The surviving record of a duplicate pair keeps its own ordinal.
+ */
 function collapseKey(exchange: NormalizedExchange): string {
   return JSON.stringify({
     identity: exchange.identity,
-    captureSequence: exchange.captureSequence,
     method: exchange.method,
     origin: exchange.origin,
     path: exchange.path,
@@ -669,7 +711,8 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
   }
   if (input.raw.request === BURP_NO_REQUEST || input.raw.request.endsWith(BURP_TRUNCATION_MARKER)) return null;
 
-  const request = parseHttpRequest(input.raw.request);
+  const request = parseUsableRequest(input.raw.request);
+  if (!request) return null;
   if (!requestMatchesScope(request, input.targetOrigin, input.rules)) return null;
   const identitySelectors = identityBoundSelectors(input.identityBoundRequestFields);
   const target = assertRequestInScope(request, input.targetOrigin, input.rules);
@@ -716,7 +759,7 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
     input.raw.response.length === 0 ||
     input.raw.response === BURP_NO_RESPONSE ||
     input.raw.response.endsWith(BURP_TRUNCATION_MARKER);
-  const response = responseUnavailable ? null : parseHttpResponse(input.raw.response);
+  const response = responseUnavailable ? null : parseUsableResponse(input.raw.response);
   const responseContentType = response
     ? mediaType(firstHeader(response.headers, 'content-type'), input.configuredSecrets)
     : null;
@@ -755,6 +798,9 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
     requestContentType,
     responseStatus: response?.status ?? 0,
     responseContentType,
+    // WARNING: keyed off `responseUnavailable`, not `response === null`. A response that
+    // was captured but could not be parsed must keep the fingerprint of its own bytes, or
+    // every such response in a window would hash alike and collapse into one exchange.
     responseFingerprint: `sha256:${sha256(responseUnavailable ? BURP_NO_RESPONSE : input.raw.response)}`,
     candidateObjectReferences: [...candidates].sort(),
     rawRecordRef: `raw:${exchangeId}`,

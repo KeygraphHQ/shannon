@@ -17,7 +17,7 @@ const RECON_WITH_MEMORIES = [
   '## 5. Potential Input Vectors for Vulnerability Analysis',
 ].join('\n');
 
-async function validateAuthzQueue(queue, reconMarkdown = RECON_WITH_MEMORIES) {
+async function validateAuthzQueue(queue, reconMarkdown = RECON_WITH_MEMORIES, mode = 'completion') {
   const sourceDir = await mkdtemp(join(tmpdir(), 'shannon-recon-handoff-'));
   const warnings = [];
   const logger = {
@@ -31,7 +31,7 @@ async function validateAuthzQueue(queue, reconMarkdown = RECON_WITH_MEMORIES) {
   try {
     await writeFile(join(sourceDir, 'recon_deliverable.md'), reconMarkdown, 'utf8');
     await writeFile(join(sourceDir, 'authz_exploitation_queue.json'), JSON.stringify(queue), 'utf8');
-    const valid = await AGENT_VALIDATORS['authz-vuln'](sourceDir, logger);
+    const valid = await AGENT_VALIDATORS['authz-vuln'](sourceDir, logger, mode);
     return { valid, warnings };
   } finally {
     await rm(sourceDir, { recursive: true, force: true });
@@ -200,4 +200,24 @@ test('queued route dispositions must link to submitted vulnerability IDs', async
 
   assert.equal(valid, false);
   assert.match(warnings.join('\n'), /AUTHZ-VULN-01/);
+});
+
+test('resume accepts an authz queue written before route dispositions existed', async () => {
+  const legacyQueue = { vulnerabilities: [] };
+
+  const completion = await validateAuthzQueue(legacyQueue, RECON_WITH_MEMORIES, 'completion');
+  assert.equal(completion.valid, false);
+
+  const resume = await validateAuthzQueue(legacyQueue, RECON_WITH_MEMORIES, 'resume');
+  assert.equal(resume.valid, true);
+});
+
+test('resume still rejects an authz queue whose route dispositions are malformed', async () => {
+  const malformedQueue = { vulnerabilities: [], recon_route_dispositions: 'nope' };
+
+  const completion = await validateAuthzQueue(malformedQueue, RECON_WITH_MEMORIES, 'completion');
+  assert.equal(completion.valid, false);
+
+  const resume = await validateAuthzQueue(malformedQueue, RECON_WITH_MEMORIES, 'resume');
+  assert.equal(resume.valid, false);
 });

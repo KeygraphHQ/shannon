@@ -11,12 +11,12 @@
  * Tracks attempt-level data for complete forensic trail.
  */
 
-import { PentestError } from '../services/error-handling.js';
 import { assertSameBlackboxRunScope } from '../blackbox/scope-guard.js';
+import { PentestError } from '../services/error-handling.js';
 import { AGENT_PHASE_MAP, type PhaseName } from '../session-manager.js';
+import type { BlackboxRunScope } from '../types/blackbox.js';
 import { ErrorCode } from '../types/errors.js';
 import type { AgentEndResult, AgentName } from '../types/index.js';
-import type { BlackboxRunScope } from '../types/blackbox.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
 import { generateSessionJsonPath, type SessionMetadata } from './utils.js';

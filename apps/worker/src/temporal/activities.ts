@@ -980,6 +980,7 @@ export async function loadResumeState(
     const outputValid = await AGENT_VALIDATORS[agentName](
       deliverablesDir(expectedRepoPath, deliverablesSubdir),
       logger,
+      'resume',
     );
     if (!outputValid) {
       logger.warn(`Agent ${agentName} shows success but output validation failed, will re-run`);

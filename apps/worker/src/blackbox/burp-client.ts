@@ -12,7 +12,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { SSEClientTransport, type SSEClientTransportOptions } from '@modelcontextprotocol/sdk/client/sse.js';
 import { ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import type { Rules } from '../types/config.js';
-import { parseHttpRequest } from './http-message.js';
+import { HttpMessageParseError, parseHttpRequest } from './http-message.js';
 import { requestMatchesScope } from './scope-guard.js';
 
 export const BURP_END_OF_ITEMS = 'Reached end of items';
@@ -165,54 +165,54 @@ function requestNodeResponse(
   for (const [name, value] of headers) requestHeaders[name] = value;
   const requestFunction = url.protocol === 'https:' ? https.request : http.request;
   return new Promise<Response>((resolve, reject) => {
-    const nodeRequest = requestFunction(
-      url,
-      { method, headers: requestHeaders, signal },
-      (nodeResponse) => {
-        try {
-          const responseHeaders = new Headers();
-          for (const [name, value] of Object.entries(nodeResponse.headers)) {
-            if (Array.isArray(value)) {
-              for (const item of value) responseHeaders.append(name, item);
-            } else if (value !== undefined) {
-              responseHeaders.set(name, value);
-            }
+    const nodeRequest = requestFunction(url, { method, headers: requestHeaders, signal }, (nodeResponse) => {
+      try {
+        const responseHeaders = new Headers();
+        for (const [name, value] of Object.entries(nodeResponse.headers)) {
+          if (Array.isArray(value)) {
+            for (const item of value) responseHeaders.append(name, item);
+          } else if (value !== undefined) {
+            responseHeaders.set(name, value);
           }
-          const status = nodeResponse.statusCode ?? 500;
-          const nullBody = method === 'HEAD' || status === 204 || status === 205 || status === 304;
-          if (nullBody) {
-            nodeResponse.on('error', () => undefined);
-            nodeResponse.resume();
-            resolve(
-              new Response(null, {
-                status,
-                statusText: nodeResponse.statusMessage ?? '',
-                headers: responseHeaders,
-              }),
-            );
-            return;
-          }
+        }
+        const status = nodeResponse.statusCode ?? 500;
+        const nullBody = method === 'HEAD' || status === 204 || status === 205 || status === 304;
+        if (nullBody) {
+          nodeResponse.on('error', () => undefined);
+          nodeResponse.resume();
           resolve(
-            new Response(Readable.toWeb(nodeResponse), {
+            new Response(null, {
               status,
               statusText: nodeResponse.statusMessage ?? '',
               headers: responseHeaders,
             }),
           );
-        } catch (error) {
-          nodeResponse.on('error', () => undefined);
-          nodeResponse.resume();
-          reject(error);
+          return;
         }
-      },
-    );
+        resolve(
+          new Response(Readable.toWeb(nodeResponse), {
+            status,
+            statusText: nodeResponse.statusMessage ?? '',
+            headers: responseHeaders,
+          }),
+        );
+      } catch (error) {
+        nodeResponse.on('error', () => undefined);
+        nodeResponse.resume();
+        reject(error);
+      }
+    });
     nodeRequest.once('error', reject);
     if (body !== undefined) nodeRequest.end(body);
     else nodeRequest.end();
   });
 }
 
-async function fetchWithNodeHttp(hostHeader: string, input: string | URL | Request, init?: RequestInit): Promise<Response> {
+async function fetchWithNodeHttp(
+  hostHeader: string,
+  input: string | URL | Request,
+  init?: RequestInit,
+): Promise<Response> {
   const request = new Request(input, init);
   let url = new URL(request.url);
   if (!isHttpUrl(url)) throw new TypeError(`Unsupported URL protocol for Burp MCP: ${url.protocol}`);
@@ -507,13 +507,13 @@ function scanJsonString(value: string, start: number): JsonStringScan {
     const character = value[index];
     if (character === '"') return { kind: 'complete', end: index };
     if (character === '\\') {
-      const escape = value[index + 1];
-      if (escape === undefined) return { kind: 'incomplete' };
-      if ('"\\/bfnrt'.includes(escape)) {
+      const escapedCharacter = value[index + 1];
+      if (escapedCharacter === undefined) return { kind: 'incomplete' };
+      if ('"\\/bfnrt'.includes(escapedCharacter)) {
         index += 1;
         continue;
       }
-      if (escape !== 'u') return { kind: 'invalid' };
+      if (escapedCharacter !== 'u') return { kind: 'invalid' };
 
       const code = value.slice(index + 2, index + 6);
       if (code.length < 4) return /^[0-9a-fA-F]*$/.test(code) ? { kind: 'incomplete' } : { kind: 'invalid' };
@@ -555,7 +555,12 @@ function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined
   const requestValueStart = requestField.length - 1;
   const requestScan = scanJsonString(prefix, requestValueStart);
   if (requestScan.kind === 'incomplete') {
-    return { request: `${BURP_NO_REQUEST}${BURP_TRUNCATION_MARKER}`, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+    return {
+      request: `${BURP_NO_REQUEST}${BURP_TRUNCATION_MARKER}`,
+      response: BURP_TRUNCATION_MARKER,
+      notes: '',
+      occurrence: 1,
+    };
   }
   if (requestScan.kind === 'invalid') return undefined;
   const request = decodeJsonString(prefix, requestScan, requestValueStart);
@@ -571,7 +576,8 @@ function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined
 
   cursor += responseField.length - 1;
   const responseScan = scanJsonString(prefix, cursor);
-  if (responseScan.kind === 'incomplete') return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
+  if (responseScan.kind === 'incomplete')
+    return { request, response: BURP_TRUNCATION_MARKER, notes: '', occurrence: 1 };
   if (responseScan.kind === 'invalid') return undefined;
   const response = decodeJsonString(prefix, responseScan, cursor);
   if (response === undefined) return undefined;
@@ -592,45 +598,101 @@ function parseTruncatedHistoryRecord(line: string): RawHistoryRecord | undefined
   return prefix.slice(notesScan.end + 1) === '}' ? { request, response, notes, occurrence: 1 } : undefined;
 }
 
-export function parseHistoryText(text: string): RawHistoryRecord[] {
-  const records: RawHistoryRecord[] = [];
+/**
+ * Surface a history record this client could not keep. A skipped record is evidence the
+ * corpus will never carry, so the reason has to reach the run log rather than vanish into
+ * a silent drop.
+ */
+function warnHistoryRecordSkipped(reason: unknown): void {
+  const detail = reason instanceof Error ? reason.message : String(reason);
+  console.warn(`Skipping unreadable Burp history record: ${detail}`);
+}
+
+interface HistoryItemLine {
+  readonly line: string;
+  readonly lineNumber: number;
+}
+
+/**
+ * Split a history page into the lines that carry records, dropping blank lines and the
+ * end-of-items footer. Line numbers stay 1-based against the original page text.
+ */
+function historyItemLines(text: string): HistoryItemLine[] {
+  const items: HistoryItemLine[] = [];
   const lines = text.split(/\r?\n/);
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
     if (line === undefined || line.trim() === '') continue;
     if (line === BURP_END_OF_ITEMS) continue;
-
-    let value: unknown;
-    try {
-      value = JSON.parse(line) as unknown;
-    } catch {
-      const truncated = parseTruncatedHistoryRecord(line);
-      if (!truncated) throw new Error(`Malformed Burp history line ${index + 1}`);
-      records.push(truncated);
-      continue;
-    }
-    if (!isRecord(value) || typeof value.request !== 'string' || value.request.length === 0) {
-      throw new Error(`Burp history line ${index + 1} is missing a request`);
-    }
-    if (value.response !== undefined && value.response !== null && typeof value.response !== 'string') {
-      throw new Error(`Malformed Burp history line ${index + 1} response`);
-    }
-    if (value.notes !== undefined && value.notes !== null && typeof value.notes !== 'string') {
-      throw new Error(`Malformed Burp history line ${index + 1} notes`);
-    }
-    // Burp serializes absent messages as these literal placeholders. Retain
-    // them here so pagination still counts every returned history item; the
-    // scope boundary discards records that have no request to attribute.
-    records.push({
-      request: value.request,
-      response: value.response ?? BURP_NO_RESPONSE,
-      notes: value.notes ?? '',
-      occurrence: 1,
-    });
+    items.push({ line, lineNumber: index + 1 });
   }
 
-  return records;
+  return items;
+}
+
+function parseHistoryLine(line: string, lineNumber: number): RawHistoryRecord {
+  let value: unknown;
+  try {
+    value = JSON.parse(line) as unknown;
+  } catch {
+    const truncated = parseTruncatedHistoryRecord(line);
+    if (!truncated) throw new Error(`Malformed Burp history line ${lineNumber}`);
+    return truncated;
+  }
+  if (!isRecord(value) || typeof value.request !== 'string' || value.request.length === 0) {
+    throw new Error(`Burp history line ${lineNumber} is missing a request`);
+  }
+  if (value.response !== undefined && value.response !== null && typeof value.response !== 'string') {
+    throw new Error(`Malformed Burp history line ${lineNumber} response`);
+  }
+  if (value.notes !== undefined && value.notes !== null && typeof value.notes !== 'string') {
+    throw new Error(`Malformed Burp history line ${lineNumber} notes`);
+  }
+  // Burp serializes absent messages as these literal placeholders. Retain
+  // them here so pagination still counts every returned history item; the
+  // scope boundary discards records that have no request to attribute.
+  return {
+    request: value.request,
+    response: value.response ?? BURP_NO_RESPONSE,
+    notes: value.notes ?? '',
+    occurrence: 1,
+  };
+}
+
+/** Parse every record on a history page, rejecting the whole page when any line is unreadable. */
+export function parseHistoryText(text: string): RawHistoryRecord[] {
+  return historyItemLines(text).map(({ line, lineNumber }) => parseHistoryLine(line, lineNumber));
+}
+
+interface HistoryPage {
+  /** Records this parser could read, in page order. */
+  readonly records: readonly RawHistoryRecord[];
+  /** Every history item Burp returned on the page, skipped records included. */
+  readonly itemCount: number;
+}
+
+/**
+ * Parse a history page for the pagination loop, skipping the records this parser cannot read.
+ *
+ * One unreadable line costs a single record instead of the records already read from the page
+ * and every page behind it. A skipped record still counts toward `itemCount` because a short
+ * page is what terminates pagination — leaving it out of the count would end the read early
+ * and hide the traffic on the pages that follow.
+ */
+function parseHistoryPage(text: string): HistoryPage {
+  const items = historyItemLines(text);
+  const records: RawHistoryRecord[] = [];
+
+  for (const { line, lineNumber } of items) {
+    try {
+      records.push(parseHistoryLine(line, lineNumber));
+    } catch (error) {
+      warnHistoryRecordSkipped(error);
+    }
+  }
+
+  return { records, itemCount: items.length };
 }
 
 export function historyHash(record: Pick<RawHistoryRecord, 'request' | 'response'>): string {
@@ -662,6 +724,23 @@ function captureTokensRegex(captureTokens: readonly string[]): string {
   return `(?m)^(?i:X-Shannon-Capture):[ \\t]*(?:${tokens.join('|')})[ \\t]*\\r?$`;
 }
 
+function recordMatchesScope(record: RawHistoryRecord, targetOrigin: string, rules: Rules): boolean {
+  if (record.request === BURP_NO_REQUEST || record.request.endsWith(BURP_TRUNCATION_MARKER)) return false;
+
+  try {
+    return requestMatchesScope(parseHttpRequest(record.request), targetOrigin, rules);
+  } catch (error) {
+    // A history entry Burp returned in a shape this parser cannot read carries no
+    // attributable request, and the capture-token filter discards it downstream
+    // anyway, so dropping it alone keeps the rest of the paged corpus intact.
+    // WARNING: only parse failures are absorbed here. An unsupported scope rule
+    // must still abort the read rather than silently disable configured rules.
+    if (!(error instanceof HttpMessageParseError)) throw error;
+    warnHistoryRecordSkipped(error);
+    return false;
+  }
+}
+
 export async function readTargetHistory(
   client: BurpToolClient,
   targetOrigin: string,
@@ -677,15 +756,11 @@ export async function readTargetHistory(
 
   for (let offset = 0; ; offset += count) {
     const result = await client.call('get_proxy_http_history_regex', { regex, count, offset }, cancellationSignal);
-    const page = parseHistoryText(extractMcpText(result));
-    records.push(...page);
-    if (page.length < count) break;
+    const page = parseHistoryPage(extractMcpText(result));
+    records.push(...page.records);
+    if (page.itemCount < count) break;
   }
 
-  const filtered = records.filter((record) => {
-    if (record.request === BURP_NO_REQUEST || record.request.endsWith(BURP_TRUNCATION_MARKER)) return false;
-    const request = parseHttpRequest(record.request);
-    return requestMatchesScope(request, targetOrigin, rules);
-  });
+  const filtered = records.filter((record) => recordMatchesScope(record, targetOrigin, rules));
   return snapshotHistory(filtered);
 }

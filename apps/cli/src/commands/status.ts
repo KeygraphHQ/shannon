@@ -11,9 +11,9 @@
 import { setTimeout as sleep } from 'node:timers/promises';
 import { fail } from '../errors.js';
 import { isLocal } from '../mode.js';
+import { isFailedScanState } from '../scan/pipeline.js';
 import { type RenderInput, renderScan } from '../scan/render.js';
 import { toStatusJson } from '../scan/status-json.js';
-import { isFailedScanState } from '../scan/pipeline.js';
 import { resolveWorkflowId } from '../session.js';
 import { displaySplash } from '../splash.js';
 import { describeScan, getTerminalOutcome, queryProgress, type ScanDescription } from '../temporal-client.js';

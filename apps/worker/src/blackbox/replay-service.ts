@@ -313,7 +313,9 @@ function normalizeIdentityBoundRequestFields(
         break;
       default: {
         const exhaustive: never = field;
-        throw new ReplayValidationError(`Unsupported identity-bound request field ${(exhaustive as { location?: string }).location}`);
+        throw new ReplayValidationError(
+          `Unsupported identity-bound request field ${(exhaustive as { location?: string }).location}`,
+        );
       }
     }
     if (seen.has(key)) throw new ReplayValidationError('Duplicate identity-bound request field');
@@ -447,11 +449,29 @@ type PrepareResult =
   | { readonly status: 'ready'; readonly request: PreparedRequest }
   | { readonly status: 'needs_fresh_actor_request'; readonly stepId: string; readonly routeSignature: string };
 
+const HTTP1_REPLAY_VERSION = /^1\.[01]$/;
+
+/**
+ * Reduce a parsed start-line version to one of the two dialects the dispatcher can send.
+ * Rejecting here keeps an unsupported version from surfacing mid-sequence, after earlier
+ * steps have already been delivered.
+ */
+function normalizeReplayVersion(version: string): string {
+  if (version === '2' || version === '2.0') return '2';
+  if (HTTP1_REPLAY_VERSION.test(version)) return version;
+  throw new ReplayValidationError(`Unsupported HTTP version ${version}`);
+}
+
 function mutableRequest(rawRequest: string, targetOrigin: string, rules: Rules): MutableRequest {
   if (rawRequest === BURP_NO_REQUEST || rawRequest.endsWith(BURP_TRUNCATION_MARKER) || rawRequest.length === 0) {
     throw new ReplayValidationError('Replay source request is unavailable or truncated');
   }
   const parsed = parseHttpRequest(rawRequest);
+  // WARNING: replay rewrites a body from its parsed form, so a chunk-framed capture cannot
+  // be re-serialized without leaving its chunk headers embedded in the payload.
+  if (parsed.headers.some(({ name }) => name.toLowerCase() === 'transfer-encoding')) {
+    throw new ReplayValidationError('Replay source request uses transfer-encoding and cannot be re-framed');
+  }
   const normalized = assertRequestInScope(parsed, targetOrigin, rules);
   const target = new URL(
     `${normalized.path}${normalized.query.size > 0 ? `?${normalized.query}` : ''}`,
@@ -459,7 +479,7 @@ function mutableRequest(rawRequest: string, targetOrigin: string, rules: Rules):
   );
   return {
     method: parsed.method,
-    version: parsed.version,
+    version: normalizeReplayVersion(parsed.version),
     target,
     headers: parsed.headers.map(({ name, value }) => ({ name, value })),
     body: parsed.body,
@@ -518,7 +538,9 @@ function requestBindingDigest(
     const pointers = boundJsonPointers(identityBoundRequestFields);
     const paths = [
       ...identityBoundJsonPaths(parsedBody, pointers),
-      ...pointers.map((pointer) => parseJsonPointer(pointer).map((segment) => (/^(?:0|[1-9]\d*)$/.test(segment) ? Number(segment) : segment))),
+      ...pointers.map((pointer) =>
+        parseJsonPointer(pointer).map((segment) => (/^(?:0|[1-9]\d*)$/.test(segment) ? Number(segment) : segment)),
+      ),
     ];
     const pathKeys = new Set(paths.map(jsonPathKey));
     const prefixKeys = new Set(
@@ -577,9 +599,7 @@ function boundHeaderNames(
 
 function boundParameterNames(values: URLSearchParams, names: ReadonlySet<string>): readonly string[] {
   return [
-    ...new Set(
-      [...values.keys()].filter((name) => names.has(name) || isImplicitIdentityBoundRequestFieldName(name)),
-    ),
+    ...new Set([...values.keys()].filter((name) => names.has(name) || isImplicitIdentityBoundRequestFieldName(name))),
   ];
 }
 
@@ -706,9 +726,7 @@ function projectIdentityIndependentJson(
     });
     return {
       included:
-        path_.length === 0 ||
-        entries.length > 0 ||
-        (value.length === 0 && !boundPrefixes.has(jsonPathKey(path_))),
+        path_.length === 0 || entries.length > 0 || (value.length === 0 && !boundPrefixes.has(jsonPathKey(path_))),
       value: entries,
     };
   }
@@ -822,10 +840,7 @@ function replaceBoundJson(
     }
     const replacement = actor === null ? { found: false, value: undefined } : jsonPathValue(actor, path_);
     if (!replacement.found) {
-      if (
-        sourceKeys.has(jsonPathKey(path_)) &&
-        !isAuthenticationBoundJsonPath(path_, explicitPaths)
-      ) {
+      if (sourceKeys.has(jsonPathKey(path_)) && !isAuthenticationBoundJsonPath(path_, explicitPaths)) {
         return false;
       }
       if (sourceKeys.has(jsonPathKey(path_)) && !deleteJsonPath(source, path_)) return false;
@@ -847,17 +862,17 @@ function hasIdentityBinding(request: MutableRequest, fields: readonly IdentityBo
       return cookieValue.length > 0 && cookieValue !== '""';
     }),
   );
-  const nonEmptyAuthorization = (name: string): boolean => headerEntries(request, name).some(({ value }) => {
-    const match = /^\S+\s+(.+)$/.exec(value.trim());
-    if (!match) return false;
-    const credential = match[1]?.trim() ?? '';
-    return credential.length > 0 && credential !== '""';
-  });
+  const nonEmptyAuthorization = (name: string): boolean =>
+    headerEntries(request, name).some(({ value }) => {
+      const match = /^\S+\s+(.+)$/.exec(value.trim());
+      if (!match) return false;
+      const credential = match[1]?.trim() ?? '';
+      return credential.length > 0 && credential !== '""';
+    });
   const nonEmptyParameter = (values: URLSearchParams, name: string): boolean =>
     values.getAll(name).some((value) => value.trim().length > 0);
   const usableJsonValue = (value: unknown): boolean =>
-    (typeof value === 'string' && value.trim().length > 0) ||
-    (typeof value === 'number' && Number.isFinite(value));
+    (typeof value === 'string' && value.trim().length > 0) || (typeof value === 'number' && Number.isFinite(value));
   if (nonEmptyCookie || nonEmptyAuthorization('authorization')) return true;
   const headerNames = boundNames(fields, 'header');
   if (
@@ -875,8 +890,8 @@ function hasIdentityBinding(request: MutableRequest, fields: readonly IdentityBo
   }
   const queryNames = boundNames(fields, 'query');
   if (
-    boundParameterNames(request.target.searchParams, queryNames).some((name) =>
-      isAuthenticationBoundField(name, queryNames) && nonEmptyParameter(request.target.searchParams, name),
+    boundParameterNames(request.target.searchParams, queryNames).some(
+      (name) => isAuthenticationBoundField(name, queryNames) && nonEmptyParameter(request.target.searchParams, name),
     )
   ) {
     return true;
@@ -884,8 +899,8 @@ function hasIdentityBinding(request: MutableRequest, fields: readonly IdentityBo
   if (isFormRequest(request)) {
     const formNames = boundNames(fields, 'form');
     if (
-      boundParameterNames(parseFormBody(request), formNames).some((name) =>
-        isAuthenticationBoundField(name, formNames) && nonEmptyParameter(parseFormBody(request), name),
+      boundParameterNames(parseFormBody(request), formNames).some(
+        (name) => isAuthenticationBoundField(name, formNames) && nonEmptyParameter(parseFormBody(request), name),
       )
     ) {
       return true;
@@ -1003,10 +1018,17 @@ function jsonPointersOverlap(left: string, right: string): boolean {
   return leftSegments.slice(0, sharedLength).every((segment, index) => segment === rightSegments[index]);
 }
 
+/**
+ * Frame a request whose body has just been re-serialized. A body that gained content needs
+ * a Content-Length even when the capture carried none, or nothing delimits it on the wire.
+ *
+ * IMPORTANT: `http2Headers` copies this value into the HTTP/2 header map, so this must stay
+ * the last body-touching step of a dispatch or the two will disagree.
+ */
 function updateContentLength(request: MutableRequest): void {
   const values = headerEntries(request, 'content-length');
-  if (values.length > 0)
-    setHeader(request, values[0]?.name ?? 'Content-Length', [String(Buffer.byteLength(request.body))]);
+  if (values.length === 0 && request.body.length === 0) return;
+  setHeader(request, values[0]?.name ?? 'Content-Length', [String(Buffer.byteLength(request.body))]);
 }
 
 function applyMutations(
@@ -1090,11 +1112,13 @@ function applyMutations(
         const finalSegment = parseJsonPointer(mutation.pointer).at(-1) ?? '';
         validateModelFieldName(finalSegment, 'JSON field');
         const currentBody = isJsonRequest(request) ? parseJsonBody(request) : null;
-        const heuristicPointers = currentBody === null
-          ? []
-          : collectHeuristicBoundJsonPaths(currentBody).map((path_) =>
-              `/${path_.map((segment) => String(segment).replace(/~/g, '~0').replace(/\//g, '~1')).join('/')}`,
-            );
+        const heuristicPointers =
+          currentBody === null
+            ? []
+            : collectHeuristicBoundJsonPaths(currentBody).map(
+                (path_) =>
+                  `/${path_.map((segment) => String(segment).replace(/~/g, '~0').replace(/\//g, '~1')).join('/')}`,
+              );
         if (
           isImplicitIdentityBoundRequestFieldName(finalSegment) ||
           [...jsonPointers, ...heuristicPointers].some((pointer) => jsonPointersOverlap(pointer, mutation.pointer))
@@ -1168,7 +1192,7 @@ function sendArguments(request: MutableRequest): {
       rawRequest,
     };
   }
-  if (!/^1\.[01]$/.test(request.version))
+  if (!HTTP1_REPLAY_VERSION.test(request.version))
     throw new ReplayValidationError(`Unsupported HTTP version ${request.version}`);
   return {
     name: 'send_http1_request',
@@ -1206,19 +1230,103 @@ function pointerValue(value: unknown, pointer: string): { readonly found: boolea
   return { found: true, value: current };
 }
 
+/**
+ * Below this length a marker can coincide with unrelated request text, so its mere presence
+ * inside a larger supplied value says nothing. Shorter markers still count when the sender
+ * supplied one as a whole value, where the match is the reference itself rather than a
+ * fragment of one.
+ */
+const MIN_EMBEDDED_MARKER_LENGTH = 8;
+
+function decodedSegment(segment: string): string {
+  try {
+    return decodeURIComponent(segment);
+  } catch {
+    return segment;
+  }
+}
+
+function collectJsonScalars(value: unknown, into: Set<string>): void {
+  if (typeof value === 'string') {
+    into.add(value);
+    return;
+  }
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    into.add(String(value));
+    return;
+  }
+  if (Array.isArray(value)) {
+    for (const entry of value) collectJsonScalars(entry, into);
+    return;
+  }
+  if (isRecord(value)) {
+    for (const entry of Object.values(value)) collectJsonScalars(entry, into);
+  }
+}
+
+/**
+ * The values a sender put in a request itself: decoded path segments, query values, form field
+ * values and JSON body values.
+ *
+ * Headers are deliberately absent. A sender's cookies and authorization material are its own
+ * credentials, not a reference to a requested object, so matching against them would discard a
+ * genuine disclosure whenever a short marker happened to appear inside a session token.
+ */
+function senderSuppliedValues(request: MutableRequest): ReadonlySet<string> {
+  const values = new Set<string>();
+  for (const segment of request.target.pathname.split('/')) {
+    if (segment.length === 0) continue;
+    values.add(decodedSegment(segment));
+  }
+  for (const [, value] of request.target.searchParams.entries()) {
+    values.add(value);
+  }
+  if (isFormRequest(request)) {
+    for (const [, value] of new URLSearchParams(request.body).entries()) {
+      values.add(value);
+    }
+  }
+  if (isJsonRequest(request)) {
+    try {
+      collectJsonScalars(JSON.parse(request.body) as unknown, values);
+    } catch {
+      return values;
+    }
+  }
+  return values;
+}
+
+/**
+ * A marker the sender supplied itself proves nothing: an endpoint that reflects request
+ * input back into its response satisfies the condition without disclosing anything the
+ * sender did not already hold. Pass null for `sentRequest` where suppressing an echo would
+ * weaken the evaluation instead — captured baselines, negative controls, and the
+ * pre-action state check.
+ */
+function markerEchoedBySender(condition: ProofCondition, sentRequest: MutableRequest | null): boolean {
+  if (sentRequest === null || condition.type === 'json_pointer_equals') return false;
+  if (condition.marker.length === 0) return false;
+  const supplied = senderSuppliedValues(sentRequest);
+  if (supplied.has(condition.marker)) return true;
+  if (condition.marker.length < MIN_EMBEDDED_MARKER_LENGTH) return false;
+  return [...supplied].some((value) => value.includes(condition.marker));
+}
+
 function evaluateProofResponse(
   condition: ProofCondition,
   response: ParsedHttpResponse,
+  sentRequest: MutableRequest | null,
 ): { readonly passed: boolean; readonly observedMarkerDigest: string | null } {
   let passed = false;
   let observedMarkerDigest: string | null = null;
+  const echoed = markerEchoedBySender(condition, sentRequest);
   switch (condition.type) {
     case 'body_contains':
-      passed = response.body.includes(condition.marker);
+      passed = !echoed && response.body.includes(condition.marker);
       if (passed) observedMarkerDigest = sha256(condition.marker);
       break;
     case 'persistent_state':
-      passed = response.body.includes(condition.marker);
+      passed = !echoed && response.body.includes(condition.marker);
       if (passed) observedMarkerDigest = sha256(condition.marker);
       break;
     case 'json_pointer_equals':
@@ -1247,10 +1355,11 @@ function evaluateProof(
   proofSourceRequestDigest: string,
   proofSentRequestDigest: string,
   response: ParsedHttpResponse,
+  sentRequest: MutableRequest,
   exchangeId: string,
 ): DeterministicProofObservation {
-  const baseline = evaluateProofResponse(condition, baselineResponse);
-  const observed = evaluateProofResponse(condition, response);
+  const baseline = evaluateProofResponse(condition, baselineResponse, null);
+  const observed = evaluateProofResponse(condition, response, sentRequest);
   return {
     condition: structuredClone(condition),
     passed: condition.type === 'persistent_state' ? !baseline.passed && observed.passed : observed.passed,
@@ -1445,7 +1554,7 @@ export class ReplayService {
         continue;
       }
       try {
-        const evaluation = evaluateProofResponse(condition, parseHttpResponse(record.response));
+        const evaluation = evaluateProofResponse(condition, parseHttpResponse(record.response), null);
         exchangeIds.push(candidate.exchangeId);
         passed ||= evaluation.passed;
       } catch {
@@ -1596,8 +1705,8 @@ export class ReplayService {
     }
     const queryNames = boundNames(this.identityBoundRequestFields, 'query');
     if (
-      boundParameterNames(request.target.searchParams, queryNames).some((name) =>
-        !isAuthenticationBoundField(name, queryNames),
+      boundParameterNames(request.target.searchParams, queryNames).some(
+        (name) => !isAuthenticationBoundField(name, queryNames),
       )
     ) {
       return true;
@@ -1605,8 +1714,8 @@ export class ReplayService {
     if (isFormRequest(request)) {
       const formNames = boundNames(this.identityBoundRequestFields, 'form');
       if (
-        boundParameterNames(parseFormBody(request), formNames).some((name) =>
-          !isAuthenticationBoundField(name, formNames),
+        boundParameterNames(parseFormBody(request), formNames).some(
+          (name) => !isAuthenticationBoundField(name, formNames),
         )
       ) {
         return true;
@@ -1616,8 +1725,8 @@ export class ReplayService {
       const body = parseJsonBody(request);
       const pointers = boundJsonPointers(this.identityBoundRequestFields);
       const explicitPaths = explicitJsonPathKeys(body, pointers);
-      return identityBoundJsonPaths(body, pointers).some((path_) =>
-        !isAuthenticationBoundJsonPath(path_, explicitPaths),
+      return identityBoundJsonPaths(body, pointers).some(
+        (path_) => !isAuthenticationBoundJsonPath(path_, explicitPaths),
       );
     }
     return false;
@@ -1709,12 +1818,7 @@ export class ReplayService {
       const sourceForm = parseFormBody(prepared);
       const actorForm = equivalent && isFormRequest(equivalent) ? parseFormBody(equivalent) : null;
       if (
-        !replaceBoundParameters(
-          sourceForm,
-          actorForm,
-          anonymous,
-          boundNames(this.identityBoundRequestFields, 'form'),
-        )
+        !replaceBoundParameters(sourceForm, actorForm, anonymous, boundNames(this.identityBoundRequestFields, 'form'))
       ) {
         return { status: 'needs_fresh_actor_request', stepId: step.stepId, routeSignature: source.routeSignature };
       }
@@ -1771,7 +1875,13 @@ export class ReplayService {
     try {
       await this.rawStore.writeAction(stored);
     } catch {
-      await this.rawStore.writeAction(stored);
+      try {
+        await this.rawStore.writeAction(stored);
+      } catch {
+        // NOTE: the at-most-once ledger entry for this action is not durable, so a later
+        // replay of the same action id dispatches again instead of returning this outcome.
+        return { status: 'delivery_unknown', reason: `${terminalReason}; terminal state persistence failed` };
+      }
     }
     return outcome;
   }
@@ -1843,8 +1953,12 @@ export class ReplayService {
 
     const exchanges: NormalizedExchange[] = [];
     const responses: ParsedHttpResponse[] = [];
+    // Materialize every outbound message before dispatching any of them: a rejection here
+    // must not leave earlier steps delivered with no persisted outcome.
+    const outbounds = prepared.map(({ request }) => sendArguments(request));
     for (const [index, preparedRequest] of prepared.entries()) {
-      const outbound = sendArguments(preparedRequest.request);
+      const outbound = outbounds[index];
+      if (!outbound) throw new ReplayValidationError('Replay lost its prepared outbound request');
       const terminalAttempt = (rawResponse: string): TerminalAttempt => ({
         exchangeId: `attempt_${sha256(`${command.actionId}\0${preparedRequest.stepId}\0${index + 1}`).slice(0, 24)}`,
         record: {
@@ -1971,7 +2085,8 @@ export class ReplayService {
       exchanges.push(normalized);
       responses.push(parsedResponse);
 
-      if (persistentProof && index === 0 && evaluateProofResponse(command.proofCondition, parsedResponse).passed) {
+      const checksPersistentPrecondition = persistentProof && index === 0;
+      if (checksPersistentPrecondition && evaluateProofResponse(command.proofCondition, parsedResponse, null).passed) {
         const outcome: ReplayOutcome = {
           status: 'precondition_failed',
           exchanges: [normalized],
@@ -1985,6 +2100,7 @@ export class ReplayService {
             preparedRequest.sourceRequestDigest,
             preparedRequest.sentRequestDigest,
             parsedResponse,
+            preparedRequest.request,
             normalized.exchangeId,
           ),
         };
@@ -2022,6 +2138,7 @@ export class ReplayService {
         proofRequest.sourceRequestDigest,
         proofRequest.sentRequestDigest,
         observedResponse,
+        proofRequest.request,
         observed.exchangeId,
       ),
     };

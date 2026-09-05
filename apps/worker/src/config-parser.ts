@@ -522,7 +522,12 @@ function normalizeIdentityBoundRequestFields(
       normalized = { location: 'json', pointer: field.pointer };
       identity = `json\0${field.pointer}`;
     } else {
-      if (field.name.length === 0 || field.name.length > 128 || field.name.trim() !== field.name || /[\r\n\0]/.test(field.name)) {
+      if (
+        field.name.length === 0 ||
+        field.name.length > 128 ||
+        field.name.trim() !== field.name ||
+        /[\r\n\0]/.test(field.name)
+      ) {
         throwConfigValidation(`Invalid ${field.location} name in identity_bound_request_fields`, {
           field: 'identity_bound_request_fields.name',
           location: field.location,

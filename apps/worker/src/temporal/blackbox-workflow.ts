@@ -159,7 +159,11 @@ export function buildSettlement(
 
     if (attempt.value.taskId !== task.taskId) {
       if (task.kind === 'action') contributions.push(deliveryUnknownContribution(task, baseRevision));
-      else failures.push({ taskId: task.taskId, reason: 'worker contribution task ID does not match its registered task' });
+      else
+        failures.push({
+          taskId: task.taskId,
+          reason: 'worker contribution task ID does not match its registered task',
+        });
       continue;
     }
 
@@ -376,10 +380,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
     }
   };
 
-  const evaluateWave = async (
-    waveNumber: number,
-    plannerStop: boolean,
-  ): Promise<BlackboxWorkflowResult | null> => {
+  const evaluateWave = async (waveNumber: number, plannerStop: boolean): Promise<BlackboxWorkflowResult | null> => {
     const evaluation = await controlActivities.evaluateBlackboxProgress({
       ...input,
       revision,

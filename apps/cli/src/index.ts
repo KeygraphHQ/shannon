@@ -9,8 +9,9 @@
  * in the current working directory.
  */
 
+import { realpathSync } from 'node:fs';
 import path from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
 import { logs } from './commands/logs.js';
@@ -30,8 +31,8 @@ import { getVersion, getVersionLine } from './version.js';
 
 export { buildWorkerDockerArgs } from './docker.js';
 export { buildEnvFlags } from './env.js';
-export { renderScan as renderStatusFrame } from './scan/render.js';
 export { isFailedScanState } from './scan/pipeline.js';
+export { renderScan as renderStatusFrame } from './scan/render.js';
 export { toStatusJson } from './scan/status-json.js';
 
 function blockSudo(): void {
@@ -280,15 +281,35 @@ async function main(): Promise<void> {
   }
 }
 
-const entryPath = process.argv[1];
-const isDirectExecution =
-  entryPath !== undefined && pathToFileURL(path.resolve(entryPath)).href === import.meta.url;
-
-if (isDirectExecution) {
-  main().catch((err) => {
+/** Run the CLI, turning argument errors into usage output and anything else into a crash report. */
+export async function run(): Promise<void> {
+  await main().catch((err) => {
     if (err instanceof ArgError) {
       failUsage(err.message, `Run "${commandPrefix()} help" for usage`);
     }
     crash(err);
   });
+}
+
+/**
+ * True when this bundle is itself the process entry (the published `bin`).
+ *
+ * NOTE: npm links that bin as a symlink in `node_modules/.bin`, and Node does not resolve
+ * `process.argv[1]` through symlinks the way it resolves the entry module's URL — so compare
+ * real paths rather than raw argv.
+ */
+function isProcessEntry(): boolean {
+  const entryPath = process.argv[1];
+  if (entryPath === undefined) return false;
+
+  const modulePath = fileURLToPath(import.meta.url);
+  try {
+    return realpathSync(entryPath) === realpathSync(modulePath);
+  } catch {
+    return path.resolve(entryPath) === modulePath;
+  }
+}
+
+if (isProcessEntry()) {
+  void run();
 }

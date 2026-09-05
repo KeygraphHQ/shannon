@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { redactSensitive } from '../ai/sensitive-redaction.js';
+import { redactPortableTokens, redactSensitive } from '../ai/sensitive-redaction.js';
 import { deliverablesDir } from '../paths.js';
 import type {
   BlackboxRunStatus,
@@ -51,8 +51,6 @@ export interface BlackboxArtifactIo {
 const DEFAULT_IO: BlackboxArtifactIo = { ensureDirectory, atomicWrite };
 const NO_FINDINGS =
   'No replay-verified findings were produced. This run is not a clean assessment of unexercised routes or workflows.';
-const PORTABLE_AUTH_TOKEN = /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi;
-const PORTABLE_JWT = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/g;
 const MIN_GLOBAL_DISCOVERED_SECRET_LENGTH = 12;
 const SENSITIVE_MUTATION_TARGET =
   /(?:^|[-_./])(?:authorization|cookie|password|passwd|pwd|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|csrf(?:[-_]?token)?|xsrf(?:[-_]?token)?|session(?:id)?|x[-_]?auth|token|nonce|state|key|credential)(?:$|[-_./])/i;
@@ -180,14 +178,12 @@ function redactStringValues(value: unknown, secrets: readonly string[]): unknown
   }
   if (Array.isArray(value)) return value.map((item) => redactStringValues(item, secrets));
   if (value === null || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value).map(([key, item]) => [
-      key,
-      SENSITIVE_MUTATION_TARGET.test(key) && typeof item === 'string'
-        ? '<redacted>'
-        : redactStringValues(item, secrets),
-    ]),
-  );
+  const entries = Object.entries(value).map(([key, item]): [string, unknown] => {
+    // A sensitive field name hides its whole subtree whatever its JSON type.
+    if (SENSITIVE_MUTATION_TARGET.test(key)) return [key, '<redacted>'];
+    return [key, redactStringValues(item, secrets)];
+  });
+  return Object.fromEntries(entries);
 }
 
 function redact(
@@ -196,10 +192,6 @@ function redact(
   discoveredSecrets: readonly string[] = [],
 ): unknown {
   return redactStringValues(projectSensitivePayloads(value), [...configuredSecrets, ...discoveredSecrets]);
-}
-
-function redactPortableTokens(value: string): string {
-  return value.replace(PORTABLE_AUTH_TOKEN, '$1 <redacted>').replace(PORTABLE_JWT, '<redacted>');
 }
 
 function json(value: unknown, configuredSecrets: readonly string[], discoveredSecrets: readonly string[] = []): string {

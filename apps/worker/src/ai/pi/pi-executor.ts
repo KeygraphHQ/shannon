@@ -333,7 +333,12 @@ export async function runPiPrompt(
 ): Promise<PiPromptResult> {
   // 1. Initialize timing and prompt. A submit tool appends its directive so the
   //    instruction to call it lives with the tool, not in every prompt file.
-  const telemetryPolicy = executionOptions?.sensitiveTelemetryPolicy;
+  // Agent telemetry is a terminal sink with nothing downstream to scrub it, so it
+  // also strips scheme-prefixed and JWT-shaped credentials that carry no field name.
+  const callerPolicy = executionOptions?.sensitiveTelemetryPolicy;
+  const telemetryPolicy: SensitiveTelemetryPolicy | undefined = callerPolicy
+    ? { ...callerPolicy, redactPortableTokens: true }
+    : undefined;
   const safe = <T>(value: T): T => (telemetryPolicy ? redactSensitive(value, telemetryPolicy) : value) as T;
   const safeDescription = String(safe(description));
   const safeSourceDir = String(safe(sourceDir));

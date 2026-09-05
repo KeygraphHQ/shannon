@@ -1669,6 +1669,8 @@ test('capture retries observed traffic when blackboard validation rejects model 
   const warning = deps.logger.entries.find(([, message]) => /model enrichment/i.test(message));
   assert.deepEqual(warning?.[2], {
     actor: 'attacker',
+    taskId: 'bootstrap-attacker',
+    droppedEnrichment: 'resources=1, transitions=1',
     error: 'BlackboardValidationError',
     reason: 'Unknown exchange reference in semantic enrichment',
   });

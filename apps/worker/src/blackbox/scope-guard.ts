@@ -107,10 +107,7 @@ export function identityBindingContractDigest(fields: readonly IdentityBoundRequ
   return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
 }
 
-export function assertSameBlackboxRunScope(
-  existing: BlackboxRunScope,
-  expected: BlackboxRunScope,
-): void {
+export function assertSameBlackboxRunScope(existing: BlackboxRunScope, expected: BlackboxRunScope): void {
   const fields: readonly (keyof BlackboxRunScope)[] = [
     'mode',
     'targetOrigin',

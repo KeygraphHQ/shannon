@@ -270,6 +270,26 @@ function decodedPathSegments(path: string): ReadonlySet<string> {
   return segments;
 }
 
+/**
+ * Decide whether the replayed request carries the reference to the server itself. A reference
+ * the attacker supplies proves nothing on its own: an endpoint that reflects the requested
+ * identifier back into a 2xx body satisfies a bare body match without disclosing anything the
+ * attacker did not already hold.
+ *
+ * NOTE: raw request text is required, so only a caller that read raw evidence can ask. A caller
+ * without it admits the marker and leans on the replay, which screens the request it actually
+ * sends against the same values on the wire.
+ */
+function attackerSuppliedReference(source: NormalizedExchange, reference: string, rawRequest: string): boolean {
+  if (decodedPathSegments(source.path).has(reference)) return true;
+  if (rawRequest.includes(reference)) return true;
+  try {
+    return decodeURIComponent(rawRequest).includes(reference);
+  } catch {
+    return false;
+  }
+}
+
 function groundedReferences(exchange: NormalizedExchange, resource: BlackboxResource): string[] {
   const observed = new Set([...exchange.candidateObjectReferences, ...decodedPathSegments(exchange.path)]);
   return [...new Set(resource.objectReferences)]
@@ -326,11 +346,17 @@ function candidateOrder(left: AttackCandidate, right: AttackCandidate): number {
  * Turn already-grounded ownership and route evidence into bounded identity-swap replays.
  * The replay and verifier remain responsible for proving impact; this compiler only
  * removes the model's need to rediscover the authorization-test template.
+ *
+ * Omitting `rawRequests` declares that the caller read no raw evidence at all — the
+ * route-discovery pass that decides which raw records are worth fetching — and leaves the
+ * grounded fallback intact. Supplying it declares that raw evidence was read, so a source
+ * exchange missing from the map is treated as unreadable and yields no body-match proof.
  */
 export function compileAuthorizationAttacks(
   snapshot: BlackboxSnapshot,
   limit = 2,
   rawResponses: ReadonlyMap<string, string> = new Map(),
+  rawRequests?: ReadonlyMap<string, string>,
 ): CompiledAuthorizationAttacks {
   if (snapshot.runStatus !== 'running' || !Number.isInteger(limit) || limit < 1) {
     return { hypotheses: [], tasks: [] };
@@ -436,7 +462,19 @@ export function compileAuthorizationAttacks(
         const resourceType = safeResourceType(victimResource.resourceType);
         const structuredProof = structuredProofCondition(source, control, controls, marker, rawResponses);
         if (structuredProof === UNPROVEN_SELECTOR_ECHO) continue;
-        const proofCondition = structuredProof ?? ({ type: 'body_contains', marker } as const);
+        let proofCondition: ProofCondition;
+        if (structuredProof) {
+          proofCondition = structuredProof;
+        } else {
+          const rawSourceRequest = rawRequests?.get(source.exchangeId) ?? null;
+          const fallbackMarker = groundedReferences(source, victimResource).find((reference) => {
+            if (controlReferences.has(reference)) return false;
+            if (rawSourceRequest === null) return true;
+            return !attackerSuppliedReference(source, reference, rawSourceRequest);
+          });
+          if (!fallbackMarker) continue;
+          proofCondition = { type: 'body_contains', marker: fallbackMarker };
+        }
         const hypothesis: BlackboxHypothesis = {
           hypothesisId,
           kind: 'horizontal',

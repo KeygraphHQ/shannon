@@ -7,4 +7,4 @@ if (npxFlagIndex === -1) {
   process.argv.splice(npxFlagIndex, 1);
 }
 
-import('./apps/cli/dist/index.mjs');
+import('./apps/cli/dist/index.mjs').then((mod) => mod.run());

@@ -19,7 +19,16 @@ const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 const TASK_KINDS = new Set(['recon', 'analysis', 'action']);
 const TASK_STATUSES = new Set(['pending', 'running', 'completed', 'failed', 'rejected']);
 const TERMINAL_HYPOTHESIS_STATUSES = new Set<HypothesisStatus>(['verified', 'disproved', 'no_demonstrated_impact']);
-const TRANSITIONS = new Set(['reserve', 'register', 'start', 'settle', 'verify', 'verify-failure', 'evaluate', 'finalize']);
+const TRANSITIONS = new Set([
+  'reserve',
+  'register',
+  'start',
+  'settle',
+  'verify',
+  'verify-failure',
+  'evaluate',
+  'finalize',
+]);
 
 export type BlackboxControlTransition =
   | 'reserve'

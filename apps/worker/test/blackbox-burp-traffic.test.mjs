@@ -1166,6 +1166,7 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
     { ...exchange, exchangeId: 'ex_response_type', responseContentType: 'text/plain' },
     { ...exchange, exchangeId: 'ex_fingerprint', responseFingerprint: 'sha256:different' },
     { ...exchange, exchangeId: 'ex_identity', identity: 'victim' },
+    // Differs only in the capture ordinal, so it is the same exchange observed twice.
     { ...exchange, exchangeId: 'ex_order', captureSequence: 2 },
   ];
   assert.deepEqual(
@@ -1181,7 +1182,6 @@ test('normalization persists exact raw evidence and exposes stable redacted meta
       'ex_response_type',
       'ex_fingerprint',
       'ex_identity',
-      'ex_order',
     ],
   );
 });

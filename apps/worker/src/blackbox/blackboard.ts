@@ -573,7 +573,8 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
     const planningDecision = document.planningDecision as Record<string, unknown> | null | undefined;
     if (
       planningDecision &&
-      (planningDecision.decision !== 'continue' || Number(planningWave.waveNumber) <= Number(planningDecision.waveNumber))
+      (planningDecision.decision !== 'continue' ||
+        Number(planningWave.waveNumber) <= Number(planningDecision.waveNumber))
     ) {
       throw new BlackboardValidationError('Blackboard planningWave does not advance its planning decision');
     }
@@ -634,7 +635,9 @@ export class FileBlackboardStore implements BlackboardStore {
         if (existing.targetOrigin !== input.targetOrigin) {
           throw new BlackboardValidationError('Existing blackboard target origin does not match initialization');
         }
-        const existingNames = existing.identities.map(({ name }) => name).sort((left, right) => left.localeCompare(right));
+        const existingNames = existing.identities
+          .map(({ name }) => name)
+          .sort((left, right) => left.localeCompare(right));
         if (!isDeepStrictEqual(existingNames, inputNames)) {
           throw new BlackboardValidationError('Existing blackboard identities do not match initialization');
         }
@@ -694,11 +697,7 @@ export class FileBlackboardStore implements BlackboardStore {
     });
   }
 
-  async reservePlanningWave(
-    baseRevision: number,
-    operationKey: string,
-    waveNumber: number,
-  ): Promise<BlackboxSnapshot> {
+  async reservePlanningWave(baseRevision: number, operationKey: string, waveNumber: number): Promise<BlackboxSnapshot> {
     return this.keyedCompareAndSwap(
       baseRevision,
       operationKey,
@@ -918,15 +917,17 @@ export class FileBlackboardStore implements BlackboardStore {
           actions = mergeRecords(
             'action',
             actions,
-            [{
-              actionId: task.taskId,
-              hypothesisId: task.hypothesisId,
-              sequence: { actionId: task.taskId, ...clone(task.replayPlan) },
-              status: 'delivery_unknown',
-              exchangeIds: [],
-              observation: null,
-              provenance,
-            }],
+            [
+              {
+                actionId: task.taskId,
+                hypothesisId: task.hypothesisId,
+                sequence: { actionId: task.taskId, ...clone(task.replayPlan) },
+                status: 'delivery_unknown',
+                exchangeIds: [],
+                observation: null,
+                provenance,
+              },
+            ],
             ({ actionId }) => actionId,
             provenance,
           );
@@ -942,10 +943,7 @@ export class FileBlackboardStore implements BlackboardStore {
           ...document,
           actions,
           tasks: document.tasks.map((task): PlannerTask => {
-            const bootstrap =
-              task.kind === 'recon' &&
-              bootstrapTaskIds.has(task.taskId) &&
-              task.hypothesisId === null;
+            const bootstrap = task.kind === 'recon' && bootstrapTaskIds.has(task.taskId) && task.hypothesisId === null;
             if (task.status === 'running') {
               if (task.kind === 'analysis' || bootstrap) return { ...task, status: 'pending' };
               return { ...task, status: 'failed' };
@@ -1007,9 +1005,11 @@ export class FileBlackboardStore implements BlackboardStore {
         const next = {
           ...document,
           identities: document.identities.map((entry) =>
-            entry.name === identity ? { ...entry, authenticated: false } : entry),
-          tasks: document.tasks.map((entry): PlannerTask =>
-            entry.taskId === taskId ? { ...entry, status: 'pending' } : entry),
+            entry.name === identity ? { ...entry, authenticated: false } : entry,
+          ),
+          tasks: document.tasks.map(
+            (entry): PlannerTask => (entry.taskId === taskId ? { ...entry, status: 'pending' } : entry),
+          ),
         };
         validateReferences(next);
         return next;
@@ -1286,14 +1286,10 @@ export class FileBlackboardStore implements BlackboardStore {
       terminalFailure === undefined
         ? { operation: 'setRunStatus', baseRevision, status }
         : { operation: 'setRunStatus', baseRevision, status, terminalFailure };
-    return this.keyedCompareAndSwap(
-      baseRevision,
-      operationKey,
-      request,
-      (document) =>
-        terminalFailure === undefined
-          ? { ...document, runStatus: status }
-          : { ...document, runStatus: status, terminalFailure },
+    return this.keyedCompareAndSwap(baseRevision, operationKey, request, (document) =>
+      terminalFailure === undefined
+        ? { ...document, runStatus: status }
+        : { ...document, runStatus: status, terminalFailure },
     );
   }
 

@@ -5,12 +5,12 @@
  * within their own workflow context.
  */
 
-export type { ActivityInput } from './activities.js';
 export type {
   BlackboxTerminalStatus,
   BlackboxWorkflowInput,
   BlackboxWorkflowResult,
 } from '../blackbox/activities.js';
+export type { ActivityInput } from './activities.js';
 export type { BlackboxWorkflowProgress } from './blackbox-workflow.js';
 export type {
   AgentMetrics,

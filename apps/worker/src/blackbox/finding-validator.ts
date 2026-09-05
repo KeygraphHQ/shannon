@@ -6,7 +6,7 @@
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { redactSensitive } from '../ai/sensitive-redaction.js';
+import { containsCredentialSyntax } from '../ai/sensitive-redaction.js';
 import type {
   BlackboxActionResult,
   BlackboxResource,
@@ -126,8 +126,7 @@ function evidenceExists(snapshot: BlackboxSnapshot, reference: EvidenceRef, targ
 function safeImpactText(value: string): boolean {
   if (typeof value !== 'string' || value.length === 0 || value !== value.trim() || /[\r\n]/.test(value)) return false;
   if (SPECULATIVE_LANGUAGE.test(value)) return false;
-  const redacted = redactSensitive(value, { sensitiveValues: [], redactAuthenticationSyntax: true });
-  return redacted === value;
+  return !containsCredentialSyntax(value);
 }
 
 function safeImpact(demonstratedAction: string, concreteEffect: string, preconditions: readonly string[]): boolean {
@@ -553,6 +552,8 @@ export function collectVerifiedFindings(
     if (
       !exactArray(verification.replayActionIds, [action.actionId]) ||
       !validFreshStates(snapshot, verification.verificationId, expectedActors, verification.freshStateRefs) ||
+      // NOTE: the activity layer binds this from the candidate proof, so a divergence here means
+      // the snapshot was not built by that path. The promotion still refuses to guess between them.
       verification.affectedParty !== candidate.affectedParty ||
       !safeImpact(candidate.demonstratedAction, candidate.concreteEffect, candidate.preconditions) ||
       !safeImpact(verification.demonstratedAction, verification.concreteEffect, candidate.preconditions)

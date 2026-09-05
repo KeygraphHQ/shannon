@@ -8,8 +8,8 @@
 
 import type { DerivedPhase } from './derive.js';
 import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
-import type { RenderInput } from './render.js';
 import { isBlackboxState } from './pipeline.js';
+import type { RenderInput } from './render.js';
 
 /** Coarse scan status token, mirroring the human status badge in machine-friendly form. */
 export type ScanStatus = 'running' | 'completed' | 'partial' | 'failed' | 'stopped' | 'cancelled' | 'timed_out';

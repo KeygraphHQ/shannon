@@ -34,10 +34,7 @@ import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
 import { sanitizeHostname } from '../audit/utils.js';
-import type {
-  BlackboxWorkflowInput,
-  BlackboxWorkflowResult,
-} from '../blackbox/activities.js';
+import type { BlackboxWorkflowInput, BlackboxWorkflowResult } from '../blackbox/activities.js';
 import * as blackboxActivities from '../blackbox/activities.js';
 import { createBlackboxRunScope } from '../blackbox/scope-guard.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
@@ -271,12 +268,8 @@ function buildBlackboxInput(args: CliArgs, workspace: WorkspaceResolution): Blac
     workflowId: workspace.workflowId,
     auditDir: './workspaces',
     ...(args.outputPath ? { outputPath: args.outputPath } : {}),
-    ...(workspace.isResume && args.resumeFromWorkspace
-      ? { resumeFromWorkspace: args.resumeFromWorkspace }
-      : {}),
-    ...(workspace.terminatedWorkflows.length > 0
-      ? { terminatedWorkflows: workspace.terminatedWorkflows }
-      : {}),
+    ...(workspace.isResume && args.resumeFromWorkspace ? { resumeFromWorkspace: args.resumeFromWorkspace } : {}),
+    ...(workspace.terminatedWorkflows.length > 0 ? { terminatedWorkflows: workspace.terminatedWorkflows } : {}),
   };
 }
 
@@ -431,13 +424,14 @@ async function run(): Promise<void> {
       // 6. Submit workflow to the same task queue
       if (args.mode === 'blackbox') {
         const input = buildBlackboxInput(args, workspace);
-        const handle = await client.workflow.start<
-          (input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>
-        >(workflowNameFor(args.mode), {
-          taskQueue: args.taskQueue,
-          workflowId: workspace.workflowId,
-          args: [input],
-        });
+        const handle = await client.workflow.start<(input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>>(
+          workflowNameFor(args.mode),
+          {
+            taskQueue: args.taskQueue,
+            workflowId: workspace.workflowId,
+            args: [input],
+          },
+        );
         await waitForBlackboxWorkflowResult(handle);
       } else {
         const input = buildPipelineInput(args, workspace, orchestration);

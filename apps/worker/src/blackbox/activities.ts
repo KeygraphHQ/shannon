@@ -34,7 +34,12 @@ import type {
   WorkerContribution,
 } from '../types/blackbox.js';
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
-import { BlackboxAgentRunner, type RedactedBlackboxSlice, type RedactedIdentityContext } from './agent-runner.js';
+import {
+  BlackboxAgentRunner,
+  collectSubmissionSecrets,
+  type RedactedBlackboxSlice,
+  type RedactedIdentityContext,
+} from './agent-runner.js';
 import type { PlannerBatch } from './agents.js';
 import {
   BLACKBOX_ARTIFACT_NAMES,
@@ -309,6 +314,7 @@ interface TargetContext {
   readonly targetUrl: string;
   readonly config: NormalizedBlackboxConfig;
   readonly configuredSecrets: readonly string[];
+  readonly configuredCredentialSecrets: readonly string[];
 }
 
 interface RuntimeContext extends TargetContext {
@@ -405,7 +411,10 @@ async function loadTargetContext(
   const configuredSecrets = [
     ...new Set(config.identities.flatMap(({ authentication }) => collectStrings(authentication.credentials))),
   ];
-  return { targetOrigin, targetUrl: target.href, config, configuredSecrets };
+  const configuredCredentialSecrets = [
+    ...new Set(config.identities.flatMap(({ authentication }) => collectSubmissionSecrets(authentication.credentials))),
+  ];
+  return { targetOrigin, targetUrl: target.href, config, configuredSecrets, configuredCredentialSecrets };
 }
 
 async function loadRuntimeContext(
@@ -854,6 +863,55 @@ function namespaceContributionRecords(contribution: WorkerContribution, taskId: 
   };
 }
 
+/**
+ * Contribution fields the model authors. Host-observed capture — the exchanges recorded off the
+ * wire and the deterministic action result — is evidence and always survives; everything listed
+ * here is enrichment carrying model-supplied identifiers and references, and is expendable when
+ * the blackboard refuses it.
+ */
+const MODEL_AUTHORED_CONTRIBUTION_FIELDS = [
+  'resources',
+  'transitions',
+  'hypotheses',
+  'candidateProofs',
+] as const satisfies readonly (keyof WorkerContribution)[];
+
+type ModelAuthoredField = (typeof MODEL_AUTHORED_CONTRIBUTION_FIELDS)[number];
+
+/** The model-authored fields a contribution populated. Empty means it carries no shedable enrichment. */
+function modelAuthoredFields(contribution: WorkerContribution): readonly ModelAuthoredField[] {
+  return MODEL_AUTHORED_CONTRIBUTION_FIELDS.filter((field) => (contribution[field]?.length ?? 0) > 0);
+}
+
+/** Names the enrichment a contribution carries, with record counts, for a dropped-evidence log. */
+function describeModelAuthoredFields(contribution: WorkerContribution): string {
+  return modelAuthoredFields(contribution)
+    .map((field) => `${field}=${contribution[field]?.length ?? 0}`)
+    .join(', ');
+}
+
+/** Strips every model-authored field from a contribution, keeping only the host-observed evidence. */
+function observedContributionOnly(contribution: WorkerContribution): WorkerContribution {
+  const modelAuthored = new Set<string>(MODEL_AUTHORED_CONTRIBUTION_FIELDS);
+  const observed = Object.entries(contribution).filter(([field]) => !modelAuthored.has(field));
+  return Object.fromEntries(observed) as WorkerContribution;
+}
+
+/**
+ * Candidate proofs from a batch that the blackboard actually accepted. A degraded settlement drops
+ * model-authored proofs, so verification is only scheduled for what genuinely landed on the board.
+ */
+function committedCandidateIds(
+  snapshot: BlackboxSnapshot,
+  contributions: readonly WorkerContribution[],
+): readonly string[] {
+  const committed = new Set(snapshot.candidateProofs.map(({ candidateId }) => candidateId));
+  const submitted = contributions.flatMap(
+    ({ candidateProofs }) => candidateProofs?.map(({ candidateId }) => candidateId) ?? [],
+  );
+  return [...new Set(submitted.filter((candidateId) => committed.has(candidateId)))].sort();
+}
+
 function verificationRoot(repoPath: string, verificationId: string): string {
   return path.resolve(repoPath, '.shannon', 'blackbox', 'verification-runs', verificationId);
 }
@@ -928,6 +986,24 @@ function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]
       redactAuthenticationSyntax: true,
     }),
   ).slice(0, 500);
+}
+
+/**
+ * Resolve the failure reason recorded for a verification attempt.
+ *
+ * A verified verdict rests on the host's own deterministic replay observation, so the host
+ * records it unqualified; prose the model attaches beside a verified verdict would disqualify
+ * the proved finding downstream. Every other verdict keeps the model's redacted reason.
+ */
+function verificationFailureReason(
+  submissionFailed: boolean,
+  submitted: VerificationResult | null,
+  configuredSecrets: readonly string[],
+): string | null {
+  if (submissionFailed) return 'verifier submission failed after replay';
+  if (submitted?.verdict === 'verified') return null;
+  if (submitted?.failureReason === null) return null;
+  return safeFailureReason(submitted?.failureReason, configuredSecrets);
 }
 
 async function readTerminalArtifactFailures(
@@ -1088,7 +1164,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     context: RuntimeContext,
     snapshot: BlackboxSnapshot,
     legacyFailure: string | null = null,
-  ): Promise<{ readonly findings: readonly VerifiedBlackboxFinding[]; readonly artifactNames: typeof BLACKBOX_ARTIFACT_NAMES }> => {
+  ): Promise<{
+    readonly findings: readonly VerifiedBlackboxFinding[];
+    readonly artifactNames: typeof BLACKBOX_ARTIFACT_NAMES;
+  }> => {
     if (snapshot.runStatus === 'running' || snapshot.revision < 1) {
       throw new Error('Cannot publish artifacts before terminal state is committed');
     }
@@ -1099,7 +1178,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       snapshot: { ...snapshot, revision: snapshot.revision - 1 },
       findings,
       status: snapshot.runStatus,
-      failure: Object.hasOwn(snapshot, 'terminalFailure') ? snapshot.terminalFailure ?? null : legacyFailure,
+      failure: Object.hasOwn(snapshot, 'terminalFailure') ? (snapshot.terminalFailure ?? null) : legacyFailure,
       configuredSecrets: context.configuredSecrets,
     });
     const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
@@ -1152,12 +1231,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           } else {
             try {
               repairFailure =
-                (await readTerminalArtifactFailures(
-                  dependencies.fileSystem,
-                  input.repoPath,
-                  initializedStore.snapshot,
-                  context.configuredSecrets,
-                ))[0] ?? null;
+                (
+                  await readTerminalArtifactFailures(
+                    dependencies.fileSystem,
+                    input.repoPath,
+                    initializedStore.snapshot,
+                    context.configuredSecrets,
+                  )
+                )[0] ?? null;
             } catch {
               repairFailure = 'terminal artifact publication was interrupted; original terminal reason is unavailable';
             }
@@ -1229,7 +1310,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const initializedPlanningState = durablePlanningState(initialized);
     const unresolvedCandidateIds = initialized.candidateProofs
       .filter(
-        ({ candidateId }) => !initialized.verifications.some((verification) => verification.candidateId === candidateId),
+        ({ candidateId }) =>
+          !initialized.verifications.some((verification) => verification.candidateId === candidateId),
       )
       .map(({ candidateId }) => candidateId)
       .sort();
@@ -1258,13 +1340,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         overwrite: true,
       });
       const captureToken = createCaptureToken(dependencies);
-      const before = await readTargetHistory(
-        client,
-        context.targetOrigin,
-        context.config.rules,
-        cancellationSignal,
-        [captureToken],
-      );
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+        captureToken,
+      ]);
       try {
         await openCaptureBoundSession(
           dependencies,
@@ -1279,13 +1357,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           cwd: input.repoPath,
         });
       }
-      const after = await readTargetHistory(
-        client,
-        context.targetOrigin,
-        context.config.rules,
-        cancellationSignal,
-        [captureToken],
-      );
+      const after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+        captureToken,
+      ]);
       if (filterCapturedTrafficByToken(diffHistory(before, after), captureToken).length === 0) {
         throw new Error('Proxied browser navigation produced no target-origin Burp history');
       }
@@ -1454,13 +1528,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       started = await store.startTasks(snapshot.revision, `${input.workflowId}:0:start:${taskId}`, [taskId]);
       const runningTask = started.tasks.find((candidate) => candidate.taskId === taskId);
       if (!runningTask || runningTask.status !== 'running') throw new Error(`Bootstrap task ${taskId} did not start`);
-      const before = await readTargetHistory(
-        client,
-        context.targetOrigin,
-        context.config.rules,
-        cancellationSignal,
-        [captureToken],
-      );
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+        captureToken,
+      ]);
       await openCaptureBoundSession(
         dependencies,
         input.repoPath,
@@ -1508,12 +1578,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
                 Record<string, unknown>
               >,
               sensitiveValues: context.configuredSecrets,
+              submissionSecrets: context.configuredCredentialSecrets,
             }
           : {
               name: 'anonymous',
               role: 'unauthenticated',
               loginInstructions: anonymousInstructions(input),
               sensitiveValues: context.configuredSecrets,
+              submissionSecrets: context.configuredCredentialSecrets,
             };
         submitted = (await dependencies.createAgentRunner(input).run({
           kind: 'blackbox-recon',
@@ -1533,13 +1605,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           error: error instanceof Error ? error.name : 'unknown',
         });
       } finally {
-        after = await readTargetHistory(
-          client,
-          context.targetOrigin,
-          context.config.rules,
-          cancellationSignal,
-          [captureToken],
-        );
+        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+          captureToken,
+        ]);
       }
 
       let successEvidence: string | null = null;
@@ -1640,8 +1708,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         ...(namespaced?.transitions ? { transitions: namespaced.transitions } : {}),
       };
       const identityCaptures = identity ? [{ identity: identity.name, stateRef: stateRef(identity.name) }] : undefined;
-      const semanticEnrichmentPresent =
-        (contribution.resources?.length ?? 0) > 0 || (contribution.transitions?.length ?? 0) > 0;
+      const enrichment = modelAuthoredFields(contribution);
       let settled: BlackboxSnapshot;
       try {
         settled = await store.settleTasks({
@@ -1652,16 +1719,18 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           ...(identityCaptures ? { identityCaptures } : {}),
         });
       } catch (error) {
-        if (!(error instanceof BlackboardValidationError) || !semanticEnrichmentPresent) throw error;
+        if (!(error instanceof BlackboardValidationError) || enrichment.length === 0) throw error;
         activityLogger().warn('Blackboard rejected model enrichment; retrying observed capture', {
           actor,
+          taskId,
+          droppedEnrichment: describeModelAuthoredFields(contribution),
           error: error.name,
           reason: safeFailureReason(error, context.configuredSecrets),
         });
         settled = await store.settleTasks({
           operationKey: `${input.workflowId}:0:settle-observed-only:${taskId}`,
           baseRevision: started.revision,
-          contributions: [{ taskId, role: 'blackbox-recon', baseRevision: started.revision, exchanges }],
+          contributions: [observedContributionOnly(contribution)],
           failures: [],
           ...(identityCaptures ? { identityCaptures } : {}),
         });
@@ -1719,6 +1788,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const preliminaryCompiled = compileAuthorizationAttacks(snapshot);
     const compilerRawStore = dependencies.createReplayRawStore(input.repoPath);
     const rawResponses = new Map<string, string>();
+    const rawRequests = new Map<string, string>();
     const compilerRouteSignatures = new Set(
       preliminaryCompiled.tasks.flatMap(({ replayPlan }) =>
         (replayPlan?.steps ?? []).flatMap(({ sourceExchangeId }) => {
@@ -1737,12 +1807,15 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     for (const exchangeId of compilerExchangeIds) {
       try {
         const record = await compilerRawStore.readExchange(exchangeId);
-        if (record) rawResponses.set(exchangeId, record.response);
+        if (record) {
+          rawResponses.set(exchangeId, record.response);
+          rawRequests.set(exchangeId, record.request);
+        }
       } catch {
         // Raw evidence is optional for refinement; the compiler retains its grounded fallback.
       }
     }
-    const compiled = compileAuthorizationAttacks(snapshot, 2, rawResponses);
+    const compiled = compileAuthorizationAttacks(snapshot, 2, rawResponses, rawRequests);
     const auditSession = dependencies.createAuditSession(input, context.runScope);
     await auditSession.initialize(input.workflowId);
     try {
@@ -1827,13 +1900,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
       }
 
-      const before = await readTargetHistory(
-        client,
-        context.targetOrigin,
-        context.config.rules,
-        cancellationSignal,
-        [captureToken],
-      );
+      const before = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+        captureToken,
+      ]);
       const tools = callerTools(
         createBlackboxTools({
           role: 'blackbox-recon',
@@ -1875,12 +1944,14 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
                 role: identity.role,
                 loginInstructions: restoredIdentityInstructions(input, identity.name),
                 sensitiveValues: context.configuredSecrets,
+                submissionSecrets: context.configuredCredentialSecrets,
               }
             : {
                 name: 'anonymous',
                 role: 'unauthenticated',
                 loginInstructions: anonymousInstructions(input),
                 sensitiveValues: context.configuredSecrets,
+                submissionSecrets: context.configuredCredentialSecrets,
               },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -1897,13 +1968,9 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           },
         );
       } finally {
-        after = await readTargetHistory(
-          client,
-          context.targetOrigin,
-          context.config.rules,
-          cancellationSignal,
-          [captureToken],
-        );
+        after = await readTargetHistory(client, context.targetOrigin, context.config.rules, cancellationSignal, [
+          captureToken,
+        ]);
       }
       if (identity) {
         const checked = await dependencies.runBrowserCommand(
@@ -2161,6 +2228,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               'If replay requests a fresh actor request, exercise only the returned route in that actor session, then retry once.',
             ].join('\n'),
             sensitiveValues: context.configuredSecrets,
+            submissionSecrets: context.configuredCredentialSecrets,
           },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -2333,6 +2401,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
                 Record<string, unknown>
               >,
               sensitiveValues: context.configuredSecrets,
+              submissionSecrets: context.configuredCredentialSecrets,
             },
             customTools: loginTools,
             auditSession: auditSession as AuditSession,
@@ -2489,6 +2558,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             role: 'independent verifier',
             loginInstructions: instructions,
             sensitiveValues: context.configuredSecrets,
+            submissionSecrets: context.configuredCredentialSecrets,
           },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -2532,11 +2602,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         replayActionIds: [action.actionId],
         replayExchangeIds: observedExchanges.map(({ exchangeId }) => exchangeId),
         observation,
-        failureReason: submissionFailed
-          ? 'verifier submission failed after replay'
-          : submitted?.failureReason === null
-            ? null
-            : safeFailureReason(submitted?.failureReason, context.configuredSecrets),
+        failureReason: verificationFailureReason(submissionFailed, submitted, context.configuredSecrets),
       };
       const verification: VerificationResult =
         submitted?.verdict === 'verified'
@@ -2545,7 +2611,10 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               verdict: 'verified',
               demonstratedAction: submitted.demonstratedAction,
               concreteEffect: submitted.concreteEffect,
-              affectedParty: submitted.affectedParty,
+              // NOTE: the affected party comes from the candidate proof this replay reproduced,
+              // not from the verifier's independent re-pick — a divergent label would discard a
+              // break the host has already proved.
+              affectedParty: candidate.affectedParty,
             }
           : { ...common, verdict: submitted?.verdict ?? 'blocked' };
       const allExchanges = new Map(
@@ -2601,9 +2670,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     };
   };
 
-  const reserveBlackboxPlanningWave = async (
-    input: ReservePlanningWaveInput,
-  ): Promise<TaskTransitionResult> => {
+  const reserveBlackboxPlanningWave = async (input: ReservePlanningWaveInput): Promise<TaskTransitionResult> => {
     const context = await loadRuntimeContext(dependencies, input);
     const { store } = await initializeStore(input, context);
     const next = await store.reservePlanningWave(input.revision, input.operationKey, input.waveNumber);
@@ -2652,27 +2719,96 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
 
   const settleBlackboxTasks = async (input: SettleTasksInput): Promise<SettledTasksResult> => {
     const context = await loadRuntimeContext(dependencies, input);
-    const { store } = await initializeStore(input, context);
+    const { store, snapshot } = await initializeStore(input, context);
     const failures = input.failures.map(({ taskId, reason }) => ({
       taskId,
       reason: safeFailureReason(reason, context.configuredSecrets),
     }));
-    const next = await store.settleTasks({
-      operationKey: input.operationKey,
+    const settleResult = (committed: BlackboxSnapshot): SettledTasksResult => ({
+      revision: committed.revision,
+      tasks: taskStates(committed),
+      candidateIds: committedCandidateIds(committed, input.contributions),
+    });
+
+    const degradable = input.contributions.filter((contribution) => modelAuthoredFields(contribution).length > 0);
+    const singleDegradedKey = (taskId: string): string => `${input.operationKey}:observed-only:${taskId}`;
+    const wholeWaveDegradedKey = `${input.operationKey}:observed-only`;
+
+    // A retry that lands after a degraded settlement already committed must not replay the primary
+    // key: its base revision is spent, and the stale-revision recovery would fail the task.
+    const degradedKeys = new Set([...degradable.map(({ taskId }) => singleDegradedKey(taskId)), wholeWaveDegradedKey]);
+    const alreadyDegraded = (snapshot.operationReceipts ?? []).some(({ operationKey }) =>
+      degradedKeys.has(operationKey),
+    );
+    if (alreadyDegraded) return settleResult(snapshot);
+
+    let rejection: BlackboardValidationError;
+    try {
+      return settleResult(
+        await store.settleTasks({
+          operationKey: input.operationKey,
+          baseRevision: input.baseRevision,
+          contributions: input.contributions,
+          failures,
+        }),
+      );
+    } catch (error) {
+      if (!(error instanceof BlackboardValidationError) || degradable.length === 0) throw error;
+      rejection = error;
+    }
+    const rejectionReason = safeFailureReason(rejection, context.configuredSecrets);
+
+    // The store does not name the contribution it refused, so isolate it by degrading one worker at
+    // a time: a single hallucinated reference must not cost every other worker in the wave its
+    // enrichment. The first batch the store accepts identifies the offender.
+    for (const offender of degradable) {
+      const degraded = input.contributions.map((contribution) =>
+        contribution.taskId === offender.taskId ? observedContributionOnly(contribution) : contribution,
+      );
+      let isolated: BlackboxSnapshot;
+      try {
+        isolated = await store.settleTasks({
+          operationKey: singleDegradedKey(offender.taskId),
+          baseRevision: input.baseRevision,
+          contributions: degraded,
+          failures,
+        });
+      } catch (error) {
+        if (!(error instanceof BlackboardValidationError)) throw error;
+        continue;
+      }
+      activityLogger().warn('Blackboard rejected model enrichment; settled the wave without one contribution', {
+        taskId: offender.taskId,
+        droppedEnrichment: describeModelAuthoredFields(offender),
+        error: rejection.name,
+        reason: rejectionReason,
+      });
+      return settleResult(isolated);
+    }
+
+    // Degrading any single contribution left the batch unacceptable, so more than one is unusable.
+    // Host-observed capture is still evidence: settle the wave stripped of every model-authored
+    // record rather than losing the traffic and action results the workers actually produced.
+    if (degradable.length < 2) throw rejection;
+    const committed = await store.settleTasks({
+      operationKey: wholeWaveDegradedKey,
       baseRevision: input.baseRevision,
-      contributions: input.contributions,
+      contributions: input.contributions.map(observedContributionOnly),
       failures,
     });
-    const candidateIds = [
-      ...new Set(
-        input.contributions.flatMap(
-          ({ candidateProofs }) => candidateProofs?.map(({ candidateId }) => candidateId) ?? [],
-        ),
-      ),
-    ].sort();
-    return { revision: next.revision, tasks: taskStates(next), candidateIds };
+    activityLogger().warn('Blackboard rejected model enrichment across the wave; settled observed evidence only', {
+      droppedEnrichment: degradable
+        .map((contribution) => `${contribution.taskId}: ${describeModelAuthoredFields(contribution)}`)
+        .join('; '),
+      error: rejection.name,
+      reason: rejectionReason,
+    });
+    return settleResult(committed);
   };
 
+  // NOTE: A verification attempt carries no model-authored references — the verification ID, fresh
+  // state refs, replay action IDs and observation are all host-built — so a rejection here is a real
+  // defect rather than a hallucination, and there is nothing to strip and retry.
   const recordBlackboxVerification = async (input: RecordVerificationInput): Promise<number> => {
     const context = await loadRuntimeContext(dependencies, input);
     const { store } = await initializeStore(input, context);
@@ -2725,12 +2861,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       unknownDeliveries: snapshot.actions.filter(({ status }) => status === 'delivery_unknown').length,
       hitSafetyLimit: input.waveNumber >= 8,
     });
-    const next = await store.recordPlanningDecision(
-      input.revision,
-      input.operationKey,
-      input.waveNumber,
-      decision,
-    );
+    const next = await store.recordPlanningDecision(input.revision, input.operationKey, input.waveNumber, decision);
     return { decision, revision: next.revision };
   };
 
@@ -2744,7 +2875,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       legacyFailure: string | null = null,
     ): BlackboxWorkflowResult => {
       const committedFailure = Object.hasOwn(terminalSnapshot, 'terminalFailure')
-        ? terminalSnapshot.terminalFailure ?? null
+        ? (terminalSnapshot.terminalFailure ?? null)
         : legacyFailure;
       return {
         mode: 'blackbox',

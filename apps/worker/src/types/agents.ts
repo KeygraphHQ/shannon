@@ -38,7 +38,16 @@ export type PlaywrightSession = 'agent1' | 'agent2' | 'agent3' | 'agent4' | 'age
 
 import type { ActivityLogger } from './activity-logger.js';
 
-export type AgentValidator = (sourceDir: string, logger: ActivityLogger) => Promise<boolean>;
+/**
+ * Context an agent validator runs in.
+ *
+ * `completion` gates an agent that has just finished, so it must meet the current output contract.
+ * `resume` re-checks a deliverable recorded by an earlier run, whose queue can predate a field the
+ * contract added later.
+ */
+export type ValidationMode = 'completion' | 'resume';
+
+export type AgentValidator = (sourceDir: string, logger: ActivityLogger, mode?: ValidationMode) => Promise<boolean>;
 
 export type AgentStatus = 'pending' | 'in_progress' | 'completed' | 'failed' | 'rolled-back';
 

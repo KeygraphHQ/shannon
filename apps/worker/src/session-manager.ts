@@ -7,7 +7,14 @@
 import { fs, path } from 'zx';
 
 import type { ActivityLogger } from './types/activity-logger.js';
-import type { AgentDefinition, AgentName, AgentValidator, PlaywrightSession, VulnType } from './types/index.js';
+import type {
+  AgentDefinition,
+  AgentName,
+  AgentValidator,
+  PlaywrightSession,
+  ValidationMode,
+  VulnType,
+} from './types/index.js';
 
 // Agent definitions according to PRD
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
@@ -195,6 +202,7 @@ async function validateAuthzReconHandoff(
   sourceDir: string,
   queueFile: string,
   logger: ActivityLogger,
+  mode: ValidationMode,
 ): Promise<boolean> {
   const reconFile = path.join(sourceDir, 'recon_deliverable.md');
   if (!(await fs.pathExists(reconFile))) {
@@ -214,6 +222,12 @@ async function validateAuthzReconHandoff(
     }
     const queue = JSON.parse(queueJson) as AuthzQueueDocument;
     const rawDispositions = queue.recon_route_dispositions;
+    // A queue written before the route ledger existed carries no dispositions at all. Its run is
+    // already recorded as complete, so a resume accepts it rather than discarding the whole analysis.
+    if (rawDispositions === undefined && mode === 'resume') {
+      logger.warn('Authz queue predates recon route dispositions; accepting recorded completion on resume');
+      return true;
+    }
     if (!Array.isArray(rawDispositions)) {
       logger.warn('Authz recon handoff validation failed: recon_route_dispositions missing or invalid');
       return false;
@@ -295,15 +309,13 @@ async function validateAuthzReconHandoff(
     }
     return true;
   } catch (error) {
-    logger.warn(
-      `Authz recon handoff validation failed: ${error instanceof Error ? error.message : String(error)}`,
-    );
+    logger.warn(`Authz recon handoff validation failed: ${error instanceof Error ? error.message : String(error)}`);
     return false;
   }
 }
 
 function createVulnValidator(vulnType: VulnType): AgentValidator {
-  return async (sourceDir: string, logger: ActivityLogger): Promise<boolean> => {
+  return async (sourceDir: string, logger: ActivityLogger, mode: ValidationMode = 'completion'): Promise<boolean> => {
     const queueFile = path.join(sourceDir, `${vulnType}_exploitation_queue.json`);
     const queueExists = await fs.pathExists(queueFile);
     if (!queueExists) {
@@ -311,7 +323,7 @@ function createVulnValidator(vulnType: VulnType): AgentValidator {
       return false;
     }
     if (vulnType === 'authz') {
-      return validateAuthzReconHandoff(sourceDir, queueFile, logger);
+      return validateAuthzReconHandoff(sourceDir, queueFile, logger, mode);
     }
     return true;
   };
