@@ -57,18 +57,30 @@ The target repository is mounted read-only inside the worker container.
 Monitor progress:
 
 ```bash
-npx @keygraph/shannon logs <workspace>
-npx @keygraph/shannon status
+npx @keygraph/shannon logs [<workspace>]     # defaults to the single running scan, else the most recent
+npx @keygraph/shannon status [<workspace>]   # same default target; add --json for a machine-readable snapshot
+npx @keygraph/shannon scans
 npx @keygraph/shannon version
 ```
+
+With no workspace, `logs` and `status` follow the single running scan; when several are running, name one.
 
 Source-build equivalents:
 
 ```bash
-./shannon logs <workspace>
-./shannon status
+./shannon logs [<workspace>]                 # the combined live log (unchanged default)
+./shannon logs [<workspace>] --agent <name>  # tail one agent's own log
+./shannon logs [<workspace>] --list-agents   # list the agents with their own log
+./shannon status [<workspace>]
+./shannon scans
 ./shannon version
 ```
+
+Every scan writes one combined `.shannon/workflow.log` and a per-agent projection of it under
+`.shannon/agents/`: one file per pipeline agent (`recon.log`, `xss-vuln.log`, …) and one per Capella
+stage (`agentic-sast-research.log`, …). Delegated subagents fold into their parent's file, and a
+Capella stage's concurrent sessions share its file with an inline session label. The combined log
+stays canonical; the per-agent files are best-effort projections.
 
 Open the Temporal Web UI for detailed monitoring:
 
@@ -79,16 +91,17 @@ open http://localhost:8233
 Stop Shannon:
 
 ```bash
-npx @keygraph/shannon stop
-npx @keygraph/shannon stop --clean       # confirms first; add --yes (or -y) to skip
-npx @keygraph/shannon uninstall          # confirms first; add --yes (or -y) to skip
+npx @keygraph/shannon stop [<workspace>] # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
+npx @keygraph/shannon stop --all         # stop all scans (Temporal stays up)
+npx @keygraph/shannon reset              # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Source-build equivalents:
 
 ```bash
-./shannon stop
-./shannon stop --clean                   # add --yes (or -y) to skip the confirmation
+./shannon stop [<workspace>]             # stop one scan (defaults to the single running scan; confirms first; add --yes/-y to skip)
+./shannon stop --all                     # stop all scans (Temporal stays up)
+./shannon reset                          # stop everything and wipe all Temporal data (type 'confirm' to proceed; cannot be skipped)
 ```
 
 Usage examples:
@@ -106,8 +119,11 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -o ./my-repo
 # Named workspace.
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 
-# List all workspaces.
-npx @keygraph/shannon workspaces
+# Stream the log until the scan finishes, then exit on its outcome (useful in CI).
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
+
+# List running and completed scans.
+npx @keygraph/shannon scans
 ```
 
 Source-build examples:
@@ -117,7 +133,8 @@ Source-build examples:
 ./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml
 ./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
 ./shannon start -u https://example.com -r /path/to/repo -w q1-audit
-./shannon workspaces
+./shannon start -u https://example.com -r /path/to/repo --follow
+./shannon scans
 
 # Rebuild the worker image.
 ./shannon build --no-cache
@@ -132,14 +149,15 @@ Results are saved to the workspaces directory:
 
 Use `-o <path>` to copy deliverables to a custom output directory after a run completes.
 
-Output structure — the run directory's top level holds only the final report; everything else is nested under a hidden `.shannon/` directory:
+Output structure — the run directory's top level holds the final report, in PDF and Markdown; everything else is nested under a hidden `.shannon/` directory:
 
 ```text
 workspaces/{hostname}_{sessionId}/
-|-- Security-Assessment-Report.md   # the final report (the deliverable)
+|-- Security-Assessment-Report.pdf  # the final report (PDF)
+|-- Security-Assessment-Report.md   # the final report (Markdown)
 `-- .shannon/                       # internals
     |-- deliverables/               # report source, per-phase analysis, queues
-    |-- agents/                     # per-agent logs
+    |-- agents/                     # per-agent log projections, one file per agent/Capella stage
     |-- prompts/                    # rendered prompts
     |-- scratchpad/                 # screenshots, scripts
     |-- session.json                # resume state

@@ -201,8 +201,6 @@ jobs:
 
       - name: Publish npm package
         working-directory: apps/cli
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if npm view "@keygraph/shannon@${{ needs.preflight.outputs.version }}" version 2>/dev/null; then
             echo "Version already published, skipping"

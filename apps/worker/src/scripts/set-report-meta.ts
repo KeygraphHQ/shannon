@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -58,6 +58,8 @@ function getFlag(argv: string[], flag: string): string | undefined {
   return undefined;
 }
 
+// Reads the existing report.json (if any) so report_meta can be merged in without
+// disturbing the findings array that other invocations of the report agent's tools append to.
 function readReportFile(filePath: string): ReportFile {
   if (!existsSync(filePath)) {
     return { findings: [] };
@@ -66,6 +68,8 @@ function readReportFile(filePath: string): ReportFile {
   return JSON.parse(raw) as ReportFile;
 }
 
+// Temp file + rename so a crash mid-write never leaves report.json truncated; the
+// finding-collector's own writes to this file rely on the same guarantee.
 function writeReportFile(filePath: string, data: ReportFile): void {
   const tmpPath = `${filePath}.tmp`;
   const payload = JSON.stringify(data, null, 2);

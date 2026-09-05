@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -8,6 +8,9 @@
  * Configuration type definitions
  */
 
+// Every variant but `code_path` scopes network requests (URL/method/header/parameter matching).
+// `code_path` is enforced by a different mechanism entirely: it becomes a permission-system deny
+// rule so an avoided path is blocked from every tool and child session, not just outbound traffic.
 export type RuleType = 'url_path' | 'subdomain' | 'domain' | 'method' | 'header' | 'parameter' | 'code_path';
 
 export interface Rule {
@@ -32,7 +35,10 @@ export interface ReportConfig {
   min_severity?: Severity;
   min_confidence?: Confidence;
   guidance?: string;
-  /** Emit report.sarif alongside the markdown report. Ignored when exploit is false. */
+  /**
+   * Emit report.sarif alongside the markdown report. On by default for exploit runs; set 'false'
+   * to opt out. Ignored when exploit is false.
+   */
   sarif?: 'true' | 'false';
 }
 
@@ -64,11 +70,15 @@ export interface Authentication {
   success_condition: SuccessCondition;
 }
 
+export interface AgenticSastConfig {
+  enabled: 'true' | 'false';
+}
+
 export interface Config {
   rules?: Rules;
   authentication?: Authentication;
   description?: string;
-  vuln_classes?: VulnClass[];
+  agentic_sast?: AgenticSastConfig;
   exploit?: 'true' | 'false';
   report?: ReportConfig;
   rules_of_engagement?: string;
@@ -82,7 +92,8 @@ export interface DistributedConfig {
   focus: Rule[];
   authentication: Authentication | null;
   description: string;
-  vuln_classes: VulnClass[];
+  /** Present only when Capella is enabled. */
+  agenticSast?: true;
   exploit: boolean;
   report: DistributedReportConfig;
   rules_of_engagement: string;

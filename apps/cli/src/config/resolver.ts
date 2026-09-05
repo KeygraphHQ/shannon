@@ -7,6 +7,7 @@
 
 import fs from 'node:fs';
 import { parse as parseTOML } from 'smol-toml';
+import { fail } from '../errors.js';
 import { getConfigFile } from '../home.js';
 import { getMode } from '../mode.js';
 import {
@@ -14,6 +15,7 @@ import {
   DEFAULT_MODEL_SPEC,
   GENERIC_API_KEY_ENV,
   isCuratedProvider,
+  PROVIDER_API_KEY_ENV,
   parseModelSpec,
 } from '../model-spec.js';
 
@@ -38,9 +40,8 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: 'ANTHROPIC_API_KEY', toml: 'anthropic.api_key', type: 'string' },
   { env: 'CLAUDE_CODE_OAUTH_TOKEN', toml: 'anthropic.oauth_token', type: 'string' },
 
-  // OpenAI — format picks the wire API a gateway serves
+  // OpenAI
   { env: 'OPENAI_API_KEY', toml: 'openai.api_key', type: 'string' },
-  { env: 'SHANNON_AI_OPENAI_FORMAT', toml: 'openai.format', type: 'string' },
 
   // xAI
   { env: 'XAI_API_KEY', toml: 'xai.api_key', type: 'string' },
@@ -100,10 +101,9 @@ function loadTOML(): TOMLConfig | null {
     const mode = fs.statSync(configPath).mode;
     if (mode & 0o077) {
       const actual = (mode & 0o777).toString(8).padStart(3, '0');
-      console.error(
-        `\nYour config file is readable by other users on this machine (${actual}). Lock it down: chmod 600 ${configPath}\n`,
+      fail(
+        `Your config file is readable by other users on this machine (${actual}). Lock it down: chmod 600 ${configPath}`,
       );
-      process.exit(1);
     }
   }
 
@@ -112,9 +112,7 @@ function loadTOML(): TOMLConfig | null {
     return parseTOML(content) as TOMLConfig;
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`\nFailed to parse ${configPath}: ${message}`);
-    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
-    process.exit(1);
+    fail(`Failed to parse ${configPath}: ${message}`, `Run 'npx @keygraph/shannon setup' to reconfigure.`);
   }
 }
 
@@ -237,6 +235,30 @@ function validateConfig(config: TOMLConfig): string[] {
   return errors;
 }
 
+function assertNoCredentialConflict(toml: TOMLConfig): void {
+  const tomlBaseUrl = typeof toml.core?.base_url === 'string' ? toml.core.base_url : undefined;
+  if (!tomlBaseUrl || process.env.SHANNON_AI_BASE_URL) return;
+
+  const tomlModel = typeof toml.core?.model === 'string' ? toml.core.model : DEFAULT_MODEL_SPEC;
+  const spec = parseModelSpec(process.env.SHANNON_AI_MODEL ?? tomlModel);
+  if (typeof spec === 'string' || !isCuratedProvider(spec.providerId)) return;
+
+  for (const envVar of PROVIDER_API_KEY_ENV[spec.providerId]) {
+    const mapping = CONFIG_MAP.find((entry) => entry.env === envVar);
+    const tomlHasCredential = mapping ? getTomlValue(toml, mapping) !== undefined : false;
+    const envHasCredential = Boolean(process.env[envVar]);
+    if (!envHasCredential && !tomlHasCredential) continue;
+
+    if (envHasCredential) {
+      fail(
+        `${envVar} in your environment conflicts with the gateway credential in config.toml (core.base_url = ${tomlBaseUrl}).`,
+        `Unset ${envVar}, or set SHANNON_AI_BASE_URL to override both from the environment.`,
+      );
+    }
+    return;
+  }
+}
+
 // === Public API ===
 
 /**
@@ -245,7 +267,8 @@ function validateConfig(config: TOMLConfig): string[] {
  * For each mapped variable: if not already set in the environment,
  * look it up in ~/.shannon/config.toml and inject it into process.env.
  * Local mode uses .env exclusively — TOML is skipped.
- * Exits with an error if the TOML contains unknown or invalid keys.
+ * Exits with an error if the TOML contains unknown or invalid keys, or if an
+ * ambient credential conflicts with a TOML-configured gateway credential.
  */
 export function resolveConfig(): void {
   if (getMode() === 'local') return;
@@ -256,13 +279,14 @@ export function resolveConfig(): void {
   // Validate before injecting
   const errors = validateConfig(toml);
   if (errors.length > 0) {
-    console.error('\nInvalid configuration:');
-    for (const err of errors) {
-      console.error(`  - ${err}`);
-    }
-    console.error(`\nRun 'npx @keygraph/shannon setup' to reconfigure.\n`);
-    process.exit(1);
+    fail(
+      'Invalid configuration:',
+      ...errors.map((err) => `  - ${err}`),
+      `Run 'npx @keygraph/shannon setup' to reconfigure.`,
+    );
   }
+
+  assertNoCredentialConflict(toml);
 
   for (const mapping of CONFIG_MAP) {
     if (process.env[mapping.env]) continue;

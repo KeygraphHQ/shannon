@@ -52,15 +52,6 @@ export const PROVIDER_CREDENTIAL_HINT: Readonly<Record<CuratedProviderId, string
 /** Model used when SHANNON_AI_MODEL is unset. */
 export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
 
-/**
- * Values SHANNON_AI_OPENAI_FORMAT accepts, selecting the wire format an
- * OpenAI-compatible gateway serves. Mirrors OPENAI_FORMATS in
- * apps/worker/src/ai/models.ts; the worker validates and applies it.
- */
-export const OPENAI_FORMATS = ['chat-completions', 'responses'] as const;
-
-export type OpenAiFormat = (typeof OPENAI_FORMATS)[number];
-
 export interface ModelSpec {
   providerId: string;
   modelId: string;

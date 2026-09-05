@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -19,6 +19,13 @@
  *
  * Resolution returns a pi `Model` plus the `ModelRuntime` that owns its auth,
  * built over an in-memory credential store primed from the environment.
+ *
+ * The CLI cannot import this module (it ships as a separate bundle), so
+ * `apps/cli/src/model-spec.ts` mirrors the parse rule and the provider/credential
+ * tables by hand for its own `status` rendering and setup wizard. The two copies
+ * have no shared compile-time link: a provider added or renamed on one side and
+ * not the other does not fail to build, it just makes the CLI's guidance or
+ * guard rails disagree with what the worker actually accepts at runtime.
  */
 
 import { existsSync } from 'node:fs';
@@ -30,6 +37,11 @@ import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
  * Providers Shannon curates with their own credential variables, config sections,
  * and setup flows. Each is a pi-ai provider id; any other pi provider is still
  * reachable through the generic credential path below.
+ *
+ * Kept identical to the CLI's own copy of this list (`apps/cli/src/model-spec.ts`),
+ * which the CLI uses to decide whether "only one provider is configured" and to
+ * gate its "Other provider" setup option. A curated provider missing from one
+ * copy is silently treated as generic on that side.
  */
 export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
 
@@ -47,6 +59,11 @@ export const GENERIC_API_KEY_ENV = 'SHANNON_AI_API_KEY';
  * does not invent credential names — these are the variables each provider's own
  * tooling uses. Bedrock pairs its bearer token with AWS_REGION, which is provider
  * config rather than a credential.
+ *
+ * Mirrored by the CLI's own table of the same name, used there to decide which
+ * env vars to forward into the worker container. A variable added here without
+ * its CLI counterpart never reaches the container: the worker looks for a
+ * credential the CLI never forwarded, and preflight reports it as absent.
  */
 export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly string[]>> = {
   anthropic: ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'],
@@ -60,42 +77,6 @@ export const DEFAULT_MODEL_SPEC = 'anthropic:claude-sonnet-4-6';
 
 /** Browsable pi model catalogue — the source of valid `<provider>:<model-id>` ids. */
 export const PI_CATALOG_URL = 'https://pi.dev/models';
-
-/**
- * Wire formats an OpenAI-compatible gateway may serve, named by
- * SHANNON_AI_OPENAI_FORMAT. Only `openai` offers a choice: every other supported
- * provider has exactly one API in pi's registry.
- */
-export const OPENAI_FORMATS = {
-  'chat-completions': 'openai-completions',
-  responses: 'openai-responses',
-} as const;
-
-export type OpenAiFormat = keyof typeof OPENAI_FORMATS;
-
-/** Format assumed when a gateway is configured but no format is named. */
-export const DEFAULT_OPENAI_FORMAT: OpenAiFormat = 'chat-completions';
-
-function isOpenAiFormat(value: string): value is OpenAiFormat {
-  return value in OPENAI_FORMATS;
-}
-
-/**
- * Read SHANNON_AI_OPENAI_FORMAT. Unset returns undefined, which lets the caller
- * distinguish "not configured" from an explicit choice and reject the variable
- * where it has no effect.
- */
-export function resolveOpenAiFormat(): OpenAiFormat | undefined {
-  const raw = process.env.SHANNON_AI_OPENAI_FORMAT?.trim();
-  if (!raw) return undefined;
-
-  if (!isOpenAiFormat(raw)) {
-    throw new Error(
-      `SHANNON_AI_OPENAI_FORMAT must be one of: ${Object.keys(OPENAI_FORMATS).join(', ')}. Got "${raw}".`,
-    );
-  }
-  return raw;
-}
 
 export interface ModelSpec {
   providerId: string;
@@ -232,30 +213,11 @@ export async function createModelRuntime(providerId: string, apiKey: string | un
 }
 
 export interface ModelSelection {
-  model: Model<Api>;
-  modelRuntime: ModelRuntime;
-  modelId: string;
-  providerId: string;
-}
-
-/**
- * Point a model descriptor at a gateway.
- *
- * An OpenAI gateway may serve either wire format, named by
- * SHANNON_AI_OPENAI_FORMAT and defaulting to chat completions, which is what
- * most gateway software exposes. Switching to completions also drops the stored
- * `compat` block: the catalogue's block describes Responses, and an explicit
- * entry outranks pi's `detectCompat`, so leaving it would apply Responses
- * settings to a completions request. Staying on Responses keeps it, since it
- * then describes the format in use. Every other provider has one API and only
- * changes address.
- */
-function pointAtGateway(model: Model<Api>, providerId: string, baseUrl: string, format: OpenAiFormat): Model<Api> {
-  if (providerId !== 'openai') return { ...model, baseUrl };
-  if (format === 'responses') return { ...model, baseUrl, api: OPENAI_FORMATS.responses };
-
-  const { compat: _responsesCompat, ...withoutCompat } = model;
-  return { ...withoutCompat, baseUrl, api: OPENAI_FORMATS['chat-completions'] };
+  readonly model: Model<Api>;
+  readonly modelRuntime: ModelRuntime;
+  readonly modelId: string;
+  readonly providerId: string;
+  readonly credentialSource: 'api-key' | 'pi-auth' | 'ambient';
 }
 
 /**
@@ -275,44 +237,17 @@ export function resolveModel(
   providerId: string,
   modelId: string,
   baseUrl: string | undefined,
-  format: OpenAiFormat = DEFAULT_OPENAI_FORMAT,
 ): Model<Api> | undefined {
   const found = modelRuntime.getModel(providerId, modelId);
   if (found) {
-    return baseUrl ? pointAtGateway(found, providerId, baseUrl, format) : found;
+    return baseUrl ? { ...found, baseUrl } : found;
   }
   if (!baseUrl) return undefined;
 
   const reference = modelRuntime.getModels(providerId)[0];
   if (!reference) return undefined;
 
-  return pointAtGateway({ ...reference, id: modelId, name: modelId }, providerId, baseUrl, format);
-}
-
-/**
- * Validate SHANNON_AI_OPENAI_FORMAT against the rest of the configuration and
- * return the format a gateway run should use.
- *
- * The variable only reaches a request when both an OpenAI model and a gateway
- * are configured, so it is rejected outside that combination rather than
- * silently ignored.
- */
-export function resolveGatewayFormat(providerId: string, baseUrl: string | undefined): OpenAiFormat {
-  const configured = resolveOpenAiFormat();
-  if (!configured) return DEFAULT_OPENAI_FORMAT;
-
-  if (providerId !== 'openai') {
-    throw new Error(
-      `SHANNON_AI_OPENAI_FORMAT applies to openai models only, but SHANNON_AI_MODEL selects "${providerId}". ` +
-        `${providerId} serves a single API, so there is no format to choose.`,
-    );
-  }
-  if (!baseUrl) {
-    throw new Error(
-      'SHANNON_AI_OPENAI_FORMAT applies to gateway runs only. Set SHANNON_AI_BASE_URL, or unset the format to call OpenAI directly.',
-    );
-  }
-  return configured;
+  return { ...reference, id: modelId, name: modelId, baseUrl };
 }
 
 /**
@@ -322,15 +257,22 @@ export function resolveGatewayFormat(providerId: string, baseUrl: string | undef
 export async function resolveModelSelection(): Promise<ModelSelection> {
   const { providerId, modelId } = resolveModelSpec();
   const credentials = resolveProviderCredentials(providerId);
-  const format = resolveGatewayFormat(providerId, credentials.baseUrl);
 
+  const mountedPiAuth = piAuthPresent();
   const modelRuntime = await createModelRuntime(providerId, credentials.apiKey);
 
-  const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl, format);
+  const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl);
   if (!model) {
     throw new Error(
       `Model not found in pi registry: provider="${providerId}" model="${modelId}". Browse valid providers and models at ${PI_CATALOG_URL}.`,
     );
+  }
+
+  let credentialSource: ModelSelection['credentialSource'] = 'ambient';
+  if (mountedPiAuth) {
+    credentialSource = 'pi-auth';
+  } else if (credentials.apiKey) {
+    credentialSource = 'api-key';
   }
 
   return {
@@ -338,5 +280,6 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
     modelRuntime,
     modelId,
     providerId,
+    credentialSource,
   };
 }

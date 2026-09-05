@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -32,6 +32,8 @@ export async function ensureDirectory(dirPath: string): Promise<void> {
  * Guarantees no partial writes or corruption on crash
  */
 export async function atomicWrite(filePath: string, data: object | string): Promise<void> {
+  // The temp file must sit next to filePath so the rename below stays on one filesystem;
+  // POSIX only guarantees rename() is atomic within a single filesystem, not across mounts.
   const tempPath = `${filePath}.tmp`;
   const content = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
 
@@ -39,10 +41,12 @@ export async function atomicWrite(filePath: string, data: object | string): Prom
     // Write to temp file
     await fs.writeFile(tempPath, content, 'utf8');
 
-    // Atomic rename (POSIX guarantee: atomic on same filesystem)
+    // Atomic rename (POSIX guarantee: atomic on same filesystem). A reader can only ever
+    // observe the old complete file or the new complete file, never a truncated write.
     await fs.rename(tempPath, filePath);
   } catch (error) {
-    // Clean up temp file on failure
+    // Clean up temp file on failure. Errors here are swallowed so the original
+    // write/rename failure is what propagates, not a secondary cleanup failure.
     try {
       await fs.unlink(tempPath);
     } catch {

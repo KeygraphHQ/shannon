@@ -10,8 +10,10 @@ import os from 'node:os';
 import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
-import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider, type OpenAiFormat } from '../model-spec.js';
+import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider } from '../model-spec.js';
+import { displaySplash } from '../splash.js';
 import { requireInteractive } from '../tty.js';
+import { getVersion } from '../version.js';
 
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
@@ -24,24 +26,16 @@ const ATLAS_CLOUD_BASE_URL = 'https://api.atlascloud.ai/v1';
 const ATLAS_CLOUD_MODELS = ['qwen/qwen3.8-max'] as const;
 
 /**
- * Wire formats reachable through the gateway route. The format picks the provider
- * that supplies the credential, and for OpenAI it also picks which of the two
- * OpenAI APIs Shannon calls.
+ * API dialects reachable through the gateway route. The dialect picks the provider
+ * that supplies the credential and names the wire protocol the endpoint must speak.
  */
 const GATEWAY_DIALECTS: readonly {
   value: string;
   label: string;
   provider: 'anthropic' | 'openai';
-  format?: OpenAiFormat;
 }[] = [
   { value: 'anthropic', label: 'Anthropic Messages', provider: 'anthropic' },
-  {
-    value: 'openai-chat-completions',
-    label: 'OpenAI Chat Completions',
-    provider: 'openai',
-    format: 'chat-completions',
-  },
-  { value: 'openai-responses', label: 'OpenAI Responses', provider: 'openai', format: 'responses' },
+  { value: 'openai', label: 'OpenAI Responses', provider: 'openai' },
 ];
 
 /** Suggested models per curated provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
@@ -67,11 +61,12 @@ function modelIdPlaceholder(provider: string): string | undefined {
 
 export async function setup(): Promise<void> {
   requireInteractive('setup', 'For non-interactive use, export credentials as env vars (e.g. ANTHROPIC_API_KEY).');
-  p.intro('Shannon Setup');
+  displaySplash(getVersion());
+  p.intro('Setup');
 
-  // 1. Select provider. Atlas Cloud is a preset for its OpenAI-compatible
-  //    endpoint. "Custom Base URL" asks which API dialect a gateway speaks, and
-  //    "Other provider" reaches any pi-supported provider Shannon does not curate.
+  // 1. Select provider. "Custom Base URL" is a route, not a provider — it asks
+  //    which API dialect the gateway speaks and configures that provider. "Other
+  //    provider" reaches any pi-supported provider Shannon does not curate.
   const selected = await p.select({
     message: 'Select your AI provider',
     options: [
@@ -80,7 +75,11 @@ export async function setup(): Promise<void> {
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
       { value: ATLAS_CLOUD as typeof ATLAS_CLOUD, label: 'Atlas Cloud', hint: 'OpenAI-compatible models' },
-      { value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL, label: 'Custom Base URL', hint: 'your own proxy or gateway' },
+      {
+        value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL,
+        label: 'Custom Base URL',
+        hint: 'route through a proxy or LLM gateway',
+      },
       {
         value: OTHER_PROVIDER as typeof OTHER_PROVIDER,
         label: 'Other provider',
@@ -90,20 +89,21 @@ export async function setup(): Promise<void> {
   });
   if (p.isCancel(selected)) return cancelAndExit();
 
-  // 2. Credentials — and, on the gateway route, the endpoint and its dialect.
-  const { provider, config, gateway, modelSuggestions, modelPlaceholder } = await setupSelection(selected);
+  // 2. Credentials, and any endpoint override. A base URL overrides the endpoint
+  //    for whichever provider is chosen — the curated gateway route names it via
+  //    the dialect, the "Other provider" route asks for it directly.
+  const { provider, config, baseUrl, modelSuggestions } = await setupSelection(selected);
 
   // 3. The model that runs every phase.
-  const modelId = await promptModel(provider, modelSuggestions, modelPlaceholder);
+  const modelId = await promptModel(provider, modelSuggestions);
   config.core = { ...config.core, model: `${provider}:${modelId}` };
-  if (gateway) config.core = { ...config.core, base_url: gateway.baseUrl };
+  if (baseUrl) config.core = { ...config.core, base_url: baseUrl };
 
   saveConfig(config);
 
   const configPath = path.join(SHANNON_HOME, 'config.toml');
   const summary = [`Provider   ${provider}`, `Model      ${modelId}`];
-  if (gateway) summary.push(`Endpoint   ${gateway.baseUrl}`);
-  if (gateway?.format) summary.push(`API        ${gateway.format}`);
+  if (baseUrl) summary.push(`Endpoint   ${baseUrl}`);
 
   p.log.success(`Configuration saved to ${configPath}`);
   p.log.info(summary.join('\n'));
@@ -113,9 +113,10 @@ export async function setup(): Promise<void> {
 interface Selection {
   provider: string;
   config: ShannonConfig;
-  gateway?: GatewaySetup;
+  baseUrl?: string;
+  /** Overrides the provider's curated model list — set by presets whose
+   *  endpoint serves a different catalogue than the dialect's own provider. */
   modelSuggestions?: readonly string[];
-  modelPlaceholder?: string;
 }
 
 /** Resolve the provider selection into a provider id and its credential config. */
@@ -124,23 +125,16 @@ async function setupSelection(
 ): Promise<Selection> {
   if (selected === ATLAS_CLOUD) {
     const apiKey = await promptSecret('Enter your Atlas Cloud API key');
-    const config: ShannonConfig = { openai: { api_key: apiKey, format: 'chat-completions' } };
     return {
       provider: 'openai',
-      config,
-      gateway: {
-        provider: 'openai',
-        config,
-        baseUrl: ATLAS_CLOUD_BASE_URL,
-        format: 'chat-completions',
-      },
+      config: { openai: { api_key: apiKey } },
+      baseUrl: ATLAS_CLOUD_BASE_URL,
       modelSuggestions: ATLAS_CLOUD_MODELS,
-      modelPlaceholder: ATLAS_CLOUD_MODELS[0],
     };
   }
   if (selected === CUSTOM_BASE_URL) {
     const gateway = await setupGateway();
-    return { provider: gateway.provider, config: gateway.config, gateway };
+    return { provider: gateway.provider, config: gateway.config, baseUrl: gateway.baseUrl };
   }
   if (selected === OTHER_PROVIDER) {
     return setupOtherProvider();
@@ -164,6 +158,8 @@ async function setupProvider(provider: CuratedProviderId): Promise<ShannonConfig
 /**
  * Any pi provider Shannon does not curate. The id is free text — the worker's
  * preflight validates it — and the key is stored generically as SHANNON_AI_API_KEY.
+ * An optional base URL points that provider at a proxy or LLM gateway; left blank, the
+ * provider's own endpoint is used.
  */
 async function setupOtherProvider(): Promise<Selection> {
   p.log.info('Browse supported providers and models at https://pi.dev/models');
@@ -179,7 +175,13 @@ async function setupOtherProvider(): Promise<Selection> {
   if (p.isCancel(provider)) return cancelAndExit();
 
   const apiKey = await promptSecret('Enter the API key');
-  return { provider: provider.trim(), config: { provider: { api_key: apiKey } } };
+  const baseUrl = await promptOptionalBaseUrl();
+
+  return {
+    provider: provider.trim(),
+    config: { provider: { api_key: apiKey } },
+    ...(baseUrl && { baseUrl }),
+  };
 }
 
 // === Provider Setup Flows ===
@@ -220,11 +222,10 @@ interface GatewaySetup {
   provider: CuratedProviderId;
   config: ShannonConfig;
   baseUrl: string;
-  format?: OpenAiFormat;
 }
 
 /**
- * Gateway route: the endpoint decides where requests go, but the format still
+ * Gateway route: the endpoint decides where requests go, but the dialect still
  * picks a real provider, because that is what supplies the credential and the
  * wire protocol.
  */
@@ -256,11 +257,9 @@ async function setupGateway(): Promise<GatewaySetup> {
 
   const authToken = await promptSecret('Enter the auth token for the endpoint');
   const config: ShannonConfig =
-    provider === 'anthropic'
-      ? { anthropic: { api_key: authToken } }
-      : { openai: { api_key: authToken, ...(dialect.format && { format: dialect.format }) } };
+    provider === 'anthropic' ? { anthropic: { api_key: authToken } } : { openai: { api_key: authToken } };
 
-  return { provider, config, baseUrl, ...(dialect.format && { format: dialect.format }) };
+  return { provider, config, baseUrl };
 }
 
 // === Model Selection ===
@@ -269,16 +268,11 @@ async function setupGateway(): Promise<GatewaySetup> {
  * Ask for the one model that runs every phase. Providers with suggestions offer a
  * pick list with a free-text escape hatch; the rest go straight to free text.
  */
-async function promptModel(
-  provider: string,
-  modelSuggestions?: readonly string[],
-  modelPlaceholder?: string,
-): Promise<string> {
-  const suggestions = modelSuggestions ?? (isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : []);
-  const placeholder = modelPlaceholder ?? modelIdPlaceholder(provider);
+async function promptModel(provider: string, override?: readonly string[]): Promise<string> {
+  const suggestions = override ?? (isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : []);
 
   if (suggestions.length === 0) {
-    return promptModelId(provider, placeholder);
+    return promptModelId(provider, modelIdPlaceholder(provider));
   }
 
   const choice = await p.select({
@@ -291,7 +285,7 @@ async function promptModel(
   if (p.isCancel(choice)) return cancelAndExit();
 
   if (choice === CUSTOM_MODEL) {
-    return promptModelId(provider, placeholder);
+    return promptModelId(provider, modelIdPlaceholder(provider));
   }
   return choice as string;
 }
@@ -332,6 +326,31 @@ async function promptModelId(provider: string, placeholder?: string): Promise<st
 }
 
 // === Helpers ===
+
+/**
+ * Optional endpoint override. Empty input means the provider's default endpoint;
+ * any value must be a valid URL.
+ */
+async function promptOptionalBaseUrl(): Promise<string | undefined> {
+  const baseUrl = await p.text({
+    message: 'Custom base URL (optional, leave blank for the provider default)',
+    placeholder: 'https://llm-gateway.example.com',
+    validate: (value) => {
+      const trimmed = value?.trim();
+      if (!trimmed) return undefined;
+      try {
+        new URL(trimmed);
+      } catch {
+        return 'Must be a valid URL';
+      }
+      return undefined;
+    },
+  });
+  if (p.isCancel(baseUrl)) return cancelAndExit();
+
+  const trimmed = baseUrl?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 async function promptSecret(message: string): Promise<string> {
   const value = await p.password({

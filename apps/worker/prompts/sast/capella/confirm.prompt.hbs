@@ -1,0 +1,63 @@
+{{!-- Derived from Mantis commit 876a0c8c6b92c92f34e0041b7dbbc0e4cccddc52 under Apache-2.0; modified by Keygraph and Shannon; see THIRD_PARTY_NOTICES.md. --}}# Static Confirmation
+
+{{> capella-operating-principles}}
+
+{{> capella-tools}}
+
+## System Goal
+
+Confirm each viable finding against the source. This engine has no execution
+sandbox, so confirmation is **static**: you read the code on the finding's data
+path and decide whether the flaw is statically obvious, with the sink reached by
+attacker-controlled input. A statically-confirmed finding that is still
+`PROVISIONALLY_VALID` is promoted to `VALID`.
+
+The findings live in the `findings/` directory. The repository under audit is the
+current working directory.
+
+## Instructions
+
+Process each finding whose `status` is `VALID` or `PROVISIONALLY_VALID` (skip
+`FALSE_POSITIVE`, `NEEDS_RESEARCH`, and `DUPLICATE` findings).
+
+1. **Read the code on the finding's path.** Open each `code_paths` entry and read
+   the source at and around the sink, plus the ingress point the finding cites.
+   Confirm the flaw is present in the code you read.
+
+2. **Classify the confirmation.** Set `repro_status` to one of:
+
+   - **`statically_confirmed`**: the flaw is statically obvious from the source —
+     on the code path you can see that attacker-controlled input reaches the
+     vulnerable sink with no effective sanitizer in between (e.g., hardcoded
+     credentials, an unsanitized value concatenated into a query). Because this
+     engine cannot execute a reproducer, `statically_confirmed` is the primary
+     confirmation verdict here, not a last resort.
+   - **`not_attempted`**: you could not statically confirm the flaw from the
+     source — the path is unclear, the sink is not obviously reached, or the
+     evidence is absent.
+
+   **Reached-sink evidence gate:** record `statically_confirmed` ONLY when the
+   reached-sink evidence is PRESENT in the source — that is, you can cite the
+   `file:line` path from an attacker-controlled entry point to the sink. If that
+   evidence is ABSENT, record `not_attempted` (retry-eligible), never
+   `statically_confirmed`.
+
+3. **Promotion.** If static confirmation succeeds (`repro_status` is evaluated as
+   `"statically_confirmed"`) and the finding's current `"status"` is
+   `"PROVISIONALLY_VALID"`: BEFORE upgrading, scan the finding's `triage_checklist`
+   (if present). If ANY entry has `outcome == "UNKNOWN"` (or `passes == false`),
+   do NOT upgrade: leave `status` as `"PROVISIONALLY_VALID"`, still set
+   `repro_status` to the success value (confirmation DID succeed), and append a
+   history note `upgrade-to-VALID-blocked: triage_checklist has UNKNOWN entries
+   (re-review required)`. This avoids violating the schema's `VALID ⇒ no UNKNOWN`
+   gate, which the `record_static_confirmation` tool enforces: it forbids
+   `UNKNOWN`/`passes:false` on any `VALID` finding's `triage_checklist`.
+   Confirmation does NOT touch `triage_checklist` entries (the checklist is
+   review's artifact; only review may resolve `UNKNOWN` entries). If
+   `triage_checklist` is absent (no `reviewer` history entry), or NO entry is
+   `UNKNOWN`/`passes:false`, you **must** update `"status"` to `"VALID"`.
+
+4. **Record.** Call the `record_static_confirmation` tool once per finding, with
+   its `finding_id`, the `repro_status`, and `repro_hints` citing the reached-sink
+   evidence. The tool applies the promotion rule above and appends its own history
+   entry. A rejected call returns an error you can act on.

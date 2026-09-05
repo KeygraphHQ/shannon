@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -8,6 +8,10 @@
  * Deliverable Type Definitions
  *
  * Maps deliverable types to their filenames for the save-deliverable CLI.
+ *
+ * This covers only the phases whose pipeline-testing prompts write a markdown deliverable
+ * by invoking that CLI directly. Exploitation and reporting have no entries here because their
+ * structured output goes through the collector tool contract instead, in every prompt mode.
  */
 
 export enum DeliverableType {

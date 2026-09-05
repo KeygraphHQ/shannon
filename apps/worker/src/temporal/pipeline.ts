@@ -7,12 +7,16 @@
 
 export type { ActivityInput } from './activities.js';
 export type {
+  AgenticSastInput,
+  AgenticSastState,
   AgentMetrics,
+  NonFatalFailure,
+  OperationalMetrics,
+  OperationalStageState,
   PipelineInput,
   PipelineState,
   PipelineSummary,
   ResumeState,
   VulnExploitPipelineResult,
 } from './shared.js';
-export { PipelineExecutionError } from './shared.js';
 export { pentestPipeline } from './workflows.js';

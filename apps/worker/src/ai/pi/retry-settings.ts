@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -18,11 +18,11 @@
  *
  * NOTE: pi recommends keeping this at 0, since SDK-level retries consume
  * out-of-usage-limit responses before pi's classifier can mark them terminal.
- * Shannon accepts that trade for the transport-fault coverage. `maxRetryDelayMs`
- * is left at pi's 60s default so a server asking for a longer wait fails fast
- * instead of parking the activity.
+ * Shannon accepts that trade for the transport-fault coverage. A two-minute
+ * delay cap lets short server-directed recovery remain in the current session;
+ * longer delays return to Temporal's bounded activity retry policy.
  */
 export const PI_RETRY_SETTINGS = {
   enabled: false,
-  provider: { maxRetries: 8 },
+  provider: { maxRetries: 8, maxRetryDelayMs: 120_000 },
 } as const;

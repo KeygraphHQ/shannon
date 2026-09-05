@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -6,7 +6,8 @@
 
 /** Deterministic report.json to SARIF 2.1.0 renderer, for `exploit=true` runs only. */
 
-import type { AddFindingInput, CodeLocation } from '../collectors/finding-collector.js';
+import type { AddFindingInput, CodeLocation, SASTSourceLocation } from '../collectors/finding-collector.js';
+import { CATEGORY_ORDER, orderFindings } from './finding-order.js';
 import type { ReportData } from './report-renderer.js';
 
 export interface SarifOptions {
@@ -96,9 +97,19 @@ const RULES: Record<string, SarifRule> = {
     },
     properties: { tags: ['security', 'shannon'] },
   },
+  Miscellaneous: {
+    id: 'shannon/miscellaneous',
+    name: 'Miscellaneous Security Vulnerability',
+    shortDescription: { text: 'Miscellaneous Security Vulnerability' },
+    fullDescription: {
+      text: "A security weakness outside Shannon's named vulnerability classes that can affect confidentiality, integrity, or availability.",
+    },
+    help: {
+      text: 'Apply the finding-specific remediation, add a regression test at the affected trust boundary, and verify that equivalent entry points enforce the same control.',
+    },
+    properties: { tags: ['security', 'shannon'] },
+  },
 };
-
-const CATEGORY_ORDER: readonly string[] = ['Injection', 'XSS', 'Authentication', 'SSRF', 'Authorization'];
 
 /**
  * Five severities collapse into SARIF's three usable levels, so `critical` and `high` are
@@ -132,6 +143,17 @@ function toPhysicalLocation(location: CodeLocation) {
   };
 }
 
+function toSastPhysicalLocation(location: SASTSourceLocation) {
+  return {
+    physicalLocation: {
+      artifactLocation: { uri: location.file },
+      // SAST source locations store zero-based columns; SARIF regions are one-based.
+      region: { startLine: location.line, startColumn: location.column + 1 },
+    },
+    message: { text: `Validated SAST source location (${location.rule_id})` },
+  };
+}
+
 /**
  * Fall back to the HTTP entry point when a finding names no file: a result with no location is
  * silently discarded downstream. No `uriBaseId`, since the path does not resolve in the repo.
@@ -154,7 +176,10 @@ function buildMessageMarkdown(finding: AddFindingInput): string {
   parts.push('', '**Remediation**', '', finding.remediation);
   // Exploitation steps and proof of impact are deliberately absent: SARIF has no structural home
   // for them, and flattening them into prose would imply this file carries the evidence.
-  parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.md`');
+  // NOTE: the filename below is not imported from paths.ts (FINAL_REPORT_PDF_FILENAME) because
+  // it is customer-facing prose, not a path this module reads or writes. It must be kept in sync
+  // by hand if that constant's value ever changes.
+  parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.pdf`');
   return parts.join('\n');
 }
 
@@ -174,13 +199,22 @@ interface RenderedResult {
   readonly owaspId: string;
 }
 
-function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult | null {
+function renderResult(finding: AddFindingInput, ruleId: string, ruleCategory: string): RenderedResult | null {
   const codeLocations = finding.code_locations ?? [];
   const sinks = codeLocations.filter((l) => l.role === 'sink');
   const related = codeLocations.filter((l) => l.role !== 'sink');
   const primary = sinks[0] ?? codeLocations[0];
 
-  const locations = primary ? [toPhysicalLocation(primary)] : [syntheticLocationFromHttp(finding)].filter(Boolean);
+  // Location precedence: analysis-authored code locations, then the validated SAST source
+  // location, then the synthetic HTTP entry point as the last resort before omission.
+  let locations: unknown[] = [];
+  if (primary !== undefined) {
+    locations = [toPhysicalLocation(primary)];
+  } else if (finding.sast_source_location) {
+    locations = [toSastPhysicalLocation(finding.sast_source_location)];
+  } else {
+    locations = [syntheticLocationFromHttp(finding)].filter((location) => location !== undefined);
+  }
   if (locations.length === 0) return null;
 
   const properties: Record<string, unknown> = { findingId: finding.finding_id };
@@ -188,11 +222,12 @@ function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult 
   if (finding.status) properties.status = finding.status;
   if (finding.auth_state) properties.authState = finding.auth_state;
   if (finding.prerequisites) properties.prerequisites = finding.prerequisites;
+  if (finding.sast_source_location) properties.sastRuleId = finding.sast_source_location.rule_id;
 
   const owaspId = splitOwaspCategory(finding.owasp_category).id;
 
   return {
-    category: finding.category,
+    category: ruleCategory,
     owaspId,
     result: {
       ruleId,
@@ -223,14 +258,15 @@ function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult 
 
 /** Render a SARIF 2.1.0 log from the structured report. Findings with no location are omitted. */
 export function renderSarif(data: ReportData, options: SarifOptions): string {
-  const { report_meta, findings, not_assessed = [] } = data;
+  const { report_meta, not_assessed = [] } = data;
+  const findings = orderFindings(data.findings);
 
   const rendered: RenderedResult[] = [];
 
   for (const finding of findings) {
-    const rule = RULES[finding.category];
-    if (!rule) continue;
-    const result = renderResult(finding, rule.id);
+    const ruleCategory = RULES[finding.category] === undefined ? 'Miscellaneous' : finding.category;
+    const rule = RULES[ruleCategory] as SarifRule;
+    const result = renderResult(finding, rule.id, ruleCategory);
     if (result !== null) rendered.push(result);
   }
 
@@ -284,7 +320,11 @@ export function renderSarif(data: ReportData, options: SarifOptions): string {
           ],
         }),
         results,
-        properties: { target: report_meta.target, assessmentDate: report_meta.assessment_date },
+        properties: {
+          target: report_meta.target,
+          assessmentDate: report_meta.assessment_date,
+          ...(report_meta.model && { model: report_meta.model }),
+        },
       },
     ],
   };

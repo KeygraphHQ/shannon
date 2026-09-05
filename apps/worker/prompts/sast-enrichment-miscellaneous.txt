@@ -1,0 +1,14 @@
+@include(shared/exploitation/_sast-enrichment-procedure.txt)
+
+These findings are weaknesses that fall outside the injection, XSS, authentication, authorization and SSRF classes. They share no family: session lifetime, error-message disclosure, sensitive logging, cleartext storage, request forgery, redirection, framing, algorithmic complexity, race conditions.
+
+CRITICAL RULES:
+- vulnerability_type is the weakness's own name, taken from the CWE on the finding (e.g. 'Insecure Randomness', 'Use of Hard-coded Cryptographic Key'). There is no fixed list to pick from, and it must not be forced into another class's vocabulary.
+- proof_criterion is the field the exploitation agent works from: state the concrete observation that would settle whether this specific weakness is real. These findings carry no per-class proof ladder, so an unusable criterion leaves the agent nothing to aim at.
+- observable_signal must be something visible from outside the application, not a restatement of the source code.
+- exploitation_hypothesis must describe what an attacker ACHIEVES, not just confirm the weakness exists.
+- suggested_exploit_technique must be an actionable attack the exploitation agent can execute against a live application.
+- cwe carries the id from the finding, e.g. CWE-330.
+- _sastId MUST be copied exactly from the input finding. It is the join key — never invent, renumber, or omit it.
+
+SAST FINDINGS:

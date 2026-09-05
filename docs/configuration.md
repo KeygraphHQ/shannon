@@ -42,8 +42,11 @@ Source-build equivalent:
 # Describe your target environment.
 description: "Next.js e-commerce app on PostgreSQL. Local dev environment; .env files contain local-only credentials."
 
-# Limit which vulnerability classes run end-to-end.
-# vuln_classes: [injection, xss, auth, authz, ssrf]
+# Every scan runs all five vulnerability classes.
+
+# Agentic static analysis. `enabled` is its only setting.
+# agentic_sast:
+#   enabled: "true"
 
 # Skip the exploitation phase.
 # exploit: "false"
@@ -99,33 +102,53 @@ rules:
 #   min_confidence: low
 #   guidance: |
 #     Drop findings about missing security headers and rate-limit gaps.
-#   sarif: "true"
+#   sarif: "false"
 ```
+
+## Analysis Scope and Agentic SAST
+
+Every scan runs all five analysis classes: Injection, Cross-Site Scripting, Authentication, Authorization, and
+Server-Side Request Forgery. The class set is fixed and has no configuration selector.
+
+Agentic static analysis is opt-in:
+
+```yaml
+agentic_sast:
+  enabled: "true"
+```
+
+`enabled` is the only setting. Omitting the block, or setting `enabled: "false"`, turns agentic static analysis off;
+`"true"` turns it on. Either way, all five vulnerability classes still run.
+
+Agentic static analysis reads the repository for vulnerabilities before the pentest and passes what it finds into the
+exploitation phase. It adds model time and cost. If it fails, the pentest continues without its findings and the scan
+finishes as "partial".
 
 ## Report Options
 
 | Key | Effect |
 | --- | --- |
-| `min_severity` | Drops findings rated below this severity. Applies only when `exploit` is `"true"`. |
+| `min_severity` | Drops findings rated below this severity. Applies in both exploitative and analysis-only runs. |
 | `min_confidence` | Drops findings rated below this confidence. Applies only when `exploit` is `"false"`. |
 | `guidance` | Free-text instruction to the report agent, such as which topics to exclude. |
-| `sarif` | Emits a SARIF 2.1.0 log alongside the Markdown report. Requires `exploit: "true"`. |
+| `sarif` | SARIF 2.1.0 log alongside the Markdown report. On by default for exploit runs; set `"false"` to opt out. Ignored when `exploit` is `"false"`. |
 
-A finding carries one rating or the other, never both: an exploited finding is rated by severity, an analysis-only finding by confidence. Setting the threshold that does not apply to the run is ignored, and Shannon logs a warning naming the one to use instead.
+Every finding carries a severity, but it does not mean the same thing in each mode: an exploitative run measures severity from what the exploit demonstrated, while an analysis-only run assesses it from the class of flaw and the impact it would have. An analysis-only finding carries a confidence rating alongside its severity, since nothing was proven. Setting `min_confidence` on an exploitative run is ignored, and Shannon logs a warning naming the threshold to use instead.
 
 ### SARIF Output
 
-Set `sarif: "true"` to write `report.sarif` next to `Security-Assessment-Report.md` at the workspace root, for upload to GitHub code scanning or any other SARIF consumer.
+On exploit-mode runs Shannon writes `report.sarif` next to `Security-Assessment-Report.pdf` at the workspace root by default, for upload to GitHub code scanning or any other SARIF consumer. No configuration is needed; set `sarif: "false"` to opt out.
 
 ```yaml
-exploit: "true"
 report:
-  sarif: "true"
+  sarif: "false"
 ```
 
-Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
+Each finding becomes one SARIF result, filed under a rule per vulnerability class (`shannon/injection`, `shannon/xss`, `shannon/auth`, `shannon/authz`, `shannon/ssrf`, and `shannon/miscellaneous` for findings outside those classes) and tagged with its OWASP Top Ten 2025 category. Results are anchored to the code location the analysis phase recorded, falling back to the HTTP entry point when the finding names no file. Severity maps onto SARIF's three levels: `critical` and `high` become `error`, `medium` becomes `warning`, everything else becomes `note`.
 
-The log is written only for exploitative runs. An analysis-only run rates findings by confidence and produces no severity, so there is nothing to populate `level` with; `sarif` is ignored when `exploit` is `"false"`.
+If the SARIF log cannot be written, the JSON and Markdown reports are still produced and the scan finishes as "partial".
+
+The log is written only for exploitative runs. `sarif` is ignored when `exploit` is `"false"`.
 
 Supported rule types include `url_path`, `subdomain`, `domain`, `method`, `header`, `parameter`, and `code_path`.
 

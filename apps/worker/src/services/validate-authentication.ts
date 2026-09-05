@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -18,11 +18,13 @@ import { Type } from 'typebox';
 import { runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { CapturedSubmitTool } from '../ai/submit-tool.js';
 import type { AuditSession } from '../audit/index.js';
+import { safeErrorFromUnknown } from '../audit/safe-fields.js';
 import { authStateFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
+import type { AgentMetrics } from '../types/metrics.js';
 import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
 import { loadPrompt } from './prompt-manager.js';
@@ -97,7 +99,9 @@ export interface ValidateAuthInput {
   readonly cancellationSignal?: AbortSignal;
 }
 
-export async function validateAuthentication(input: ValidateAuthInput): Promise<Result<void, PentestError>> {
+export async function validateAuthentication(
+  input: ValidateAuthInput,
+): Promise<Result<AgentMetrics | null, PentestError>> {
   const {
     distributedConfig,
     repoPath,
@@ -113,7 +117,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
 
   const authentication = distributedConfig.authentication;
   if (!authentication) {
-    return ok(undefined);
+    return ok(null);
   }
 
   logger.info('Validating authentication credentials with live browser...', {
@@ -121,6 +125,12 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     loginType: authentication.login_type,
   });
 
+  // This is the one place in the pipeline that performs a real login and persists the resulting
+  // browser session (cookies/storage) to disk, so downstream agents can reuse it instead of
+  // logging in again. Remove any file left by a prior attempt first: verifySavedAuthState below
+  // trusts the file's mere presence as proof this run's login succeeded, so a stale leftover
+  // would let a failed attempt look like a success. The file itself is deleted again when the
+  // workflow ends, so an authenticated session never survives between scans.
   const stateFile = authStateFile(auditSession.sessionMetadata);
   await rm(stateFile, { force: true });
 
@@ -133,7 +143,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     promptDir,
   );
 
-  await auditSession.startAgent(AGENT_NAME, prompt, attemptNumber);
+  await auditSession.startAgent(AGENT_NAME, attemptNumber);
   const startTime = Date.now();
 
   const submitTool = createAuthSubmitTool();
@@ -149,6 +159,7 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     deliverablesSubdir,
     cancellationSignal,
     submitTool,
+    attemptNumber,
   );
 
   let classification = classifyResult(result, authentication);
@@ -160,17 +171,38 @@ export async function validateAuthentication(input: ValidateAuthInput): Promise<
     }
   }
 
+  const durationMs = Date.now() - startTime;
+  const safeError = classification.ok ? undefined : safeErrorFromUnknown(classification.error);
   const endResult: AgentEndResult = {
     attemptNumber,
-    duration_ms: Date.now() - startTime,
+    duration_ms: durationMs,
     cost_usd: result.cost || 0,
+    ...(result.inputTokens !== undefined && { input_tokens: result.inputTokens }),
+    ...(result.outputTokens !== undefined && { output_tokens: result.outputTokens }),
+    ...(result.cacheReadTokens !== undefined && { cache_read_tokens: result.cacheReadTokens }),
+    ...(result.cacheWriteTokens !== undefined && { cache_write_tokens: result.cacheWriteTokens }),
+    ...(result.turns !== undefined && { turns: result.turns }),
     success: classification.ok,
     ...(result.model !== undefined && { model: result.model }),
-    ...(!classification.ok && { error: classification.error.message }),
+    ...(safeError !== undefined && { error: safeError.message, errorCode: safeError.code }),
   };
   await auditSession.endAgent(AGENT_NAME, endResult);
 
-  return classification;
+  if (!classification.ok) {
+    return err(classification.error);
+  }
+
+  const metrics: AgentMetrics = {
+    durationMs,
+    inputTokens: result.inputTokens ?? null,
+    outputTokens: result.outputTokens ?? null,
+    cacheReadTokens: result.cacheReadTokens ?? null,
+    cacheWriteTokens: result.cacheWriteTokens ?? null,
+    costUsd: result.cost ?? null,
+    numTurns: result.turns ?? null,
+    ...(result.model !== undefined && { model: result.model }),
+  };
+  return ok(metrics);
 }
 
 async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
@@ -205,28 +237,32 @@ async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): 
     );
   }
 
-  const cookieCount = countStorageEntries(parsed, 'cookies');
-  const originCount = countStorageEntries(parsed, 'origins');
-  if (cookieCount === 0 && originCount === 0) {
+  const cookies = storageEntries(parsed, 'cookies');
+  const origins = storageEntries(parsed, 'origins');
+  if (!cookies || !origins) {
     return err(
       new PentestError(
-        `Preflight saved an authenticated session to ${stateFile}, but it contains no cookies or origins — the browser was not actually logged in.`,
+        `Preflight saved an authenticated session to ${stateFile}, but it is not a storage state — cookies and origins arrays are missing.`,
         'validation',
         true,
-        { stateFile, cookieCount, originCount },
+        { stateFile, hasCookies: !!cookies, hasOrigins: !!origins },
         ErrorCode.AGENT_EXECUTION_FAILED,
       ),
     );
   }
 
-  logger.info('Preflight authenticated session saved', { stateFile, cookieCount, originCount });
+  logger.info('Preflight authenticated session saved', {
+    stateFile,
+    cookieCount: cookies.length,
+    originCount: origins.length,
+  });
   return ok(undefined);
 }
 
-function countStorageEntries(parsed: unknown, key: 'cookies' | 'origins'): number {
-  if (typeof parsed !== 'object' || parsed === null) return 0;
+function storageEntries(parsed: unknown, key: 'cookies' | 'origins'): unknown[] | null {
+  if (typeof parsed !== 'object' || parsed === null) return null;
   const value = (parsed as Record<string, unknown>)[key];
-  return Array.isArray(value) ? value.length : 0;
+  return Array.isArray(value) ? value : null;
 }
 
 function classifyResult(

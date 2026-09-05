@@ -6,14 +6,14 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 
 ## Start Here
 
-- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph platform positioning, safety notes, licensing, and support links.
+- [README](README.md): Main project overview, editions, quick start, Shannon capabilities, Keygraph platform positioning, common questions, safety notes, licensing, and support links.
 - [Full Combined Context](llms-full.txt): README and documentation combined into one file for agents that need maximum local context.
 
 ## Shannon
 
 - [Development](docs/development.md): Source-build workflow, common CLI commands, repository paths, and output locations.
-- [Configuration](docs/configuration.md): Authenticated testing, login flows, rules of engagement, report filters, credential precedence, adaptive thinking, and rate-limit settings.
-- [AI Providers](docs/ai-providers.md): Anthropic, OpenAI, xAI, AWS Bedrock, any other Pi-supported provider, and custom gateway setup.
+- [Configuration](docs/configuration.md): Authenticated testing, login flows, rules of engagement, report filters, credential precedence, and rate-limit settings.
+- [AI Providers](docs/ai-providers.md): Anthropic, OpenAI, xAI, AWS Bedrock, any other Pi-supported provider, and custom LLM gateway setup.
 - [Platforms and Networking](docs/platforms.md): Windows/WSL2, Linux, macOS, Docker networking, local applications, and custom hostnames.
 - [Workspaces and Resuming](docs/workspaces.md): Workspace storage, naming, resuming interrupted scans, and examples.
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.

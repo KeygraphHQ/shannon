@@ -9,6 +9,9 @@ const WORKER_ROOT = path.resolve(import.meta.dirname, '..');
 export const PROMPTS_DIR = path.join(WORKER_ROOT, 'prompts');
 export const CONFIGS_DIR = path.join(WORKER_ROOT, 'configs');
 
+/** Bundled Typst template that renders report.json into the PDF report. */
+export const TYPST_TEMPLATE = path.join(WORKER_ROOT, 'templates', 'typst', 'report.typ');
+
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');
 
@@ -28,14 +31,23 @@ export const INTERNAL_DIR = '.shannon';
 /** Filename of the assembled report inside the deliverables dir (internal, source of the surfaced copy) */
 export const ASSEMBLED_REPORT_FILENAME = 'comprehensive_security_assessment_report.md';
 
-/** Filename of the human-facing final report surfaced at the run directory root */
-export const FINAL_REPORT_FILENAME = 'Security-Assessment-Report.md';
+/** Filename of the compiled PDF report inside the deliverables dir (internal, source of the surfaced copy) */
+export const ASSEMBLED_REPORT_PDF_FILENAME = 'comprehensive_security_assessment_report.pdf';
+
+/** Filename of the human-facing PDF report surfaced at the run directory root */
+export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
+
+/** Filename of the human-facing markdown report surfaced at the run directory root, alongside the PDF */
+export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
 
 /** Structured findings the report agent emits; the markdown report is rendered from it. */
 export const REPORT_JSON_FILENAME = 'report.json';
 
-/** SARIF 2.1.0 log, written only for exploit=true runs when report.sarif is enabled. */
+/** SARIF 2.1.0 log, written for exploit=true runs unless report.sarif is set to false. */
 export const SARIF_FILENAME = 'report.sarif';
+
+/** Deterministic receipt for the canonical report finalization commit. */
+export const REPORT_FINALIZATION_MANIFEST_FILENAME = 'report_finalization_manifest.json';
 
 /**
  * Resolve the session.json path for a run directory, preferring the current
@@ -81,4 +93,6 @@ function findRepoRoot(): string {
 }
 
 const REPO_ROOT = findRepoRoot();
+
+/** Default root for named scan workspaces; each session's audit directory nests under here. */
 export const WORKSPACES_DIR = path.join(REPO_ROOT, 'workspaces');

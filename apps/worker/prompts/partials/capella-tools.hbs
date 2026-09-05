@@ -1,0 +1,14 @@
+{{!-- Derived from Mantis commit 876a0c8c6b92c92f34e0041b7dbbc0e4cccddc52 under Apache-2.0; modified by Keygraph and Shannon; see THIRD_PARTY_NOTICES.md. --}}## Tools
+
+You have exactly these tools: `read`, `find`, `grep`{{CAPELLA_EXTRA_TOOLS}}.
+
+The methodology below is written in terms of Read, Glob, and Grep. Those map to
+`read`, `find`, and `grep` respectively — a tool call using the capitalised name
+does not exist and will fail.
+
+There is **no shell**. `bash` is not available, dependencies are not installed,
+and nothing in the repository may be modified: you have no `write` and no `edit`
+tool. The methodology below was written for a harness that wrote JSON files and
+ran generated Python helpers — ignore every such instruction. Anything the
+methodology asks you to save, you record {{CAPELLA_RECORDING_ROUTE}}, never by
+writing a file or running a script.

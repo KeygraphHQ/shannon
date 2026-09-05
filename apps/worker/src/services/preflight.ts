@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -40,10 +40,8 @@ import {
   createModelRuntime,
   GENERIC_API_KEY_ENV,
   type ModelSpec,
-  type OpenAiFormat,
   PI_CATALOG_URL,
   piAuthPresent,
-  resolveGatewayFormat,
   resolveModel,
   resolveModelSpec,
   resolveProviderCredentials,
@@ -162,6 +160,9 @@ async function validateConfig(configPath: string, logger: ActivityLogger): Promi
 
 // === code_path Existence Validation ===
 
+// .shannon/ holds this scan's own internal bookkeeping (deliverables, logs, checkpoints), not
+// source the operator meant to scope. Without this exclusion, a code_path rule could match a
+// path Shannon itself created rather than a real entry in the target repo.
 const CODE_PATH_IGNORE = ['.git/**', '.shannon/**'];
 
 async function patternMatchesAny(repoPath: string, pattern: string): Promise<boolean> {
@@ -326,24 +327,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   //    needs one API key.
   const credentials = resolveProviderCredentials(spec.providerId);
 
-  // 3. Wire format for an OpenAI gateway. Rejects a format named where it cannot
-  //    take effect, rather than letting the run proceed on the wrong API.
-  let format: OpenAiFormat;
-  try {
-    format = resolveGatewayFormat(spec.providerId, credentials.baseUrl);
-  } catch (error) {
-    return err(
-      new PentestError(
-        error instanceof Error ? error.message : String(error),
-        'config',
-        false,
-        { providerId: spec.providerId },
-        ErrorCode.AUTH_FAILED,
-      ),
-    );
-  }
-
-  // With a mounted pi auth.json the env-var checks don't apply — step 5's probe validates it.
+  // With a mounted pi auth.json the env-var checks don't apply — step 4's probe validates it.
   const isBedrock = spec.providerId === 'amazon-bedrock';
   const missing =
     isBedrock && !piAuthPresent() ? ['AWS_REGION', 'AWS_BEARER_TOKEN_BEDROCK'].filter((n) => !process.env[n]) : [];
@@ -359,12 +343,12 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     );
   }
 
-  // 4. Model must exist in the registry, for every provider — Bedrock IDs are the
+  // 3. Model must exist in the registry, for every provider — Bedrock IDs are the
   //    easiest to get wrong, since region prefixes and version suffixes differ per
   //    model (`us.anthropic.claude-opus-5` exists, bare `anthropic.` does not).
   //    A custom endpoint is exempt: it may serve models under its own names.
   const modelRuntime = await createModelRuntime(spec.providerId, credentials.apiKey);
-  const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl, format);
+  const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl);
   if (!baseModel) {
     return err(
       new PentestError(
@@ -382,10 +366,10 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     );
   }
   if (credentials.baseUrl && spec.providerId === 'openai') {
-    logger.info(`Gateway API: ${format} (${baseModel.api})`);
+    logger.info(`Gateway API: ${baseModel.api}`);
   }
 
-  // 5. One real request, so a credential the account cannot use fails here
+  // 4. One real request, so a credential the account cannot use fails here
   //    rather than partway through the run. Bedrock included: pi resolves the
   //    bearer token from the primed credential and the region from AWS_REGION,
   //    so the probe exercises the same auth path the scan will.

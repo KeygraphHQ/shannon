@@ -3,6 +3,8 @@
  * whether the user can be prompted interactively.
  */
 
+import { fail } from './errors.js';
+
 /** True when stdout is a real terminal — safe for color, cursor moves, and spinners. */
 export function stdoutIsTerminal(): boolean {
   return !!process.stdout.isTTY;
@@ -28,7 +30,5 @@ export function supportsColor(): boolean {
 /** Exit with a clear error when an interactive-only command has no terminal, instead of hanging on a prompt. */
 export function requireInteractive(command: string, alternative: string): void {
   if (isInteractive()) return;
-  console.error(`ERROR: '${command}' needs an interactive terminal.`);
-  console.error(alternative);
-  process.exit(1);
+  fail(`'${command}' needs an interactive terminal.`, alternative);
 }

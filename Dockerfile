@@ -43,6 +43,9 @@ RUN rm -rf node_modules apps/*/node_modules && pnpm install --frozen-lockfile --
 # Runtime stage - Minimal production image
 FROM cgr.dev/chainguard/wolfi-base:latest AS runtime
 
+# Lifecycle protocol consumed by the CLI before it trusts a container workflow-id label.
+LABEL shannon.worker-protocol="workflow-id-v1"
+
 # Install only runtime dependencies
 USER root
 RUN apk update && apk add --no-cache \
@@ -52,6 +55,8 @@ RUN apk update && apk add --no-cache \
     curl \
     ca-certificates \
     shadow \
+    # Typst tarball decompression
+    xz \
     # Language runtimes (minimal)
     nodejs-22 \
     npm \
@@ -73,6 +78,22 @@ RUN apk update && apk add --no-cache \
     # Font rendering
     fontconfig
 
+# Install Typst (report PDF compilation)
+ARG TYPST_VERSION=0.14.2
+RUN case "$(uname -m)" in \
+      x86_64) TYPST_ARCH=x86_64-unknown-linux-musl ;; \
+      aarch64) TYPST_ARCH=aarch64-unknown-linux-musl ;; \
+      *) echo "unsupported arch $(uname -m)" && exit 1 ;; \
+    esac && \
+    mkdir -p /tmp/typst-dl /usr/local/bin && cd /tmp/typst-dl && \
+    curl -fsSL "https://github.com/typst/typst/releases/download/v${TYPST_VERSION}/typst-${TYPST_ARCH}.tar.xz" -o typst.tar.xz && \
+    xz -d typst.tar.xz && \
+    tar -xf typst.tar && \
+    mv "typst-${TYPST_ARCH}/typst" /usr/local/bin/typst && \
+    chmod +x /usr/local/bin/typst && \
+    cd / && rm -rf /tmp/typst-dl && \
+    typst --version
+
 # Create non-root user
 RUN addgroup -g 1001 pentest && \
     adduser -u 1001 -G pentest -s /bin/bash -D pentest
@@ -90,6 +111,10 @@ COPY --from=builder /app/package.json /app/pnpm-workspace.yaml /app/pnpm-lock.ya
 COPY --from=builder /app/node_modules /app/node_modules
 COPY --from=builder /app/apps/worker /app/apps/worker
 COPY --from=builder /app/apps/cli/package.json /app/apps/cli/package.json
+
+# Third-party license and notice material travels with the distributed image
+COPY LICENSE THIRD_PARTY_NOTICES.md /usr/share/licenses/shannon/
+COPY LICENSES/ /usr/share/licenses/shannon/LICENSES/
 
 RUN npm install -g --ignore-scripts @playwright/cli@0.1.1
 RUN mkdir -p /tmp/.claude/skills && \

@@ -1,4 +1,4 @@
-// Copyright (C) 2025 Keygraph, Inc.
+// Copyright (C) 2026 Keygraph, Inc.
 //
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU Affero General Public License version 3
@@ -54,28 +54,6 @@ export function generateInternalPath(sessionMetadata: SessionMetadata): string {
 }
 
 /**
- * Generate path to agent log file
- */
-export function generateLogPath(
-  sessionMetadata: SessionMetadata,
-  agentName: string,
-  timestamp: number,
-  attemptNumber: number,
-): string {
-  const internalPath = generateInternalPath(sessionMetadata);
-  const filename = `${timestamp}_${agentName}_attempt-${attemptNumber}.log`;
-  return path.join(internalPath, 'agents', filename);
-}
-
-/**
- * Generate path to prompt snapshot file
- */
-export function generatePromptPath(sessionMetadata: SessionMetadata, agentName: string): string {
-  const internalPath = generateInternalPath(sessionMetadata);
-  return path.join(internalPath, 'prompts', `${agentName}.md`);
-}
-
-/**
  * Generate path to session.json file
  */
 export function generateSessionJsonPath(sessionMetadata: SessionMetadata): string {
@@ -86,6 +64,7 @@ export function generateSessionJsonPath(sessionMetadata: SessionMetadata): strin
 /**
  * Path to the shared authenticated browser session saved by the preflight
  * validator and consumed by downstream agents via `_shared-session.txt`.
+ * Deleted at workflow end, so an authenticated session never outlives the scan it was created for.
  */
 export function authStateFile(sessionMetadata: SessionMetadata): string {
   return path.join(generateInternalPath(sessionMetadata), 'auth-state.json');
@@ -101,15 +80,10 @@ export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): strin
 
 /**
  * Initialize audit directory structure for a session.
- * Creates: workspaces/{sessionId}/.shannon/{agents,prompts}. The deliverables,
- * scratchpad, and browser dirs are created host-side and bind-mounted in.
+ * Creates the hidden internals directory. The deliverables, scratchpad, and
+ * browser directories are created host-side and bind-mounted in.
  */
 export async function initializeAuditStructure(sessionMetadata: SessionMetadata): Promise<void> {
   const internalPath = generateInternalPath(sessionMetadata);
-  const agentsPath = path.join(internalPath, 'agents');
-  const promptsPath = path.join(internalPath, 'prompts');
-
   await ensureDirectory(internalPath);
-  await ensureDirectory(agentsPath);
-  await ensureDirectory(promptsPath);
 }
