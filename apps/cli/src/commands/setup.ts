@@ -18,8 +18,12 @@ import { getVersion } from '../version.js';
 const SHANNON_HOME = path.join(os.homedir(), '.shannon');
 
 const CUSTOM_MODEL = '__custom__';
+const ATLAS_CLOUD = '__atlas_cloud__';
 const CUSTOM_BASE_URL = '__custom_base_url__';
 const OTHER_PROVIDER = '__other_provider__';
+
+const ATLAS_CLOUD_BASE_URL = 'https://api.atlascloud.ai/v1';
+const ATLAS_CLOUD_MODELS = ['qwen/qwen3.8-max'] as const;
 
 /**
  * API dialects reachable through the gateway route. The dialect picks the provider
@@ -70,6 +74,7 @@ export async function setup(): Promise<void> {
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
+      { value: ATLAS_CLOUD as typeof ATLAS_CLOUD, label: 'Atlas Cloud', hint: 'OpenAI-compatible models' },
       {
         value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL,
         label: 'Custom Base URL',
@@ -87,10 +92,10 @@ export async function setup(): Promise<void> {
   // 2. Credentials, and any endpoint override. A base URL overrides the endpoint
   //    for whichever provider is chosen — the curated gateway route names it via
   //    the dialect, the "Other provider" route asks for it directly.
-  const { provider, config, baseUrl } = await setupSelection(selected);
+  const { provider, config, baseUrl, modelSuggestions } = await setupSelection(selected);
 
   // 3. The model that runs every phase.
-  const modelId = await promptModel(provider);
+  const modelId = await promptModel(provider, modelSuggestions);
   config.core = { ...config.core, model: `${provider}:${modelId}` };
   if (baseUrl) config.core = { ...config.core, base_url: baseUrl };
 
@@ -109,12 +114,24 @@ interface Selection {
   provider: string;
   config: ShannonConfig;
   baseUrl?: string;
+  /** Overrides the provider's curated model list — set by presets whose
+   *  endpoint serves a different catalogue than the dialect's own provider. */
+  modelSuggestions?: readonly string[];
 }
 
 /** Resolve the provider selection into a provider id and its credential config. */
 async function setupSelection(
-  selected: CuratedProviderId | typeof CUSTOM_BASE_URL | typeof OTHER_PROVIDER,
+  selected: CuratedProviderId | typeof ATLAS_CLOUD | typeof CUSTOM_BASE_URL | typeof OTHER_PROVIDER,
 ): Promise<Selection> {
+  if (selected === ATLAS_CLOUD) {
+    const apiKey = await promptSecret('Enter your Atlas Cloud API key');
+    return {
+      provider: 'openai',
+      config: { openai: { api_key: apiKey } },
+      baseUrl: ATLAS_CLOUD_BASE_URL,
+      modelSuggestions: ATLAS_CLOUD_MODELS,
+    };
+  }
   if (selected === CUSTOM_BASE_URL) {
     const gateway = await setupGateway();
     return { provider: gateway.provider, config: gateway.config, baseUrl: gateway.baseUrl };
@@ -251,8 +268,8 @@ async function setupGateway(): Promise<GatewaySetup> {
  * Ask for the one model that runs every phase. Providers with suggestions offer a
  * pick list with a free-text escape hatch; the rest go straight to free text.
  */
-async function promptModel(provider: string): Promise<string> {
-  const suggestions = isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : [];
+async function promptModel(provider: string, override?: readonly string[]): Promise<string> {
+  const suggestions = override ?? (isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : []);
 
   if (suggestions.length === 0) {
     return promptModelId(provider, modelIdPlaceholder(provider));
