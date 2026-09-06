@@ -33,7 +33,6 @@ function initialization() {
         role: 'ordinary user',
         authenticated: true,
         stateRef: 'state/attacker.json',
-        authentication: { credentials: { password: 'configured-password' } },
       },
       {
         name: 'victim',
@@ -42,7 +41,6 @@ function initialization() {
         stateRef: 'state/victim.json',
       },
     ],
-    configuredSecrets: ['configured-password', 'cookie-fixture-value', 'bearer-fixture-value', 'csrf-fixture-value'],
   };
 }
 
@@ -316,12 +314,13 @@ function verifiedAttempt(approvedPlan, overrides = {}) {
   };
 }
 
-test('initialization atomically writes a redacted revision-zero document', async (t) => {
+test('initialization atomically writes a revision-zero document', async (t) => {
   const { root, snapshot } = await makeStore(t);
   const boardPath = path.join(root, '.shannon', 'blackbox', 'blackboard.json');
-  const serialized = await readFile(boardPath, 'utf8');
+  const persisted = JSON.parse(await readFile(boardPath, 'utf8'));
 
   assert.equal(snapshot.revision, 0);
+  assert.equal(persisted.revision, 0);
   assert.deepEqual(snapshot.operationReceipts, []);
   assert.equal(snapshot.targetOrigin, TARGET_ORIGIN);
   assert.deepEqual(snapshot.runScope, initialization().runScope);
@@ -329,10 +328,6 @@ test('initialization atomically writes a redacted revision-zero document', async
     { name: 'attacker', role: 'ordinary user', authenticated: true, stateRef: 'state/attacker.json' },
     { name: 'victim', role: 'ordinary user', authenticated: true, stateRef: 'state/victim.json' },
   ]);
-  assert.equal(serialized.includes('configured-password'), false);
-  assert.equal(serialized.includes('cookie-fixture-value'), false);
-  assert.equal(serialized.includes('bearer-fixture-value'), false);
-  assert.equal(serialized.includes('csrf-fixture-value'), false);
   await assert.rejects(readFile(`${boardPath}.tmp`, 'utf8'), /ENOENT/);
 });
 
@@ -1055,7 +1050,7 @@ test('persistent-state verification requires fresh state for its verification-so
   );
 });
 
-test('task settlement atomically records authenticated identity state without credentials', async (t) => {
+test('task settlement atomically records authenticated identity state', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackboard-identity-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   const FileBlackboardStore = requireExport('FileBlackboardStore');
@@ -1093,7 +1088,6 @@ test('task settlement atomically records authenticated identity state without cr
     stateRef,
   });
   assert.equal(updated.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'completed');
-  assert.equal(JSON.stringify(updated).includes('configured-password'), false);
   await assert.rejects(
     store.settleTasks({
       baseRevision: updated.revision,
@@ -1148,32 +1142,6 @@ test('identity capture settlement requires the matching bootstrap identity lease
   assert.equal(unchanged.revision, snapshot.revision);
   assert.equal(unchanged.identities.find(({ name }) => name === 'attacker')?.authenticated, false);
   assert.equal(unchanged.tasks.find(({ taskId }) => taskId === task.taskId)?.status, 'running');
-});
-
-test('resume requires the configured secret set and keeps enforcing it across store instances', async (t) => {
-  const { root } = await makeStore(t);
-  const FileBlackboardStore = requireExport('FileBlackboardStore');
-  const resumed = new FileBlackboardStore(root);
-  const missingSecrets = initialization();
-  delete missingSecrets.configuredSecrets;
-
-  await assert.rejects(resumed.initialize(missingSecrets), /configured secrets/i);
-  await resumed.initialize(initialization());
-  let snapshot = await resumed.registerTasks(0, {
-    operationKey: 'register:resume-secret',
-    accepted: [plannerTask('recon-secret', 'recon')],
-    rejected: [],
-  });
-  snapshot = await resumed.startTasks(snapshot.revision, 'start:resume-secret', ['recon-secret']);
-  await assert.rejects(
-    resumed.merge({
-      taskId: 'recon-secret',
-      role: 'blackbox-recon',
-      baseRevision: snapshot.revision,
-      exchanges: [exchange('ex_secret', { bodyShape: 'configured-password' })],
-    }),
-    /secret material/i,
-  );
 });
 
 test('persisted documents require a target origin and valid run status', async (t) => {

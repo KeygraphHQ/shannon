@@ -14,7 +14,10 @@
 // === Shared primitives ===
 
 export type TypstSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
-export type TypstStatus = 'Exploited' | 'OutOfScope' | 'BlockedByConstraints' | 'FalsePositive';
+// `Unstated` is the verdict of a record that carries no status of its own. It is a distinct value
+// rather than a default onto another, so the document never presents an unrecorded verdict as one
+// the run reached.
+export type TypstStatus = 'Exploited' | 'OutOfScope' | 'BlockedByConstraints' | 'FalsePositive' | 'Unstated';
 export type TypstConfidence = 'High' | 'Medium' | 'Low';
 export type TypstCategory = 'Authentication' | 'Authorization' | 'XSS' | 'Injection' | 'SSRF' | 'Other';
 
@@ -42,6 +45,15 @@ export interface FindingSummary {
   readonly vulnerableLocation: string;
   readonly overview: string;
   readonly impact: string;
+}
+
+/**
+ * A queue entry the exploitation phase never returned a verdict for. Carried into the document so
+ * a vulnerability that was never examined is never absent from the customer's copy.
+ */
+export interface UnassessedEntry {
+  readonly id: string;
+  readonly vulnerabilityType?: string;
 }
 
 export interface Meta {
@@ -73,12 +85,17 @@ export interface ExploitFinding {
   readonly id: string;
   readonly title: string;
   readonly category: TypstCategory;
+  readonly owaspCategory: string;
   readonly severity: TypstSeverity;
   readonly status: TypstStatus;
+  // Present only for a finding no exploit confirmed, where it is the only rating the deliverable
+  // carried. A confirmed exploit is settled by its evidence and needs none.
+  readonly confidence?: TypstConfidence;
   readonly summary: FindingSummary;
   readonly prerequisites: string;
   readonly exploitationSteps: readonly Step[];
   readonly proofOfImpact: readonly StepItem[];
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }
@@ -93,6 +110,9 @@ export interface ExploitsReportData {
   readonly mode: 'exploits';
   readonly meta: Meta;
   readonly scope: string;
+  readonly executiveSummary: string;
+  readonly notAssessed: readonly string[];
+  readonly unassessedQueueEntries: readonly UnassessedEntry[];
   readonly exploitedByType: readonly ExploitedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;
@@ -122,9 +142,11 @@ export interface AnalysisFinding {
   readonly id: string;
   readonly title: string;
   readonly category: TypstCategory;
+  readonly owaspCategory: string;
   readonly severity: TypstSeverity;
   readonly confidence: TypstConfidence;
   readonly summary: FindingSummary;
+  readonly remediation: string;
   readonly notes?: readonly StepItem[];
   readonly additionalSections?: readonly AdditionalSection[];
 }
@@ -139,6 +161,9 @@ export interface FindingsReportData {
   readonly mode: 'findings';
   readonly meta: Meta;
   readonly scope: string;
+  readonly executiveSummary: string;
+  readonly notAssessed: readonly string[];
+  readonly unassessedQueueEntries: readonly UnassessedEntry[];
   readonly identifiedByType: readonly IdentifiedByTypeEntry[];
   readonly summary: {
     readonly totalIdentified: number;

@@ -22,23 +22,93 @@ interface DeliverableFile {
   name: string;
   /** Candidate filenames in priority order. First one that exists wins. */
   paths: readonly string[];
+  /** The vuln agent's analysis deliverable, which holds the out-of-scope section. */
+  analysisPath: string;
   required: boolean;
+}
+
+/** Heading the vuln renderer gives the out-of-scope section, and the heading it carries here. */
+const OUT_OF_SCOPE_SOURCE_HEADING = '## 5. Confirmed Findings Outside Attack Scope';
+const OUT_OF_SCOPE_REPORT_HEADING = '## Confirmed Findings Outside Attack Scope';
+
+/**
+ * Pull the out-of-scope section out of an analysis deliverable, or null when it holds no findings.
+ *
+ * These vulnerabilities were confirmed and then deliberately kept out of the exploitation queue, so
+ * no exploitation evidence mentions them. The section number is dropped: it means nothing once the
+ * section sits beside the other per-class material.
+ */
+function extractOutOfScopeSection(markdown: string): string | null {
+  const lines = markdown.split(/\r?\n/);
+  const headingIndex = lines.findIndex((line) => line.trim() === OUT_OF_SCOPE_SOURCE_HEADING);
+  if (headingIndex === -1) return null;
+
+  const rest = lines.slice(headingIndex + 1);
+  const nextHeadingOffset = rest.findIndex((line) => line.startsWith('## '));
+  const body = nextHeadingOffset === -1 ? rest : rest.slice(0, nextHeadingOffset);
+  const hasFindings = body.some((line) => line.startsWith('### '));
+  if (!hasFindings) return null;
+
+  return [OUT_OF_SCOPE_REPORT_HEADING, '', body.join('\n').trim()].join('\n');
+}
+
+async function readOutOfScopeSection(
+  dir: string,
+  file: DeliverableFile,
+  logger: ActivityLogger,
+): Promise<string | null> {
+  const analysisPath = path.join(dir, file.analysisPath);
+  try {
+    if (!(await fs.pathExists(analysisPath))) return null;
+    return extractOutOfScopeSection(await fs.readFile(analysisPath, 'utf8'));
+  } catch (error) {
+    const err = error as Error;
+    logger.warn(`Could not read ${file.analysisPath}: ${err.message}`);
+    return null;
+  }
 }
 
 // Pure function: Assemble final report from specialist deliverables.
 // Per class, prefer the exploit-agent's evidence file; fall back to renderer-produced findings.
-// Both never coexist for a workspace because scope (exploit flag) is locked.
+// Both never coexist for a workspace because scope (exploit flag) is locked. Each class's
+// out-of-scope findings are appended from its analysis deliverable, since neither of those two
+// files carries them and this assembly is the report agent's only input.
 export async function assembleFinalReport(
   sourceDir: string,
   deliverablesSubdir: string | undefined,
   logger: ActivityLogger,
 ): Promise<string> {
   const deliverableFiles: readonly DeliverableFile[] = [
-    { name: 'Injection', paths: ['injection_exploitation_evidence.md', 'injection_findings.md'], required: false },
-    { name: 'XSS', paths: ['xss_exploitation_evidence.md', 'xss_findings.md'], required: false },
-    { name: 'Authentication', paths: ['auth_exploitation_evidence.md', 'auth_findings.md'], required: false },
-    { name: 'SSRF', paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'], required: false },
-    { name: 'Authorization', paths: ['authz_exploitation_evidence.md', 'authz_findings.md'], required: false },
+    {
+      name: 'Injection',
+      paths: ['injection_exploitation_evidence.md', 'injection_findings.md'],
+      analysisPath: 'injection_analysis_deliverable.md',
+      required: false,
+    },
+    {
+      name: 'XSS',
+      paths: ['xss_exploitation_evidence.md', 'xss_findings.md'],
+      analysisPath: 'xss_analysis_deliverable.md',
+      required: false,
+    },
+    {
+      name: 'Authentication',
+      paths: ['auth_exploitation_evidence.md', 'auth_findings.md'],
+      analysisPath: 'auth_analysis_deliverable.md',
+      required: false,
+    },
+    {
+      name: 'SSRF',
+      paths: ['ssrf_exploitation_evidence.md', 'ssrf_findings.md'],
+      analysisPath: 'ssrf_analysis_deliverable.md',
+      required: false,
+    },
+    {
+      name: 'Authorization',
+      paths: ['authz_exploitation_evidence.md', 'authz_findings.md'],
+      analysisPath: 'authz_analysis_deliverable.md',
+      required: false,
+    },
   ];
 
   const dir = deliverablesDir(sourceDir, deliverablesSubdir);
@@ -72,6 +142,13 @@ export async function assembleFinalReport(
         );
       }
       logger.info(`No ${file.name} deliverable found`);
+    }
+
+    const outOfScope = await readOutOfScopeSection(dir, file, logger);
+    if (outOfScope) {
+      // Without a class section above it, the block would read as belonging to the previous class.
+      sections.push(added ? outOfScope : `# ${file.name}\n\n${outOfScope}`);
+      logger.info(`Added ${file.name} out-of-scope findings from ${file.analysisPath}`);
     }
   }
 

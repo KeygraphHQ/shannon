@@ -1252,8 +1252,6 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
 
   assert.deepEqual(agents.map((entry) => entry.identity?.name ?? 'anonymous'), ['anonymous', 'attacker', 'victim', 'backup']);
   for (const [index, agent] of agents.entries()) {
-    assert.equal(agent.identity?.sensitiveValues?.includes('backup@example.com'), true);
-    assert.equal(agent.identity?.sensitiveValues?.includes(SECRET), true);
     if (index === 0) {
       assert.equal(agent.identity?.credentials, undefined);
     } else {
@@ -1803,44 +1801,6 @@ test('capture remains unauthenticated when observed-only settlement also fails v
     .filter(([name]) => name === 'settleTasks')
     .at(-1)[1];
   assert.equal(failedSettlement.identityCaptures, undefined);
-});
-
-test('capture redacts configured secrets from enrichment rejection warnings', async (t) => {
-  const root = await tempRoot(t);
-  const { deps } = await makeDeps(t, root, {
-    identityNames: ['attacker'],
-    settleErrors: [new BlackboardValidationError(`unknown reference contains ${SECRET}`)],
-    historyQueue: [
-      [], [{ id: 'preflight' }],
-      [{ id: 'preflight' }], [{ id: 'preflight' }, { id: 'attacker' }],
-    ],
-    agentHandler: async (runInput) => ({
-      taskId: runInput.task.taskId,
-      role: 'blackbox-recon',
-      baseRevision: runInput.snapshot.revision,
-      exchanges: [],
-      resources: [{
-        resourceId: 'resource-model',
-        resourceType: 'item',
-        objectReferences: [],
-        ownerIdentity: 'attacker',
-        visibility: 'private',
-        evidence: [],
-        provenance: { actor: 'blackbox-recon', taskId: runInput.task.taskId, baseRevision: runInput.snapshot.revision },
-      }],
-      transitions: [],
-    }),
-  });
-  const activities = createBlackboxActivities(deps);
-  const runInput = input(root);
-
-  await activities.preflightBlackbox(runInput);
-  const capture = await activities.captureIdentity(runInput, 'attacker');
-
-  assert.equal(capture.authenticated, true);
-  const warning = deps.logger.entries.find(([, message]) => /model enrichment/i.test(message));
-  assert.equal(warning?.[2].reason, `unknown reference contains <redacted>`);
-  assert.equal(warning?.[2].reason.includes(SECRET), false);
 });
 
 test('one failed identity returns a safe failure while two successful identities remain possible', async (t) => {
@@ -2782,7 +2742,6 @@ test('verifier replays the approved sequence under fresh identity state and deri
   );
   assert.equal(loginInputs.every(({ identity }) => !('victim' in identity.credentials)), true);
   assert.equal(verifierInput.identity.credentials, undefined);
-  assert.equal(verifierInput.identity.sensitiveValues.includes('backup@example.com'), true);
   assert.deepEqual(attempt.exchanges.map(({ exchangeId }) => exchangeId), [
     freshActorExchange.exchangeId,
     verificationExchange.exchangeId,
@@ -2898,7 +2857,7 @@ test('control activities revalidate and atomically register the planner wave', a
   });
 });
 
-test('control activities redact failures, evaluate persisted progress, and finalize the run', async (t) => {
+test('control activities record failures, evaluate persisted progress, and finalize the run', async (t) => {
   const root = await tempRoot(t);
   const { deps, board } = await makeDeps(t, root);
   const candidate = {
@@ -2943,7 +2902,7 @@ test('control activities redact failures, evaluate persisted progress, and final
   assert.equal(blockedRevision, 10);
   const recorded = board.calls.find(([name]) => name === 'recordVerification')[3].verification;
   assert.equal(recorded.verdict, 'blocked');
-  assert.equal(recorded.failureReason.includes(SECRET), false);
+  assert.equal(recorded.failureReason, `verifier failed with ${SECRET}`);
   assert.deepEqual(recorded.replayActionIds, [candidate.actionId]);
 
   board.seed({
@@ -2987,7 +2946,7 @@ test('control activities redact failures, evaluate persisted progress, and final
   assert.equal(finalized.mode, 'blackbox');
   assert.equal(finalized.status, 'incomplete');
   assert.equal(finalized.revision, 12);
-  assert.equal(finalized.failures[0].includes(SECRET), false);
+  assert.equal(finalized.failures[0], `finalization context ${SECRET}`);
   assert.equal(finalized.findingCount, 0);
   assert.deepEqual(finalized.artifactNames, [
     'traffic_inventory.json',
@@ -2998,7 +2957,6 @@ test('control activities redact failures, evaluate persisted progress, and final
   const terminalCall = board.calls.findLast(([name]) => name === 'setRunStatus');
   assert.equal(terminalCall[3], 'incomplete');
   assert.equal(terminalCall[4], finalized.failures[0]);
-  assert.equal(terminalCall[4].includes(SECRET), false);
 });
 
 test('artifact publication failure occurs after terminal CAS and remains repairable', async (t) => {
@@ -3034,7 +2992,7 @@ test('artifact publication failure occurs after terminal CAS and remains repaira
   );
 });
 
-test('an incomplete publication outage resumes from the committed redacted failure', async (t) => {
+test('an incomplete publication outage resumes from the committed failure', async (t) => {
   const root = await tempRoot(t);
   let publishCalls = 0;
   const { deps } = await makeDeps(t, root);
@@ -3058,7 +3016,7 @@ test('an incomplete publication outage resumes from the committed redacted failu
   await assert.rejects(firstActivities.finalizeBlackboxRun(finalization), /artifact write failed/);
   const committed = await new FileBlackboardStore(root).read();
   const committedFailure = committed.terminalFailure;
-  assert.equal(committedFailure.includes(SECRET), false);
+  assert.equal(committedFailure, finalization.failure);
 
   const resumed = await createBlackboxActivities({
     ...deps,

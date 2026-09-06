@@ -7,7 +7,7 @@
 /** Deterministic report.json to SARIF 2.1.0 renderer, for `exploit=true` runs only. */
 
 import type { AddFindingInput, CodeLocation } from '../collectors/finding-collector.js';
-import type { ReportData } from './report-renderer.js';
+import { findingStatus, type ReportData, type ReportedStatus } from './report-renderer.js';
 
 export interface SarifOptions {
   readonly workspaceName: string;
@@ -117,6 +117,24 @@ function severityToLevel(severity: string | undefined): string {
   }
 }
 
+/**
+ * What the run established about a finding, said in SARIF's own vocabulary.
+ *
+ * Only an exploit that ran is a `fail`. A finding an external constraint stopped short of a verdict
+ * is `open`, as is one whose record states no verdict at all; one the run confirmed and deliberately
+ * did not pursue is `review`, and one it ruled out is `informational`. A finding the pipeline could
+ * not prove is neither filed as a failure nor left out of the log: a consumer that alerts on failures
+ * sees only what an exploit demonstrated, and a consumer reading the whole log sees everything the
+ * run found.
+ */
+const STATUS_KINDS: Record<ReportedStatus, string> = {
+  exploited: 'fail',
+  blocked_by_constraints: 'open',
+  out_of_scope: 'review',
+  false_positive: 'informational',
+  unstated: 'open',
+};
+
 function toPhysicalLocation(location: CodeLocation) {
   const region: Record<string, number> = {};
   if (location.start_line) region.startLine = location.start_line;
@@ -149,12 +167,57 @@ function syntheticLocationFromHttp(finding: AddFindingInput) {
   };
 }
 
-function buildMessageMarkdown(finding: AddFindingInput): string {
-  const parts = [`**${finding.title}**`, '', finding.overview, '', '**Impact**', '', finding.impact];
+/** A repository path or an endpoint inside free text, with the line number when the text names one. */
+const LOCATION_IN_TEXT = /(\/?(?:[\w.-]+\/)+[\w.-]+|[\w-]+\.[A-Za-z0-9]{2,4})(?::(\d+))?/;
+
+/**
+ * Last resort: the location the finding states in prose. A confirmed finding that was never queued
+ * for exploitation carries no structured code location and no HTTP entry point, and a result with no
+ * location is silently discarded downstream, so the path- or endpoint-shaped token is lifted out of
+ * the text to serve as the URI. No `uriBaseId`, since it need not resolve in the repo.
+ */
+function syntheticLocationFromText(vulnerableLocation: string) {
+  const text = vulnerableLocation.trim();
+  const match = LOCATION_IN_TEXT.exec(text);
+  const startLine = Number.parseInt(match?.[2] ?? '', 10);
+
+  return {
+    physicalLocation: {
+      // Text holding no path at all is percent-encoded whole: a sentence is not a URI, and the
+      // finding is worth more in the log with an unresolvable location than absent from it.
+      artifactLocation: { uri: match?.[1] ?? encodeURI(text) },
+      // SARIF regions are 1-based, so an unparsed or zero line number carries no region at all.
+      ...(startLine > 0 && { region: { startLine } }),
+    },
+    message: { text },
+  };
+}
+
+/**
+ * How a finding is introduced to whoever reads the message. `kind` says the same thing to a machine,
+ * but a person reading an alert body sees only the prose, and it must not read as a proven exploit.
+ */
+const STATUS_NOTICES: Record<ReportedStatus, string> = {
+  exploited: '',
+  blocked_by_constraints:
+    'Not exploited — external constraints blocked validation. Impact is assessed, not demonstrated.',
+  out_of_scope:
+    'Not exploited — confirmed, then held outside the agreed attack scope. Impact is assessed, not demonstrated.',
+  false_positive: 'Ruled out — examined and determined not to be a vulnerability.',
+  unstated: 'Not confirmed — the record states no exploitation verdict. Impact is assessed, not demonstrated.',
+};
+
+function buildMessageMarkdown(finding: AddFindingInput, status: ReportedStatus): string {
+  const parts = [`**${finding.title}**`];
+  const notice = STATUS_NOTICES[status];
+  if (notice) parts.push('', `_${notice}_`);
+
+  parts.push('', finding.overview, '', '**Impact**', '', finding.impact);
   parts.push('', '**Remediation**', '', finding.remediation);
   // Exploitation steps and proof of impact are deliberately absent: SARIF has no structural home
   // for them, and flattening them into prose would imply this file carries the evidence.
-  parts.push('', 'Full exploitation evidence: `Security-Assessment-Report.pdf`');
+  const pointer = status === 'exploited' ? 'Full exploitation evidence' : 'Full detail';
+  parts.push('', `${pointer}: \`Security-Assessment-Report.pdf\``);
   return parts.join('\n');
 }
 
@@ -174,18 +237,33 @@ interface RenderedResult {
   readonly owaspId: string;
 }
 
-function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult | null {
+function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult {
   const codeLocations = finding.code_locations ?? [];
   const sinks = codeLocations.filter((l) => l.role === 'sink');
   const related = codeLocations.filter((l) => l.role !== 'sink');
   const primary = sinks[0] ?? codeLocations[0];
 
-  const locations = primary ? [toPhysicalLocation(primary)] : [syntheticLocationFromHttp(finding)].filter(Boolean);
-  if (locations.length === 0) return null;
+  const structured = primary ? toPhysicalLocation(primary) : undefined;
+  const location =
+    structured ?? syntheticLocationFromHttp(finding) ?? syntheticLocationFromText(finding.vulnerable_location);
 
-  const properties: Record<string, unknown> = { findingId: finding.finding_id };
+  const status = findingStatus(finding);
+  const kind = STATUS_KINDS[status];
+  // SARIF grades only a failure: on every other kind the spec fixes `level` at `none`. Severity is
+  // an assessment rather than a measurement for anything but a confirmed exploit anyway, so it is
+  // recorded as a property of the finding instead of as the weight of an alert.
+  const level = kind === 'fail' ? severityToLevel(finding.severity) : 'none';
+
+  const properties: Record<string, unknown> = {
+    findingId: finding.finding_id,
+    status,
+    severity: finding.severity,
+    // The location the finding itself states, which the structural fields carry only in part.
+    vulnerableLocation: finding.vulnerable_location,
+  };
+  // The rating a finding no exploit confirmed came with, and the only one it has.
+  if (finding.confidence) properties.confidence = finding.confidence;
   if (finding.http_location?.parameter) properties.parameter = finding.http_location.parameter;
-  if (finding.status) properties.status = finding.status;
   if (finding.auth_state) properties.authState = finding.auth_state;
   if (finding.prerequisites) properties.prerequisites = finding.prerequisites;
 
@@ -196,12 +274,13 @@ function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult 
     owaspId,
     result: {
       ruleId,
-      level: severityToLevel(finding.severity),
+      kind,
+      level,
       message: {
         text: `${finding.title}. ${finding.overview}`,
-        markdown: buildMessageMarkdown(finding),
+        markdown: buildMessageMarkdown(finding, status),
       },
-      locations,
+      locations: [location],
       ...(related.length > 0 && {
         relatedLocations: related.map((l, i) => ({ id: i + 1, ...toPhysicalLocation(l) })),
       }),
@@ -221,17 +300,21 @@ function renderResult(finding: AddFindingInput, ruleId: string): RenderedResult 
   };
 }
 
-/** Render a SARIF 2.1.0 log from the structured report. Findings with no location are omitted. */
+/**
+ * Render a SARIF 2.1.0 log from the structured report.
+ *
+ * Every finding in a known class becomes a result; `kind` says what the run established about it,
+ * so nothing the report carries is missing here and nothing unproven arrives as a failure.
+ */
 export function renderSarif(data: ReportData, options: SarifOptions): string {
-  const { report_meta, findings, not_assessed = [] } = data;
+  const { report_meta, findings, not_assessed = [], unassessed_queue_entries = [] } = data;
 
   const rendered: RenderedResult[] = [];
 
   for (const finding of findings) {
     const rule = RULES[finding.category];
     if (!rule) continue;
-    const result = renderResult(finding, rule.id);
-    if (result !== null) rendered.push(result);
+    rendered.push(renderResult(finding, rule.id));
   }
 
   // Only classes that produced a result are declared, and `ruleIndex` is the position in this list.
@@ -268,8 +351,9 @@ export function renderSarif(data: ReportData, options: SarifOptions): string {
         automationDetails: { id: `shannon/exploit/${options.workspaceName}` },
         invocations: [
           {
-            // A failed class produced no results; reporting success would read as resolved alerts.
-            executionSuccessful: not_assessed.length === 0,
+            // A failed class produced no results, and a queue entry left without a verdict was
+            // never examined; reporting success for either would read as resolved alerts.
+            executionSuccessful: not_assessed.length === 0 && unassessed_queue_entries.length === 0,
           },
         ],
         ...(owaspCategories.length > 0 && {

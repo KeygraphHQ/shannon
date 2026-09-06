@@ -6,6 +6,7 @@
 
 import { fs, path } from 'zx';
 
+import { RECON_ROUTE_DISPOSITIONS } from './ai/queue-schemas.js';
 import type { ActivityLogger } from './types/activity-logger.js';
 import type {
   AgentDefinition,
@@ -263,11 +264,8 @@ async function validateAuthzReconHandoff(
       if (!expectedRouteIdSet.has(routeId)) {
         violations.push(`unknown route disposition: ${routeId}`);
       }
-      if (
-        disposition.disposition !== 'queued' &&
-        disposition.disposition !== 'ruled_out' &&
-        disposition.disposition !== 'blocked'
-      ) {
+      const dispositionIsKnown = RECON_ROUTE_DISPOSITIONS.some((value) => value === disposition.disposition);
+      if (!dispositionIsKnown) {
         violations.push(`${routeId} has invalid disposition`);
       }
       if (typeof disposition.evidence !== 'string' || disposition.evidence.trim().length === 0) {
@@ -290,6 +288,13 @@ async function validateAuthzReconHandoff(
           if (!findingIds.has(findingId)) {
             violations.push(`${routeId} references unknown finding ID ${findingId}`);
           }
+        }
+      } else if (disposition.disposition === 'out_of_scope') {
+        // These findings were confirmed and then deliberately kept out of the queue, so they live in
+        // the deliverable's out-of-scope section rather than in `vulnerabilities`. The route still
+        // has to name them, or the confirmation leaves no trace on the ledger.
+        if (linkedFindingIds.length === 0) {
+          violations.push(`${routeId} is out_of_scope without a finding ID`);
         }
       } else if (linkedFindingIds.length > 0) {
         violations.push(`${routeId} is ${String(disposition.disposition)} but links finding IDs`);

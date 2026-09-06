@@ -196,17 +196,38 @@ function exploitOnlyFields() {
       minLength: 1,
       description: 'What is needed to exploit the vulnerability (or "None").',
     }),
-    exploitation_steps: Type.Array(StructuredStepSchema, {
-      minItems: 1,
-      description: 'Ordered exploitation steps. Each step has an optional title and prose/code items.',
-    }),
+    exploitation_steps: Type.Optional(
+      Type.Union([Type.Array(StructuredStepSchema), Type.Null()], {
+        description:
+          'Ordered exploitation steps. Each step has an optional title and prose/code items. Required ' +
+          'for every finding an exploit was attempted against, including one whose validation was ' +
+          'blocked, where the steps are the path that was tried. Omit it only for a finding nobody ' +
+          'approached: no path was traced, and inventing one would be a fabrication.',
+      }),
+    ),
     proof_of_impact: Type.Array(StepItemSchema, {
       minItems: 1,
       description: 'Evidence of what the exploit achieved — prose and code items.',
     }),
-    status: Type.Optional(
-      Type.Union([stringEnum(STATUS_VALUES), Type.Null()], {
-        description: 'Finding status. Use "exploited" for confirmed exploits.',
+    // NOTE: Required, and never nullable. A finding that leaves it unsaid is reported as carrying no
+    // verdict at all, which understates a run that did reach one — the report can only state what
+    // this field records.
+    status: stringEnum(STATUS_VALUES, {
+      description:
+        'What this run established about the finding. Set one of: `exploited` — an exploit ran and ' +
+        'demonstrated the impact; `out_of_scope` — confirmed real, but outside the agreed attack ' +
+        'scope, so no exploit was attempted; `blocked_by_constraints` — believed real, but this run ' +
+        'could not prove it, because a control held or an operational constraint intervened; ' +
+        '`false_positive` — investigated and determined not to be a vulnerability. The rendered ' +
+        'report tells findings apart on this field alone.',
+    }),
+    confidence: Type.Optional(
+      Type.Union([stringEnum(CONFIDENCE_VALUES), Type.Null()], {
+        description:
+          'How confident the deliverable is that this is a real vulnerability. Set it for any finding ' +
+          'no exploit confirmed, carrying over the rating the exploitation deliverable stated — it is ' +
+          'the only rating such a finding has. Omit it for a confirmed exploit, whose evidence ' +
+          'settles the question.',
       }),
     ),
   };
@@ -251,7 +272,10 @@ export function buildAddFindingSchema(exploit: boolean) {
 /**
  * Superset of both modes, for typing only. Consumers must check presence rather than assume:
  * `report.json` from an analysis run has no `exploitation_steps` key at all. `severity` is the
- * exception — both modes record it, so it is required here too.
+ * exception — both modes record it, so it is required here too. `status` stays optional here even
+ * though the exploit-mode write schema requires it, so a `report.json` saved without one still
+ * parses. Consumers resolve an absent one through `findingStatus` in ../services/report-renderer.ts,
+ * which reports it as no verdict rather than as any verdict the run did not reach.
  */
 const AddFindingSupersetSchema = Type.Object({
   ...identityFields(true),

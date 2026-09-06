@@ -112,18 +112,27 @@ const authzFields = {
   minimal_witness: optStr(),
 };
 
+/**
+ * Every verdict an authz route can close with. `session-manager.ts` validates submitted queues
+ * against this list, so a value added here is accepted there without a second edit.
+ */
+export const RECON_ROUTE_DISPOSITIONS = ['queued', 'ruled_out', 'out_of_scope', 'blocked'] as const;
+
 const reconRouteDisposition = Type.Object({
   route_id: Type.String({
     minLength: 1,
     description: 'Exact Route ID from recon Section 4, for example "GET /api/users/{id}".',
   }),
-  disposition: stringEnum(['queued', 'ruled_out', 'blocked'], {
+  disposition: stringEnum(RECON_ROUTE_DISPOSITIONS, {
     description:
       'queued when one or more linked findings should be exploited; ruled_out when code proves the route safe; ' +
-      'blocked when analysis could not reach a verdict.',
+      'out_of_scope when a confirmed finding on the route was kept out of the queue because reaching it needs ' +
+      'access an external attacker does not have; blocked when analysis could not reach a verdict.',
   }),
   finding_ids: Type.Array(Type.String({ minLength: 1 }), {
-    description: 'Finding IDs linked to this route. Required for queued; empty for ruled_out or blocked.',
+    description:
+      'Finding IDs linked to this route. Required for queued (IDs present in vulnerabilities) and for ' +
+      'out_of_scope (IDs recorded through set_out_of_scope_findings); empty for ruled_out or blocked.',
   }),
   evidence: Type.String({
     minLength: 1,
@@ -201,7 +210,7 @@ export function createQueueSubmitTool(agentName: AgentName, exploit = true): Cap
         ...(agentName === 'authz-vuln'
           ? [
               'Include exactly one recon_route_dispositions entry for every Route ID in recon Section 4.',
-              'Use queued only with finding_ids present in vulnerabilities; use ruled_out with concrete code evidence; use blocked with the exact blocker.',
+              'Use queued only with finding_ids present in vulnerabilities; use ruled_out with concrete code evidence; use out_of_scope with the finding_ids you recorded through set_out_of_scope_findings; use blocked with the exact blocker.',
             ]
           : []),
       ],

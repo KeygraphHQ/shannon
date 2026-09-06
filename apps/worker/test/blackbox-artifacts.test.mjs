@@ -110,19 +110,18 @@ function finding() {
   };
 }
 
-test('renders exactly four sorted redacted projections and the explicit no-findings result', () => {
+test('renders exactly four sorted projections and the explicit no-findings result', () => {
   const rendered = renderBlackboxArtifacts({
     snapshot: snapshot(),
     findings: [],
     status: 'complete',
     failure: null,
-    configuredSecrets: [SECRET],
   });
 
   assert.deepEqual(Object.keys(rendered), [...BLACKBOX_ARTIFACT_NAMES]);
-  assert.equal(Object.values(rendered).some((content) => content.includes(SECRET)), false);
 
   const inventory = JSON.parse(rendered['traffic_inventory.json']);
+  assert.equal(inventory.every(({ path: requestPath }) => requestPath.includes(SECRET)), true);
   assert.deepEqual(inventory.map(({ routeSignature, identity }) => [routeSignature, identity]), [
     ['route-a', 'attacker'],
     ['route-a', 'victim'],
@@ -135,6 +134,7 @@ test('renders exactly four sorted redacted projections and the explicit no-findi
   assert.equal(board.runStatus, 'complete');
   assert.equal(board.failure, null);
   assert.deepEqual(board.resources.map(({ resourceId }) => resourceId), ['resource-a', 'resource-z']);
+  assert.equal(board.resources[0].resourceType, `record password=${SECRET}`);
   assert.equal(Object.hasOwn(board, 'operationReceipts'), false);
   assert.equal(board.identities.some((identity) => Object.hasOwn(identity, 'stateRef')), false);
   assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), []);
@@ -147,7 +147,6 @@ test('renders replay order and normalized response comparisons for each finding'
     findings: [finding()],
     status: 'complete',
     failure: null,
-    configuredSecrets: [SECRET],
   });
   const markdown = rendered['blackbox_authz_evidence.md'];
 
@@ -156,33 +155,14 @@ test('renders replay order and normalized response comparisons for each finding'
   assert.match(markdown, /step-1.*attacker.*ex-z/s);
   assert.match(markdown, /ex-z.*ex-a-attacker.*200/s);
   assert.match(markdown, /ex-z.*ex-a-victim.*200/s);
-  assert.equal(markdown.includes(SECRET), false);
-  assert.equal(markdown.includes('runtime-session-token-92d841'), false);
-  assert.equal(markdown.includes('runtime-password-83c27f'), false);
-  assert.equal(markdown.includes('victim-private-marker-runtime'), false);
-  assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), [
-    {
-      ...finding(),
-      replaySequence: {
-        ...finding().replaySequence,
-        steps: [{
-          ...finding().replaySequence.steps[0],
-          mutations: [
-            { type: 'set_path', path: '/api/<redacted>/z' },
-            { type: 'set_header', name: 'X-Auth', value: '<redacted>' },
-            { type: 'set_form_field', name: 'password', value: '<redacted>' },
-          ],
-        }],
-        proofCondition: {
-          type: 'body_contains',
-          marker: '<redacted>',
-        },
-      },
-    },
-  ]);
+  assert.equal(markdown.includes(SECRET), true);
+  assert.equal(markdown.includes('runtime-session-token-92d841'), true);
+  assert.equal(markdown.includes('runtime-password-83c27f'), true);
+  assert.equal(markdown.includes('victim-private-marker-runtime'), true);
+  assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), [finding()]);
 });
 
-test('redacts unconfigured proof and credential payloads from every artifact projection', () => {
+test('writes proof and credential payloads through every artifact projection verbatim', () => {
   const source = snapshot();
   const reportFinding = finding();
   source.resources[0].resourceType = 'private victim-private-marker-runtime record';
@@ -238,10 +218,9 @@ test('redacts unconfigured proof and credential payloads from every artifact pro
     findings: [reportFinding],
     status: 'complete',
     failure: null,
-    configuredSecrets: [],
   });
   const combined = Object.values(rendered).join('\n');
-  for (const secret of [
+  for (const observed of [
     'victim-private-marker-runtime',
     'runtime-session-token-92d841',
     'runtime-password-83c27f',
@@ -249,98 +228,20 @@ test('redacts unconfigured proof and credential payloads from every artifact pro
     'runtime-api-key-193c7a',
     'victim-runtime-email@example.test',
   ]) {
-    assert.equal(combined.includes(secret), false, `${secret} leaked into an artifact`);
+    assert.equal(combined.includes(observed), true, `${observed} is missing from the artifacts`);
   }
 
   const board = JSON.parse(rendered['blackbox_blackboard.json']);
-  assert.equal(board.actions[0].sequence.steps[0].stepId, 'step-1');
-  assert.equal(board.actions[0].sequence.steps[0].actor, 'attacker');
-  assert.equal(board.actions[0].sequence.proofCondition.marker, '<redacted>');
-  assert.equal(board.actions[0].observation.observedMarkerDigest, 'a'.repeat(64));
-  assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.pointer, '/owner');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.value, '<redacted>');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.steps[0].mutations[0].name, 'session_nonce');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.steps[0].mutations[0].value, '<redacted>');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.steps[0].mutations[1].pointer, '/credential/api_key');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.steps[0].mutations[1].value, '<redacted>');
-});
-
-test('short proof markers stay structurally redacted without corrupting artifact fields', () => {
-  const source = snapshot();
-  source.rejectedTasks = [{
-    task: {
-      taskId: 'short-marker-action',
-      kind: 'action',
-      objective: 'Test a short marker',
-      evidence: [{ id: 'ex-z', kind: 'exchange' }],
-      identityLease: 'attacker',
-      hypothesisId: 'hypothesis-1',
-      status: 'rejected',
-      replayPlan: {
-        steps: [{
-          stepId: 'short-marker-step',
-          sourceExchangeId: 'ex-z',
-          actor: 'attacker',
-          mutations: [],
-        }],
-        proofCondition: { type: 'body_contains', marker: 'a' },
-      },
-    },
-    reason: 'a short marker is not globally sensitive',
-  }];
-
-  const rendered = renderBlackboxArtifacts({
-    snapshot: source,
-    findings: [],
-    status: 'complete',
-    failure: null,
-    configuredSecrets: [],
-  });
-  const board = JSON.parse(rendered['blackbox_blackboard.json']);
-
   assert.equal(board.schemaVersion, 1);
   assert.equal(board.targetOrigin, TARGET_ORIGIN);
-  assert.equal(board.rejectedTasks[0].reason, 'a short marker is not globally sensitive');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.marker, '<redacted>');
-});
-
-test('discovered proof strings redact values without renaming artifact fields', () => {
-  const source = snapshot();
-  source.rejectedTasks = [{
-    task: {
-      taskId: 'field-name-marker-action',
-      kind: 'action',
-      objective: 'Test targetOrigin as a response marker',
-      evidence: [{ id: 'ex-z', kind: 'exchange' }],
-      identityLease: 'attacker',
-      hypothesisId: 'hypothesis-1',
-      status: 'rejected',
-      replayPlan: {
-        steps: [{
-          stepId: 'field-name-marker-step',
-          sourceExchangeId: 'ex-z',
-          actor: 'attacker',
-          mutations: [],
-        }],
-        proofCondition: { type: 'body_contains', marker: 'targetOrigin' },
-      },
-    },
-    reason: 'targetOrigin appeared in a response',
-  }];
-
-  const rendered = renderBlackboxArtifacts({
-    snapshot: source,
-    findings: [],
-    status: 'complete',
-    failure: null,
-    configuredSecrets: ['targetOrigin'],
-  });
-  const board = JSON.parse(rendered['blackbox_blackboard.json']);
-
-  assert.equal(board.targetOrigin, TARGET_ORIGIN);
-  assert.equal(Object.hasOwn(board, '<redacted>'), false);
-  assert.equal(board.rejectedTasks[0].reason, '<redacted> appeared in a response');
-  assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.marker, '<redacted>');
+  assert.equal(board.actions[0].sequence.steps[0].stepId, 'step-1');
+  assert.equal(board.actions[0].sequence.steps[0].actor, 'attacker');
+  assert.equal(board.actions[0].sequence.proofCondition.marker, 'victim-private-marker-runtime');
+  assert.equal(board.actions[0].observation.observedMarkerDigest, 'a'.repeat(64));
+  assert.equal(board.rejectedTasks[0].reason, 'invalid task');
+  assert.equal(board.rejectedTasks[0].task.replayPlan.proofCondition.pointer, '/owner');
+  assert.deepEqual(board.rejectedTasks[0].task.replayPlan.proofCondition.value, rejectedProofValue);
+  assert.deepEqual(board.rejectedTasks[0].task.replayPlan.steps[0].mutations, rejectedPlan.steps[0].mutations);
 });
 
 test('publishes only the fixed manifest with the blackboard commit marker last', async (t) => {
@@ -351,7 +252,6 @@ test('publishes only the fixed manifest with the blackboard commit marker last',
     findings: [],
     status: 'complete',
     failure: null,
-    configuredSecrets: [SECRET],
   });
 
   const writes = [];
@@ -384,7 +284,6 @@ test('never returns a partial-success manifest when an artifact write fails', as
     findings: [],
     status: 'incomplete',
     failure: 'required component failed',
-    configuredSecrets: [SECRET],
   });
   const writes = [];
 

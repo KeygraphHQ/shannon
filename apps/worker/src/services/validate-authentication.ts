@@ -63,7 +63,7 @@ function createAuthSubmitTool(): CapturedSubmitTool {
           Type.String({
             maxLength: 250,
             description:
-              'Free-form 1-2 sentence diagnostic of what the page showed (error messages, page state) when login failed. Required when login_success is false. Mask any sensitive values.',
+              'Free-form 1-2 sentence diagnostic of what the page showed (error messages, page state) when login failed. Required when login_success is false.',
           }),
         ),
       }),

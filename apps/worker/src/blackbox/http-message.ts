@@ -8,8 +8,7 @@
  * Strict parsing for the HTTP/1.x and HTTP/2 text representations returned by Burp.
  *
  * This module deliberately keeps header values intact, including duplicate
- * fields. Callers that expose a message outside the raw corpus must redact it
- * before doing so.
+ * fields.
  */
 
 const TOKEN_PATTERN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;

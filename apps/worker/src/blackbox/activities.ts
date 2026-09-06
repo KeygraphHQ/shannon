@@ -11,7 +11,6 @@ import path from 'node:path';
 import { isDeepStrictEqual, promisify } from 'node:util';
 import { Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
-import { redactSensitive } from '../ai/sensitive-redaction.js';
 import { AuditSession } from '../audit/index.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
 import { deliverablesDir } from '../paths.js';
@@ -34,12 +33,7 @@ import type {
   WorkerContribution,
 } from '../types/blackbox.js';
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
-import {
-  BlackboxAgentRunner,
-  collectSubmissionSecrets,
-  type RedactedBlackboxSlice,
-  type RedactedIdentityContext,
-} from './agent-runner.js';
+import { type AgentIdentityContext, BlackboxAgentRunner, type BlackboxSnapshotSlice } from './agent-runner.js';
 import type { PlannerBatch } from './agents.js';
 import {
   BLACKBOX_ARTIFACT_NAMES,
@@ -314,7 +308,6 @@ interface TargetContext {
   readonly targetUrl: string;
   readonly config: NormalizedBlackboxConfig;
   readonly configuredSecrets: readonly string[];
-  readonly configuredCredentialSecrets: readonly string[];
 }
 
 interface RuntimeContext extends TargetContext {
@@ -411,10 +404,7 @@ async function loadTargetContext(
   const configuredSecrets = [
     ...new Set(config.identities.flatMap(({ authentication }) => collectStrings(authentication.credentials))),
   ];
-  const configuredCredentialSecrets = [
-    ...new Set(config.identities.flatMap(({ authentication }) => collectSubmissionSecrets(authentication.credentials))),
-  ];
-  return { targetOrigin, targetUrl: target.href, config, configuredSecrets, configuredCredentialSecrets };
+  return { targetOrigin, targetUrl: target.href, config, configuredSecrets };
 }
 
 async function loadRuntimeContext(
@@ -446,7 +436,6 @@ function initialization(context: RuntimeContext) {
       authenticated: false,
       stateRef: stateRef(name),
     })),
-    configuredSecrets: context.configuredSecrets,
   };
 }
 
@@ -489,7 +478,7 @@ function bootstrapTasks(config: NormalizedBlackboxConfig): PlannerTask[] {
   ];
 }
 
-function toRedactedSlice(snapshot: BlackboxSnapshot): RedactedBlackboxSlice {
+function toSnapshotSlice(snapshot: BlackboxSnapshot): BlackboxSnapshotSlice {
   return {
     revision: snapshot.revision,
     routes: structuredClone(snapshot.exchanges),
@@ -666,15 +655,6 @@ function previewTraffic(
       }),
     )
     .filter((exchange): exchange is NormalizedExchange => exchange !== null);
-}
-
-function safeSuccessEvidence(value: string, configuredSecrets: readonly string[]): string {
-  return String(
-    redactSensitive(value, {
-      sensitiveValues: configuredSecrets,
-      redactAuthenticationSyntax: true,
-    }),
-  );
 }
 
 function replaySequence(task: PlannerTask, actionId = task.taskId): ReplaySequence {
@@ -978,14 +958,9 @@ async function saveIdentityState(
   await assertStorageState(dependencies.fileSystem, storagePath, identity);
 }
 
-function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]): string {
+function failureReasonText(reason: unknown): string {
   const message = reason instanceof Error ? reason.message : String(reason);
-  return String(
-    redactSensitive(message, {
-      sensitiveValues: configuredSecrets,
-      redactAuthenticationSyntax: true,
-    }),
-  ).slice(0, 500);
+  return message.slice(0, 500);
 }
 
 /**
@@ -993,24 +968,19 @@ function safeFailureReason(reason: unknown, configuredSecrets: readonly string[]
  *
  * A verified verdict rests on the host's own deterministic replay observation, so the host
  * records it unqualified; prose the model attaches beside a verified verdict would disqualify
- * the proved finding downstream. Every other verdict keeps the model's redacted reason.
+ * the proved finding downstream. Every other verdict keeps the model's stated reason.
  */
-function verificationFailureReason(
-  submissionFailed: boolean,
-  submitted: VerificationResult | null,
-  configuredSecrets: readonly string[],
-): string | null {
+function verificationFailureReason(submissionFailed: boolean, submitted: VerificationResult | null): string | null {
   if (submissionFailed) return 'verifier submission failed after replay';
   if (submitted?.verdict === 'verified') return null;
   if (submitted?.failureReason === null) return null;
-  return safeFailureReason(submitted?.failureReason, configuredSecrets);
+  return failureReasonText(submitted?.failureReason);
 }
 
 async function readTerminalArtifactFailures(
   fileSystem: BlackboxFileSystem,
   repoPath: string,
   snapshot: BlackboxSnapshot,
-  configuredSecrets: readonly string[],
 ): Promise<readonly string[]> {
   const raw = String(
     await fileSystem.readFile(path.join(deliverablesDir(repoPath), 'blackbox_blackboard.json'), 'utf8'),
@@ -1027,13 +997,11 @@ async function readTerminalArtifactFailures(
   ) {
     throw new Error('Terminal black-box artifact metadata does not match the committed blackboard');
   }
-  const artifactFailure =
-    record.failure === null
-      ? null
-      : typeof record.failure === 'string'
-        ? safeFailureReason(record.failure, configuredSecrets)
-        : undefined;
-  if (artifactFailure === undefined) throw new Error('Terminal black-box artifact failure metadata is invalid');
+  const recordedFailure = record.failure;
+  if (recordedFailure !== null && typeof recordedFailure !== 'string') {
+    throw new Error('Terminal black-box artifact failure metadata is invalid');
+  }
+  const artifactFailure = recordedFailure === null ? null : failureReasonText(recordedFailure);
   if (Object.hasOwn(snapshot, 'terminalFailure')) {
     const committedFailure = snapshot.terminalFailure ?? null;
     if (artifactFailure !== committedFailure) {
@@ -1179,7 +1147,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       findings,
       status: snapshot.runStatus,
       failure: Object.hasOwn(snapshot, 'terminalFailure') ? (snapshot.terminalFailure ?? null) : legacyFailure,
-      configuredSecrets: context.configuredSecrets,
     });
     const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
     if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
@@ -1221,7 +1188,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           dependencies.fileSystem,
           input.repoPath,
           initializedStore.snapshot,
-          context.configuredSecrets,
         );
       } catch {
         let repairFailure: string | null = null;
@@ -1232,12 +1198,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             try {
               repairFailure =
                 (
-                  await readTerminalArtifactFailures(
-                    dependencies.fileSystem,
-                    input.repoPath,
-                    initializedStore.snapshot,
-                    context.configuredSecrets,
-                  )
+                  await readTerminalArtifactFailures(dependencies.fileSystem, input.repoPath, initializedStore.snapshot)
                 )[0] ?? null;
             } catch {
               repairFailure = 'terminal artifact publication was interrupted; original terminal reason is unavailable';
@@ -1250,7 +1211,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           dependencies.fileSystem,
           input.repoPath,
           initializedStore.snapshot,
-          context.configuredSecrets,
         );
       }
       if (input.outputPath) {
@@ -1569,7 +1529,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             },
           }),
         );
-        const identityContext: RedactedIdentityContext = identity
+        const identityContext: AgentIdentityContext = identity
           ? {
               name: identity.name,
               role: identity.role,
@@ -1577,21 +1537,17 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               credentials: structuredClone(identity.authentication.credentials) as unknown as Readonly<
                 Record<string, unknown>
               >,
-              sensitiveValues: context.configuredSecrets,
-              submissionSecrets: context.configuredCredentialSecrets,
             }
           : {
               name: 'anonymous',
               role: 'unauthenticated',
               loginInstructions: anonymousInstructions(input),
-              sensitiveValues: context.configuredSecrets,
-              submissionSecrets: context.configuredCredentialSecrets,
             };
         submitted = (await dependencies.createAgentRunner(input).run({
           kind: 'blackbox-recon',
           targetOrigin: context.targetOrigin,
           task: runningTask,
-          snapshot: toRedactedSlice(started),
+          snapshot: toSnapshotSlice(started),
           identity: identityContext,
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -1661,10 +1617,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         } else {
           await saveIdentityState(dependencies, input.repoPath, session, identity.name, cancellationSignal);
         }
-        successEvidence = safeSuccessEvidence(
-          identity.authentication.success_condition.value,
-          context.configuredSecrets,
-        );
+        successEvidence = identity.authentication.success_condition.value;
       }
 
       const exchanges = await normalizeCapturedTraffic({
@@ -1725,7 +1678,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           taskId,
           droppedEnrichment: describeModelAuthoredFields(contribution),
           error: error.name,
-          reason: safeFailureReason(error, context.configuredSecrets),
+          reason: failureReasonText(error),
         });
         settled = await store.settleTasks({
           operationKey: `${input.workflowId}:0:settle-observed-only:${taskId}`,
@@ -1823,7 +1776,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         kind: 'planner',
         targetOrigin: context.targetOrigin,
         task: null,
-        snapshot: toRedactedSlice(snapshot),
+        snapshot: toSnapshotSlice(snapshot),
         identity: null,
         customTools: [],
         auditSession: auditSession as AuditSession,
@@ -1937,21 +1890,17 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           kind: 'blackbox-recon',
           targetOrigin: context.targetOrigin,
           task: persistedTask,
-          snapshot: toRedactedSlice(snapshot),
+          snapshot: toSnapshotSlice(snapshot),
           identity: identity
             ? {
                 name: identity.name,
                 role: identity.role,
                 loginInstructions: restoredIdentityInstructions(input, identity.name),
-                sensitiveValues: context.configuredSecrets,
-                submissionSecrets: context.configuredCredentialSecrets,
               }
             : {
                 name: 'anonymous',
                 role: 'unauthenticated',
                 loginInstructions: anonymousInstructions(input),
-                sensitiveValues: context.configuredSecrets,
-                submissionSecrets: context.configuredCredentialSecrets,
               },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -2218,7 +2167,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           kind: 'blackbox-action',
           targetOrigin: context.targetOrigin,
           task,
-          snapshot: toRedactedSlice(snapshot),
+          snapshot: toSnapshotSlice(snapshot),
           identity: {
             name: task.identityLease ?? 'anonymous',
             role: 'approved replay actor',
@@ -2227,8 +2176,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               ...sessions.map(({ actor, session }) => `${actor}: playwright-cli -s=${session}`),
               'If replay requests a fresh actor request, exercise only the returned route in that actor session, then retry once.',
             ].join('\n'),
-            sensitiveValues: context.configuredSecrets,
-            submissionSecrets: context.configuredCredentialSecrets,
           },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -2392,7 +2339,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             kind: 'blackbox-recon',
             targetOrigin: context.targetOrigin,
             task: loginTask,
-            snapshot: toRedactedSlice(snapshot),
+            snapshot: toSnapshotSlice(snapshot),
             identity: {
               name: identity.name,
               role: identity.role,
@@ -2400,8 +2347,6 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
               credentials: structuredClone(identity.authentication.credentials) as unknown as Readonly<
                 Record<string, unknown>
               >,
-              sensitiveValues: context.configuredSecrets,
-              submissionSecrets: context.configuredCredentialSecrets,
             },
             customTools: loginTools,
             auditSession: auditSession as AuditSession,
@@ -2552,13 +2497,11 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           targetOrigin: context.targetOrigin,
           candidateId: candidate.candidateId,
           task: null,
-          snapshot: toRedactedSlice(snapshot),
+          snapshot: toSnapshotSlice(snapshot),
           identity: {
             name: 'fresh-verifier',
             role: 'independent verifier',
             loginInstructions: instructions,
-            sensitiveValues: context.configuredSecrets,
-            submissionSecrets: context.configuredCredentialSecrets,
           },
           customTools: tools,
           auditSession: auditSession as AuditSession,
@@ -2602,7 +2545,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         replayActionIds: [action.actionId],
         replayExchangeIds: observedExchanges.map(({ exchangeId }) => exchangeId),
         observation,
-        failureReason: verificationFailureReason(submissionFailed, submitted, context.configuredSecrets),
+        failureReason: verificationFailureReason(submissionFailed, submitted),
       };
       const verification: VerificationResult =
         submitted?.verdict === 'verified'
@@ -2654,7 +2597,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       kind,
       targetOrigin: context.targetOrigin,
       task: persistedTask,
-      snapshot: toRedactedSlice(snapshot),
+      snapshot: toSnapshotSlice(snapshot),
       identity: null,
       customTools: [],
       auditSession: auditSession as AuditSession,
@@ -2722,7 +2665,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const { store, snapshot } = await initializeStore(input, context);
     const failures = input.failures.map(({ taskId, reason }) => ({
       taskId,
-      reason: safeFailureReason(reason, context.configuredSecrets),
+      reason: failureReasonText(reason),
     }));
     const settleResult = (committed: BlackboxSnapshot): SettledTasksResult => ({
       revision: committed.revision,
@@ -2756,7 +2699,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       if (!(error instanceof BlackboardValidationError) || degradable.length === 0) throw error;
       rejection = error;
     }
-    const rejectionReason = safeFailureReason(rejection, context.configuredSecrets);
+    const rejectionReason = failureReasonText(rejection);
 
     // The store does not name the contribution it refused, so isolate it by degrading one worker at
     // a time: a single hallucinated reference must not cost every other worker in the wave its
@@ -2829,7 +2772,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       replayActionIds: [candidate.actionId],
       replayExchangeIds: [],
       observation: null,
-      failureReason: safeFailureReason(input.reason, context.configuredSecrets),
+      failureReason: failureReasonText(input.reason),
     };
     const next = await store.recordVerification(input.revision, input.operationKey, {
       verification,
@@ -2868,7 +2811,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
   const finalizeBlackboxRun = async (input: FinalizeBlackboxInput): Promise<BlackboxWorkflowResult> => {
     const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
-    const failure = input.failure ? safeFailureReason(input.failure, context.configuredSecrets) : null;
+    const failure = input.failure ? failureReasonText(input.failure) : null;
     const result = (
       findings: ReturnType<typeof collectVerifiedFindings>,
       terminalSnapshot: BlackboxSnapshot,

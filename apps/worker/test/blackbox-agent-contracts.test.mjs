@@ -14,7 +14,6 @@ import {
   WORKER_CONTRIBUTION_SCHEMA,
 } from '../dist/blackbox/agents.js';
 import { BlackboxAgentRunner } from '../dist/blackbox/agent-runner.js';
-import { redactSensitive } from '../dist/ai/sensitive-redaction.js';
 import { createBlackboxSubmitTool, createBlackboxTools } from '../dist/blackbox/tools.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -479,45 +478,6 @@ test('planner runner binds action submissions to hypotheses in its snapshot', as
   assert.deepEqual(result, action);
 });
 
-test('sensitive redaction recursively removes exact secrets and authentication syntax', () => {
-  const secret = 'bootstrap-password-123';
-  const value = {
-    prompt: `password=${secret}`,
-    args: ['Authorization: Bearer ${secret}', { cookie: `session=${secret}` }],
-    assistant: `csrf_token=${secret}`,
-    nested: { toolResult: secret, thrown: new Error(`boom ${secret}`) },
-  };
-  const redacted = redactSensitive(value, { sensitiveValues: [secret], redactAuthenticationSyntax: true });
-  const serialized = JSON.stringify(redacted);
-  assert.equal(serialized.includes(secret), false);
-  assert.match(serialized, /<redacted>/i);
-  assert.equal(value.nested.thrown.message.includes(secret), true);
-});
-
-test('sensitive redaction handles unknown credential values and cyclic errors', () => {
-  class ProviderError extends Error {}
-  const thrown = new ProviderError('Authorization: Bearer runtime-value');
-  thrown.cause = thrown;
-  const value = {
-    authorization: 'Bearer runtime-authorization',
-    cookie: 'session=runtime-cookie',
-    password: 'runtime-password',
-    csrfToken: 'runtime-csrf',
-    thrown,
-  };
-
-  const redacted = redactSensitive(value, { sensitiveValues: [], redactAuthenticationSyntax: true });
-
-  assert.equal(redacted.authorization, '<redacted>');
-  assert.equal(redacted.cookie, '<redacted>');
-  assert.equal(redacted.password, '<redacted>');
-  assert.equal(redacted.csrfToken, '<redacted>');
-  assert.equal(redacted.thrown.cause, '<circular>');
-  assert.equal(redacted.thrown instanceof ProviderError, true);
-  assert.doesNotMatch(redacted.thrown.message, /runtime-value/);
-  assert.doesNotThrow(() => JSON.stringify(redacted));
-});
-
 test('BlackboxAgentRunner returns only one schema-valid submission from injected Pi execution', async () => {
   const calls = [];
   const auditSession = audit();
@@ -537,49 +497,33 @@ test('BlackboxAgentRunner returns only one schema-valid submission from injected
   assert.equal(calls.length, 1);
   assert.equal(calls[0].some((value) => value && value.childTasks === false), true);
   assert.equal(auditSession.calls.filter(([name]) => name === 'startAgent').length, 1);
-  assert.equal(auditSession.calls.some(([, ...values]) => values.some((value) => JSON.stringify(value).includes('bootstrap-password'))), false);
 });
 
-test('runner rejects a captured submission that contains leased credential material', async () => {
+test('runner returns a submission that quotes leased credentials and authentication syntax verbatim', async () => {
   const secret = 'bootstrap-password-123';
+  const submission = { ...VALID.planner, stopReason: `blocked by ${secret} on Authorization: Bearer runtime-token` };
+  const auditSession = audit();
   const runner = new BlackboxAgentRunner({
     runPiPrompt: async (...args) => {
       const submit = args.find((value) => value && typeof value.getCaptured === 'function');
-      await submit.tool.execute('submit-1', { ...VALID.planner, stopReason: `blocked by ${secret}` });
-      return {
-        success: true,
-        structuredOutput: { ...VALID.planner, stopReason: 'blocked by <redacted>' },
-        result: 'done',
-        cost: 0,
-        duration: 1,
-      };
-    },
-  });
-
-  await assert.rejects(
-    runner.run(runnerInput('planner', {
-      identity: {
-        name: 'attacker',
-        role: 'ordinary user',
-        loginInstructions: 'Sign in',
-        credentials: { password: secret },
-      },
-    })),
-    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
-  );
-
-  const dynamicTokenRunner = new BlackboxAgentRunner({
-    runPiPrompt: async (...args) => {
-      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
-      const submission = { ...VALID.planner, stopReason: 'Authorization: Bearer runtime-session-token' };
       await submit.tool.execute('submit-1', submission);
       return { success: true, structuredOutput: submission, result: 'done', cost: 0, duration: 1 };
     },
   });
-  await assert.rejects(
-    dynamicTokenRunner.run(runnerInput('planner')),
-    (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
-  );
+
+  const result = await runner.run(runnerInput('planner', {
+    auditSession,
+    identity: {
+      name: 'attacker',
+      role: 'ordinary user',
+      loginInstructions: 'Sign in',
+      credentials: { password: secret },
+    },
+  }));
+
+  assert.deepEqual(result, submission);
+  const startAgent = auditSession.calls.find(([name]) => name === 'startAgent');
+  assert.match(startAgent[2], new RegExp(secret));
 });
 
 test('runner distinguishes missing and invalid structured submissions and does not return Pi output', async () => {

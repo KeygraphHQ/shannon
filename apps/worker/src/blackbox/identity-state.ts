@@ -275,8 +275,8 @@ export class FileIdentityStateResolver implements IdentityStateResolver {
     const directory = this.requireIdentity(identity);
     if (!Array.isArray(entries)) throw new Error('Invalid capture index entries');
 
-    // Re-parse a redacted projection so caller-provided fields never reach disk.
-    const redactedEntries = entries.map((entry, index) => {
+    // Re-parse a projection of the known fields so caller-provided extras never reach disk.
+    const projectedEntries = entries.map((entry, index) => {
       if (!isRecord(entry)) throw new Error(`Invalid capture index entry at index ${index}`);
       return {
         exchangeId: entry.exchangeId,
@@ -285,7 +285,7 @@ export class FileIdentityStateResolver implements IdentityStateResolver {
       };
     });
     const document = parseCaptureIndex(
-      { version: CAPTURE_INDEX_VERSION, identity, entries: redactedEntries },
+      { version: CAPTURE_INDEX_VERSION, identity, entries: projectedEntries },
       identity,
     );
     await ensureDirectory(directory);

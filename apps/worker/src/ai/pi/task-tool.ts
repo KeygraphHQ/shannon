@@ -14,10 +14,15 @@
  * session with the parent's resolved model object (never a tier string — that
  * would route sub-agents through hardcoded IDs and leak billing), the parent's
  * resource loader, and a fixed child tool surface.
+ *
+ * Sub-sessions report through the parent's audit logger under a `task#N` label,
+ * so every delegated tool call and model turn lands in the agent's audit log and
+ * in the workflow log, attributable to the sub-session that produced it.
  */
 
 import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
 import {
+  type AgentSessionEvent,
   createAgentSession,
   defineTool,
   getAgentDir,
@@ -27,6 +32,7 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import type { AuditLogger } from '../audit-logger.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
 
 export interface TaskToolContext {
@@ -36,6 +42,13 @@ export interface TaskToolContext {
   /** Parent's model/auth runtime, reused so sub-agents share its resolved credential. */
   modelRuntime: ModelRuntime;
   resourceLoader: ResourceLoader;
+  /**
+   * Parent agent's audit logger. Sub-agents carry the work Shannon's prompts
+   * delegate — custom scripts, payload loops, enumeration workflows — so their
+   * tool calls and model output are recorded here instead of vanishing with the
+   * sub-session.
+   */
+  auditLogger: AuditLogger;
   cancellationSignal?: AbortSignal | undefined;
   /**
    * Reports the cost/tokens of each spawned sub-session back to the caller.
@@ -54,11 +67,35 @@ export interface TaskToolContext {
 
 const CHILD_TOOLS = ['read', 'grep', 'find', 'ls', 'write', 'bash'];
 
+/** Workflow-log category for sub-session lifecycle notes. */
+const TASK_LOG_CATEGORY = 'task';
+
 function textResult(text: string) {
   return { content: [{ type: 'text' as const, text }], details: undefined };
 }
 
+/** Collapse whitespace and cap length so a value fits on one audit log line. */
+function summarizeForLog(text: string, maxLength: number): string {
+  const collapsed = text.replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= maxLength) return collapsed;
+  return `${collapsed.slice(0, maxLength - 3)}...`;
+}
+
+/**
+ * Attribution label for one sub-session, e.g. `task#2 (trace login flow)`.
+ * Prefixed onto every audit entry a sub-session produces so a reader can tell
+ * child work from the parent agent's own, and one child from another when
+ * several run in parallel.
+ */
+function childSessionLabel(ordinal: number, description: string | undefined): string {
+  const summary = description ? summarizeForLog(description, 60) : '';
+  if (!summary) return `task#${ordinal}`;
+  return `task#${ordinal} (${summary})`;
+}
+
 export function createTaskTool(config: TaskToolContext): ToolDefinition {
+  let spawnedCount = 0;
+
   const taskTool: ToolDefinition = defineTool({
     name: 'task',
     label: 'Task',
@@ -80,6 +117,10 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       description: Type.Optional(Type.String({ description: 'A short (3-5 word) description of the task.' })),
     }),
     async execute(_toolCallId, params) {
+      spawnedCount += 1;
+      const label = childSessionLabel(spawnedCount, params.description);
+      void config.auditLogger.logNote(TASK_LOG_CATEGORY, `${label} delegated: ${summarizeForLog(params.prompt, 200)}`);
+
       const agentDir = getAgentDir();
       const { session: subSession } = await createAgentSession({
         cwd: config.cwd,
@@ -96,9 +137,9 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       });
 
       const abortChildSession = (): void => {
+        void config.auditLogger.logNote(TASK_LOG_CATEGORY, `${label} aborted: parent activity cancelled`);
         void subSession.abort().catch(() => {
-          // Parent logger is not available inside the tool; dispose still tears
-          // down the session if abort itself rejects.
+          // Dispose still tears down the session if abort itself rejects.
         });
       };
       const onCancellation = (): void => abortChildSession();
@@ -110,25 +151,51 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
 
       let resultText = '';
       let subCost = 0;
-      subSession.subscribe((event) => {
-        if (event.type === 'turn_end') {
-          const msg = event.message as AssistantMessage | undefined;
-          for (const block of msg?.content ?? []) {
-            if (block.type === 'text' && block.text) {
-              resultText += (resultText ? '\n' : '') + block.text;
+      let childTurn = 0;
+      subSession.subscribe((event: AgentSessionEvent) => {
+        switch (event.type) {
+          case 'turn_end': {
+            childTurn += 1;
+            const msg = event.message as AssistantMessage | undefined;
+            let turnText = '';
+            for (const block of msg?.content ?? []) {
+              if (block.type === 'text' && block.text) {
+                turnText += (turnText ? '\n' : '') + block.text;
+              }
             }
+            if (turnText) {
+              resultText += (resultText ? '\n' : '') + turnText;
+            }
+            if (turnText.trim()) {
+              void config.auditLogger.logLlmResponse(childTurn, `[${label}] ${turnText}`);
+            }
+            if (msg?.usage?.cost?.total != null) subCost += msg.usage.cost.total;
+            break;
           }
-          if (msg?.usage?.cost?.total != null) subCost += msg.usage.cost.total;
+          case 'tool_execution_start':
+            void config.auditLogger.logToolStart(`${label} > ${event.toolName}`, event.args);
+            break;
+          case 'tool_execution_end':
+            void config.auditLogger.logToolEnd({
+              session: label,
+              toolName: event.toolName,
+              isError: event.isError,
+              result: event.result,
+            });
+            break;
+          default:
+            break;
         }
       });
 
       let swallowedError: string | undefined;
+      let promptError: string | undefined;
       try {
         try {
           await subSession.prompt(params.prompt);
         } catch (err) {
-          const errorMsg = err instanceof Error ? err.message : String(err);
-          resultText += `\n[Sub-agent error: ${errorMsg}]`;
+          promptError = err instanceof Error ? err.message : String(err);
+          resultText += `\n[Sub-agent error: ${promptError}]`;
         }
 
         swallowedError = subSession.state.errorMessage;
@@ -150,6 +217,13 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
       if (swallowedError && !resultText.includes(swallowedError)) {
         resultText += `\n[Sub-agent error: ${swallowedError}]`;
       }
+
+      const failure = promptError ?? swallowedError;
+      const outcome = failure ? `failed: ${summarizeForLog(failure, 200)}` : 'completed';
+      void config.auditLogger.logNote(
+        TASK_LOG_CATEGORY,
+        `${label} ${outcome} (${childTurn} turns, $${subCost.toFixed(4)})`,
+      );
 
       return textResult(resultText || '[Sub-agent produced no output]');
     },

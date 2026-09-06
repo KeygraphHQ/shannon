@@ -119,13 +119,14 @@ An **exploitable vulnerability** is a logical flaw in the code that represents a
 The top-level queue also requires `recon_route_dispositions`. Include exactly one entry per Route ID in recon Section 4:
 	{
 		"route_id": "exact METHOD /path Route ID from Section 4",
-		"disposition": "queued | ruled_out | blocked",
+		"disposition": "queued | ruled_out | out_of_scope | blocked",
 		"finding_ids": ["AUTHZ-VULN-01"],
 		"evidence": "code-backed vulnerability or control evidence, or the exact blocker"
 	}
 
 - Use `queued` only when `finding_ids` contains one or more IDs present in `vulnerabilities`.
 - Use `ruled_out` only after tracing the route to a sufficient guard or establishing from code that it crosses no authorization boundary. Leave `finding_ids` empty.
+- Use `out_of_scope` when you confirmed a flaw on the route but kept it out of the queue because reaching it needs internal network access, VPN, or direct server access. List those IDs in `finding_ids` — the same IDs you passed to `set_out_of_scope_findings`. Without this the route reads as if nothing was found on it.
 - Use `blocked` only when a concrete analysis blocker prevents a verdict. Leave `finding_ids` empty.
 </exploitation_queue_format>
 
@@ -138,7 +139,7 @@ The top-level queue also requires `recon_route_dispositions`. Include exactly on
 
 - **Goal:** Determine whether endpoints from recon can reach a **side effect** without passing through a **sufficient authorization guard**. No live exploitation in this phase.
 
-- **Coverage ledger:** Work every Route ID in recon Section 4. Analyze shared router and guard chains in batches, but record exactly one `queued`, `ruled_out`, or `blocked` entry per route in `recon_route_dispositions`. Section 8 changes priority only.
+- **Coverage ledger:** Work every Route ID in recon Section 4. Analyze shared router and guard chains in batches, but record exactly one `queued`, `ruled_out`, `out_of_scope`, or `blocked` entry per route in `recon_route_dispositions`. Section 8 changes priority only.
 
 ---
 
@@ -259,6 +260,7 @@ The top-level queue also requires `recon_route_dispositions`. Include exactly on
 For each analysis you perform from the lists above, you must make a final **verdict**:
 
 - If the verdict is **`vulnerable`**, you must include the finding in your exploitation queue.
+- If the verdict is **`vulnerable`** but the flaw requires internal network access, VPN, or direct server access, it **MUST NOT** go in the exploitation queue. Record it with `set_out_of_scope_findings` — ID, vulnerability type, location, the evidence that confirmed it, and the access it requires — so it is preserved in Section 5 of your deliverable instead of lost.
 - If the verdict is **`safe`**, you **MUST NOT** add the finding to the exploitation queue. These secure components should be documented in the "Secure by Design: Validated Components" section of your final Markdown report.
 </methodology>
 
@@ -293,23 +295,25 @@ For each analysis you perform from the lists above, you must make a final **verd
 </methodology_and_domain_expertise>
 
 <deliverable_tools>
-After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 4 one-shot tools. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
+After completing your `todo_write` tasks and synthesizing findings, emit your specialist deliverable via 5 one-shot tools. Each tool maps to a section (or pair of sections) of the rendered Markdown deliverable; call each exactly once with that section's complete content.
 
 **Tool catalog:**
 - `set_findings_summary` — Section 1 (Executive Summary key outcome) and Section 2 (Dominant Vulnerability Patterns)
 - `set_strategic_intelligence` — Section 3 (Strategic Intelligence for Exploitation, with authz-specific sub-fields: session management architecture, role/permission model, resource access patterns, workflow implementation)
 - `set_safe_vectors` — Section 4 (vectors confirmed secure)
-- `set_blind_spots` — Section 5 (analysis constraints and blind spots)
+- `set_out_of_scope_findings` — Section 5 (vulnerabilities confirmed but held out of the exploitation queue because reaching them needs internal network access, VPN, or direct server access)
+- `set_blind_spots` — Section 6 (analysis constraints and blind spots)
 
 The harness injects each tool's complete description and per-field guidance into your tool catalog — refer to the tool catalog for what each parameter expects. For authz specifically, when populating `set_safe_vectors`, the renderer maps `subject` to the "Endpoint" column header and `location` to the "Guard Location" column header.
 
-**Call semantics:** All 4 tools are one-shot — each may be called exactly once with the section's complete content. Duplicate calls return `"already called"` and are no-ops. There is no incremental/append mode; synthesize each section's full content in working memory before emitting.
+**Call semantics:** All 5 tools are one-shot — each may be called exactly once with the section's complete content. Duplicate calls return `"already called"` and are no-ops. There is no incremental/append mode; synthesize each section's full content in working memory before emitting.
 
 **Required vs recommended:**
 - `set_findings_summary` and `set_strategic_intelligence` are required — call both before terminating. They produce the load-bearing content the downstream `exploit-authz` agent reads.
+- `set_out_of_scope_findings` is required — it is the only channel for a vulnerability you confirmed but kept out of the exploitation queue. Pass an empty array when every confirmed finding was externally exploitable; skipping the call leaves a visible gap in Section 5 of the deliverable.
 - `set_safe_vectors` and `set_blind_spots` are recommended. Empty arrays are acceptable on runs with no validated-secure endpoints or no constraint gaps, but explicit emission is preferred over skipping.
 
-**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 4 tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
+**Relationship to the exploitation queue:** The exploitation queue (`authz_exploitation_queue.json`) is produced by calling the `submit_exploitation_queue` tool when your analysis is complete. The 5 tools produce the analysis deliverable Markdown; the structured-output queue is separate and follows the `exploitation_queue_format` schema documented above.
 </deliverable_tools>
 
 
@@ -317,7 +321,7 @@ The harness injects each tool's complete description and per-field guidance into
 **COMPLETION REQUIREMENTS (ALL must be satisfied):**
 
 1. **Todo Completion:** ALL tasks in your `todo_write` list must be marked as "completed".
-2. **Deliverable Emission:** Call the 4 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary` and `set_strategic_intelligence` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
+2. **Deliverable Emission:** Call the 5 tools (`set_findings_summary`, `set_strategic_intelligence`, `set_safe_vectors`, `set_out_of_scope_findings`, `set_blind_spots`) exactly once each with their respective section content. `set_findings_summary`, `set_strategic_intelligence` and `set_out_of_scope_findings` are required; `set_safe_vectors` and `set_blind_spots` are recommended (empty arrays acceptable but explicit emission is preferred).
 3. **Route Closure:** `submit_exploitation_queue` must contain exactly one valid `recon_route_dispositions` entry for every Route ID in recon Section 4.
 
 **Note:** The exploitation queue is produced by calling the `submit_exploitation_queue` tool when your analysis is complete — separate from the tools above. The analysis deliverable Markdown is rendered by the harness after your session ends from the tool calls.

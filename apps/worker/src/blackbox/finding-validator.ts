@@ -6,7 +6,6 @@
 
 import { createHash } from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
-import { containsCredentialSyntax } from '../ai/sensitive-redaction.js';
 import type {
   BlackboxActionResult,
   BlackboxResource,
@@ -123,16 +122,15 @@ function evidenceExists(snapshot: BlackboxSnapshot, reference: EvidenceRef, targ
   }
 }
 
-function safeImpactText(value: string): boolean {
+function concreteImpactText(value: string): boolean {
   if (typeof value !== 'string' || value.length === 0 || value !== value.trim() || /[\r\n]/.test(value)) return false;
-  if (SPECULATIVE_LANGUAGE.test(value)) return false;
-  return !containsCredentialSyntax(value);
+  return !SPECULATIVE_LANGUAGE.test(value);
 }
 
-function safeImpact(demonstratedAction: string, concreteEffect: string, preconditions: readonly string[]): boolean {
-  if (!safeImpactText(demonstratedAction) || !safeImpactText(concreteEffect)) return false;
+function concreteImpact(demonstratedAction: string, concreteEffect: string, preconditions: readonly string[]): boolean {
+  if (!concreteImpactText(demonstratedAction) || !concreteImpactText(concreteEffect)) return false;
   if (/^could\b/i.test(demonstratedAction) || GENERIC_INFORMATION_EFFECT.test(concreteEffect)) return false;
-  return preconditions.every((precondition) => safeImpactText(precondition));
+  return preconditions.every((precondition) => concreteImpactText(precondition));
 }
 
 function validObservation(
@@ -555,8 +553,8 @@ export function collectVerifiedFindings(
       // NOTE: the activity layer binds this from the candidate proof, so a divergence here means
       // the snapshot was not built by that path. The promotion still refuses to guess between them.
       verification.affectedParty !== candidate.affectedParty ||
-      !safeImpact(candidate.demonstratedAction, candidate.concreteEffect, candidate.preconditions) ||
-      !safeImpact(verification.demonstratedAction, verification.concreteEffect, candidate.preconditions)
+      !concreteImpact(candidate.demonstratedAction, candidate.concreteEffect, candidate.preconditions) ||
+      !concreteImpact(verification.demonstratedAction, verification.concreteEffect, candidate.preconditions)
     ) {
       continue;
     }

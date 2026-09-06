@@ -15,7 +15,8 @@ import type { ParsedHttpRequest, ParsedHttpResponse } from './http-message.js';
 import { getHeaderValues, HttpMessageParseError, parseHttpRequest, parseHttpResponse } from './http-message.js';
 import { assertRequestInScope, requestMatchesScope } from './scope-guard.js';
 
-const REDACTED_NAME = '<redacted>';
+// Stands in for an array element the route shape omits, so surviving elements keep their position.
+const EXCLUDED_SHAPE = '<excluded>';
 const MAX_BODY_SHAPE_LENGTH = 512;
 export const SHANNON_CAPTURE_HEADER = 'X-Shannon-Capture';
 
@@ -115,8 +116,8 @@ function firstHeader(
   return getHeaderValues(headers, name)[0] ?? null;
 }
 
-function mediaType(value: string | null, configuredSecrets: readonly string[]): string | null {
-  if (!value || containsConfiguredSecret(value, configuredSecrets)) return null;
+function mediaType(value: string | null): string | null {
+  if (!value) return null;
   const candidate = value.split(';', 1)[0]?.trim().toLowerCase() ?? '';
   return /^[!#$%&'*+\-.^_`|~0-9a-z]+\/[!#$%&'*+\-.^_`|~0-9a-z]+$/.test(candidate) ? candidate : null;
 }
@@ -365,14 +366,14 @@ function normalizedPath(
     if (segment === '') return segment;
     const decoded = safeDecode(segment);
     const previous = index > 0 ? safeDecode(segments[index - 1] ?? '') : '';
-    if (
-      isSensitiveRequestFieldName(previous) ||
-      containsConfiguredSecret(decoded, configuredSecrets) ||
-      containsConfiguredSecret(segment, configuredSecrets) ||
-      isLikelySecretValue(decoded)
-    ) {
-      return '{redacted}';
-    }
+    // A credential-shaped segment is a useless object reference: it would make the engine try to
+    // prove access control with a secret as the marker.
+    const eligibleAsReference =
+      !isSensitiveRequestFieldName(previous) &&
+      !containsConfiguredSecret(decoded, configuredSecrets) &&
+      !containsConfiguredSecret(segment, configuredSecrets) &&
+      !isLikelySecretValue(decoded);
+    if (!eligibleAsReference) return segment;
     if (isObjectIdentifier(decoded)) {
       references.add(decoded);
       return '{id}';
@@ -392,33 +393,11 @@ function routePathShape(pathname: string, groundedReferences: ReadonlySet<string
     .join('/');
 }
 
-function safeFieldName(name: string, configuredSecrets: readonly string[]): string {
-  return isSensitiveRequestFieldName(name) || containsConfiguredSecret(name, configuredSecrets) ? REDACTED_NAME : name;
-}
-
-function safeRequestShapeFieldName(name: string, configuredSecrets: readonly string[]): string {
-  return isImplicitIdentityBoundRequestFieldName(name) || containsConfiguredSecret(name, configuredSecrets)
-    ? REDACTED_NAME
-    : name;
-}
-
-function jsonShape(
-  value: unknown,
-  configuredSecrets: readonly string[],
-  selectors: IdentityBoundSelectors,
-  path_: readonly (string | number)[] = [],
-  depth = 0,
-): string {
+function jsonShape(value: unknown, depth = 0): string {
   if (depth >= 6) return 'nested';
   if (value === null) return 'null';
   if (Array.isArray(value)) {
-    const shapes = [
-      ...new Set(
-        value
-          .slice(0, 8)
-          .map((entry, index) => jsonShape(entry, configuredSecrets, selectors, [...path_, index], depth + 1)),
-      ),
-    ].sort();
+    const shapes = [...new Set(value.slice(0, 8).map((entry) => jsonShape(entry, depth + 1)))].sort();
     return `[${shapes.join('|')}]`;
   }
   switch (typeof value) {
@@ -428,15 +407,7 @@ function jsonShape(
       return typeof value;
     case 'object': {
       const entries = Object.entries(value as Record<string, unknown>)
-        .map(([key, entry]) => {
-          const nextPath = [...path_, key];
-          const safeKey = isIdentityBoundJsonPath(nextPath, selectors)
-            ? REDACTED_NAME
-            : safeRequestShapeFieldName(key, configuredSecrets);
-          return `${safeKey}:${
-            safeKey === REDACTED_NAME ? 'redacted' : jsonShape(entry, configuredSecrets, selectors, nextPath, depth + 1)
-          }`;
-        })
+        .map(([key, entry]) => `${key}:${jsonShape(entry, depth + 1)}`)
         .sort();
       return `{${entries.join(',')}}`;
     }
@@ -450,28 +421,17 @@ function boundShape(shape: string): string {
   return `${shape.slice(0, MAX_BODY_SHAPE_LENGTH - 21)}...#${sha256(shape).slice(0, 16)}`;
 }
 
-function describeBody(
-  body: string,
-  contentType: string | null,
-  configuredSecrets: readonly string[],
-  selectors: IdentityBoundSelectors,
-): string {
+function describeBody(body: string, contentType: string | null): string {
   if (body.length === 0) return 'none';
   if (contentType?.includes('json') || /^[\t\r\n ]*[[{]/.test(body)) {
     try {
-      return boundShape(`json:${jsonShape(JSON.parse(body), configuredSecrets, selectors)}`);
+      return boundShape(`json:${jsonShape(JSON.parse(body))}`);
     } catch {
       return 'json:malformed';
     }
   }
   if (contentType === 'application/x-www-form-urlencoded') {
-    const keys = [
-      ...new Set(
-        [...new URLSearchParams(body).keys()].map((key) =>
-          selectors.formNames.has(key) ? REDACTED_NAME : safeRequestShapeFieldName(key, configuredSecrets),
-        ),
-      ),
-    ].sort();
+    const keys = [...new Set(new URLSearchParams(body).keys())].sort();
     return boundShape(`form:${keys.join(',')}`);
   }
   if (contentType?.startsWith('multipart/')) return 'multipart';
@@ -500,7 +460,7 @@ function routeJsonShape(
     ) {
       return null;
     }
-    return `[${projected.map((shape) => shape ?? REDACTED_NAME).join('|')}]`;
+    return `[${projected.map((shape) => shape ?? EXCLUDED_SHAPE).join('|')}]`;
   }
   switch (typeof value) {
     case 'boolean':
@@ -637,11 +597,11 @@ function collectBodyCandidates(
     }
   } else if (contentType === 'application/x-www-form-urlencoded') {
     for (const [key, value] of new URLSearchParams(body)) {
-      if (
-        !selectors.formNames.has(key) &&
-        safeFieldName(key, configuredSecrets) !== REDACTED_NAME &&
-        isReferenceField(key)
-      ) {
+      const credentialField =
+        selectors.formNames.has(key) ||
+        isSensitiveRequestFieldName(key) ||
+        containsConfiguredSecret(key, configuredSecrets);
+      if (!credentialField && isReferenceField(key)) {
         addCandidate(candidates, value, configuredSecrets);
       }
     }
@@ -716,16 +676,10 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
   if (!requestMatchesScope(request, input.targetOrigin, input.rules)) return null;
   const identitySelectors = identityBoundSelectors(input.identityBoundRequestFields);
   const target = assertRequestInScope(request, input.targetOrigin, input.rules);
-  const requestContentType = mediaType(firstHeader(request.headers, 'content-type'), input.configuredSecrets);
+  const requestContentType = mediaType(firstHeader(request.headers, 'content-type'));
   const pathResult = normalizedPath(target.path, input.configuredSecrets);
   const boundRequestValues = identityBoundRequestValues(request, target, requestContentType, identitySelectors);
-  const queryKeys = [
-    ...new Set(
-      [...target.query.keys()].map((key) =>
-        identitySelectors.queryNames.has(key) ? REDACTED_NAME : safeRequestShapeFieldName(key, input.configuredSecrets),
-      ),
-    ),
-  ].sort();
+  const queryKeys = [...new Set(target.query.keys())].sort();
   const routeQueryKeys = [
     ...new Set(
       [...target.query.keys()].filter(
@@ -736,7 +690,7 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
       ),
     ),
   ].sort();
-  const bodyShape = describeBody(request.body, requestContentType, input.configuredSecrets, identitySelectors);
+  const bodyShape = describeBody(request.body, requestContentType);
   const routeBodyShape = describeRouteBody(
     request.body,
     requestContentType,
@@ -745,11 +699,11 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
   );
   const candidates = new Set(pathResult.objectReferences);
   for (const [key, value] of target.query) {
-    if (
-      !identitySelectors.queryNames.has(key) &&
-      safeFieldName(key, input.configuredSecrets) !== REDACTED_NAME &&
-      isReferenceField(key)
-    ) {
+    const credentialField =
+      identitySelectors.queryNames.has(key) ||
+      isSensitiveRequestFieldName(key) ||
+      containsConfiguredSecret(key, input.configuredSecrets);
+    if (!credentialField && isReferenceField(key)) {
       addCandidate(candidates, value, input.configuredSecrets);
     }
   }
@@ -760,9 +714,7 @@ export function normalizeRawExchange(input: RawExchangeNormalizationInput): Norm
     input.raw.response === BURP_NO_RESPONSE ||
     input.raw.response.endsWith(BURP_TRUNCATION_MARKER);
   const response = responseUnavailable ? null : parseUsableResponse(input.raw.response);
-  const responseContentType = response
-    ? mediaType(firstHeader(response.headers, 'content-type'), input.configuredSecrets)
-    : null;
+  const responseContentType = response ? mediaType(firstHeader(response.headers, 'content-type')) : null;
   if (response) {
     const responseCandidates = new Set<string>();
     collectBodyCandidates(

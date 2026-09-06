@@ -567,7 +567,6 @@ const invalidCases = [
   ['generic noun-form disclosure claim', (s) => { s.candidateProofs[0].concreteEffect = 'disclosure of information'; s.verifications[0].concreteEffect = 'disclosure of information'; }],
   ['generic sensitive-data claim', (s) => { s.candidateProofs[0].concreteEffect = 'sensitive data exposure'; s.verifications[0].concreteEffect = 'sensitive data exposure'; }],
   ['generic leakage claim', (s) => { s.candidateProofs[0].concreteEffect = 'information leakage'; s.verifications[0].concreteEffect = 'information leakage'; }],
-  ['authentication material in impact', (s) => { s.candidateProofs[0].demonstratedAction = 'use Authorization: Bearer secret'; s.verifications[0].demonstratedAction = 'use Authorization: Bearer secret'; }],
 ];
 
 test('rejects structurally invalid or impact-free candidates', async (t) => {

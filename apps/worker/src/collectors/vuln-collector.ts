@@ -7,17 +7,23 @@
 /**
  * Vuln Collector tools (factory parameterized by vulnerability class).
  *
- * Exposes 4 one-shot, TypeBox-validated tools per vuln agent (injection, xss,
+ * Exposes 5 one-shot, TypeBox-validated tools per vuln agent (injection, xss,
  * auth, ssrf, authz) that feed a deterministic renderer producing
  * {class}_analysis_deliverable.md:
- *   - set_findings_summary       — §1 executive summary + §2 dominant patterns
- *   - set_strategic_intelligence — §3, per-class schema
- *   - set_safe_vectors           — §4, shared schema across classes
- *   - set_blind_spots            — §5, shared schema across classes
+ *   - set_findings_summary        — §1 executive summary + §2 dominant patterns
+ *   - set_strategic_intelligence  — §3, per-class schema
+ *   - set_safe_vectors            — §4, shared schema across classes
+ *   - set_out_of_scope_findings   — §5, shared schema across classes
+ *   - set_blind_spots             — §6, shared schema across classes
  *
  * Only set_strategic_intelligence varies by class; the collector branches on
- * vulnClass to assemble the right schema. The other 3 tools are identical
+ * vulnClass to assemble the right schema. The other 4 tools are identical
  * across classes.
+ *
+ * set_out_of_scope_findings is the per-vulnerability channel for confirmed
+ * findings the external-attacker scope keeps out of the exploitation queue —
+ * they are not exploited, but the finding and the reason it was set aside stay
+ * on the record.
  *
  * Skipped tools surface as renderer placeholders, not activity failures.
  * getCallStatus() exposes the per-run call pattern for logging. Each schema's
@@ -27,7 +33,7 @@
 
 import { defineTool, type ToolDefinition } from '@earendil-works/pi-coding-agent';
 import { type Static, type TObject, Type } from 'typebox';
-import { cleanInput } from './schema.js';
+import { cleanInput, stringEnum } from './schema.js';
 
 // ============================================================================
 // CLASS DISCRIMINATOR
@@ -37,7 +43,8 @@ export const VULN_CLASSES = ['injection', 'xss', 'auth', 'ssrf', 'authz'] as con
 export type VulnClass = (typeof VULN_CLASSES)[number];
 
 // ============================================================================
-// SHARED SCHEMAS — set_findings_summary, set_safe_vectors, set_blind_spots
+// SHARED SCHEMAS — set_findings_summary, set_safe_vectors,
+// set_out_of_scope_findings, set_blind_spots
 // ============================================================================
 
 const PatternSchema = Type.Object({
@@ -123,6 +130,62 @@ export const SafeVectorsInputSchema = Type.Object({
   }),
 });
 
+const OUT_OF_SCOPE_ACCESS_VALUES = ['internal-network', 'vpn', 'direct-server-access', 'other'] as const;
+
+export const OutOfScopeFindingSchema = Type.Object({
+  id: Type.String({
+    minLength: 1,
+    description:
+      'Vulnerability ID, assigned from the same sequence as the exploitation-queue IDs so it never ' +
+      'collides with a queued finding (e.g. "INJ-VULN-07", "AUTHZ-VULN-03").',
+  }),
+  vulnerability_type: Type.String({
+    minLength: 1,
+    description:
+      'The vulnerability class, using the same vocabulary the exploitation queue uses for this run (e.g. ' +
+      '"SQLi", "CommandInjection", "Stored XSS", "IDOR", "SSRF", "Session Fixation").',
+  }),
+  location: Type.String({
+    minLength: 1,
+    description:
+      'Where the vulnerability lives: file path with line number (e.g. "services/exportJob.ts:88") and, ' +
+      'when there is one, the endpoint it is reached through (e.g. "POST /internal/api/export"). ' +
+      'Include both when both apply.',
+  }),
+  confirmation_evidence: Type.String({
+    minLength: 1,
+    description:
+      'Why this is confirmed rather than suspected: the source-to-sink trace, the missing guard, or the ' +
+      'observed behavior that settles it. One to three sentences, citing file:line where it applies.',
+  }),
+  access_required: stringEnum(OUT_OF_SCOPE_ACCESS_VALUES, {
+    description:
+      'The access an attacker needs that places this finding outside external-attacker scope. ' +
+      'internal-network = reachable only from inside the network perimeter; vpn = requires VPN or ' +
+      'mesh-network membership; direct-server-access = requires a shell, console, or host filesystem; ' +
+      'other = some other prerequisite an internet-based attacker cannot meet.',
+  }),
+  scope_exclusion_reason: Type.String({
+    minLength: 1,
+    description:
+      'One to two sentences naming the specific prerequisite the external attacker cannot meet (e.g. ' +
+      '"The admin API binds to 10.0.0.0/8 and is not routed through the public load balancer"). ' +
+      'Required for every entry, including those where access_required is not "other".',
+  }),
+});
+
+export const OutOfScopeFindingsInputSchema = Type.Object({
+  findings: Type.Array(OutOfScopeFindingSchema, {
+    description:
+      'Every vulnerability you confirmed as real but kept out of the exploitation queue because reaching ' +
+      'it requires internal network access, VPN, or direct server access. A confirmed finding is never ' +
+      'dropped: if it is real and it is not in the queue, it belongs here. Empty array is correct when ' +
+      'every confirmed finding was externally exploitable — the deliverable then records that explicitly. ' +
+      'Becomes Section 5 of the rendered deliverable. The renderer sorts by ID before rendering, so ' +
+      'emission order does not affect output.',
+  }),
+});
+
 export const BlindSpotItemSchema = Type.Object({
   heading: Type.String({
     minLength: 1,
@@ -143,7 +206,7 @@ export const BlindSpotsInputSchema = Type.Object({
     description:
       'Analysis constraints, untraced code paths, or other coverage gaps that should be noted. ' +
       'Empty array is acceptable on high-coverage runs — the deliverable will render "No analysis ' +
-      'constraints or blind spots identified" for Section 5 in that case. Becomes Section 5 of the ' +
+      'constraints or blind spots identified" for Section 6 in that case. Becomes Section 6 of the ' +
       'rendered deliverable.',
   }),
 });
@@ -288,6 +351,9 @@ export type Pattern = Static<typeof PatternSchema>;
 export type FindingsSummaryInput = Static<typeof FindingsSummaryInputSchema>;
 export type SafeVectorInput = Static<typeof SafeVectorInputSchema>;
 export type SafeVectorsInput = Static<typeof SafeVectorsInputSchema>;
+export type OutOfScopeAccessRequirement = (typeof OUT_OF_SCOPE_ACCESS_VALUES)[number];
+export type OutOfScopeFinding = Static<typeof OutOfScopeFindingSchema>;
+export type OutOfScopeFindingsInput = Static<typeof OutOfScopeFindingsInputSchema>;
 export type BlindSpotItem = Static<typeof BlindSpotItemSchema>;
 export type BlindSpotsInput = Static<typeof BlindSpotsInputSchema>;
 
@@ -310,6 +376,7 @@ export interface VulnCollectorData {
   readonly findings_summary?: FindingsSummaryInput;
   readonly strategic_intelligence?: StrategicIntelligenceInput;
   readonly safe_vectors?: SafeVectorsInput;
+  readonly out_of_scope_findings?: OutOfScopeFindingsInput;
   readonly blind_spots?: BlindSpotsInput;
 }
 
@@ -317,6 +384,7 @@ export const VULN_TOOLS = [
   'set_findings_summary',
   'set_strategic_intelligence',
   'set_safe_vectors',
+  'set_out_of_scope_findings',
   'set_blind_spots',
 ] as const;
 
@@ -353,6 +421,7 @@ interface VulnState {
   findings_summary?: FindingsSummaryInput;
   strategic_intelligence?: StrategicIntelligenceInput;
   safe_vectors?: SafeVectorsInput;
+  out_of_scope_findings?: OutOfScopeFindingsInput;
   blind_spots?: BlindSpotsInput;
 }
 
@@ -427,12 +496,32 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
     },
   });
 
+  const setOutOfScopeFindings = defineTool({
+    name: 'set_out_of_scope_findings',
+    label: 'Set Out-of-Scope Findings',
+    description:
+      'Record every vulnerability you confirmed as real but excluded from the exploitation queue ' +
+      'because reaching it requires internal network access, VPN, or direct server access. Call ' +
+      'exactly once before terminating. Becomes Section 5 of the rendered deliverable — the only place ' +
+      'these findings appear, since the exploitation queue deliberately excludes them and no exploit ' +
+      'agent will pick them up. Required: pass an empty array when every confirmed finding was ' +
+      'externally exploitable, so the deliverable can state that outright. Never resolve a confirmed ' +
+      'finding by leaving it out of both the queue and this tool. The renderer sorts by ID, so ' +
+      'emission order does not affect output. Duplicate calls return "already called" and are no-ops.',
+    parameters: OutOfScopeFindingsInputSchema,
+    async execute(_toolCallId, input) {
+      if (state.out_of_scope_findings) return alreadyCalled('set_out_of_scope_findings');
+      state.out_of_scope_findings = cleanInput(OutOfScopeFindingsInputSchema, input);
+      return successResult({ set: 'set_out_of_scope_findings', count: input.findings.length });
+    },
+  });
+
   const setBlindSpots = defineTool({
     name: 'set_blind_spots',
     label: 'Set Blind Spots',
     description:
       'Record analysis constraints, untraced code paths, or other coverage gaps. Call exactly once ' +
-      'before terminating. Becomes Section 5 of the rendered deliverable. Recommended (empty array ' +
+      'before terminating. Becomes Section 6 of the rendered deliverable. Recommended (empty array ' +
       'is acceptable on high-coverage runs, but explicit emission is preferred — readers expect ' +
       'either documented gaps or an explicit "no gaps" signal). Duplicate calls return "already ' +
       'called" and are no-ops.',
@@ -449,23 +538,26 @@ export function createVulnCollector(vulnClass: VulnClass): VulnCollector {
       set_findings_summary: state.findings_summary,
       set_strategic_intelligence: state.strategic_intelligence,
       set_safe_vectors: state.safe_vectors,
+      set_out_of_scope_findings: state.out_of_scope_findings,
       set_blind_spots: state.blind_spots,
     };
     return flagMap[key] ? 'called' : 'skipped';
   }
 
   return {
-    tools: [setFindingsSummary, setStrategicIntelligence, setSafeVectors, setBlindSpots],
+    tools: [setFindingsSummary, setStrategicIntelligence, setSafeVectors, setOutOfScopeFindings, setBlindSpots],
     getAll: (): VulnCollectorData => ({
       ...(state.findings_summary && { findings_summary: state.findings_summary }),
       ...(state.strategic_intelligence && { strategic_intelligence: state.strategic_intelligence }),
       ...(state.safe_vectors && { safe_vectors: state.safe_vectors }),
+      ...(state.out_of_scope_findings && { out_of_scope_findings: state.out_of_scope_findings }),
       ...(state.blind_spots && { blind_spots: state.blind_spots }),
     }),
     getCallStatus: (): VulnCallStatus => ({
       set_findings_summary: statusOf('set_findings_summary'),
       set_strategic_intelligence: statusOf('set_strategic_intelligence'),
       set_safe_vectors: statusOf('set_safe_vectors'),
+      set_out_of_scope_findings: statusOf('set_out_of_scope_findings'),
       set_blind_spots: statusOf('set_blind_spots'),
     }),
   };

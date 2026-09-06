@@ -602,20 +602,12 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
 
 export class FileBlackboardStore implements BlackboardStore {
   readonly blackboardPath: string;
-  private configuredSecrets = new Set<string>();
 
   constructor(repoPath: string) {
     this.blackboardPath = path.resolve(repoPath, '.shannon', 'blackbox', 'blackboard.json');
   }
 
   async initialize(input: BlackboardInitialization): Promise<BlackboxSnapshot> {
-    if (
-      !Array.isArray(input.configuredSecrets) ||
-      input.configuredSecrets.some((secret) => typeof secret !== 'string')
-    ) {
-      throw new BlackboardValidationError('Blackboard initialization requires configured secrets');
-    }
-    this.configuredSecrets = new Set(input.configuredSecrets.filter((secret) => secret.length > 0));
     const runScope = {
       ...clone(input.runScope),
       identities: [...input.runScope.identities].sort((left, right) => left.localeCompare(right)),
@@ -646,7 +638,6 @@ export class FileBlackboardStore implements BlackboardStore {
         } catch (error) {
           throw new BlackboardValidationError(error instanceof Error ? error.message : String(error));
         }
-        this.assertNoConfiguredSecrets(existing);
         return clone(existing);
       }
 
@@ -677,7 +668,6 @@ export class FileBlackboardStore implements BlackboardStore {
         operationReceipts: [],
       };
       validateReferences(document);
-      this.assertNoConfiguredSecrets(document);
       await atomicWrite(this.blackboardPath, document);
       return clone(document);
     } finally {
@@ -1309,7 +1299,6 @@ export class FileBlackboardStore implements BlackboardStore {
     assertMutable(observed);
     const candidate = { ...update(clone(observed)), revision: baseRevision + 1 };
     validateReferences(candidate);
-    this.assertNoConfiguredSecrets(candidate);
 
     const unlock = await blackboardMutex.lock(this.blackboardPath);
     try {
@@ -1352,20 +1341,10 @@ export class FileBlackboardStore implements BlackboardStore {
         operationReceipts: [...(current.operationReceipts ?? []), operationReceipt],
       };
       validateReferences(candidate);
-      this.assertNoConfiguredSecrets(candidate);
       await atomicWrite(this.blackboardPath, candidate);
       return clone(candidate);
     } finally {
       unlock();
-    }
-  }
-
-  private assertNoConfiguredSecrets(document: BlackboxDocument): void {
-    const serialized = JSON.stringify(document);
-    for (const secret of this.configuredSecrets) {
-      if (serialized.includes(secret)) {
-        throw new BlackboardValidationError('Blackboard contribution contains configured secret material');
-      }
     }
   }
 }

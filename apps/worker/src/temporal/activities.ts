@@ -412,11 +412,13 @@ async function runExploitAgentWithCollector(
     const missingIds = [...validIds].filter((id) => !emittedIds.has(id));
     const exploitedCount = collected.filter((e) => e.status === 'exploited').length;
     const blockedCount = collected.filter((e) => e.status === 'blocked').length;
+    const ruledOutCount = collected.filter((e) => e.status === 'ruled_out').length;
 
     logger.info(`${vulnClass} exploit tool call metrics`, {
       queueSize: validIds.size,
       exploited: exploitedCount,
       blocked: blockedCount,
+      ruledOut: ruledOutCount,
       missing: missingIds.length,
     });
 
@@ -516,9 +518,13 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
   const writeDeliverable = async (deliverablesPath: string): Promise<void> => {
     const logger = createActivityLogger();
     const { attachQueueCodeLocations } = await import('../services/code-location-join.js');
+    const { collectUnassessedQueueEntries } = await import('../services/queue-coverage.js');
     const collected = collector.getAll();
     logger.info(`Collected ${collected.length} finding(s) from report agent`);
     const findings = await attachQueueCodeLocations(collected, deliverablesPath, logger);
+    // Queue entries the exploitation phase never reached. They carry no severity or evidence, so
+    // they cannot be findings, but the report still has to name them.
+    const unassessed = await collectUnassessedQueueEntries(deliverablesPath, logger);
 
     // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
     // the two halves of report.json end up in one document.
@@ -554,6 +560,7 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
       report_meta: reportMeta,
       findings,
       ...(input.failedClasses && input.failedClasses.length > 0 && { not_assessed: input.failedClasses }),
+      ...(unassessed.length > 0 && { unassessed_queue_entries: unassessed }),
     };
 
     await atomicWrite(reportJsonPath, JSON.stringify(reportData, null, 2));

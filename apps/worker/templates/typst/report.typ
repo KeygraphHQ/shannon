@@ -139,6 +139,25 @@
 #let sev-chip(level) = chip(level, sev-color(level))
 #let confidence-chip(c) = chip(c + " confidence", confidence-color(c))
 
+// Verdict of an exploitative run. Anything but Exploited was never demonstrated, and the chip says
+// so wherever the finding appears, so a projected attack is not read as a performed one.
+#let status-label(s) = {
+  if s == "Exploited" { "Exploited" }
+  else if s == "BlockedByConstraints" { "Not exploited — blocked" }
+  else if s == "OutOfScope" { "Not exploited — out of scope" }
+  else if s == "FalsePositive" { "Ruled out" }
+  else if s == "Unstated" { "Not confirmed — no verdict recorded" }
+  else { s }
+}
+
+#let status-color(s) = {
+  if s == "Exploited" { rgb("#B91C1C") }           // red-700
+  else if s == "FalsePositive" { rgb("#6B7280") }  // gray-500
+  else { rgb("#D97706") }                          // amber-600
+}
+
+#let status-chip(s) = chip(status-label(s), status-color(s))
+
 // inline-code renders a string, turning backtick-wrapped spans into
 // inline raw. Safe on odd counts — a trailing unclosed backtick is
 // emitted as literal text so nothing gets swallowed.
@@ -154,6 +173,20 @@
       out += [#("`" + p)]
     } else {
       out += raw(p)
+    }
+  }
+  out
+}
+
+// prose-block renders a narrative string as paragraphs, splitting on blank
+// lines so multi-paragraph prose keeps its breaks. Empty input renders nothing.
+#let prose-block(s) = {
+  if type(s) != str { return s }
+  let out = []
+  for chunk in s.split("\n\n") {
+    let trimmed = chunk.trim()
+    if trimmed != "" {
+      out += par(inline-code(trimmed))
     }
   }
   out
@@ -293,9 +326,72 @@
   text(fill: muted, size: 10pt)[Tester],       text(size: 10.5pt)[#tester-override],
 )
 
+#v(6pt)
+
+#prose-block(data.executiveSummary)
+
 == Scope
 
 #inline-code(data.scope)
+
+// ---------- NOT ASSESSED ----------------------------------------------------
+// Vulnerability classes whose analysis never completed. Called out before any
+// findings so an incomplete assessment is not read as a clean one.
+#let not-assessed = data.notAssessed
+
+#if not-assessed.len() > 0 [
+  == Not Assessed
+  #block(
+    fill: alt-bg,
+    stroke: (left: 3pt + sev-color("High"), rest: none),
+    inset: (x: 12pt, y: 10pt),
+    width: 100%,
+    breakable: true,
+    [
+      #text(fill: sev-color("High"), weight: "bold", size: 8pt, tracking: 0.5pt)[#upper("Incomplete assessment")]
+      #v(4pt)
+      The following vulnerability classes were NOT assessed in this run because their analysis
+      did not complete. Absence of findings for these classes does not indicate they are clean —
+      re-run to assess them.
+      #v(4pt)
+      #list(
+        ..not-assessed.map(c => [
+          #text(weight: "semibold")[#c] — analysis did not complete; not assessed.
+        ])
+      )
+    ],
+  )
+]
+
+// ---------- UNREACHED QUEUE ENTRIES -----------------------------------------
+// Queue entries the exploitation phase returned no verdict for. Named before the
+// findings so a vulnerability that was never examined is not read as one that
+// came back clean.
+#let unassessed-entries = data.unassessedQueueEntries
+
+#if unassessed-entries.len() > 0 [
+  == Assessment Coverage
+  #block(
+    fill: alt-bg,
+    stroke: (left: 3pt + sev-color("Medium"), rest: none),
+    inset: (x: 12pt, y: 10pt),
+    width: 100%,
+    breakable: true,
+    [
+      #text(fill: sev-color("Medium"), weight: "bold", size: 8pt, tracking: 0.5pt)[#upper("Coverage gap")]
+      #v(4pt)
+      The exploitation phase returned no verdict for the queue entries below. They were neither
+      confirmed nor ruled out, and their absence from the findings is a gap in coverage rather than
+      a clean result. Each one still needs triage.
+      #v(4pt)
+      #list(
+        ..unassessed-entries.map(e => [
+          #text(weight: "semibold")[#e.id]#if "vulnerabilityType" in e [ — #inline-code(e.vulnerabilityType)]
+        ])
+      )
+    ],
+  )
+]
 
 // ---------- BY TYPE ---------------------------------------------------------
 #let by-type-entries = if mode == "exploits" { data.exploitedByType } else { data.identifiedByType }
@@ -337,6 +433,16 @@
     text(fill: white, size: 8pt, tracking: 0.5pt)[#upper(label)],
   ),
 )
+
+// The cards count every vulnerability the run stands behind, exploited or not. Said before they are
+// read, so a reader totalling them never takes the total for a count of proven exploits.
+#if mode == "exploits" [
+  #text(fill: muted, size: 9.5pt)[
+    Vulnerabilities carried forward, by severity — exploited and not exploited alike. Findings ruled
+    out are excluded; the exploited count is below.
+  ]
+  #v(8pt)
+]
 
 #grid(
   columns: 4,
@@ -384,6 +490,25 @@
     text(fill: muted, size: 10pt)[Successfully exploited],
     text(weight: "semibold")[#s.successfullyExploited],
   )
+
+  // Everything the run identified without proving. Left out, the totals above read as
+  // if every finding had been demonstrated.
+  #let by-status = data.derivedCounts.byStatus
+  #let unproven-statuses = (
+    ("BlockedByConstraints", "identified but not exploited — validation blocked"),
+    ("OutOfScope", "identified but not exploited — outside the agreed attack scope"),
+    ("Unstated", "identified but not exploited — no verdict recorded"),
+    ("FalsePositive", "ruled out — determined not to be a vulnerability"),
+  ).filter(entry => by-status.at(entry.at(0), default: 0) > 0)
+
+  #if unproven-statuses.len() > 0 [
+    #v(6pt)
+    #list(
+      ..unproven-statuses.map(entry => [
+        #text(weight: "semibold")[#by-status.at(entry.at(0), default: 0)] #entry.at(1)
+      ])
+    )
+  ]
 ] else [
   #grid(
     columns: (auto, 1fr),
@@ -396,12 +521,19 @@
 
 #v(8pt)
 
+// The per-category counts follow the status lines above, so they carry a label of their own rather
+// than inheriting whichever count the reader saw last.
 #let breakdown = if mode == "exploits" { s.exploitedBreakdown } else { s.identifiedBreakdown }
-#list(
-  ..breakdown.map(c => [
-    #text(weight: "semibold")[#c.count] #c.category#if "note" in c and c.note != none [ — #inline-code(c.note)]
-  ])
-)
+#if breakdown.len() > 0 [
+  #text(fill: muted, size: 9.5pt)[
+    #if mode == "exploits" [Successfully exploited by category] else [Identified by category]
+  ]
+  #list(
+    ..breakdown.map(c => [
+      #text(weight: "semibold")[#c.count] #c.category#if "note" in c and c.note != none [ — #inline-code(c.note)]
+    ])
+  )
+]
 
 #if mode == "exploits" [
   #if "outOfScope" in s and s.outOfScope != none [
@@ -424,7 +556,13 @@
 
 == Critical Findings
 
-#enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+// Each line carries its own verdict, and a finding that was ruled out is absent — the enumeration
+// matches the Critical card above it rather than restating every critical-rated finding as proven.
+#if s.criticalFindings.len() > 0 [
+  #enum(..s.criticalFindings.map(f => [#inline-code(f)]))
+] else [
+  #text(fill: muted)[None.]
+]
 
 // ---------- FINDINGS OVERVIEW -----------------------------------------------
 = Findings Overview
@@ -432,24 +570,28 @@
 #let show-confidence-col = mode == "findings"
 
 #table(
-  columns: if show-confidence-col { (auto, 1fr, auto, auto, auto) } else { (auto, 1fr, auto, auto) },
+  columns: (auto, 1fr, auto, auto, auto),
   stroke: none,
   inset: (x: 8pt, y: 7pt),
-  align: if show-confidence-col { (left, left, left, center, center) } else { (left, left, left, center) },
+  align: (left, left, left, center, center),
   fill: (_, row) => if row == 0 { none } else if calc.even(row) { code-bg } else { none },
   table.header(
     text(size: 9.5pt, weight: "semibold")[ID],
     text(size: 9.5pt, weight: "semibold")[Title],
     text(size: 9.5pt, weight: "semibold")[Category],
     text(size: 9.5pt, weight: "semibold")[Severity],
-    ..(if show-confidence-col { (text(size: 9.5pt, weight: "semibold")[Confidence],) } else { () }),
+    if show-confidence-col {
+      text(size: 9.5pt, weight: "semibold")[Confidence]
+    } else {
+      text(size: 9.5pt, weight: "semibold")[Status]
+    },
   ),
   ..data.findings.map(f => (
     text(weight: "semibold")[#f.id],
     inline-code(f.title),
     text(size: 9.5pt)[#f.category],
     sev-chip(f.severity),
-    ..(if show-confidence-col { (confidence-chip(f.confidence),) } else { () }),
+    if show-confidence-col { confidence-chip(f.confidence) } else { status-chip(f.status) },
   )).flatten()
 )
 
@@ -460,6 +602,7 @@
     columns: (auto, 1fr),
     column-gutter: 18pt,
     row-gutter: 12pt,
+    text(fill: muted, size: 9.5pt)[OWASP],    text(size: 10pt)[#inline-code(f.owaspCategory)],
     text(fill: muted, size: 9.5pt)[Location], text(size: 10pt)[#inline-code(f.summary.vulnerableLocation)],
     text(fill: muted, size: 9.5pt)[Overview], text(size: 10pt)[#inline-code(f.summary.overview)],
     text(fill: muted, size: 9.5pt)[Impact],   text(size: 10pt)[#inline-code(f.summary.impact)],
@@ -467,6 +610,9 @@
 ]
 
 #let render-finding-extras(f) = [
+  #heading(level: 3, outlined: false)[Remediation]
+  #prose-block(f.remediation)
+
   #if "notes" in f and f.notes != none and f.notes.len() > 0 [
     #heading(level: 3, outlined: false)[Notes]
     #render-bulleted-items(f.notes)
@@ -481,22 +627,29 @@
 ]
 
 #let render-exploit(f) = [
+  // A finding no exploit confirmed keeps its evidence but loses every label that would claim the
+  // attack was carried out.
+  #let unproven = f.status != "Exploited"
+
   == #f.id: #inline-code(f.title)
-  #sev-chip(f.severity)
+  #sev-chip(f.severity) #h(4pt) #status-chip(f.status)
+  #if "confidence" in f and f.confidence != none [ #h(4pt) #confidence-chip(f.confidence)]
 
   #render-finding-summary(f)
 
   === Prerequisites
   #inline-code(f.prerequisites)
 
-  === Exploitation Steps
-  #for step in f.exploitationSteps [
-    #text(weight: "semibold")[Step #step.number#if "title" in step and step.title != none [ — #inline-code(step.title)]]
+  #if f.exploitationSteps.len() > 0 [
+    === #if unproven [Projected Exploitation Path (not executed)] else [Exploitation Steps]
+    #for step in f.exploitationSteps [
+      #text(weight: "semibold")[Step #step.number#if "title" in step and step.title != none [ — #inline-code(step.title)]]
 
-    #render-items(step.items)
+      #render-items(step.items)
+    ]
   ]
 
-  === Proof of Impact
+  === #if unproven [Evidence of Vulnerability] else [Proof of Impact]
   #render-numbered-items(f.proofOfImpact)
 
   #render-finding-extras(f)
@@ -518,16 +671,22 @@
 #let render-finding(f) = if mode == "exploits" { render-exploit(f) } else { render-analysis(f) }
 
 // ---------- PER-CATEGORY -----------------------------------------------------
-#let category-section-label(n) = if mode == "exploits" {
-  "Exploitation Evidence"
-} else {
-  "Findings"
+// "Exploitation Evidence" is itself a claim. A category no exploit confirmed is titled for what it
+// actually holds.
+#let category-section-label(cat-findings) = {
+  if mode != "exploits" {
+    "Findings"
+  } else if cat-findings.filter(f => f.status == "Exploited").len() > 0 {
+    "Exploitation Evidence"
+  } else {
+    "Findings"
+  }
 }
 
 #for cat in categories-in-order {
   let cat-findings = data.findings.filter(f => f.category == cat)
   if cat-findings.len() > 0 [
-    = #cat #category-section-label(cat-findings.len()) (#cat-findings.len() #if cat-findings.len() == 1 [finding] else [findings])
+    = #cat #category-section-label(cat-findings) (#cat-findings.len() #if cat-findings.len() == 1 [finding] else [findings])
     #for f in cat-findings {
       render-finding(f)
     }

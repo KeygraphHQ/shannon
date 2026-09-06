@@ -47,6 +47,25 @@ Read these files:
 ### Vulnerability ID patterns
 Findings have IDs matching `[TYPE]-VULN-[NUMBER]` (e.g., INJ-VULN-01, AUTH-VULN-03).
 
+<exploit_mode_sections>
+### Section types in the concatenated report
+Each per-class deliverable carries the exploitation agent's whole verdict set, not only its successes:
+- `## Successfully Exploited Vulnerabilities` — confirmed by a working exploit.
+- `## Potential Vulnerabilities (Validation Blocked)` — real vulnerabilities whose full exploitation was prevented, either by a security control that held or by an external operational constraint.
+- `## Ruled Out (Verified Not Vulnerable)` — tested and determined not to be vulnerabilities.
+- `## Confirmed Findings Outside Attack Scope` — confirmed during analysis and deliberately kept out of the exploitation queue, because reaching them needs access an external attacker does not have. Nobody attacked them, and this section is their only record.
+- `## Unprocessed Vulnerabilities` — queue IDs that never reached any verdict. A coverage gap, not a finding.
+
+The report is the only document the customer reads. A vulnerability that went unexploited, one that was never in scope to attack, and a queue entry that was never reached are all facts about this assessment and must appear in it.
+</exploit_mode_sections>
+<analysis_mode_sections>
+### Section types in the concatenated report
+Alongside each class's `## Identified Vulnerabilities`, a per-class deliverable may carry:
+- `## Confirmed Findings Outside Attack Scope` — confirmed during analysis and deliberately kept out of the exploitation queue, because reaching them needs access an external attacker does not have. This section is their only record.
+
+The report is the only document the customer reads. A vulnerability that was never in scope to attack is still a vulnerability, and must appear in it.
+</analysis_mode_sections>
+
 ### Context
 Target URL: {{WEB_URL}}
 Vulnerability classes tested: {{VULN_CLASSES_TESTED}}
@@ -63,16 +82,28 @@ Read through the concatenated report and identify which vulnerability entries to
 
 ### KEEP — these are real findings to record via `add_finding`
 - Vulnerability entries under `## {{REPORT_VULN_SUBHEADING}}` sections with IDs matching `### [TYPE]-VULN-[NUMBER]`
+<exploit_mode_keep>
+- `## Potential Vulnerabilities (Validation Blocked)` entries with IDs matching `### [TYPE]-VULN-[NUMBER]`. These are real vulnerabilities that something stopped short of a working exploit — a security control that held, or an external operational constraint. Record each with `status: "blocked_by_constraints"` (see "Unexploited findings" in <record_findings>). Dropping one deletes a confirmed vulnerability from the customer's only copy of the assessment.
+- `## Confirmed Findings Outside Attack Scope` entries, whose headings read `### \`[TYPE]-VULN-[NUMBER]\` — [vulnerability type]`. These were confirmed and then held back from the exploitation queue on scope grounds, so no exploit was ever attempted. Record each with `status: "out_of_scope"` (see "Out-of-scope findings" in <record_findings>). Not attacking something is a scoping decision; leaving it out of the report deletes it.
+</exploit_mode_keep>
+<analysis_mode_keep>
+- `## Confirmed Findings Outside Attack Scope` entries, whose headings read `### \`[TYPE]-VULN-[NUMBER]\` — [vulnerability type]`. These were confirmed and then held back from the exploitation queue on scope grounds. Record each one (see "Out-of-scope findings" in <record_findings>). Not attacking something is a scoping decision; leaving it out of the report deletes it.
+</analysis_mode_keep>
 {{REPORT_FILTER_RULES}}
 
 ### SKIP — do not record these
-<exploit_mode_skip>
-- `## Potential Vulnerabilities (Validation Blocked)` entries
-</exploit_mode_skip>
 - Standalone "Recommendations", "Conclusion", "Summary", "Next Steps", "Additional Analysis" sections
 - False positives sections
-- Introductory text, vulnerability counts, or meta-commentary without vulnerability IDs
+<exploit_mode_ruledout>
+- `## Ruled Out (Verified Not Vulnerable)` entries — these were tested and determined not to be vulnerabilities. Do not record them under `status: "false_positive"` either: they carry no impact, no evidence and no remediation, and the fields the tool requires would have to be invented.
+</exploit_mode_ruledout>
+- Introductory text, meta-commentary, or count lines and totals — the renderer derives its own counts
 - Any section that does not contain a finding with a valid vulnerability ID
+
+<exploit_mode_coverage>
+### CARRY FORWARD — not a finding, and not something to drop either
+The SKIP rules above do not reach `## Unprocessed Vulnerabilities`. Those queue IDs never received a verdict, so they carry no severity, no evidence and no remediation — do NOT call `add_finding` for them; inventing those fields would be a fabrication. Account for them in `executive_summary` instead (see <record_report_meta>), giving the count and the IDs. An unexamined vulnerability that goes unmentioned reads as one that was checked and found clean.
+</exploit_mode_coverage>
 
 ### Title cleanup
 If a finding's title (the text after the colon in `### TYPE-VULN-NN: Title`) is only a short category label rather than a descriptive phrase, rewrite it to a concise descriptor derived from the finding's "Vulnerable location" and "Overview" fields. Use the improved title when calling `add_finding`.
@@ -86,7 +117,7 @@ Fields:
 - `assessment_date`: Use the current date in ISO format (YYYY-MM-DD)
 - `scope`: `{{VULN_CLASSES_TESTED}}`
 <exploit_mode_summary>
-- `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — severity distribution, most critical issues, and overall risk demonstrated by exploitation. If no vulnerabilities were confirmed in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present. If that block is present, explicitly say the listed classes were not assessed and do not assert they are free of vulnerabilities.
+- `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — severity distribution, most critical issues, and overall risk demonstrated by exploitation. Distinguish what exploitation confirmed from what it did not: if any finding is recorded as `blocked_by_constraints` or `out_of_scope`, say so rather than presenting every finding as proven. If the deliverables contain a `## Unprocessed Vulnerabilities` section, add one sentence giving how many queue entries never reached a verdict and listing their IDs, and state that they were neither confirmed nor ruled out. If no vulnerabilities were confirmed in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present and no queue entry went unprocessed. If either is present, explicitly say what was not assessed and do not assert it is free of vulnerabilities.
 </exploit_mode_summary>
 <analysis_mode_summary>
 - `executive_summary`: 2-3 sentences summarizing the security posture for technical leadership (CTOs, CISOs, Engineering VPs). Must include the target URL and assessment date. Provide a high-level characterization based on the findings — severity and confidence distribution, the most serious weaknesses identified, and overall risk. State plainly that this was an analysis-only assessment and that no finding was confirmed by exploitation; do not describe risk as demonstrated or proven, and present severity as assessed rather than measured. If no vulnerabilities were identified in the assessed classes, state that scope clearly. A clean report is valid only when no <not_assessed_classes> block is present. If that block is present, explicitly say the listed classes were not assessed and do not assert they are free of vulnerabilities.
@@ -108,10 +139,10 @@ Map the finding's content from the per-class deliverable sections to `add_findin
 - `title`: The cleaned-up title (see title cleanup rules in <filter_and_clean>)
 - `category`: Derived from the finding type prefix — `INJ` → `"Injection"`, `XSS` → `"XSS"`, `AUTH` → `"Authentication"`, `AUTHZ` → `"Authorization"`, `SSRF` → `"SSRF"`
 <exploit_mode_fields>
-- `severity`: From the finding's "Severity" field. Use as-is; do not reassess.
+- `severity`: From the finding's "Severity" field. Use as-is; do not reassess. Validation-blocked and out-of-scope entries carry no severity field — see "Unexploited findings" and "Out-of-scope findings" below.
 </exploit_mode_fields>
 <analysis_mode_fields>
-- `confidence`: From the finding's "Confidence" field. Use as-is; do not reassess.
+- `confidence`: From the finding's "Confidence" field. Use as-is; do not reassess. Out-of-scope entries carry no such field — see "Out-of-scope findings" below.
 - `severity`: The analysis deliverables carry no severity field — no exploit ran to measure impact. Assess it from the vulnerability class and the impact you describe. It is an assessed rating, not a measured one.
 </analysis_mode_fields>
 - `owasp_category`: Map to the appropriate OWASP Top 10 (2025) category:
@@ -135,7 +166,7 @@ Map the finding's content from the per-class deliverable sections to `add_findin
 - `prerequisites`: From the finding's "Prerequisites" field, or `"None"` if not specified
 - `exploitation_steps`: From the finding's exploitation steps or proof-of-concept. Each step gets a title and ordered prose/code items. Use `"bash"` for shell commands, `"http"` for raw HTTP, `"json"` for response bodies.
 - `proof_of_impact`: From the finding's "Proof of Impact" or evidence section. What the exploit demonstrably achieved.
-- `status`: Optional. Use `"exploited"` for confirmed exploits.
+- `status`: Required on every finding — `"exploited"` for a confirmed exploit, `"blocked_by_constraints"` for a validation-blocked entry, `"out_of_scope"` for an entry from `## Confirmed Findings Outside Attack Scope`. The fourth value the schema offers, `"false_positive"`, has no source here: ruled-out entries are not recorded at all (see <filter_and_clean>). The rendered report tells findings apart on this field alone, and one recorded without a status is reported as carrying no verdict.
 </exploit_mode_fields>
 <analysis_mode_fields>
 - `impact`: What an attacker could achieve if this vulnerability were exploited. Derive it from the finding's "Impact" and "Overview" fields. Write it as assessed, never as achieved.
@@ -147,20 +178,69 @@ This run had no exploitation phase. Nothing was executed against the target, not
 - `notes`: From the finding's "Notes" section if present
 - `additional_sections`: Any extra subsections on the finding that don't fit the fields above
 
+<exploit_mode_unexploited>
+### Unexploited findings
+
+Entries from `## Potential Vulnerabilities (Validation Blocked)` go through the same `add_finding` call, with these fields remapped so none of it reads as a demonstrated attack:
+
+- `status`: `"blocked_by_constraints"`. Without it the entry is rendered as a proven exploit.
+- `severity`: the entry carries a confidence rating, not a severity. Assess severity from its "Potential Impact" and "Expected Impact" fields.
+- `impact`: from "Potential Impact" and "Expected Impact". State what an attacker would achieve, never what was achieved.
+- `overview`: synthesize from the entry's "Overview", and close with one sentence naming what prevented exploitation, taken from "Current Blocker".
+- `exploitation_steps`: from "How This Would Be Exploited". These steps were never executed — phrase each as the path an attacker would take.
+- `proof_of_impact`: from "Evidence of Vulnerability" and "What We Tried" — the observed evidence that the flaw is real, plus the attempts made against it. Do not write it as the result of a completed exploit and do not invent an outcome.
+- `confidence`: the entry's own "Confidence" rating, carried over unchanged. It is the only rating the entry came with, and the rendered report prints it beside the severity you assessed.
+- `notes`: record the entry's "Blocker Type" as the first item, so a reader can tell a defense that held from an operational constraint.
+- Fill every remaining field as you would for an exploited finding.
+</exploit_mode_unexploited>
+<exploit_mode_outofscope>
+### Out-of-scope findings
+
+Entries from `## Confirmed Findings Outside Attack Scope` go through the same `add_finding` call. No exploit was attempted against them, so every field must stay on the analysis side of the line:
+
+- `status`: `"out_of_scope"`. Without it the entry is rendered as a proven exploit.
+- `finding_id` and `title`: the ID and the vulnerability type from the entry's heading, `### \`[TYPE]-VULN-[NUMBER]\` — [vulnerability type]`. Apply the title cleanup rules.
+- `severity`: the entry carries no severity. Assess it from the vulnerability type and the impact you describe.
+- `vulnerable_location`: from "Location".
+- `overview`: synthesize from "Why confirmed", and close with one sentence naming why it was left out of scope, taken from "Why out of scope".
+- `impact`: what an attacker with the required access could achieve. State it as assessed, never as achieved.
+- `proof_of_impact`: from "Why confirmed" — the trace, missing guard, or observed behaviour that settled it. This is analysis evidence, not the result of an attack; do not write it as one.
+- `exploitation_steps`: omit the field. Nothing was attempted and no path was traced, so any steps here would be invented.
+- `auth_state`: the access the entry names in "Access required", phrased as the position the finding is reachable from.
+- `prerequisites`: from "Access required".
+- `remediation`: specific fix guidance, as for any other finding.
+</exploit_mode_outofscope>
+<analysis_mode_outofscope>
+### Out-of-scope findings
+
+Entries from `## Confirmed Findings Outside Attack Scope` go through the same `add_finding` call as any other analysis finding:
+
+- `finding_id` and `title`: the ID and the vulnerability type from the entry's heading, `### \`[TYPE]-VULN-[NUMBER]\` — [vulnerability type]`. Apply the title cleanup rules.
+- `severity`: assess it from the vulnerability type and the impact you describe, as for any other finding.
+- `confidence`: `"high"` — the section holds only findings the analysis confirmed, and that is the rating it carries.
+- `vulnerable_location`: from "Location".
+- `overview`: synthesize from "Why confirmed", and close with one sentence naming why it was left out of the exploitation scope, taken from "Why out of scope".
+- `impact`: what an attacker with the required access could achieve. State it as assessed, never as achieved.
+- `notes`: record the entry's "Access required" as the first item, so the reader knows the position the finding is reachable from.
+- `remediation`: specific fix guidance, as for any other finding.
+</analysis_mode_outofscope>
+
 ### Zero findings
 
-If no valid findings exist after filtering, do not call `add_finding` at all. The `set-report-meta` executive summary should state that no vulnerabilities were identified in the assessed classes. If a <not_assessed_classes> block is present, it must also state that those listed classes were not assessed.
+If no valid findings exist after filtering, do not call `add_finding` at all. The `set-report-meta` executive summary should state that no vulnerabilities were identified in the assessed classes. If a <not_assessed_classes> block is present, it must also state that those listed classes were not assessed.<exploit_mode_zerocoverage> The same holds for any `## Unprocessed Vulnerabilities` entries: a run that reached no verdict on part of its queue did not come back clean, and the summary must say so.</exploit_mode_zerocoverage>
 </record_findings>
 
 <constraints>
 <exploit_mode_constraints>
 - **No Fabrications:** Do not invent exploitation steps, evidence, or impact. Every piece of data must come from the deliverable files. If a finding has incomplete data, include it but note the gap in `overview`.
-- **No Severity Changes:** Use the severity from the deliverable as-is. Do not inflate or deflate.
+- **No Severity Changes:** Use the severity from the deliverable as-is. Do not inflate or deflate. A validation-blocked entry carries no severity — assess that one from its potential impact.
+- **Nothing Unexploited Is Written As Exploited:** A finding recorded with `status: "blocked_by_constraints"` was never validated by a working exploit. Do not describe its payloads or requests as having succeeded, and do not present its impact as demonstrated.
+- **No Silent Drops:** Every vulnerability the deliverables report as real reaches the report — including the ones no exploit was run against, whether validation was blocked or the flaw sat outside the attack scope — and every queue entry left without a verdict is named in the executive summary. Findings may be filtered only by the rules in <filter_and_clean>.
 </exploit_mode_constraints>
 <analysis_mode_constraints>
 - **No Fabrications:** Every piece of data must come from the deliverable files. If a finding has incomplete data, include it but note the gap in `overview`.
 - **Nothing Was Demonstrated:** No exploit ran. Do not write that a vulnerability was confirmed, proven, exploited, or verified against the running target, and do not describe payloads, requests, or responses as having been sent.
-- **No Confidence Changes:** Use the confidence from the deliverable as-is. Do not raise or lower it.
+- **No Confidence Changes:** Use the confidence from the deliverable as-is. Do not raise or lower it. Out-of-scope entries state no confidence and take `"high"`, which is what their section asserts.
 - **Severity Is Assessed:** Rate severity from the vulnerability class and the impact you describe. Never present it as measured or demonstrated.
 </analysis_mode_constraints>
 - **No Speculation:** Only record findings that appear in the deliverables with valid vulnerability IDs. Do not add your own assessments.
@@ -174,18 +254,23 @@ Before finalizing, verify:
 - [ ] Did I run `set-report-meta` exactly once with target, assessment_date, scope, and executive_summary?
 - [ ] For each valid finding in the deliverables, did I call `add_finding` exactly once with the correct `finding_id`?
 <exploit_mode_skipcheck>
-- [ ] Did I skip all entries from "Potential Vulnerabilities (Validation Blocked)", false positives, and meta-commentary sections?
+- [ ] Did I record every "Potential Vulnerabilities (Validation Blocked)" entry, each with `status: "blocked_by_constraints"`?
+- [ ] Did I record every "Confirmed Findings Outside Attack Scope" entry, each with `status: "out_of_scope"`?
+- [ ] Does the executive summary give the count and the IDs of every "Unprocessed Vulnerabilities" entry?
+- [ ] Did I skip only disproved verdicts ("Ruled Out (Verified Not Vulnerable)", false positives) and meta-commentary sections?
 </exploit_mode_skipcheck>
 <analysis_mode_skipcheck>
+- [ ] Did I record every "Confirmed Findings Outside Attack Scope" entry?
 - [ ] Did I skip false positives and meta-commentary sections?
 </analysis_mode_skipcheck>
 - [ ] Does every finding have a valid `owasp_category` using the 2025 categorization?
 - [ ] Does every finding have `overview`, `impact`, and `remediation`?
 <exploit_mode_checks>
 - [ ] Does every finding have `auth_state` and `prerequisites`?
-- [ ] Does every finding have `exploitation_steps` with prose/code items?
+- [ ] Does every finding an exploit was attempted against have `exploitation_steps` with prose/code items, and does every out-of-scope entry omit the field rather than invent one?
 - [ ] Does every finding have `proof_of_impact`?
-- [ ] Are severity ratings unchanged from the source deliverables?
+- [ ] Are severity ratings unchanged from the source deliverables, apart from the validation-blocked and out-of-scope entries the deliverable never rated?
+- [ ] Is every validation-blocked finding free of any claim that a payload landed or an exploit succeeded?
 </exploit_mode_checks>
 <analysis_mode_checks>
 - [ ] Does every finding have `confidence` carried over unchanged from the deliverable?

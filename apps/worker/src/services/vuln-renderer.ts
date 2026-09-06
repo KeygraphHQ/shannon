@@ -15,9 +15,14 @@
  *
  * Required-call enforcement is deferred for v1. Missing tools surface as
  * placeholder sections, not activity failures. Required tools (set_findings_summary,
- * set_strategic_intelligence) produce loud `[Section X: not provided]`
- * placeholders; recommended tools (set_safe_vectors, set_blind_spots) produce
- * quiet "None identified" prose.
+ * set_strategic_intelligence, set_out_of_scope_findings) produce loud
+ * `[Section X: not provided]` placeholders; recommended tools (set_safe_vectors,
+ * set_blind_spots) produce quiet "None identified" prose.
+ *
+ * Section 5 is the only rendered home for confirmed findings that the
+ * external-attacker scope keeps out of the exploitation queue, so an omitted
+ * `set_out_of_scope_findings` call is rendered as a visible gap rather than as
+ * an implicit "nothing was set aside".
  *
  * The exploitation queue (`{class}_exploitation_queue.json`) is unrelated —
  * it is written by the structured-output submit path in agent-execution.ts and
@@ -27,6 +32,8 @@
 import type {
   BlindSpotsInput,
   FindingsSummaryInput,
+  OutOfScopeAccessRequirement,
+  OutOfScopeFindingsInput,
   SafeVectorsInput,
   StrategicIntelligenceInput,
   VulnClass,
@@ -90,6 +97,13 @@ interface ColumnSpec {
   readonly location: string;
   readonly includeRenderContext: boolean;
 }
+
+const ACCESS_REQUIREMENT_LABELS: Record<OutOfScopeAccessRequirement, string> = {
+  'internal-network': 'Internal network access',
+  vpn: 'VPN or mesh-network access',
+  'direct-server-access': 'Direct server access',
+  other: 'Other access prerequisite',
+};
 
 const SECTION_FOUR_COLUMNS: Record<VulnClass, ColumnSpec> = {
   injection: { subject: 'Source', location: 'Endpoint/File Location', includeRenderContext: false },
@@ -201,8 +215,41 @@ function renderSafeVectors(vulnClass: VulnClass, data: SafeVectorsInput | undefi
   return [heading, '', renderTable(headers, rows)].join('\n');
 }
 
+function sortOutOfScopeFindings(findings: OutOfScopeFindingsInput['findings']): OutOfScopeFindingsInput['findings'] {
+  return [...findings].sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function renderOutOfScopeFindings(data: OutOfScopeFindingsInput | undefined): string {
+  const heading = '## 5. Confirmed Findings Outside Attack Scope';
+  if (!data) {
+    return [heading, '', placeholder('Section 5', 'set_out_of_scope_findings')].join('\n');
+  }
+  if (data.findings.length === 0) {
+    const nothingSetAside =
+      '*Every vulnerability confirmed during analysis was externally exploitable and entered the ' +
+      'exploitation queue. Nothing was set aside.*';
+    return [heading, '', nothingSetAside].join('\n');
+  }
+
+  const intro =
+    'The vulnerabilities below were confirmed during analysis and then held back from the exploitation ' +
+    'queue because reaching them requires access an external attacker does not have. They were not ' +
+    'exploited and no exploitation agent will pick them up — this section is their only record.';
+  const blocks = sortOutOfScopeFindings(data.findings).map((finding) =>
+    [
+      `### \`${finding.id}\` — ${finding.vulnerability_type}`,
+      `- **Location:** ${finding.location}`,
+      `- **Why confirmed:** ${finding.confirmation_evidence}`,
+      `- **Access required:** ${ACCESS_REQUIREMENT_LABELS[finding.access_required]}`,
+      `- **Why out of scope:** ${finding.scope_exclusion_reason}`,
+    ].join('\n'),
+  );
+
+  return [heading, '', intro, '', blocks.join('\n\n')].join('\n');
+}
+
 function renderBlindSpots(data: BlindSpotsInput | undefined): string {
-  const heading = '## 5. Analysis Constraints and Blind Spots';
+  const heading = '## 6. Analysis Constraints and Blind Spots';
   if (!data || data.items.length === 0) {
     return [heading, '', '*No analysis constraints or blind spots identified.*'].join('\n');
   }
@@ -225,6 +272,8 @@ export function renderVulnDeliverable(vulnClass: VulnClass, data: VulnCollectorD
     renderStrategicIntelligence(vulnClass, data.strategic_intelligence),
     '',
     renderSafeVectors(vulnClass, data.safe_vectors),
+    '',
+    renderOutOfScopeFindings(data.out_of_scope_findings),
     '',
     renderBlindSpots(data.blind_spots),
     '',

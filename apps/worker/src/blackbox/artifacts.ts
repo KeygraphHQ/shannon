@@ -7,7 +7,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { redactPortableTokens, redactSensitive } from '../ai/sensitive-redaction.js';
 import { deliverablesDir } from '../paths.js';
 import type {
   BlackboxRunStatus,
@@ -40,7 +39,6 @@ export interface RenderBlackboxArtifactsInput {
   readonly findings: readonly VerifiedBlackboxFinding[];
   readonly status: Exclude<BlackboxRunStatus, 'running'>;
   readonly failure: string | null;
-  readonly configuredSecrets: readonly string[];
 }
 
 export interface BlackboxArtifactIo {
@@ -51,9 +49,6 @@ export interface BlackboxArtifactIo {
 const DEFAULT_IO: BlackboxArtifactIo = { ensureDirectory, atomicWrite };
 const NO_FINDINGS =
   'No replay-verified findings were produced. This run is not a clean assessment of unexercised routes or workflows.';
-const MIN_GLOBAL_DISCOVERED_SECRET_LENGTH = 12;
-const SENSITIVE_MUTATION_TARGET =
-  /(?:^|[-_./])(?:authorization|cookie|password|passwd|pwd|secret|api[-_]?key|access[-_]?token|refresh[-_]?token|csrf(?:[-_]?token)?|xsrf(?:[-_]?token)?|session(?:id)?|x[-_]?auth|token|nonce|state|key|credential)(?:$|[-_./])/i;
 
 function resolveBlackboxDeliverables(
   repoPath: string,
@@ -105,101 +100,12 @@ function projectExchange(exchange: NormalizedExchange): Omit<NormalizedExchange,
   return projection;
 }
 
-function projectSensitivePayloads(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(projectSensitivePayloads);
-  if (value === null || typeof value !== 'object') return value;
-
-  const record = value as Record<string, unknown>;
-  const projected = Object.fromEntries(
-    Object.entries(record).map(([key, item]) => [key, projectSensitivePayloads(item)]),
-  ) as Record<string, unknown>;
-  if ((record.type === 'body_contains' || record.type === 'persistent_state') && typeof record.marker === 'string') {
-    projected.marker = '<redacted>';
-  } else if (record.type === 'json_pointer_equals' && Object.hasOwn(record, 'value')) {
-    projected.value = '<redacted>';
-  }
-
-  const mutationTarget =
-    typeof record.name === 'string'
-      ? record.name
-      : record.type === 'set_json_pointer' && typeof record.pointer === 'string'
-        ? record.pointer
-        : null;
-  if (mutationTarget && SENSITIVE_MUTATION_TARGET.test(mutationTarget) && Object.hasOwn(record, 'value')) {
-    projected.value = '<redacted>';
-  }
-  return projected;
+function json(value: unknown): string {
+  return `${JSON.stringify(value, null, 2)}\n`;
 }
 
-function collectStringLeaves(value: unknown, result: Set<string>): void {
-  if (typeof value === 'string') {
-    if (value.length >= MIN_GLOBAL_DISCOVERED_SECRET_LENGTH) result.add(value);
-    return;
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) collectStringLeaves(item, result);
-    return;
-  }
-  if (value === null || typeof value !== 'object') return;
-  for (const item of Object.values(value as Record<string, unknown>)) collectStringLeaves(item, result);
-}
-
-function collectArtifactSecrets(value: unknown, result = new Set<string>()): Set<string> {
-  if (Array.isArray(value)) {
-    for (const item of value) collectArtifactSecrets(item, result);
-    return result;
-  }
-  if (value === null || typeof value !== 'object') return result;
-
-  const record = value as Record<string, unknown>;
-  if ((record.type === 'body_contains' || record.type === 'persistent_state') && typeof record.marker === 'string') {
-    if (record.marker.length >= MIN_GLOBAL_DISCOVERED_SECRET_LENGTH) result.add(record.marker);
-  } else if (record.type === 'json_pointer_equals' && Object.hasOwn(record, 'value')) {
-    collectStringLeaves(record.value, result);
-  }
-
-  const mutationTarget =
-    typeof record.name === 'string'
-      ? record.name
-      : record.type === 'set_json_pointer' && typeof record.pointer === 'string'
-        ? record.pointer
-        : null;
-  if (mutationTarget && SENSITIVE_MUTATION_TARGET.test(mutationTarget) && Object.hasOwn(record, 'value')) {
-    collectStringLeaves(record.value, result);
-  }
-
-  for (const item of Object.values(record)) collectArtifactSecrets(item, result);
-  return result;
-}
-
-function redactStringValues(value: unknown, secrets: readonly string[]): unknown {
-  if (typeof value === 'string') {
-    return redactSensitive(value, { sensitiveValues: secrets, redactAuthenticationSyntax: true });
-  }
-  if (Array.isArray(value)) return value.map((item) => redactStringValues(item, secrets));
-  if (value === null || typeof value !== 'object') return value;
-  const entries = Object.entries(value).map(([key, item]): [string, unknown] => {
-    // A sensitive field name hides its whole subtree whatever its JSON type.
-    if (SENSITIVE_MUTATION_TARGET.test(key)) return [key, '<redacted>'];
-    return [key, redactStringValues(item, secrets)];
-  });
-  return Object.fromEntries(entries);
-}
-
-function redact(
-  value: unknown,
-  configuredSecrets: readonly string[],
-  discoveredSecrets: readonly string[] = [],
-): unknown {
-  return redactStringValues(projectSensitivePayloads(value), [...configuredSecrets, ...discoveredSecrets]);
-}
-
-function json(value: unknown, configuredSecrets: readonly string[], discoveredSecrets: readonly string[] = []): string {
-  return `${redactPortableTokens(JSON.stringify(redact(value, configuredSecrets, discoveredSecrets), null, 2))}\n`;
-}
-
-function inlineJson(value: unknown, configuredSecrets: readonly string[]): string {
-  return redactPortableTokens(JSON.stringify(redact(value, configuredSecrets)));
+function inlineJson(value: unknown): string {
+  return JSON.stringify(value);
 }
 
 function inventory(snapshot: BlackboxSnapshot): readonly Omit<NormalizedExchange, 'rawRecordRef'>[] {
@@ -267,7 +173,6 @@ function evidenceMarkdown(
   findings: readonly VerifiedBlackboxFinding[],
   status: Exclude<BlackboxRunStatus, 'running'>,
   failure: string | null,
-  configuredSecrets: readonly string[],
 ): string {
   const lines = ['# Black-box authorization evidence', '', `Status: ${status}`, ''];
   if (failure) lines.push(`Failure: ${failure}`, '');
@@ -292,10 +197,10 @@ function evidenceMarkdown(
     );
     for (const [index, step] of finding.replaySequence.steps.entries()) {
       lines.push(
-        `${index + 1}. ${step.stepId}: ${step.actor} replays ${step.sourceExchangeId}; mutations ${inlineJson(step.mutations, configuredSecrets)}`,
+        `${index + 1}. ${step.stepId}: ${step.actor} replays ${step.sourceExchangeId}; mutations ${inlineJson(step.mutations)}`,
       );
     }
-    lines.push(`Proof: ${inlineJson(finding.replaySequence.proofCondition, configuredSecrets)}`);
+    lines.push(`Proof: ${inlineJson(finding.replaySequence.proofCondition)}`);
 
     const baseline = exchanges.get(finding.baselineExchangeId);
     lines.push('', 'Normalized response comparisons:', '');
@@ -316,24 +221,11 @@ function evidenceMarkdown(
 
 export function renderBlackboxArtifacts(input: RenderBlackboxArtifactsInput): RenderedBlackboxArtifacts {
   const findings = [...input.findings].sort((left, right) => left.findingId.localeCompare(right.findingId));
-  const discoveredSecrets = [...collectArtifactSecrets([input.snapshot, findings])];
   return {
-    'traffic_inventory.json': json(inventory(input.snapshot), input.configuredSecrets, discoveredSecrets),
-    'blackbox_blackboard.json': json(
-      blackboardProjection(input.snapshot, input.status, input.failure),
-      input.configuredSecrets,
-      discoveredSecrets,
-    ),
-    'blackbox_authz_findings.json': json(findings, input.configuredSecrets, discoveredSecrets),
-    'blackbox_authz_evidence.md': redactPortableTokens(
-      String(
-        redact(
-          evidenceMarkdown(input.snapshot, findings, input.status, input.failure, input.configuredSecrets),
-          input.configuredSecrets,
-          discoveredSecrets,
-        ),
-      ),
-    ),
+    'traffic_inventory.json': json(inventory(input.snapshot)),
+    'blackbox_blackboard.json': json(blackboardProjection(input.snapshot, input.status, input.failure)),
+    'blackbox_authz_findings.json': json(findings),
+    'blackbox_authz_evidence.md': evidenceMarkdown(input.snapshot, findings, input.status, input.failure),
   };
 }
 

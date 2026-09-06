@@ -244,7 +244,7 @@ export interface ContributionBatch {
   readonly identityCaptures?: readonly { readonly identity: string; readonly stateRef: string }[];
 }
 
-export interface RedactedBlackboxIdentity {
+export interface BlackboxIdentityRecord {
   readonly name: string;
   readonly role: string;
   readonly authenticated: boolean;
@@ -254,9 +254,7 @@ export interface RedactedBlackboxIdentity {
 export interface BlackboardInitialization {
   readonly targetOrigin: string;
   readonly runScope: BlackboxRunScope;
-  readonly identities: readonly RedactedBlackboxIdentity[];
-  /** Used only to reject accidental persistence. Never written to the document. */
-  readonly configuredSecrets: readonly string[];
+  readonly identities: readonly BlackboxIdentityRecord[];
 }
 
 export interface BlackboxRunScope {
@@ -308,7 +306,7 @@ export interface BlackboxDocument {
   readonly revision: number;
   readonly targetOrigin: string;
   readonly runScope: BlackboxRunScope;
-  readonly identities: readonly RedactedBlackboxIdentity[];
+  readonly identities: readonly BlackboxIdentityRecord[];
   readonly exchanges: readonly NormalizedExchange[];
   readonly resources: readonly BlackboxResource[];
   readonly transitions: readonly WorkflowTransition[];

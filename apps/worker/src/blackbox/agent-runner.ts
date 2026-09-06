@@ -10,7 +10,6 @@ import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
 import { runPiPrompt } from '../ai/pi/pi-executor.js';
-import { containsCredentialSyntax, redactSensitive } from '../ai/sensitive-redaction.js';
 import type { AuditSession } from '../audit/index.js';
 import { PROMPTS_DIR } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -25,7 +24,7 @@ import {
 } from './agents.js';
 import { createBlackboxSubmitTool } from './tools.js';
 
-export interface RedactedBlackboxSlice {
+export interface BlackboxSnapshotSlice {
   readonly revision: number;
   readonly routes: readonly unknown[];
   readonly identities: readonly unknown[];
@@ -46,13 +45,11 @@ export interface RedactedBlackboxSlice {
   readonly evidenceExcerpts?: readonly { readonly evidenceId: string; readonly excerpt: string }[];
 }
 
-export interface RedactedIdentityContext {
+export interface AgentIdentityContext {
   readonly name: string;
   readonly role: string;
   readonly loginInstructions: string;
   readonly credentials?: Readonly<Record<string, unknown>>;
-  readonly sensitiveValues?: readonly string[];
-  readonly submissionSecrets?: readonly string[];
 }
 
 export interface BlackboxAgentRunInput {
@@ -60,8 +57,8 @@ export interface BlackboxAgentRunInput {
   readonly targetOrigin: string;
   readonly candidateId?: string;
   readonly task: PlannerTask | null;
-  readonly snapshot: RedactedBlackboxSlice;
-  readonly identity: RedactedIdentityContext | null;
+  readonly snapshot: BlackboxSnapshotSlice;
+  readonly identity: AgentIdentityContext | null;
   readonly customTools: readonly ToolDefinition[];
   readonly auditSession: AuditSession;
   readonly logger: ActivityLogger;
@@ -97,53 +94,6 @@ const EXPECTED_CALLER_TOOLS: Readonly<Record<BlackboxAgentKind, readonly string[
   'blackbox-action': ['replay_target_request'],
   'blackbox-verifier': ['replay_verification_request'],
 };
-
-function collectSensitiveStrings(value: unknown, result: string[] = []): string[] {
-  if (typeof value === 'string') {
-    if (value.length > 0) result.push(value);
-    return result;
-  }
-  if (Array.isArray(value)) {
-    for (const entry of value) collectSensitiveStrings(entry, result);
-    return result;
-  }
-  if (value && typeof value === 'object') {
-    for (const entry of Object.values(value)) collectSensitiveStrings(entry, result);
-  }
-  return result;
-}
-
-/**
- * Credential fields whose value is a secret. A login username or email address is an identifier the
- * target echoes in ordinary paths, responses and finding prose, so matching one rejects sound work.
- */
-const SECRET_CREDENTIAL_KEY =
-  /^(?:password|passwd|pwd|secret|totp_secret|api[_-]?key|access[_-]?token|refresh[_-]?token)$/i;
-
-/** Shorter values collide with ordinary target vocabulary ("user", "admin", "test"). */
-const MIN_MATCHABLE_SECRET_LENGTH = 10;
-
-/**
- * Collect the credential values a submission must never echo. Only values held under a
- * secret-valued key and long enough to be unambiguous qualify, so a match means the model copied a
- * secret rather than reused a word the target itself uses.
- */
-export function collectSubmissionSecrets(value: unknown, result: string[] = []): string[] {
-  if (!value || typeof value !== 'object') return result;
-  if (Array.isArray(value)) {
-    for (const entry of value) collectSubmissionSecrets(entry, result);
-    return result;
-  }
-  for (const [key, entry] of Object.entries(value)) {
-    if (typeof entry !== 'string') {
-      collectSubmissionSecrets(entry, result);
-      continue;
-    }
-    const isMatchableSecret = SECRET_CREDENTIAL_KEY.test(key) && entry.length >= MIN_MATCHABLE_SECRET_LENGTH;
-    if (isMatchableSecret) result.push(entry);
-  }
-  return result;
-}
 
 function containsReference(value: unknown, references: ReadonlySet<string>): boolean {
   if (typeof value === 'string') return references.has(value);
@@ -241,7 +191,7 @@ function boundedSlice(
   kind: BlackboxAgentKind,
   task: PlannerTask | null,
   candidateId: string | undefined,
-  snapshot: RedactedBlackboxSlice,
+  snapshot: BlackboxSnapshotSlice,
 ): Record<string, unknown> {
   const references = taskReferences(task);
   const routes = snapshot.routes.map((route) => {
@@ -350,7 +300,7 @@ function boundedSlice(
   }
 }
 
-function promptIdentity(identity: RedactedIdentityContext | null): unknown {
+function promptIdentity(identity: AgentIdentityContext | null): unknown {
   if (!identity) return null;
   return {
     name: identity.name,
@@ -377,21 +327,6 @@ function snapshotHypothesisIds(hypotheses: readonly unknown[]): string[] {
 
 function failure(code: BlackboxAgentFailure['code'], message: string, retryable: boolean): BlackboxAgentError {
   return new BlackboxAgentError({ code, message, retryable });
-}
-
-/**
- * Report whether a submission carries credential material: a configured secret copied verbatim,
- * or a credential recognizable by shape alone - a header position, a qualified credential name,
- * a scheme-prefixed token, a JWT.
- *
- * The shape test uses the narrow keep-or-discard vocabulary, so a submission that merely names
- * the authentication an agent observed - a route carrying a reset token, a header it had to
- * defeat - is kept, while one carrying a leased credential it has no reason to echo is not.
- */
-function containsCredentialMaterial(value: unknown, secrets: readonly string[]): boolean {
-  const serialized = JSON.stringify(value);
-  if (secrets.some((secret) => secret.length > 0 && serialized.includes(secret))) return true;
-  return containsCredentialSyntax(serialized);
 }
 
 export class BlackboxAgentRunner {
@@ -428,20 +363,6 @@ export class BlackboxAgentRunner {
       throw failure('invalid_submission', `${input.kind} requires an assigned task`, false);
     }
 
-    const sensitiveValues = [
-      ...(input.identity?.sensitiveValues ?? []),
-      ...collectSensitiveStrings(input.identity?.credentials),
-    ];
-    const telemetryPolicy = {
-      sensitiveValues: [...new Set(sensitiveValues)],
-      redactAuthenticationSyntax: true as const,
-    };
-    const submissionSecrets = [
-      ...new Set([
-        ...(input.identity?.submissionSecrets ?? []),
-        ...collectSubmissionSecrets(input.identity?.credentials),
-      ]),
-    ];
     let prompt: string;
     try {
       const template = await readFile(path.join(this.promptDirectory, definition.promptFile), 'utf8');
@@ -461,8 +382,7 @@ export class BlackboxAgentRunner {
           2,
         ),
       ].join('\n');
-      const auditPrompt = redactSensitive(prompt, telemetryPolicy);
-      await input.auditSession.startAgent(input.kind, String(auditPrompt));
+      await input.auditSession.startAgent(input.kind, prompt);
     } catch {
       input.cancellationSignal?.throwIfAborted();
       throw failure('agent_failed', `${input.kind} agent setup failed`, true);
@@ -486,11 +406,7 @@ export class BlackboxAgentRunner {
         undefined,
         input.cancellationSignal,
         submitTool,
-        {
-          toolPolicy: definition.policy,
-          sensitiveTelemetryPolicy: telemetryPolicy,
-          childTasks: false,
-        },
+        { toolPolicy: definition.policy, childTasks: false },
       );
       input.cancellationSignal?.throwIfAborted();
     } catch {
@@ -508,9 +424,6 @@ export class BlackboxAgentRunner {
     const schema = submissionSchema(input.kind);
     if (!Value.Check(schema, submitted)) {
       throw failure('invalid_submission', `${input.kind} submitted an invalid result`, true);
-    }
-    if (containsCredentialMaterial(submitted, submissionSecrets)) {
-      throw failure('invalid_submission', `${input.kind} submitted credential material`, false);
     }
     if (submitTool.getCallCount() !== 1) {
       throw failure(
