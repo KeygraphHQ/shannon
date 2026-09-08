@@ -28,7 +28,7 @@ import {
   STARTUP_ERROR_FILENAME,
 } from '../paths.js';
 import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
-import { indentFailureSegments } from '../scan/failure.js';
+import { indentFailureSegments, parseFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
 import { describeWorkflowLifecycle, getTerminalOutcome, queryProgress } from '../temporal-client.js';
@@ -523,11 +523,18 @@ async function awaitPreflightOutcome(workflowId: string): Promise<PreflightOutco
   return { kind: 'unconfirmed' };
 }
 
-/** Print a preflight failure the same way as a pre-workflow startup error. */
+/** Print a preflight failure: context line, then the indented reason and hint, then the reference code. */
 function printScanStartFailure(message: string): void {
-  console.error('');
-  console.error(indentFailureSegments(message));
-  console.error('');
+  const segments = parseFailureSegments(message);
+  const phaseContext = segments.shift() ?? 'The scan failed';
+  const last = segments[segments.length - 1];
+  const reference = last?.startsWith('Reference code:') ? segments.pop() : undefined;
+
+  const lines = [`  ${phaseContext}`, '', ...segments.map((segment) => `  ${segment}`)];
+  if (reference) {
+    lines.push('', `  ${reference}`);
+  }
+  console.error(`\n${lines.join('\n')}\n`);
 }
 
 /** Print the worker's persisted startup-failure reason, with its reference code when present. */
