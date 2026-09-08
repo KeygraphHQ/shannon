@@ -15,6 +15,14 @@ export const TYPST_TEMPLATE = path.join(WORKER_ROOT, 'templates', 'typst', 'repo
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');
 
+/** Compiled pi extension dir that confines black-box browser bash to playwright-cli. */
+export const BLACKBOX_BASH_GUARD_EXTENSION_DIR = path.join(
+  import.meta.dirname,
+  'ai',
+  'extensions',
+  'blackbox-bash-guard',
+);
+
 /** Default deliverables subdirectory relative to repoPath */
 export const DEFAULT_DELIVERABLES_SUBDIR = '.shannon/deliverables';
 

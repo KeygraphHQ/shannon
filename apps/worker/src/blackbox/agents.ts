@@ -44,6 +44,7 @@ const BROWSER_BASH_POLICY: PiToolPolicy = {
   builtinTools: ['bash'],
   ...NO_SHARED_TOOLS,
   includeBrowserSkill: true,
+  restrictBashToPlaywrightCli: true,
 };
 
 const ANALYSIS_POLICY: PiToolPolicy = {

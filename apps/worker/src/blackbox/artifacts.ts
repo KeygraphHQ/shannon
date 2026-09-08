@@ -7,6 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import type { ResolvedAccessValidation } from '../blackbox-observation/access-validation.js';
 import { deliverablesDir } from '../paths.js';
 import type {
   BlackboxRunStatus,
@@ -15,7 +16,9 @@ import type {
   NormalizedExchange,
   VerifiedBlackboxFinding,
 } from '../types/blackbox.js';
+import type { RunMetadata } from '../types/run-metadata.js';
 import { atomicWrite, ensureDirectory } from '../utils/file-io.js';
+import { renderBlackboxRunSummary } from './run-summary.js';
 
 export const BLACKBOX_ARTIFACT_NAMES = [
   'traffic_inventory.json',
@@ -39,6 +42,8 @@ export interface RenderBlackboxArtifactsInput {
   readonly findings: readonly VerifiedBlackboxFinding[];
   readonly status: Exclude<BlackboxRunStatus, 'running'>;
   readonly failure: string | null;
+  readonly runMetadata?: RunMetadata;
+  readonly validationSelection?: ResolvedAccessValidation;
 }
 
 export interface BlackboxArtifactIo {
@@ -124,6 +129,8 @@ function blackboardProjection(
   snapshot: BlackboxSnapshot,
   status: Exclude<BlackboxRunStatus, 'running'>,
   failure: string | null,
+  runMetadata?: RunMetadata,
+  validationSelection?: ResolvedAccessValidation,
 ): object {
   return {
     schemaVersion: snapshot.schemaVersion,
@@ -131,6 +138,8 @@ function blackboardProjection(
     targetOrigin: snapshot.targetOrigin,
     runStatus: status,
     failure,
+    ...(runMetadata === undefined ? {} : { runMetadata }),
+    ...(validationSelection === undefined ? {} : { validationSelection }),
     identities: [...snapshot.identities]
       .sort((left, right) => left.name.localeCompare(right.name))
       .map(({ name, role, authenticated }) => ({ name, role, authenticated })),
@@ -173,14 +182,46 @@ function evidenceMarkdown(
   findings: readonly VerifiedBlackboxFinding[],
   status: Exclude<BlackboxRunStatus, 'running'>,
   failure: string | null,
+  runMetadata?: RunMetadata,
+  validationSelection?: ResolvedAccessValidation,
 ): string {
   const lines = ['# Black-box authorization evidence', '', `Status: ${status}`, ''];
   if (failure) lines.push(`Failure: ${failure}`, '');
-  if (status !== 'complete') {
+  if (validationSelection) {
+    lines.push(
+      '## Selected passive comparison validation',
+      '',
+      `Comparison: ${inlineJson(validationSelection.comparisonId)}`,
+      `Comparison SHA-256: ${validationSelection.comparisonSha256}`,
+      `Source manifest SHA-256: ${validationSelection.sourceManifestSha256}`,
+      `Selection SHA-256: ${validationSelection.selectionDigest}`,
+      `Route signature: ${inlineJson(validationSelection.routeSignature)}`,
+      `Fresh route prefix: ${inlineJson(validationSelection.routePathPrefix)}`,
+      `Identity pair: ${inlineJson(validationSelection.victimIdentity)} -> ${inlineJson(validationSelection.attackerIdentity)}`,
+      `Recorded role: ${inlineJson(validationSelection.recordedRole)}`,
+      '',
+    );
+  }
+  if (status === 'failed') {
+    lines.push('The run failed. No clean-assessment conclusion was produced.', '');
+  } else if (status === 'incomplete') {
     lines.push('The run was incomplete. No clean-assessment conclusion was produced.', '');
-  } else if (findings.length === 0) {
+  }
+  if (findings.length === 0) {
     lines.push(NO_FINDINGS, '');
   }
+  lines.push(
+    renderBlackboxRunSummary({
+      ...snapshot,
+      status,
+      failure,
+      ...(runMetadata === undefined ? {} : { runMetadata }),
+      findingCount: findings.length,
+      candidateCount: snapshot.candidateProofs.length,
+      rejectedTaskCount: snapshot.rejectedTasks.length,
+    }),
+    '',
+  );
 
   const exchanges = new Map(snapshot.exchanges.map((exchange) => [exchange.exchangeId, exchange]));
   for (const finding of findings) {
@@ -223,9 +264,18 @@ export function renderBlackboxArtifacts(input: RenderBlackboxArtifactsInput): Re
   const findings = [...input.findings].sort((left, right) => left.findingId.localeCompare(right.findingId));
   return {
     'traffic_inventory.json': json(inventory(input.snapshot)),
-    'blackbox_blackboard.json': json(blackboardProjection(input.snapshot, input.status, input.failure)),
+    'blackbox_blackboard.json': json(
+      blackboardProjection(input.snapshot, input.status, input.failure, input.runMetadata, input.validationSelection),
+    ),
     'blackbox_authz_findings.json': json(findings),
-    'blackbox_authz_evidence.md': evidenceMarkdown(input.snapshot, findings, input.status, input.failure),
+    'blackbox_authz_evidence.md': evidenceMarkdown(
+      input.snapshot,
+      findings,
+      input.status,
+      input.failure,
+      input.runMetadata,
+      input.validationSelection,
+    ),
   };
 }
 

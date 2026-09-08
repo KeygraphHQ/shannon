@@ -12,6 +12,12 @@ import { isDeepStrictEqual, promisify } from 'node:util';
 import { Context, heartbeat } from '@temporalio/activity';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
+import { describeRecordedDecision, RunMetadataStore } from '../audit/run-metadata.js';
+import {
+  accessValidationPathMatchesPrefix,
+  assertResolvedAccessValidationScope,
+  type ResolvedAccessValidation,
+} from '../blackbox-observation/access-validation.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
 import { deliverablesDir } from '../paths.js';
 import { createActivityLogger } from '../temporal/activity-logger.js';
@@ -33,6 +39,7 @@ import type {
   WorkerContribution,
 } from '../types/blackbox.js';
 import type { Config, NormalizedBlackboxConfig, SuccessCondition } from '../types/config.js';
+import type { RecordedRunTermination } from '../types/run-metadata.js';
 import { type AgentIdentityContext, BlackboxAgentRunner, type BlackboxSnapshotSlice } from './agent-runner.js';
 import type { PlannerBatch } from './agents.js';
 import {
@@ -42,7 +49,11 @@ import {
   renderBlackboxArtifacts,
   validateBlackboxDeliverables,
 } from './artifacts.js';
-import { type CompiledAuthorizationAttacks, compileAuthorizationAttacks } from './attack-compiler.js';
+import {
+  type CompiledAuthorizationAttacks,
+  compileAuthorizationAttacks,
+  compileSelectedAuthorizationAttack,
+} from './attack-compiler.js';
 import { BlackboardValidationError, FileBlackboardStore } from './blackboard.js';
 import {
   BurpMcpClient,
@@ -82,6 +93,13 @@ const AUTH_FAILURE_MARKER = '__SHANNON_AUTH_FAILED__';
 const SHA256_DIGEST = /^[a-f0-9]{64}$/;
 const HEARTBEAT_INTERVAL_MS = 2_000;
 
+export class SelectedValidationNotObservedError extends Error {
+  constructor() {
+    super('The selected validation route could not be grounded in the fresh black-box snapshot.');
+    this.name = 'SelectedValidationNotObservedError';
+  }
+}
+
 type Awaitable<T> = T | Promise<T>;
 
 export interface BlackboxActivityInput {
@@ -95,6 +113,8 @@ export interface BlackboxActivityInput {
   readonly promptDir?: string;
   readonly resumeFromWorkspace?: string;
   readonly terminatedWorkflows?: readonly string[];
+  readonly runAttemptId?: string;
+  readonly validationSelection?: ResolvedAccessValidation;
 }
 
 export interface BlackboxWorkerActivityInput extends BlackboxActivityInput {
@@ -270,6 +290,7 @@ export interface FinalizeBlackboxInput extends BlackboxActivityInput {
   readonly status: Exclude<BlackboxRunStatus, 'running'>;
   readonly failure?: string;
   readonly operationKey: string;
+  readonly termination?: RecordedRunTermination;
 }
 
 export type BlackboxTerminalStatus = 'findings' | 'no_findings' | 'incomplete';
@@ -412,11 +433,15 @@ async function loadRuntimeContext(
   input: BlackboxActivityInput,
 ): Promise<RuntimeContext> {
   const target = await loadTargetContext(dependencies, input);
+  const validationSelection = input.validationSelection
+    ? assertResolvedAccessValidationScope(input.validationSelection, target.targetOrigin, target.config.identities)
+    : undefined;
   const runScope = createBlackboxRunScope(
     target.targetUrl,
     target.config.identities.map(({ name }) => name),
     target.config.identityBoundRequestFields,
     dependencies.readEnvironment(),
+    validationSelection?.selectionDigest,
   );
   return {
     ...target,
@@ -453,29 +478,59 @@ function validateBoardIdentityScope(snapshot: BlackboxSnapshot, context: TargetC
   }
 }
 
-function bootstrapTasks(config: NormalizedBlackboxConfig): PlannerTask[] {
+function bootstrapTasks(
+  config: NormalizedBlackboxConfig,
+  validationSelection?: ResolvedAccessValidation,
+): PlannerTask[] {
+  const selectedNames = validationSelection
+    ? new Set([validationSelection.attackerIdentity, validationSelection.victimIdentity])
+    : null;
   return [
-    {
-      taskId: 'bootstrap-anonymous',
-      kind: 'recon',
-      objective: 'Explore the target as a clean anonymous actor and record target-scoped workflows.',
-      evidence: [],
-      identityLease: 'anonymous',
-      hypothesisId: null,
-      status: 'pending',
-    },
-    ...config.identities.map(
-      ({ name }): PlannerTask => ({
-        taskId: `bootstrap-${name}`,
-        kind: 'recon',
-        objective: `Authenticate and explore the assigned workflow as identity ${name}.`,
-        evidence: [],
-        identityLease: name,
-        hypothesisId: null,
-        status: 'pending',
-      }),
-    ),
+    ...(validationSelection
+      ? []
+      : [
+          {
+            taskId: 'bootstrap-anonymous',
+            kind: 'recon' as const,
+            objective: 'Explore the target as a clean anonymous actor and record target-scoped workflows.',
+            evidence: [],
+            identityLease: 'anonymous' as const,
+            hypothesisId: null,
+            status: 'pending' as const,
+          },
+        ]),
+    ...config.identities
+      .filter(({ name }) => selectedNames === null || selectedNames.has(name))
+      .map(
+        ({ name }): PlannerTask => ({
+          taskId: `bootstrap-${name}`,
+          kind: 'recon',
+          objective: validationSelection
+            ? [
+                `Authenticate as identity ${name} and use only current application navigation.`,
+                `Capture the selected read-only GET route ${validationSelection.routeSignature} under path prefix ${validationSelection.routePathPrefix}.`,
+                'Use read_target_history to confirm the opaque route key; do not replay saved traffic or exercise write actions.',
+              ].join(' ')
+            : `Authenticate and explore the assigned workflow as identity ${name}.`,
+          evidence: [],
+          identityLease: name,
+          hypothesisId: null,
+          status: 'pending',
+        }),
+      ),
   ];
+}
+
+function captureIdentitiesFor(input: BlackboxActivityInput, snapshot: BlackboxSnapshot) {
+  const selectedNames = input.validationSelection
+    ? new Set([input.validationSelection.attackerIdentity, input.validationSelection.victimIdentity])
+    : null;
+  return snapshot.identities
+    .filter(({ name }) => selectedNames === null || selectedNames.has(name))
+    .map(({ name, role, stateRef: ref }) => {
+      if (!ref) throw new Error(`Identity ${name} has no state reference`);
+      return { name, role, stateRef: ref };
+    });
 }
 
 function toSnapshotSlice(snapshot: BlackboxSnapshot): BlackboxSnapshotSlice {
@@ -568,7 +623,6 @@ function authenticationInstructions(
     ...(flow ? ['Configured login flow:', flow] : []),
     `Verify ${identity.authentication.success_condition.type}: ${identity.authentication.success_condition.value}.`,
     `Explore the authenticated application at ${input.webUrl}.`,
-    `Save browser state with: playwright-cli -s=bb-${identity.name} state-save ${statePath(input.repoPath, identity.name)}`,
   ].join('\n');
 }
 
@@ -762,6 +816,39 @@ function mergeCompiledPlannerBatch(
   };
 }
 
+function completedSelectedValidationBatch(
+  snapshot: BlackboxSnapshot,
+  revision: number,
+  comparisonId: string,
+): PlannerBatch | null {
+  const hypotheses = snapshot.hypotheses.filter(
+    ({ provenance }) => provenance.taskId === 'selected-authorization-compiler',
+  );
+  if (hypotheses.length === 0) return null;
+  if (hypotheses.length !== 1) throw new SelectedValidationNotObservedError();
+  const hypothesis = hypotheses[0];
+  if (!hypothesis) throw new SelectedValidationNotObservedError();
+  const actions = snapshot.actions.filter(({ hypothesisId }) => hypothesisId === hypothesis.hypothesisId);
+  const unknownDelivery = actions.some(({ status }) => status === 'delivery_unknown');
+  const terminal = ['verified', 'disproved', 'no_demonstrated_impact'].includes(hypothesis.status);
+  const denied =
+    actions.length === 1 &&
+    actions[0]?.status === 'completed' &&
+    actions[0].observation?.passed === false &&
+    hypothesis.status === 'tested';
+  if (!unknownDelivery && !terminal && !denied) throw new SelectedValidationNotObservedError();
+  return {
+    baseRevision: revision,
+    tasks: [],
+    stop: true,
+    stopReason: unknownDelivery
+      ? `Selected comparison ${comparisonId} has an unknown delivery outcome.`
+      : `Selected comparison ${comparisonId} reached a terminal fresh outcome.`,
+    closeHypothesisIds: denied ? [hypothesis.hypothesisId] : [],
+    compiledHypotheses: [],
+  };
+}
+
 function namespaceContributionRecords(contribution: WorkerContribution, taskId: string): WorkerContribution {
   const resourceIds = new Map(
     (contribution.resources ?? []).map(({ resourceId }) => [
@@ -915,7 +1002,6 @@ function verificationLoginTask(verificationId: string, identity: string): Planne
 function verificationLoginInstructions(
   identity: NormalizedBlackboxConfig['identities'][number],
   session: string,
-  storagePath: string,
 ): string {
   const flow = identity.authentication.login_flow?.map((step, index) => `${index + 1}. ${step}`).join('\n') ?? '';
   return [
@@ -924,7 +1010,6 @@ function verificationLoginInstructions(
     `Login type: ${identity.authentication.login_type}.`,
     ...(flow ? ['Configured login flow:', flow] : []),
     `Verify ${identity.authentication.success_condition.type}: ${identity.authentication.success_condition.value}.`,
-    `Save browser state with: playwright-cli -s=${session} state-save ${storagePath}`,
     'Do not authenticate as any other identity.',
   ].join('\n');
 }
@@ -1140,6 +1225,12 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       throw new Error('Cannot publish artifacts before terminal state is committed');
     }
     const findings = collectVerifiedFindings(snapshot, context.targetOrigin);
+    const terminalOperation = snapshot.operationReceipts?.find(({ revision }) => revision === snapshot.revision);
+    const ownerWorkflowId = terminalOperation?.operationKey.split(':')[0];
+    const runMetadata = await new RunMetadataStore(input.repoPath).commitFinalization(
+      snapshot.runStatus,
+      ownerWorkflowId,
+    );
     const rendered = renderBlackboxArtifacts({
       // Artifact projection advances the source revision by one. Render from
       // the committed terminal revision's predecessor.
@@ -1147,6 +1238,8 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       findings,
       status: snapshot.runStatus,
       failure: Object.hasOwn(snapshot, 'terminalFailure') ? (snapshot.terminalFailure ?? null) : legacyFailure,
+      ...(runMetadata ? { runMetadata } : {}),
+      ...(input.validationSelection ? { validationSelection: input.validationSelection } : {}),
     });
     const artifactNames = await dependencies.publishArtifacts(input.repoPath, rendered);
     if (!isDeepStrictEqual(artifactNames, BLACKBOX_ARTIFACT_NAMES)) {
@@ -1222,10 +1315,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         targetUrl: context.targetUrl,
         blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
         revision: initializedStore.snapshot.revision,
-        identities: initializedStore.snapshot.identities.map(({ name, role, stateRef: ref }) => {
-          if (!ref) throw new Error(`Identity ${name} has no state reference`);
-          return { name, role, stateRef: ref };
-        }),
+        identities: captureIdentitiesFor(input, initializedStore.snapshot),
         resumedTasks: [],
         unresolvedCandidateIds: [],
         ...durablePlanningState(initializedStore.snapshot),
@@ -1251,10 +1341,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         targetUrl: context.targetUrl,
         blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
         revision: initializedStore.snapshot.revision,
-        identities: initializedStore.snapshot.identities.map(({ name, role, stateRef: ref }) => {
-          if (!ref) throw new Error(`Identity ${name} has no state reference`);
-          return { name, role, stateRef: ref };
-        }),
+        identities: captureIdentitiesFor(input, initializedStore.snapshot),
         resumedTasks: [],
         unresolvedCandidateIds: [],
         ...initialPlanningState,
@@ -1281,10 +1368,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         targetUrl: context.targetUrl,
         blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
         revision: initialized.revision,
-        identities: initialized.identities.map(({ name, role, stateRef: ref }) => {
-          if (!ref) throw new Error(`Identity ${name} has no state reference`);
-          return { name, role, stateRef: ref };
-        }),
+        identities: captureIdentitiesFor(input, initialized),
         resumedTasks: [],
         unresolvedCandidateIds,
         ...initializedPlanningState,
@@ -1325,7 +1409,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       }
 
       const store = initializedStore.store;
-      const expected = bootstrapTasks(context.config);
+      const expected = bootstrapTasks(context.config, input.validationSelection);
       const existing = new Map(initialized.tasks.map((task) => [task.taskId, task]));
       for (const task of expected) {
         const current = existing.get(task.taskId);
@@ -1350,10 +1434,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
         targetUrl: context.targetUrl,
         blackboardPath: path.resolve(input.repoPath, '.shannon', 'blackbox', 'blackboard.json'),
         revision: snapshot.revision,
-        identities: snapshot.identities.map(({ name, role, stateRef: ref }) => {
-          if (!ref) throw new Error(`Identity ${name} has no state reference`);
-          return { name, role, stateRef: ref };
-        }),
+        identities: captureIdentitiesFor(input, snapshot),
         resumedTasks: initialized.tasks
           .filter((task) => task.status === 'pending' && !expected.some(({ taskId }) => taskId === task.taskId))
           .map((task) => structuredClone(task)),
@@ -1552,6 +1633,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          allowedPlaywrightSessions: [session],
           ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
@@ -1738,6 +1820,59 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const cancellationSignal = dependencies.getCancellationSignal();
     const { snapshot } = await initializeStore(input, context);
     if (snapshot.revision !== revision) throw new Error('Planner activity received a stale blackboard revision');
+    if (input.validationSelection) {
+      const completed = completedSelectedValidationBatch(snapshot, revision, input.validationSelection.comparisonId);
+      if (completed) return completed;
+      const compilerRawStore = dependencies.createReplayRawStore(input.repoPath);
+      const rawResponses = new Map<string, string>();
+      const rawRequests = new Map<string, string>();
+      const selectedNames = new Set([
+        input.validationSelection.victimIdentity,
+        input.validationSelection.attackerIdentity,
+      ]);
+      const selectedExchangeIds = [
+        ...new Set(
+          snapshot.exchanges
+            .filter(
+              ({ routeSignature, origin, method, identity, path: exchangePath }) =>
+                routeSignature === input.validationSelection?.routeSignature &&
+                origin === input.validationSelection.origin &&
+                method.toUpperCase() === 'GET' &&
+                accessValidationPathMatchesPrefix(exchangePath, input.validationSelection.routePathPrefix) &&
+                selectedNames.has(identity),
+            )
+            .map(({ exchangeId }) => exchangeId),
+        ),
+      ].sort();
+      for (const exchangeId of selectedExchangeIds) {
+        try {
+          const record = await compilerRawStore.readExchange(exchangeId);
+          if (record) {
+            rawResponses.set(exchangeId, record.response);
+            rawRequests.set(exchangeId, record.request);
+          }
+        } catch {
+          // The selected compiler requires every chosen raw record and fails closed below.
+        }
+      }
+      const compiled = compileSelectedAuthorizationAttack(
+        snapshot,
+        input.validationSelection,
+        rawResponses,
+        rawRequests,
+      );
+      if (compiled.tasks.length !== 1 || compiled.hypotheses.length !== 1) {
+        throw new SelectedValidationNotObservedError();
+      }
+      return {
+        baseRevision: revision,
+        tasks: compiled.tasks,
+        stop: true,
+        stopReason: `Selected comparison ${input.validationSelection.comparisonId} is the only validation candidate.`,
+        closeHypothesisIds: [],
+        compiledHypotheses: compiled.hypotheses,
+      };
+    }
     const preliminaryCompiled = compileAuthorizationAttacks(snapshot);
     const compilerRawStore = dependencies.createReplayRawStore(input.repoPath);
     const rawResponses = new Map<string, string>();
@@ -1905,6 +2040,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          allowedPlaywrightSessions: [session],
           ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
@@ -2180,6 +2316,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          allowedPlaywrightSessions: sessions.map(({ session }) => session),
           ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as WorkerContribution;
       } catch (error) {
@@ -2343,7 +2480,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             identity: {
               name: identity.name,
               role: identity.role,
-              loginInstructions: verificationLoginInstructions(identity, session, storagePath),
+              loginInstructions: verificationLoginInstructions(identity, session),
               credentials: structuredClone(identity.authentication.credentials) as unknown as Readonly<
                 Record<string, unknown>
               >,
@@ -2351,6 +2488,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             customTools: loginTools,
             auditSession: auditSession as AuditSession,
             logger: activityLogger(),
+            allowedPlaywrightSessions: [session],
             ...(cancellationSignal ? { cancellationSignal } : {}),
           });
         } catch (error) {
@@ -2359,6 +2497,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
             error: error instanceof Error ? error.name : 'unknown',
           });
         }
+        await saveIdentityState(dependencies, freshRoot, session, identity.name, cancellationSignal);
         await assertStorageState(dependencies.fileSystem, storagePath, identity.name);
         const checked = await dependencies.runBrowserCommand(
           'playwright-cli',
@@ -2506,6 +2645,7 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
           customTools: tools,
           auditSession: auditSession as AuditSession,
           logger: activityLogger(),
+          allowedPlaywrightSessions: sessions.map(({ session }) => session),
           ...(cancellationSignal ? { cancellationSignal } : {}),
         })) as VerificationResult;
       } catch (error) {
@@ -2805,6 +2945,16 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
       hitSafetyLimit: input.waveNumber >= 8,
     });
     const next = await store.recordPlanningDecision(input.revision, input.operationKey, input.waveNumber, decision);
+    const recordedReason = describeRecordedDecision({
+      decision,
+      plannerStopped: input.plannerStop,
+      pendingTasks,
+      unknownDeliveries: snapshot.actions.filter(({ status }) => status === 'delivery_unknown').length,
+      limitReached: input.waveNumber >= 8,
+    });
+    if (input.runAttemptId && recordedReason) {
+      await new RunMetadataStore(input.repoPath).recordDecision(input.runAttemptId, recordedReason);
+    }
     return { decision, revision: next.revision };
   };
 
@@ -2812,6 +2962,13 @@ export function createBlackboxActivities(supplied: Partial<BlackboxActivityDepen
     const context = await loadRuntimeContext(dependencies, input);
     const { store, snapshot } = await initializeStore(input, context);
     const failure = input.failure ? failureReasonText(input.failure) : null;
+    if (input.runAttemptId && input.termination) {
+      await new RunMetadataStore(input.repoPath).prepareFinalization(
+        input.runAttemptId,
+        input.status,
+        input.termination,
+      );
+    }
     const result = (
       findings: ReturnType<typeof collectVerifiedFindings>,
       terminalSnapshot: BlackboxSnapshot,

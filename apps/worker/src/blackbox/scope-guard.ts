@@ -72,12 +72,16 @@ export function createBlackboxRunScope(
   identities: readonly string[],
   identityBoundRequestFields: readonly IdentityBoundRequestField[],
   environment: BlackboxScopeEnvironment,
+  validationSelectionDigest?: string,
 ): BlackboxRunScope {
   const proxy = environment.SHANNON_BURP_PROXY_URL?.trim();
   if (!proxy) throw new Error('SHANNON_BURP_PROXY_URL is required for black-box mode');
   const hostHeader = (environment.SHANNON_BURP_MCP_HOST_HEADER?.trim() || DEFAULT_BURP_MCP_HOST_HEADER).toLowerCase();
   if (/[^!-~]/.test(hostHeader) || /[/?#@]/.test(hostHeader)) {
     throw new Error('SHANNON_BURP_MCP_HOST_HEADER is invalid');
+  }
+  if (validationSelectionDigest !== undefined && !/^[a-f0-9]{64}$/.test(validationSelectionDigest)) {
+    throw new Error('Black-box validation selection digest is invalid');
   }
 
   return {
@@ -93,6 +97,7 @@ export function createBlackboxRunScope(
     burpProxyUrl: normalizeEndpoint(proxy, 'SHANNON_BURP_PROXY_URL', new Set(['http:'])),
     evidenceBindingVersion: BLACKBOX_EVIDENCE_BINDING_VERSION,
     identityBindingContractDigest: identityBindingContractDigest(identityBoundRequestFields),
+    ...(validationSelectionDigest ? { validationSelectionDigest } : {}),
   };
 }
 
@@ -117,6 +122,7 @@ export function assertSameBlackboxRunScope(existing: BlackboxRunScope, expected:
     'burpProxyUrl',
     'evidenceBindingVersion',
     'identityBindingContractDigest',
+    'validationSelectionDigest',
   ];
   for (const field of fields) {
     const left = field === 'identities' ? [...existing.identities].sort() : existing[field];

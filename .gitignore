@@ -1,7 +1,10 @@
 node_modules/
+.pnpm-store/
+.playwright-cli/
 .env
 workspaces/
 credentials/
 dist/
+output/
 repos/
 .turbo/

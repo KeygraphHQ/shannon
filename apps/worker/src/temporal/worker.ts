@@ -27,16 +27,23 @@
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
  */
 
+import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Client, Connection, type WorkflowHandle, WorkflowNotFoundError } from '@temporalio/client';
 import { bundleWorkflowCode, NativeConnection, Worker } from '@temporalio/worker';
 import dotenv from 'dotenv';
+import { resolveModelSpec } from '../ai/models.js';
+import { captureWorkerCodeIdentity, RunMetadataStore } from '../audit/run-metadata.js';
 import { sanitizeHostname } from '../audit/utils.js';
 import type { BlackboxWorkflowInput, BlackboxWorkflowResult } from '../blackbox/activities.js';
 import * as blackboxActivities from '../blackbox/activities.js';
 import { createBlackboxRunScope } from '../blackbox/scope-guard.js';
+import {
+  assertResolvedAccessValidationScope,
+  type ResolvedAccessValidation,
+} from '../blackbox-observation/access-validation.js';
 import { normalizeBlackboxConfig, parseConfig } from '../config-parser.js';
 import {
   ASSEMBLED_REPORT_PDF_FILENAME,
@@ -53,6 +60,7 @@ import type { PipelineInput, PipelineProgress, PipelineState } from './shared.js
 import {
   assertResumeCompatible,
   type CliArgs,
+  consumeValidationSelectionFile,
   deriveWorkflowId,
   enforceResumeTerminationFailure,
   parseCliArgs,
@@ -76,6 +84,8 @@ function showUsage(): void {
   console.log('  --blackbox             Run the black-box authorization workflow');
   console.log('  --config <path>        Configuration file path');
   console.log('  --workspace <name>     Resume from existing workspace');
+  console.log('  --validation-selection <path>  Consume one normalized black-box validation selector');
+  console.log('  --validation-selection-digest <sha256>  Bind the selector to its host-validated digest');
   console.log('  --pipeline-testing     Use minimal prompts for fast testing\n');
 }
 
@@ -228,15 +238,35 @@ async function loadOrchestrationConfig(configPath: string | undefined): Promise<
   };
 }
 
-async function loadBlackboxRunScope(args: CliArgs): Promise<BlackboxRunScope> {
+async function loadBlackboxRunScope(
+  args: CliArgs,
+  validationSelection?: ResolvedAccessValidation,
+): Promise<BlackboxRunScope> {
   if (!args.configPath) throw new Error('--config is required with --blackbox');
   const config = normalizeBlackboxConfig(await parseConfig(args.configPath, 'blackbox'));
-  return createBlackboxRunScope(
+  const runScope = createBlackboxRunScope(
     args.webUrl,
     config.identities.map(({ name }) => name),
     config.identityBoundRequestFields,
     process.env,
+    validationSelection?.selectionDigest,
   );
+  if (validationSelection) {
+    assertResolvedAccessValidationScope(validationSelection, runScope.targetOrigin, config.identities);
+  }
+  return runScope;
+}
+
+async function loadValidationSelection(args: CliArgs): Promise<ResolvedAccessValidation | undefined> {
+  if (!args.validationSelectionPath) return undefined;
+  if (!args.validationSelectionDigest) {
+    throw new Error('--validation-selection-digest is required with --validation-selection');
+  }
+  const expected = path.resolve(args.repoPath, '.shannon', 'blackbox', 'validation-selection.json');
+  if (path.resolve(args.validationSelectionPath) !== expected) {
+    throw new Error('--validation-selection must reference the fixed target-workspace selector path');
+  }
+  return consumeValidationSelectionFile(expected, args.validationSelectionDigest);
 }
 
 function buildPipelineInput(
@@ -258,18 +288,42 @@ function buildPipelineInput(
   };
 }
 
-function buildBlackboxInput(args: CliArgs, workspace: WorkspaceResolution): BlackboxWorkflowInput {
+async function buildBlackboxInput(
+  args: CliArgs,
+  workspace: WorkspaceResolution,
+  validationSelection?: ResolvedAccessValidation,
+): Promise<BlackboxWorkflowInput & { readonly runAttemptId: string }> {
   if (!args.configPath) throw new Error('--config is required with --blackbox');
+  const runAttemptId = randomUUID();
+  let configuredModel: string | null = null;
+  try {
+    const model = resolveModelSpec();
+    configuredModel = `${model.providerId}:${model.modelId}`;
+  } catch {
+    /* The normal configuration validation owns this error. */
+  }
+  const metadataStore = new RunMetadataStore(args.repoPath);
+  await metadataStore.start({
+    attemptId: runAttemptId,
+    workflowId: workspace.workflowId,
+    startedAt: new Date().toISOString(),
+    // A prior startup may have recorded an attempt before session.json existed.
+    isResume: workspace.isResume || (await metadataStore.read()) !== null,
+    code: await captureWorkerCodeIdentity(),
+    configuredModel,
+  });
   return {
     webUrl: args.webUrl,
     repoPath: args.repoPath,
     configPath: args.configPath,
     workspace: workspace.sessionId,
     workflowId: workspace.workflowId,
+    runAttemptId,
     auditDir: './workspaces',
     ...(args.outputPath ? { outputPath: args.outputPath } : {}),
     ...(workspace.isResume && args.resumeFromWorkspace ? { resumeFromWorkspace: args.resumeFromWorkspace } : {}),
     ...(workspace.terminatedWorkflows.length > 0 ? { terminatedWorkflows: workspace.terminatedWorkflows } : {}),
+    ...(validationSelection ? { validationSelection } : {}),
   };
 }
 
@@ -387,7 +441,8 @@ async function run(): Promise<void> {
     return;
   }
   const args = parseCliArgs(argv);
-  const blackboxScope = args.mode === 'blackbox' ? await loadBlackboxRunScope(args) : undefined;
+  const validationSelection = args.mode === 'blackbox' ? await loadValidationSelection(args) : undefined;
+  const blackboxScope = args.mode === 'blackbox' ? await loadBlackboxRunScope(args, validationSelection) : undefined;
   const orchestration = args.mode === 'whitebox' ? await loadOrchestrationConfig(args.configPath) : {};
 
   // 2. Connect to Temporal server
@@ -423,16 +478,42 @@ async function run(): Promise<void> {
     try {
       // 6. Submit workflow to the same task queue
       if (args.mode === 'blackbox') {
-        const input = buildBlackboxInput(args, workspace);
-        const handle = await client.workflow.start<(input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>>(
-          workflowNameFor(args.mode),
-          {
-            taskQueue: args.taskQueue,
-            workflowId: workspace.workflowId,
-            args: [input],
-          },
-        );
-        await waitForBlackboxWorkflowResult(handle);
+        const input = await buildBlackboxInput(args, workspace, validationSelection);
+        try {
+          const handle = await client.workflow.start<(input: BlackboxWorkflowInput) => Promise<BlackboxWorkflowResult>>(
+            workflowNameFor(args.mode),
+            {
+              taskQueue: args.taskQueue,
+              workflowId: workspace.workflowId,
+              args: [input],
+            },
+          );
+          await waitForBlackboxWorkflowResult(handle);
+        } finally {
+          // Even a failed start response can be ambiguous; only a recorded close is an ending.
+          try {
+            const description = await client.workflow.getHandle(workspace.workflowId).describe();
+            if (description.closeTime) {
+              const interrupted = ['CANCELLED', 'CANCELED', 'TERMINATED'].includes(description.status.name);
+              const reason = interrupted
+                ? 'interrupted'
+                : description.status.name === 'COMPLETED'
+                  ? 'completed'
+                  : 'execution_error';
+              await new RunMetadataStore(args.repoPath).observeEnd(
+                input.runAttemptId,
+                description.closeTime.toISOString(),
+                reason,
+                'temporal',
+              );
+            }
+          } catch (metadataError) {
+            console.error(
+              'Could not record Temporal termination metadata; the ending remains unrecorded:',
+              metadataError,
+            );
+          }
+        }
       } else {
         const input = buildPipelineInput(args, workspace, orchestration);
         const handle = await client.workflow.start<(input: PipelineInput) => Promise<PipelineState>>(

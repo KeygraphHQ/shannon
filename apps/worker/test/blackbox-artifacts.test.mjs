@@ -6,6 +6,7 @@ import test from 'node:test';
 
 import {
   BLACKBOX_ARTIFACT_NAMES,
+  copyBlackboxDeliverables,
   publishBlackboxArtifacts,
   renderBlackboxArtifacts,
 } from '../dist/blackbox/artifacts.js';
@@ -110,6 +111,44 @@ function finding() {
   };
 }
 
+function validationSelection() {
+  return {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: 'a'.repeat(64),
+    sourceManifestSha256: 'b'.repeat(64),
+    selectionDigest: 'c'.repeat(64),
+    comparisonId: 'comparison-000007',
+    routeSignature: 'route_memo_get',
+    method: 'GET',
+    origin: TARGET_ORIGIN,
+    routePathPrefix: '/api/memos',
+    requestClass: 'request-class-0003',
+    recordedRole: 'ordinary user',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+  };
+}
+
+test('records sanitized selected-validation provenance in the blackboard and evidence report', () => {
+  const selection = validationSelection();
+  const rendered = renderBlackboxArtifacts({
+    snapshot: snapshot(),
+    findings: [],
+    status: 'complete',
+    failure: null,
+    validationSelection: selection,
+  });
+
+  const board = JSON.parse(rendered['blackbox_blackboard.json']);
+  assert.deepEqual(board.validationSelection, selection);
+  assert.match(rendered['blackbox_authz_evidence.md'], /Selected passive comparison validation/);
+  assert.match(rendered['blackbox_authz_evidence.md'], /comparison-000007/);
+  assert.match(rendered['blackbox_authz_evidence.md'], /\/api\/memos/);
+  assert.equal(rendered['traffic_inventory.json'].includes(selection.selectionDigest), false);
+  assert.equal(rendered['blackbox_authz_findings.json'].includes(selection.selectionDigest), false);
+});
+
 test('renders exactly four sorted projections and the explicit no-findings result', () => {
   const rendered = renderBlackboxArtifacts({
     snapshot: snapshot(),
@@ -136,6 +175,7 @@ test('renders exactly four sorted projections and the explicit no-findings resul
   assert.deepEqual(board.resources.map(({ resourceId }) => resourceId), ['resource-a', 'resource-z']);
   assert.equal(board.resources[0].resourceType, `record password=${SECRET}`);
   assert.equal(Object.hasOwn(board, 'operationReceipts'), false);
+  assert.equal(Object.hasOwn(board, 'runMetadata'), false);
   assert.equal(board.identities.some((identity) => Object.hasOwn(identity, 'stateRef')), false);
   assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), []);
   assert.equal(rendered['blackbox_authz_evidence.md'].includes(NO_FINDINGS), true);
@@ -160,6 +200,28 @@ test('renders replay order and normalized response comparisons for each finding'
   assert.equal(markdown.includes('runtime-password-83c27f'), true);
   assert.equal(markdown.includes('victim-private-marker-runtime'), true);
   assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), [finding()]);
+});
+
+test('places the recorded run summary before finding evidence', () => {
+  const rendered = renderBlackboxArtifacts({ snapshot: snapshot(), findings: [finding()], status: 'incomplete', failure: null });
+  const markdown = rendered['blackbox_authz_evidence.md'];
+  assert.match(markdown, /The run was incomplete/);
+  assert.match(markdown, /Reportable findings \| 1 \|/);
+  assert.match(markdown, /Observed route groups \| 2 \|/);
+  assert.match(markdown, /Stop explanation: not recorded/);
+  assert.ok(markdown.indexOf('## Run summary') < markdown.indexOf('## finding-1'));
+});
+
+test('empty failed and incomplete reports preserve both the outcome and no-findings limitation', () => {
+  for (const status of ['failed', 'incomplete']) {
+    const rendered = renderBlackboxArtifacts({ snapshot: snapshot(), findings: [], status, failure: 'required component failed' });
+    const markdown = rendered['blackbox_authz_evidence.md'];
+    assert.match(markdown, status === 'failed' ? /The run failed\./ : /The run was incomplete\./);
+    assert.ok(markdown.includes(NO_FINDINGS));
+    assert.match(markdown, /Failure: required component failed/);
+    assert.match(markdown, /Reportable findings \| 0 \|/);
+    assert.match(markdown, /Stop explanation: a failure was recorded/);
+  }
 });
 
 test('writes proof and credential payloads through every artifact projection verbatim', () => {
@@ -303,4 +365,56 @@ test('never returns a partial-success manifest when an artifact write fails', as
     'blackbox_authz_evidence.md',
   ]);
   assert.equal(writes.includes('blackbox_blackboard.json'), false);
+});
+
+test('preserves recorded provenance across repeated rendering, publication and copies', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'shannon-blackbox-provenance-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const runMetadata = {
+    schemaVersion: 1,
+    runId: 'stable-run',
+    historyComplete: false,
+    currentAttemptId: 'resume-attempt',
+    resultAttemptId: 'original-attempt',
+    attempts: [{
+      attemptId: 'original-attempt',
+      workflowId: 'original-workflow',
+      resumedFromAttemptId: null,
+      startedAt: '2026-09-07T08:00:00.000Z',
+      endedAt: '2026-09-07T08:30:00.000Z',
+      code: { revision: 'a'.repeat(40), dirty: true, sha256: 'b'.repeat(64) },
+      configuredModel: 'provider:model|name',
+      termination: { code: 'completed', source: 'workflow' },
+    }, {
+      attemptId: 'resume-attempt',
+      workflowId: 'resume-workflow',
+      resumedFromAttemptId: 'original-attempt',
+      startedAt: '2026-09-08T08:00:00.000Z',
+      endedAt: null,
+      code: { revision: null, dirty: null, sha256: null },
+      configuredModel: null,
+      termination: null,
+    }],
+  };
+  const input = { snapshot: snapshot(), findings: [finding()], status: 'complete', failure: null, runMetadata };
+  const before = structuredClone(input);
+  const rendered = renderBlackboxArtifacts(input);
+  assert.deepEqual(renderBlackboxArtifacts(input), rendered);
+  assert.deepEqual(input, before);
+  assert.deepEqual(JSON.parse(rendered['blackbox_blackboard.json']).runMetadata, runMetadata);
+  assert.deepEqual(JSON.parse(rendered['blackbox_authz_findings.json']), [finding()]);
+  assert.equal(JSON.parse(rendered['traffic_inventory.json']).some(record => 'runMetadata' in record), false);
+  assert.match(rendered['blackbox_authz_evidence.md'], /Result attempt \| original-attempt \|/);
+  assert.match(rendered['blackbox_authz_evidence.md'], /Latest attempt \| resume-attempt \|/);
+  assert.match(rendered['blackbox_authz_evidence.md'], /provider:model&#124;name/);
+  assert.match(rendered['blackbox_authz_evidence.md'], /Worker code has uncommitted changes \| yes \|/);
+
+  const artifactNames = await publishBlackboxArtifacts(root, rendered);
+  const copiedDirectory = path.join(root, 'renamed-copy');
+  copyBlackboxDeliverables(root, copiedDirectory, artifactNames);
+  assert.deepEqual((await readdir(copiedDirectory)).sort(), [...BLACKBOX_ARTIFACT_NAMES].sort());
+  for (const name of artifactNames) {
+    assert.equal(await readFile(path.join(copiedDirectory, name), 'utf8'), rendered[name]);
+  }
+  assert.deepEqual(JSON.parse(await readFile(path.join(copiedDirectory, 'blackbox_blackboard.json'), 'utf8')).runMetadata, runMetadata);
 });

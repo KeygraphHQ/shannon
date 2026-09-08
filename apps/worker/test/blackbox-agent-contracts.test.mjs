@@ -65,9 +65,11 @@ function audit() {
 }
 
 function runnerInput(kind = 'planner', overrides = {}) {
+  const browserKind = ['blackbox-recon', 'blackbox-action', 'blackbox-verifier'].includes(kind);
   return {
     kind,
     ...(kind === 'blackbox-verifier' ? { candidateId: 'candidate-1' } : {}),
+    ...(browserKind ? { allowedPlaywrightSessions: [`test-${kind}-session`] } : {}),
     targetOrigin: 'https://target.example',
     task: null,
     snapshot: {
@@ -89,6 +91,35 @@ function runnerInput(kind = 'planner', overrides = {}) {
     logger: logger(),
     ...overrides,
   };
+}
+
+function browserRunInput(kind, allowedPlaywrightSessions) {
+  if (kind === 'blackbox-verifier') {
+    return runnerInput(kind, {
+      allowedPlaywrightSessions,
+      customTools: createBlackboxTools({
+        role: kind,
+        candidateId: 'candidate-1',
+        replayVerificationRequest: async () => ({ status: 'blocked' }),
+      }).filter(({ name }) => name === 'replay_verification_request'),
+    });
+  }
+  const taskKind = kind.replace('blackbox-', '');
+  const task = {
+    taskId: `${taskKind}-1`,
+    kind: taskKind,
+    objective: `Execute ${taskKind}`,
+    evidence: [],
+    identityLease: 'attacker',
+    hypothesisId: taskKind === 'action' ? 'hypothesis-1' : null,
+    status: 'running',
+  };
+  const customTools = kind === 'blackbox-recon'
+    ? createBlackboxTools({ role: kind, readTargetHistory: async () => [] })
+      .filter(({ name }) => name === 'read_target_history')
+    : createBlackboxTools({ role: kind, task, replayTargetRequest: async () => ({ status: 'completed' }) })
+      .filter(({ name }) => name === 'replay_target_request');
+  return runnerInput(kind, { allowedPlaywrightSessions, task, customTools });
 }
 
 test('black-box contracts are separate from white-box execution order', () => {
@@ -497,6 +528,81 @@ test('BlackboxAgentRunner returns only one schema-valid submission from injected
   assert.equal(calls.length, 1);
   assert.equal(calls[0].some((value) => value && value.childTasks === false), true);
   assert.equal(auditSession.calls.filter(([name]) => name === 'startAgent').length, 1);
+});
+
+test('browser agent execution receives an immutable copy of the exact allowed Playwright sessions', async () => {
+  const allowedPlaywrightSessions = ['bb-recon-attacker', 'bb-recon-victim'];
+  let executionOptions;
+  const runner = new BlackboxAgentRunner({
+    runPiPrompt: async (...args) => {
+      executionOptions = args.at(-1);
+      const submit = args.find((value) => value && typeof value.getCaptured === 'function');
+      await submit.tool.execute('submit-1', VALID.contribution);
+      return { success: true, structuredOutput: VALID.contribution, result: 'done', cost: 0, duration: 1 };
+    },
+  });
+
+  await runner.run(browserRunInput('blackbox-recon', allowedPlaywrightSessions));
+
+  assert.deepEqual(executionOptions.allowedPlaywrightSessions, allowedPlaywrightSessions);
+  assert.notEqual(executionOptions.allowedPlaywrightSessions, allowedPlaywrightSessions);
+  allowedPlaywrightSessions[0] = 'mutated-after-run';
+  assert.deepEqual(executionOptions.allowedPlaywrightSessions, ['bb-recon-attacker', 'bb-recon-victim']);
+});
+
+test('browser roles reject missing, empty, duplicate, and unsafe Playwright session sets before model effects', async () => {
+  const invalidSessionSets = [
+    undefined,
+    [],
+    [''],
+    ['bb-session', 'bb-session'],
+    ['contains whitespace'],
+    ['-starts-with-option'],
+    ['contains/slash'],
+    ['a'.repeat(257)],
+  ];
+  for (const kind of ['blackbox-recon', 'blackbox-action', 'blackbox-verifier']) {
+    for (const allowedPlaywrightSessions of invalidSessionSets) {
+      let called = false;
+      const runner = new BlackboxAgentRunner({
+        runPiPrompt: async () => {
+          called = true;
+          throw new Error('must not execute');
+        },
+      });
+      const runInput = browserRunInput(kind, allowedPlaywrightSessions);
+      await assert.rejects(
+        runner.run(runInput),
+        (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
+        `${kind} accepted ${JSON.stringify(allowedPlaywrightSessions)}`,
+      );
+      assert.equal(called, false);
+      assert.deepEqual(runInput.auditSession.calls, []);
+    }
+  }
+});
+
+test('non-browser roles reject Playwright session authorization', async () => {
+  const analysisTask = {
+    taskId: 'analysis-1',
+    kind: 'analysis',
+    objective: 'Analyze evidence',
+    evidence: [],
+    identityLease: null,
+    hypothesisId: null,
+    status: 'running',
+  };
+  for (const [kind, task] of [['planner', null], ['blackbox-analysis', analysisTask]]) {
+    for (const allowedPlaywrightSessions of [[], ['bb-unexpected']]) {
+      const runInput = runnerInput(kind, { allowedPlaywrightSessions, task });
+      const runner = new BlackboxAgentRunner({ runPiPrompt: async () => { throw new Error('must not execute'); } });
+      await assert.rejects(
+        runner.run(runInput),
+        (error) => error?.name === 'BlackboxAgentError' && error.failure?.code === 'invalid_submission',
+      );
+      assert.deepEqual(runInput.auditSession.calls, []);
+    }
+  }
 });
 
 test('runner returns a submission that quotes leased credentials and authentication syntax verbatim', async () => {

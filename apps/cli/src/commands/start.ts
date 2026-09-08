@@ -10,7 +10,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 import * as p from '@clack/prompts';
-import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
+import {
+  ensureDocker,
+  ensureImage,
+  ensureInfra,
+  preprocessValidationBundle,
+  randomSuffix,
+  spawnWorker,
+} from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail } from '../errors.js';
 import { getWorkspacesDir, initHome } from '../home.js';
@@ -23,6 +30,7 @@ import {
   resolveConfig,
   resolveRepo,
   resolveRunFile,
+  resolveValidationBundle,
 } from '../paths.js';
 import { indentFailureSegments } from '../scan/failure.js';
 import { isFailedScanState } from '../scan/pipeline.js';
@@ -36,6 +44,7 @@ export interface StartArgs {
   url: string;
   repo?: string;
   config?: string;
+  validationBundle?: string;
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
@@ -82,6 +91,10 @@ export async function start(args: StartArgs): Promise<void> {
   // 3. Resolve paths
   const repo = args.blackbox ? undefined : resolveRepo(args.repo ?? fail('Repository path is required'));
   const config = args.config ? resolveConfig(args.config) : undefined;
+  if (args.validationBundle && !args.blackbox) {
+    fail('--validation-bundle is only allowed with --blackbox');
+  }
+  const validationBundle = args.validationBundle ? resolveValidationBundle(args.validationBundle) : undefined;
 
   // Inputs are valid — identify the run before the Docker/Temporal setup work.
   const bannerVersion = isLocal() ? undefined : args.version;
@@ -153,6 +166,23 @@ export async function start(args: StartArgs): Promise<void> {
     fs.mkdirSync(path.join(repo.hostPath, '.playwright'), { recursive: true });
   }
 
+  let validationSelectionPath: string | undefined;
+  let validationSelectionDigest: string | undefined;
+  if (validationBundle) {
+    try {
+      const validationSelection = preprocessValidationBundle({
+        version: args.version,
+        bundlePath: validationBundle,
+        targetRoot: targetRootPath,
+      });
+      validationSelectionPath = validationSelection.containerPath;
+      validationSelectionDigest = validationSelection.selectionDigest;
+    } catch (error) {
+      spinner.error('Could not validate the selected evidence bundle');
+      fail(error instanceof Error ? error.message : 'Validation bundle preprocessing failed');
+    }
+  }
+
   // 10. Resolve output directory
   const outputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
   if (outputDir) {
@@ -175,6 +205,8 @@ export async function start(args: StartArgs): Promise<void> {
     containerName,
     envFlags: buildEnvFlags(),
     ...(config && { config }),
+    ...(validationSelectionPath && { validationSelectionPath }),
+    ...(validationSelectionDigest && { validationSelectionDigest }),
     ...(promptsDir && { promptsDir }),
     ...(outputDir && { outputDir }),
     workspace,

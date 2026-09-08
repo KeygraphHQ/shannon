@@ -7,8 +7,18 @@ yarn-error.log*
 # Runtime directories
 sessions/
 deliverables/
+repos/
+workspaces/
+output/
 xben-benchmark-results/
 .claude/
+
+# Local dependency and build caches
+.pnpm-store/
+.turbo/
+
+# Repository presentation assets are not used by the worker image
+assets/
 
 # Git
 .git/

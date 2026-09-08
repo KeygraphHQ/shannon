@@ -17,6 +17,7 @@ import type {
 } from '../blackbox/activities.js';
 import { operationKeyFor, validateAndScheduleWave } from '../blackbox/scheduler.js';
 import type { BlackboxVerificationAttempt, PlannerTask, WorkerContribution } from '../types/blackbox.js';
+import type { RunTerminationReason } from '../types/run-metadata.js';
 
 export type BlackboxControlActivities = Pick<
   BlackboxActivityApi,
@@ -225,6 +226,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
     status: 'complete' | 'incomplete' | 'failed',
     waveNumber: number,
     failure: string | null = null,
+    reason: RunTerminationReason = 'unknown',
   ): Promise<BlackboxWorkflowResult> => {
     const result = await controlActivities.finalizeBlackboxRun({
       ...input,
@@ -232,6 +234,14 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
       status,
       ...(failure === null ? {} : { failure }),
       operationKey: operationKeyFor(input.workflowId, waveNumber, 'finalize', []),
+      ...(input.runAttemptId
+        ? {
+            termination: {
+              reason: status === 'complete' ? ('completed' as const) : reason,
+              endedAt: new Date().toISOString(),
+            },
+          }
+        : {}),
     });
     setRevision(result.revision);
     progress = { ...progress, status: result.status };
@@ -406,14 +416,17 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
         'incomplete',
         preflight.consumedPlanningWaves,
         'candidate verification outcome was not durably committed before resume',
+        'verification_state_missing',
       );
     }
     if (preflight.finalizationIntent) {
       return await finalize(preflight.finalizationIntent, preflight.consumedPlanningWaves);
     }
 
-    const anonymousCapture = await effectActivities.captureAnonymous(input);
-    setRevision(anonymousCapture.revision);
+    if (!input.validationSelection) {
+      const anonymousCapture = await effectActivities.captureAnonymous(input);
+      setRevision(anonymousCapture.revision);
+    }
 
     const identityCaptures = [];
     for (const identity of preflight.identities) {
@@ -427,6 +440,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
         'incomplete',
         preflight.consumedPlanningWaves,
         'fewer than two identities authenticated successfully',
+        'prerequisite_failed',
       );
     }
 
@@ -440,7 +454,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
       if (terminal) return terminal;
     }
 
-    if (preflight.consumedPlanningWaves >= 8) return await finalize('incomplete', 8);
+    if (preflight.consumedPlanningWaves >= 8) return await finalize('incomplete', 8, null, 'limit_reached');
 
     for (let waveNumber = preflight.consumedPlanningWaves + 1; waveNumber <= 8; waveNumber += 1) {
       progress = { ...progress, wave: waveNumber };
@@ -478,7 +492,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
       if (terminal) return terminal;
     }
 
-    return await finalize('incomplete', 8);
+    return await finalize('incomplete', 8, null, 'limit_reached');
   } catch (error) {
     throwIfCancellation(error);
     const failure = `black-box workflow component failed (${error instanceof Error ? error.name : 'unknown error'})`;
@@ -506,7 +520,7 @@ export async function blackboxAuthzWorkflow(input: BlackboxWorkflowInput): Promi
         );
         updateTaskState(settled);
       }
-      return await finalize('incomplete', progress.wave, failure);
+      return await finalize('incomplete', progress.wave, failure, 'component_error');
     } catch {
       throw ApplicationFailure.nonRetryable(
         'Black-box workflow could not finalize after a component failure',

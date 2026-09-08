@@ -11,7 +11,10 @@
     "./pipeline": "./dist/temporal/pipeline.js",
     "./activities": "./dist/temporal/activities.js",
     "./services": "./dist/services/index.js",
-    "./config": "./dist/config-parser.js"
+    "./config": "./dist/config-parser.js",
+    "./security-review": "./dist/security-review/index.js",
+    "./blackbox-observation": "./dist/blackbox-observation/index.js",
+    "./blackbox-comparison": "./dist/blackbox-observation/access-index.js"
   },
   "scripts": {
     "build": "tsc",

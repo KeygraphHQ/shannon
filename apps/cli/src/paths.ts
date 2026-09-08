@@ -1,5 +1,5 @@
 /**
- * Path resolution for --repo and --config arguments.
+ * Path resolution for CLI filesystem arguments.
  *
  * Both --repo and --config are filesystem paths, absolute or relative to CWD.
  */
@@ -71,7 +71,8 @@ export function resolveRepo(repoArg: string): MountPair {
     fail(`Repository not found: ${hostPath}`);
   }
 
-  if (!fs.statSync(hostPath).isDirectory()) {
+  const stat = fs.lstatSync(hostPath);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
     fail(`Not a directory: ${hostPath}`);
   }
 
@@ -101,4 +102,20 @@ export function resolveConfig(configArg: string): MountPair {
     hostPath,
     containerPath: `/app/configs/${basename}`,
   };
+}
+
+/** Resolve --validation-bundle to an existing host directory. */
+export function resolveValidationBundle(bundleArg: string): string {
+  const hostPath = path.resolve(expandHome(bundleArg));
+
+  if (!fs.existsSync(hostPath)) {
+    fail(`Validation bundle not found: ${hostPath}`);
+  }
+
+  const stat = fs.lstatSync(hostPath);
+  if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    fail(`Not a directory: ${hostPath}`);
+  }
+
+  return hostPath;
 }

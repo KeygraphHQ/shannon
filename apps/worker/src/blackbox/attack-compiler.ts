@@ -5,6 +5,11 @@
 // as published by the Free Software Foundation.
 
 import { createHash } from 'node:crypto';
+import {
+  accessValidationPathMatchesPrefix,
+  parseResolvedAccessValidation,
+  type ResolvedAccessValidation,
+} from '../blackbox-observation/access-validation.js';
 import type {
   BlackboxHypothesis,
   BlackboxResource,
@@ -14,7 +19,9 @@ import type {
   PlannerTask,
   ProofCondition,
 } from '../types/blackbox.js';
-import { parseHttpResponse } from './http-message.js';
+import { BURP_TRUNCATION_MARKER } from './burp-client.js';
+import { parseHttpRequest, parseHttpResponse } from './http-message.js';
+import { normalizeRequestTarget } from './scope-guard.js';
 import { isReferenceField, isSensitiveRequestFieldName } from './traffic-normalizer.js';
 
 export interface CompiledAuthorizationAttacks {
@@ -534,4 +541,337 @@ export function compileAuthorizationAttacks(
     hypotheses: selected.map(({ hypothesis }) => hypothesis),
     tasks: selected.map(({ task }) => task),
   };
+}
+
+function selectedIdentityReady(snapshot: BlackboxSnapshot, identityName: string, role: string): boolean {
+  const identities = snapshot.identities.filter(({ name }) => name === identityName);
+  const identity = identities[0];
+  return (
+    identities.length === 1 &&
+    identity?.authenticated === true &&
+    identity.role === role &&
+    typeof identity.stateRef === 'string' &&
+    identity.stateRef.length > 0 &&
+    snapshot.runScope.identities.filter((name) => name === identityName).length === 1
+  );
+}
+
+function selectedRawRequestMatches(
+  rawRequest: string,
+  exchange: NormalizedExchange,
+  selection: ResolvedAccessValidation,
+): boolean {
+  if (rawRequest.endsWith(BURP_TRUNCATION_MARKER)) return false;
+  try {
+    const request = parseHttpRequest(rawRequest);
+    const target = normalizeRequestTarget(request, selection.origin);
+    return (
+      request.method.toUpperCase() === 'GET' &&
+      request.method.toUpperCase() === exchange.method.toUpperCase() &&
+      target.origin === selection.origin &&
+      target.path === exchange.path &&
+      JSON.stringify([...new Set(target.query.keys())].sort()) === JSON.stringify([...exchange.queryKeys].sort())
+    );
+  } catch {
+    return false;
+  }
+}
+
+function selectedRawResponseMatches(exchange: NormalizedExchange, rawResponse: string): boolean {
+  if (rawResponse.endsWith(BURP_TRUNCATION_MARKER) || !responseMatchesFingerprint(exchange, rawResponse)) return false;
+  try {
+    return parseHttpResponse(rawResponse).status === exchange.responseStatus;
+  } catch {
+    return false;
+  }
+}
+
+function proofResponsePasses(condition: ProofCondition, rawResponse: string): boolean {
+  let response: ReturnType<typeof parseHttpResponse>;
+  try {
+    response = parseHttpResponse(rawResponse);
+  } catch {
+    return false;
+  }
+  if (condition.type === 'body_contains')
+    return condition.marker.length > 0 && response.body.includes(condition.marker);
+  if (condition.type !== 'json_pointer_equals') return false;
+  if (condition.pointer === '') {
+    try {
+      return JSON.stringify(JSON.parse(response.body) as unknown) === JSON.stringify(condition.value);
+    } catch {
+      return false;
+    }
+  }
+  if (!condition.pointer.startsWith('/')) return false;
+  const segments = condition.pointer
+    .slice(1)
+    .split('/')
+    .map((segment) => segment.replace(/~1/g, '/').replace(/~0/g, '~'));
+  if (segments.some((segment) => FORBIDDEN_JSON_POINTER_SEGMENTS.has(segment))) return false;
+  try {
+    const observed = valueAtSegments(JSON.parse(response.body) as unknown, segments);
+    return observed.found && JSON.stringify(observed.value) === JSON.stringify(condition.value);
+  } catch {
+    return false;
+  }
+}
+
+function selectedStructuredProofCondition(
+  source: NormalizedExchange,
+  control: NormalizedExchange,
+  marker: string,
+  rawResponses: ReadonlyMap<string, string>,
+): ProofCondition | null {
+  const sourceJson = parsedJsonResponse(source, rawResponses);
+  const controlResponse = rawResponses.get(control.exchangeId);
+  if (!sourceJson || controlResponse === undefined) return null;
+  const candidates = jsonProofCandidates(sourceJson.value, marker).filter((candidate) => {
+    const condition: ProofCondition = {
+      type: 'json_pointer_equals',
+      pointer: candidate.pointer,
+      value: candidate.value,
+    };
+    return !proofResponsePasses(condition, controlResponse);
+  });
+  candidates.sort((left, right) => {
+    const leftRank = ownershipReference(left) ? 0 : bareIdReference(left) ? 2 : 1;
+    const rightRank = ownershipReference(right) ? 0 : bareIdReference(right) ? 2 : 1;
+    return (
+      leftRank - rightRank || left.pointer.length - right.pointer.length || compareText(left.pointer, right.pointer)
+    );
+  });
+  const selected = candidates[0];
+  if (!selected || bareIdReference(selected)) return null;
+  return { type: 'json_pointer_equals', pointer: selected.pointer, value: selected.value };
+}
+
+function latestSelectedExchange(
+  snapshot: BlackboxSnapshot,
+  selection: ResolvedAccessValidation,
+  identity: string,
+): NormalizedExchange | null {
+  const matches = snapshot.exchanges.filter(
+    (exchange) =>
+      exchange.identity === identity &&
+      exchange.routeSignature === selection.routeSignature &&
+      exchange.method.toUpperCase() === 'GET' &&
+      exchange.origin === selection.origin &&
+      accessValidationPathMatchesPrefix(exchange.path, selection.routePathPrefix),
+  );
+  if (
+    matches.length === 0 ||
+    matches.some(({ captureSequence }) => !Number.isSafeInteger(captureSequence) || captureSequence < 1)
+  ) {
+    return null;
+  }
+  const latestSequence = Math.max(...matches.map(({ captureSequence }) => captureSequence));
+  const latest = matches.filter(({ captureSequence }) => captureSequence === latestSequence);
+  return latest.length === 1 ? (latest[0] ?? null) : null;
+}
+
+function selectedPeerResource(
+  snapshot: BlackboxSnapshot,
+  source: NormalizedExchange,
+  control: NormalizedExchange,
+  victimResource: BlackboxResource,
+  attackerIdentity: string,
+): BlackboxResource | null {
+  if (control.responseStatus < 200 || control.responseStatus >= 300) return null;
+  const baselineReferences = new Set([
+    ...source.candidateObjectReferences,
+    ...victimResource.objectReferences,
+    ...decodedPathSegments(source.path),
+  ]);
+  return (
+    [...snapshot.resources]
+      .sort((left, right) => compareText(left.resourceId, right.resourceId))
+      .find(
+        (resource) =>
+          resource.resourceId !== victimResource.resourceId &&
+          resource.ownerIdentity === attackerIdentity &&
+          (resource.visibility === 'private' || resource.visibility === 'role-scoped') &&
+          resource.provenance.actor === 'blackbox-recon' &&
+          directlyEvidences(resource, control.exchangeId) &&
+          groundedReferences(control, resource).some((reference) => !baselineReferences.has(reference)),
+      ) ?? null
+  );
+}
+
+function selectedUnknownDeliveryExists(snapshot: BlackboxSnapshot, selection: ResolvedAccessValidation): boolean {
+  const exchanges = new Map(snapshot.exchanges.map((exchange) => [exchange.exchangeId, exchange]));
+  return snapshot.actions.some(
+    (action) =>
+      action.status === 'delivery_unknown' &&
+      action.sequence.steps.some((step) => {
+        const source = exchanges.get(step.sourceExchangeId);
+        return (
+          step.actor === selection.attackerIdentity &&
+          source?.routeSignature === selection.routeSignature &&
+          source.method.toUpperCase() === 'GET' &&
+          source.origin === selection.origin &&
+          accessValidationPathMatchesPrefix(source.path, selection.routePathPrefix)
+        );
+      }),
+  );
+}
+
+/**
+ * Compile one operator-selected passive lead only from fresh, current live evidence.
+ * The selected route is isolated before the generic compiler applies its candidate ceiling.
+ */
+export function compileSelectedAuthorizationAttack(
+  snapshot: BlackboxSnapshot,
+  selection: ResolvedAccessValidation,
+  rawResponses: ReadonlyMap<string, string>,
+  rawRequests: ReadonlyMap<string, string>,
+): CompiledAuthorizationAttacks {
+  const empty = (): CompiledAuthorizationAttacks => ({ hypotheses: [], tasks: [] });
+  let resolved: ResolvedAccessValidation;
+  try {
+    resolved = parseResolvedAccessValidation(selection);
+  } catch {
+    return empty();
+  }
+  if (
+    snapshot.runStatus !== 'running' ||
+    snapshot.targetOrigin !== resolved.origin ||
+    snapshot.runScope.targetOrigin !== resolved.origin ||
+    snapshot.runScope.validationSelectionDigest !== resolved.selectionDigest ||
+    !selectedIdentityReady(snapshot, resolved.victimIdentity, resolved.recordedRole) ||
+    !selectedIdentityReady(snapshot, resolved.attackerIdentity, resolved.recordedRole) ||
+    selectedUnknownDeliveryExists(snapshot, resolved)
+  ) {
+    return empty();
+  }
+
+  const source = latestSelectedExchange(snapshot, resolved, resolved.victimIdentity);
+  const control = latestSelectedExchange(snapshot, resolved, resolved.attackerIdentity);
+  const sourceResponse = source ? rawResponses.get(source.exchangeId) : undefined;
+  const sourceRequest = source ? rawRequests.get(source.exchangeId) : undefined;
+  const controlResponse = control ? rawResponses.get(control.exchangeId) : undefined;
+  const controlRequest = control ? rawRequests.get(control.exchangeId) : undefined;
+  if (
+    !source ||
+    !control ||
+    source.provenance.actor !== 'blackbox-recon' ||
+    control.provenance.actor !== 'blackbox-recon' ||
+    source.method.toUpperCase() !== 'GET' ||
+    control.method.toUpperCase() !== 'GET' ||
+    source.origin !== resolved.origin ||
+    control.origin !== resolved.origin ||
+    source.responseStatus < 200 ||
+    source.responseStatus >= 300 ||
+    source.responseStatus === 204 ||
+    !(
+      (control.responseStatus >= 200 && control.responseStatus < 300) ||
+      (control.responseStatus >= 400 && control.responseStatus < 500)
+    ) ||
+    sourceResponse === undefined ||
+    sourceRequest === undefined ||
+    controlResponse === undefined ||
+    controlRequest === undefined ||
+    !selectedRawResponseMatches(source, sourceResponse) ||
+    !selectedRawResponseMatches(control, controlResponse) ||
+    !selectedRawRequestMatches(sourceRequest, source, resolved) ||
+    !selectedRawRequestMatches(controlRequest, control, resolved)
+  ) {
+    return empty();
+  }
+
+  const existingTaskIds = new Set([
+    ...snapshot.tasks.map(({ taskId }) => taskId),
+    ...snapshot.rejectedTasks.map(({ task }) => task.taskId),
+  ]);
+  const existingHypotheses = new Set(snapshot.hypotheses.map(({ hypothesisId }) => hypothesisId));
+  const victimResources = [...snapshot.resources]
+    .filter(
+      (resource) =>
+        resource.ownerIdentity === resolved.victimIdentity &&
+        (resource.visibility === 'private' || resource.visibility === 'role-scoped') &&
+        resource.provenance.actor === 'blackbox-recon' &&
+        directlyEvidences(resource, source.exchangeId) &&
+        groundedReferences(source, resource).length > 0,
+    )
+    .sort((left, right) => compareText(left.resourceId, right.resourceId));
+  const candidates: { readonly attack: AttackCandidate; readonly peerRank: number }[] = [];
+  for (const victimResource of victimResources) {
+    const peerResource = selectedPeerResource(snapshot, source, control, victimResource, resolved.attackerIdentity);
+    for (const marker of groundedReferences(source, victimResource)) {
+      const proofCondition = selectedStructuredProofCondition(source, control, marker, rawResponses);
+      if (!proofCondition) continue;
+      const idDigest = digest(
+        [
+          victimResource.resourceId,
+          source.exchangeId,
+          resolved.victimIdentity,
+          resolved.attackerIdentity,
+          resolved.routeSignature,
+        ].join('\0'),
+      );
+      const hypothesisId = `hyp_authz_${idDigest}`;
+      const taskId = `action_authz_${idDigest}`;
+      if (
+        existingTaskIds.has(taskId) ||
+        existingHypotheses.has(hypothesisId) ||
+        priorReplayExists(snapshot, victimResource.resourceId, resolved.attackerIdentity)
+      ) {
+        continue;
+      }
+      const evidence = evidenceFor(source, control, victimResource, peerResource);
+      const resourceType = safeResourceType(victimResource.resourceType);
+      const hypothesis: BlackboxHypothesis = {
+        hypothesisId,
+        kind: 'horizontal',
+        summary: `An authenticated peer may read a victim-owned ${victimResource.visibility} ${resourceType}.`,
+        preconditions: ['The victim and attacker hold distinct authenticated identities.'],
+        attackerCapability: `Replay the victim ${resourceType} request with the attacker identity.`,
+        evidence,
+        priority: 'high',
+        status: 'open',
+        provenance: {
+          actor: 'orchestrator',
+          taskId: 'selected-authorization-compiler',
+          baseRevision: snapshot.revision,
+        },
+      };
+      const task: PlannerTask = {
+        taskId,
+        kind: 'action',
+        objective: `Replay the victim ${resourceType} request as ${resolved.attackerIdentity} and prove whether it discloses victim-owned data.`,
+        evidence,
+        identityLease: resolved.attackerIdentity,
+        hypothesisId,
+        status: 'pending',
+        replayPlan: {
+          steps: [
+            {
+              stepId: `step_authz_${idDigest}`,
+              sourceExchangeId: source.exchangeId,
+              actor: resolved.attackerIdentity,
+              mutations: [],
+            },
+          ],
+          proofCondition,
+        },
+      };
+      candidates.push({
+        attack: {
+          boundaryKey: [resolved.routeSignature, resolved.attackerIdentity].join('\0'),
+          digest: idDigest,
+          hypothesis,
+          task,
+          visibilityRank: victimResource.visibility === 'private' ? 0 : 1,
+          methodRank: 0,
+          markerLength: marker.length,
+          resourceId: victimResource.resourceId,
+        },
+        peerRank: peerResource ? 0 : 1,
+      });
+      break;
+    }
+  }
+  candidates.sort((left, right) => left.peerRank - right.peerRank || candidateOrder(left.attack, right.attack));
+  const selected = candidates[0]?.attack;
+  return selected ? { hypotheses: [selected.hypothesis], tasks: [selected.task] } : empty();
 }

@@ -29,7 +29,7 @@ import { closestMatch } from './suggest.js';
 import { stdoutIsTerminal } from './tty.js';
 import { getVersion, getVersionLine } from './version.js';
 
-export { buildWorkerDockerArgs } from './docker.js';
+export { buildValidationBundleDockerArgs, buildWorkerDockerArgs, writeValidationSelection } from './docker.js';
 export { buildEnvFlags } from './env.js';
 export { isFailedScanState } from './scan/pipeline.js';
 export { renderScan as renderStatusFrame } from './scan/render.js';
@@ -122,6 +122,7 @@ export function parseStartArgs(argv: string[]): ParsedStartArgs {
       config: ['-c', '--config'],
       output: ['-o', '--output'],
       workspace: ['-w', '--workspace'],
+      validationBundle: ['--validation-bundle'],
     },
     booleans: {
       blackbox: ['--blackbox'],
@@ -146,6 +147,9 @@ export function parseStartArgs(argv: string[]): ParsedStartArgs {
   }
 
   const blackbox = !!flags.blackbox;
+  if (!blackbox && values.validationBundle) {
+    throw new ArgError('--validation-bundle is only allowed with --blackbox');
+  }
   if (blackbox) {
     if (values.repo) throw new ArgError('--repo is not allowed with --blackbox');
     if (!values.config) throw new ArgError('--config is required with --blackbox');
@@ -163,6 +167,7 @@ export function parseStartArgs(argv: string[]): ParsedStartArgs {
     ...(values.config && { config: values.config }),
     ...(values.workspace && { workspace: values.workspace }),
     ...(values.output && { output: values.output }),
+    ...(values.validationBundle && { validationBundle: values.validationBundle }),
   };
 }
 

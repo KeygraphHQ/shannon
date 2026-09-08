@@ -2,13 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Value } from 'typebox/value';
 
-import {
+import * as piExecutor from '../dist/ai/pi/pi-executor.js';
+import { BLACKBOX_AGENTS } from '../dist/blackbox/agents.js';
+import { createBlackboxTools } from '../dist/blackbox/tools.js';
+
+const {
   DEFAULT_PI_TOOL_POLICY,
   resolvePiSessionToolConfiguration,
   resolvePiToolNames,
-} from '../dist/ai/pi/pi-executor.js';
-import { BLACKBOX_AGENTS } from '../dist/blackbox/agents.js';
-import { createBlackboxTools } from '../dist/blackbox/tools.js';
+} = piExecutor;
 
 const CUSTOM = {
   planner: ['submit_planner_tasks'],
@@ -123,6 +125,59 @@ test('black-box role definitions expose only the planned capability surface', ()
     assert.equal(toolNames(tools).some((name) => ['edit', 'write', 'read', 'grep', 'find', 'ls', 'task', 'todo_write', 'glob'].includes(name)), false);
     assert.equal(toolNames(tools).some((name) => /burp|request|intercept|settings/i.test(name) && !CUSTOM[kind].includes(name)), false);
   }
+});
+
+test('only black-box browser policies load the playwright-only bash guard', () => {
+  assert.equal(typeof piExecutor.resolvePiExtensionPaths, 'function');
+
+  for (const [kind, definition] of Object.entries(BLACKBOX_AGENTS)) {
+    const paths = piExecutor.resolvePiExtensionPaths(definition.policy);
+    const guardPaths = paths.filter((entry) => entry.endsWith('blackbox-bash-guard'));
+    assert.equal(guardPaths.length, ROLE_SURFACES[kind].browser ? 1 : 0, kind);
+  }
+
+  assert.equal(
+    piExecutor
+      .resolvePiExtensionPaths({ builtinTools: ['bash'], includeBrowserSkill: true })
+      .some((entry) => entry.endsWith('blackbox-bash-guard')),
+    false,
+    'generic/white-box browser policy',
+  );
+  assert.equal(
+    piExecutor.resolvePiExtensionPaths(undefined).some((entry) => entry.endsWith('blackbox-bash-guard')),
+    false,
+    'default policy',
+  );
+});
+
+test('black-box browser policies bind an inline guard to one exact safe session set', () => {
+  assert.equal(typeof piExecutor.resolvePiExtensionFactories, 'function');
+  const policy = BLACKBOX_AGENTS['blackbox-recon'].policy;
+  const allowed = ['bb-attacker'];
+  const factories = piExecutor.resolvePiExtensionFactories(policy, allowed);
+  allowed[0] = 'bb-mutated';
+
+  assert.equal(factories.length, 1);
+  let handler;
+  factories[0]({ on(_event, callback) { handler = callback; } });
+  assert.equal(
+    handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'allowed', input: { command: 'playwright-cli -s=bb-attacker snapshot' } }),
+    undefined,
+  );
+  assert.equal(
+    handler({ type: 'tool_call', toolName: 'bash', toolCallId: 'denied', input: { command: 'playwright-cli -s=bb-mutated snapshot' } })?.block,
+    true,
+  );
+
+  for (const sessions of [undefined, [], [''], ['bb-one', 'bb-one'], ['unsafe/name'], ['-unsafe'], ['a'.repeat(257)]]) {
+    assert.throws(() => piExecutor.resolvePiExtensionFactories(policy, sessions), /playwright session/i);
+  }
+  assert.deepEqual(piExecutor.resolvePiExtensionFactories(undefined, undefined), []);
+  assert.throws(() => piExecutor.resolvePiExtensionFactories(undefined, []), /playwright session/i);
+  assert.throws(
+    () => piExecutor.resolvePiExtensionFactories(BLACKBOX_AGENTS.planner.policy, ['bb-planner']),
+    /playwright session/i,
+  );
 });
 
 test('target replay derives its approved action from the assignment and permits one fresh-actor retry only', async () => {

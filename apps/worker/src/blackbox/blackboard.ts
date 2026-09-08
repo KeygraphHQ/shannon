@@ -526,7 +526,10 @@ function validatePersistedDocument(value: unknown): asserts value is BlackboxDoc
     typeof runScope.burpProxyUrl !== 'string' ||
     runScope.evidenceBindingVersion !== 1 ||
     typeof runScope.identityBindingContractDigest !== 'string' ||
-    !/^[a-f0-9]{64}$/.test(runScope.identityBindingContractDigest)
+    !/^[a-f0-9]{64}$/.test(runScope.identityBindingContractDigest) ||
+    (runScope.validationSelectionDigest !== undefined &&
+      (typeof runScope.validationSelectionDigest !== 'string' ||
+        !/^[a-f0-9]{64}$/.test(runScope.validationSelectionDigest)))
   ) {
     throw new BlackboardValidationError('Blackboard runScope is invalid');
   }

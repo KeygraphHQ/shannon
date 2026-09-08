@@ -14,6 +14,7 @@ import {
   createAgentSession,
   DefaultResourceLoader,
   getAgentDir,
+  type InlineExtension,
   type ResourceLoader,
   SessionManager,
   SettingsManager,
@@ -22,7 +23,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { fs, path } from 'zx';
 import type { AuditSession } from '../../audit/index.js';
-import { BASH_TIMEOUT_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
+import { BASH_TIMEOUT_EXTENSION_DIR, BLACKBOX_BASH_GUARD_EXTENSION_DIR, deliverablesDir } from '../../paths.js';
 import { isRetryableFailure, PentestError } from '../../services/error-handling.js';
 import { AGENT_VALIDATORS } from '../../session-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
@@ -30,6 +31,7 @@ import { isBrowserAgent } from '../../utils/browser-agents.js';
 import { formatTimestamp } from '../../utils/formatting.js';
 import { Timer } from '../../utils/metrics.js';
 import { createAuditLogger } from '../audit-logger.js';
+import { createSessionBoundBlackboxBashGuardExtension } from '../extensions/blackbox-bash-guard/index.js';
 import { resolveModelSelection } from '../models.js';
 import {
   detectExecutionContext,
@@ -59,9 +61,15 @@ export interface PiToolPolicy {
   readonly includeTodo?: boolean;
   readonly includeGlob?: boolean;
   readonly includeBrowserSkill?: boolean;
+  /** Confine builtin bash to one direct playwright-cli command. Black-box browser roles only. */
+  readonly restrictBashToPlaywrightCli?: boolean;
 }
 
-export const DEFAULT_PI_TOOL_POLICY: Readonly<Required<PiToolPolicy>> = {
+type ResolvedPiToolPolicy = Readonly<
+  Required<Omit<PiToolPolicy, 'restrictBashToPlaywrightCli'>> & { restrictBashToPlaywrightCli: boolean }
+>;
+
+export const DEFAULT_PI_TOOL_POLICY: Readonly<Required<Omit<PiToolPolicy, 'restrictBashToPlaywrightCli'>>> = {
   builtinTools: [...BUILTIN_TOOLS],
   includeTask: true,
   includeTodo: true,
@@ -69,15 +77,24 @@ export const DEFAULT_PI_TOOL_POLICY: Readonly<Required<PiToolPolicy>> = {
   includeBrowserSkill: false,
 };
 
-function resolvePiToolPolicy(policy: PiToolPolicy | undefined): Readonly<Required<PiToolPolicy>> {
-  if (!policy) return DEFAULT_PI_TOOL_POLICY;
+function resolvePiToolPolicy(policy: PiToolPolicy | undefined): ResolvedPiToolPolicy {
+  if (!policy) return { ...DEFAULT_PI_TOOL_POLICY, restrictBashToPlaywrightCli: false };
   return {
     builtinTools: policy.builtinTools ?? [],
     includeTask: policy.includeTask ?? false,
     includeTodo: policy.includeTodo ?? false,
     includeGlob: policy.includeGlob ?? false,
     includeBrowserSkill: policy.includeBrowserSkill ?? false,
+    restrictBashToPlaywrightCli: policy.restrictBashToPlaywrightCli ?? false,
   };
+}
+
+/** Resolve the built-in enforcement extensions for a session's explicit policy. */
+export function resolvePiExtensionPaths(policy: PiToolPolicy | undefined): string[] {
+  return [
+    BASH_TIMEOUT_EXTENSION_DIR,
+    ...(policy?.restrictBashToPlaywrightCli === true ? [BLACKBOX_BASH_GUARD_EXTENSION_DIR] : []),
+  ];
 }
 
 export function resolvePiToolNames(
@@ -129,6 +146,45 @@ export function resolvePiSessionToolConfiguration(
 export interface PiExecutionOptions {
   readonly toolPolicy?: PiToolPolicy;
   readonly childTasks?: boolean;
+  readonly allowedPlaywrightSessions?: readonly string[];
+}
+
+const SAFE_PLAYWRIGHT_SESSION_NAME = /^[A-Za-z0-9][A-Za-z0-9_-]{0,255}$/;
+
+/** Validate and copy the exact browser-session capability supplied for one Pi run. */
+export function resolveAllowedPlaywrightSessions(
+  policy: PiToolPolicy | undefined,
+  allowedPlaywrightSessions: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (policy?.restrictBashToPlaywrightCli !== true) {
+    if (allowedPlaywrightSessions !== undefined) {
+      throw new TypeError('Playwright session authorization is only valid for a restricted browser policy');
+    }
+    return undefined;
+  }
+  if (!Array.isArray(allowedPlaywrightSessions) || allowedPlaywrightSessions.length === 0) {
+    throw new TypeError('Restricted browser policies require a non-empty Playwright session set');
+  }
+  if (
+    allowedPlaywrightSessions.some(
+      (session) => typeof session !== 'string' || !SAFE_PLAYWRIGHT_SESSION_NAME.test(session),
+    )
+  ) {
+    throw new TypeError('Playwright session names must be safe identifiers');
+  }
+  if (new Set(allowedPlaywrightSessions).size !== allowedPlaywrightSessions.length) {
+    throw new TypeError('Playwright session names must be unique');
+  }
+  return [...allowedPlaywrightSessions];
+}
+
+/** Build per-run enforcement closures after validating the associated session capability. */
+export function resolvePiExtensionFactories(
+  policy: PiToolPolicy | undefined,
+  allowedPlaywrightSessions: readonly string[] | undefined,
+): InlineExtension[] {
+  const allowed = resolveAllowedPlaywrightSessions(policy, allowedPlaywrightSessions);
+  return allowed ? [createSessionBoundBlackboxBashGuardExtension(allowed)] : [];
 }
 
 /** Build the playwright-cli Skill object injected for browser-using agents. */
@@ -153,9 +209,10 @@ async function buildResourceLoader(
   logger: ActivityLogger,
   agentName: string | null,
   toolPolicy?: PiToolPolicy,
+  extensionFactories: InlineExtension[] = [],
 ): Promise<ResourceLoader> {
   // Always enforce bounded bash timeouts so an unbounded command cannot hang the agent.
-  const additionalExtensionPaths: string[] = [BASH_TIMEOUT_EXTENSION_DIR];
+  const additionalExtensionPaths = resolvePiExtensionPaths(toolPolicy);
   if (permissionSystemConfigExists(getAgentDir())) {
     try {
       additionalExtensionPaths.push(permissionSystemPackageDir());
@@ -171,6 +228,7 @@ async function buildResourceLoader(
     cwd,
     agentDir: getAgentDir(),
     ...(additionalExtensionPaths.length > 0 && { additionalExtensionPaths }),
+    ...(extensionFactories.length > 0 && { extensionFactories }),
     ...((toolPolicy ? (toolPolicy.includeBrowserSkill ?? false) : isBrowserAgent(agentName))
       ? {
           skillsOverride: (base) => ({
@@ -321,6 +379,10 @@ export async function runPiPrompt(
   submitTool?: CapturedSubmitTool,
   executionOptions?: PiExecutionOptions,
 ): Promise<PiPromptResult> {
+  const extensionFactories = resolvePiExtensionFactories(
+    executionOptions?.toolPolicy,
+    executionOptions?.allowedPlaywrightSessions,
+  );
   // 1. Initialize timing and prompt. A submit tool appends its directive so the
   //    instruction to call it lives with the tool, not in every prompt file.
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
@@ -348,7 +410,13 @@ export async function runPiPrompt(
   // 4. Resolve model + auth, then assemble the tool set (universal task/todo tools
   //    plus any caller-supplied collector/submit tools).
   const selection = await resolveModelSelection();
-  const resourceLoader = await buildResourceLoader(sourceDir, logger, agentName, executionOptions?.toolPolicy);
+  const resourceLoader = await buildResourceLoader(
+    sourceDir,
+    logger,
+    agentName,
+    executionOptions?.toolPolicy,
+    extensionFactories,
+  );
   // Accumulates usage from in-process `task` child sessions so the parent's reported
   // cost includes sub-agent spend (their getSessionStats is separate from ours).
   const childUsage: ChildUsage = { cost: 0, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 };

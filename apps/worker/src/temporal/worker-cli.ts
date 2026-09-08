@@ -1,11 +1,19 @@
 import { createHash } from 'node:crypto';
+import { lstat, rm } from 'node:fs/promises';
 
 export { copyBlackboxDeliverables } from '../blackbox/artifacts.js';
 
 import { assertSameBlackboxRunScope, normalizeTargetOrigin } from '../blackbox/scope-guard.js';
+import {
+  parseResolvedAccessValidation,
+  type ResolvedAccessValidation,
+} from '../blackbox-observation/access-validation.js';
+import { readDocument } from '../security-review/input.js';
 import type { BlackboxRunScope } from '../types/blackbox.js';
 
 export type WorkerMode = 'whitebox' | 'blackbox';
+
+const MAX_VALIDATION_SELECTION_BYTES = 64 * 1024;
 
 export interface CliArgs {
   readonly mode: WorkerMode;
@@ -16,6 +24,8 @@ export interface CliArgs {
   readonly outputPath?: string;
   readonly pipelineTestingMode: boolean;
   readonly resumeFromWorkspace?: string;
+  readonly validationSelectionPath?: string;
+  readonly validationSelectionDigest?: string;
 }
 
 function optionValue(argv: readonly string[], index: number, name: string): string {
@@ -32,6 +42,8 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   let configPath: string | undefined;
   let outputPath: string | undefined;
   let resumeFromWorkspace: string | undefined;
+  let validationSelectionPath: string | undefined;
+  let validationSelectionDigest: string | undefined;
   let pipelineTestingMode = false;
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -56,6 +68,14 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
         resumeFromWorkspace = optionValue(argv, index, argument);
         index += 1;
         break;
+      case '--validation-selection':
+        validationSelectionPath = optionValue(argv, index, argument);
+        index += 1;
+        break;
+      case '--validation-selection-digest':
+        validationSelectionDigest = optionValue(argv, index, argument);
+        index += 1;
+        break;
       case '--pipeline-testing':
         pipelineTestingMode = true;
         break;
@@ -74,6 +94,15 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   if (!webUrl || !repoPath) throw new Error('webUrl and repoPath are required');
   if (!taskQueue) throw new Error('--task-queue is required');
   if (mode === 'blackbox' && !configPath) throw new Error('--config is required with --blackbox');
+  if (Boolean(validationSelectionPath) !== Boolean(validationSelectionDigest)) {
+    throw new Error('--validation-selection and --validation-selection-digest must be supplied together');
+  }
+  if (validationSelectionDigest && !/^[a-f0-9]{64}$/u.test(validationSelectionDigest)) {
+    throw new Error('--validation-selection-digest must be a lowercase SHA-256 digest');
+  }
+  if (mode !== 'blackbox' && validationSelectionPath) {
+    throw new Error('A validation selection is supported only in black-box mode');
+  }
 
   return {
     mode,
@@ -84,7 +113,44 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
     ...(configPath ? { configPath } : {}),
     ...(outputPath ? { outputPath } : {}),
     ...(resumeFromWorkspace ? { resumeFromWorkspace } : {}),
+    ...(validationSelectionPath ? { validationSelectionPath } : {}),
+    ...(validationSelectionDigest ? { validationSelectionDigest } : {}),
   };
+}
+
+/** Read a normalized selector once, reject replacement/mutation, then remove it before agent startup. */
+export async function consumeValidationSelectionFile(
+  file: string,
+  expectedDigest: string,
+): Promise<ResolvedAccessValidation> {
+  if (!/^[a-f0-9]{64}$/u.test(expectedDigest)) {
+    throw new Error('Expected validation selection digest is invalid');
+  }
+  let removeConsumedFile = false;
+  try {
+    const before = await lstat(file);
+    if (
+      before.isSymbolicLink() ||
+      !before.isFile() ||
+      before.size < 2 ||
+      before.size > MAX_VALIDATION_SELECTION_BYTES
+    ) {
+      throw new Error('Normalized validation selection is invalid');
+    }
+    removeConsumedFile = true;
+    const read = await readDocument(
+      file,
+      { maxBytes: MAX_VALIDATION_SELECTION_BYTES, maxDepth: 8, maxNodes: 128, maxReferences: 0, timeoutMs: 5_000 },
+      true,
+    );
+    const selection = parseResolvedAccessValidation(read.document);
+    if (selection.selectionDigest !== expectedDigest) {
+      throw new Error('Normalized validation selection does not match its out-of-band digest');
+    }
+    return selection;
+  } finally {
+    if (removeConsumedFile) await rm(file, { force: true });
+  }
 }
 
 export function workflowNameFor(mode: WorkerMode): 'pentestPipelineWorkflow' | 'blackboxAuthzWorkflow' {

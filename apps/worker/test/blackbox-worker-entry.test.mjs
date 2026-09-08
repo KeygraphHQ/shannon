@@ -7,13 +7,15 @@ import test from 'node:test';
 import {
   assertResumeCompatible,
   copyBlackboxDeliverables,
+  consumeValidationSelectionFile,
   deriveWorkflowId,
   enforceResumeTerminationFailure,
   parseCliArgs,
   workflowNameFor,
 } from '../dist/temporal/worker-cli.js';
 import { MetricsTracker } from '../dist/audit/metrics-tracker.js';
-import { identityBindingContractDigest } from '../dist/blackbox/scope-guard.js';
+import { accessValidationResolvedDigest } from '../dist/blackbox-observation/access-validation.js';
+import { createBlackboxRunScope, identityBindingContractDigest } from '../dist/blackbox/scope-guard.js';
 
 const ARTIFACTS = [
   'traffic_inventory.json',
@@ -77,6 +79,98 @@ test('worker CLI selects black-box mode without changing the white-box default',
   assert.throws(() => parseCliArgs(['https://target.example', '--task-queue', 'queue-3']), /repoPath/i);
 });
 
+test('worker CLI accepts a normalized validation selection only in black-box mode', () => {
+  assert.deepEqual(
+    parseCliArgs([
+      'https://target.example',
+      '/target',
+      '--blackbox',
+      '--task-queue',
+      'queue-selected',
+      '--config',
+      '/app/configs/target.yaml',
+      '--validation-selection',
+      '/target/.shannon/blackbox/validation-selection.json',
+      '--validation-selection-digest',
+      'a'.repeat(64),
+    ]),
+    {
+      mode: 'blackbox',
+      webUrl: 'https://target.example',
+      repoPath: '/target',
+      taskQueue: 'queue-selected',
+      configPath: '/app/configs/target.yaml',
+      pipelineTestingMode: false,
+      validationSelectionPath: '/target/.shannon/blackbox/validation-selection.json',
+      validationSelectionDigest: 'a'.repeat(64),
+    },
+  );
+  assert.throws(
+    () =>
+      parseCliArgs([
+        'https://target.example',
+        '/target',
+        '--task-queue',
+        'queue-whitebox',
+        '--validation-selection',
+        '/target/selection.json',
+        '--validation-selection-digest',
+        'a'.repeat(64),
+      ]),
+    /validation selection.*black-box/i,
+  );
+  assert.throws(
+    () =>
+      parseCliArgs([
+        'https://target.example',
+        '/target',
+        '--blackbox',
+        '--task-queue',
+        'queue-selected',
+        '--config',
+        '/app/configs/target.yaml',
+        '--validation-selection',
+        '/target/.shannon/blackbox/validation-selection.json',
+      ]),
+    /supplied together/i,
+  );
+});
+
+test('worker consumes one integrity-checked normalized selector before agents start', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'shannon-worker-selection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const file = path.join(root, 'validation-selection.json');
+  const payload = {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: '1'.repeat(64),
+    sourceManifestSha256: '2'.repeat(64),
+    comparisonId: 'comparison-000001',
+    routeSignature: 'GET:/api/memos/:id',
+    method: 'GET',
+    origin: 'https://target.example',
+    routePathPrefix: '/api/memos',
+    requestClass: 'request-class-0001',
+    recordedRole: 'member',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+  };
+  const selector = { ...payload, selectionDigest: accessValidationResolvedDigest(payload) };
+  await writeFile(file, `${JSON.stringify(selector)}\n`, 'utf8');
+
+  assert.deepEqual(await consumeValidationSelectionFile(file, selector.selectionDigest), selector);
+  await assert.rejects(readFile(file, 'utf8'), /ENOENT/);
+
+  const tampered = { ...selector, routeSignature: 'GET:/api/admin/:id' };
+  await writeFile(file, JSON.stringify(tampered), 'utf8');
+  await assert.rejects(consumeValidationSelectionFile(file, selector.selectionDigest), /invalid/i);
+  await assert.rejects(readFile(file, 'utf8'), /ENOENT/);
+
+  await writeFile(file, JSON.stringify(selector), 'utf8');
+  await assert.rejects(consumeValidationSelectionFile(file, 'f'.repeat(64)), /out-of-band digest/i);
+  await assert.rejects(readFile(file, 'utf8'), /ENOENT/);
+});
+
 test('resume treats legacy sessions as white-box and compares canonical black-box scope', () => {
   assert.doesNotThrow(() =>
     assertResumeCompatible(
@@ -123,6 +217,48 @@ test('resume treats legacy sessions as white-box and compares canonical black-bo
       new RegExp(field.replace(/[A-Z]/g, (letter) => `.?${letter.toLowerCase()}`), 'i'),
     );
   }
+});
+
+test('validation selection digest is bound into the black-box run scope and resume contract', () => {
+  const firstDigest = 'b'.repeat(64);
+  const selected = createBlackboxRunScope(
+    'https://target.example/login',
+    ['victim', 'attacker'],
+    [],
+    {
+      SHANNON_BURP_PROXY_URL: 'http://host.docker.internal:18080',
+    },
+    firstDigest,
+  );
+
+  assert.equal(selected.validationSelectionDigest, firstDigest);
+  assert.doesNotThrow(() =>
+    assertResumeCompatible(
+      { session: { id: 'selected', webUrl: 'https://target.example', mode: 'blackbox', blackboxScope: selected } },
+      { mode: 'blackbox', webUrl: 'https://target.example/other' },
+      selected,
+    ),
+  );
+  assert.throws(
+    () =>
+      assertResumeCompatible(
+        { session: { id: 'selected', webUrl: 'https://target.example', mode: 'blackbox', blackboxScope: selected } },
+        { mode: 'blackbox', webUrl: 'https://target.example' },
+        { ...selected, validationSelectionDigest: 'c'.repeat(64) },
+      ),
+    /validationSelectionDigest/i,
+  );
+  assert.throws(
+    () =>
+      createBlackboxRunScope(
+        'https://target.example',
+        ['victim', 'attacker'],
+        [],
+        { SHANNON_BURP_PROXY_URL: 'http://host.docker.internal:18080' },
+        'not-a-digest',
+      ),
+    /validation selection digest/i,
+  );
 });
 
 test('identity binding scope digest is canonical and detects contract changes', () => {

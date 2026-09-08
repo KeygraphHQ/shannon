@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
+import { link, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -22,6 +24,41 @@ function mounts(args) {
   return values;
 }
 
+function validationSelector(overrides = {}) {
+  const payload = {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: 'b'.repeat(64),
+    sourceManifestSha256: 'c'.repeat(64),
+    comparisonId: 'comparison-000001',
+    routeSignature: 'route_790000000000000000000001',
+    method: 'GET',
+    origin: 'https://target.example',
+    routePathPrefix: '/api/memos',
+    requestClass: 'request-class-0001',
+    recordedRole: 'member',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    ...overrides,
+  };
+  return {
+    schemaVersion: payload.schemaVersion,
+    kind: payload.kind,
+    comparisonSha256: payload.comparisonSha256,
+    sourceManifestSha256: payload.sourceManifestSha256,
+    selectionDigest: createHash('sha256').update(JSON.stringify(payload)).digest('hex'),
+    comparisonId: payload.comparisonId,
+    routeSignature: payload.routeSignature,
+    method: payload.method,
+    origin: payload.origin,
+    routePathPrefix: payload.routePathPrefix,
+    requestClass: payload.requestClass,
+    recordedRole: payload.recordedRole,
+    victimIdentity: payload.victimIdentity,
+    attackerIdentity: payload.attackerIdentity,
+  };
+}
+
 test('blackbox start accepts a URL and config without a repository', () => {
   const parseStartArgs = exportedFunction('parseStartArgs');
 
@@ -35,6 +72,31 @@ test('blackbox start accepts a URL and config without a repository', () => {
   });
 });
 
+test('blackbox start accepts one validation bundle directory', () => {
+  const parseStartArgs = exportedFunction('parseStartArgs');
+
+  assert.deepEqual(
+    parseStartArgs([
+      '--blackbox',
+      '-u',
+      'https://target.example',
+      '-c',
+      'target.yaml',
+      '--validation-bundle',
+      'saved comparison',
+    ]),
+    {
+      url: 'https://target.example',
+      config: 'target.yaml',
+      validationBundle: 'saved comparison',
+      blackbox: true,
+      pipelineTesting: false,
+      keepContainer: false,
+      follow: false,
+    },
+  );
+});
+
 test('blackbox and whitebox start modes reject contradictory inputs', () => {
   const parseStartArgs = exportedFunction('parseStartArgs');
 
@@ -45,6 +107,18 @@ test('blackbox and whitebox start modes reject contradictory inputs', () => {
   assert.throws(
     () => parseStartArgs(['--blackbox', '-u', 'https://target.example']),
     /--config is required with --blackbox/,
+  );
+  assert.throws(
+    () =>
+      parseStartArgs([
+        '-u',
+        'https://target.example',
+        '-r',
+        './repo',
+        '--validation-bundle',
+        'saved-comparison',
+      ]),
+    /--validation-bundle is only allowed with --blackbox/,
   );
   assert.throws(
     () => parseStartArgs(['-u', 'https://target.example']),
@@ -64,6 +138,89 @@ test('blackbox and whitebox start modes reject contradictory inputs', () => {
     /invalid --workspace/i,
   );
   assert.equal(parseStartArgs(['-u', 'https://target.example', '-r', './repo']).repo, './repo');
+});
+
+test('validation bundle preprocessing is isolated from the scan container', () => {
+  const buildValidationBundleDockerArgs = exportedFunction('buildValidationBundleDockerArgs');
+  const bundlePath = 'C:\\evidence\\saved comparison';
+  const uid = process.getuid?.() ?? 1001;
+  const gid = process.getgid?.() ?? 1001;
+
+  assert.deepEqual(buildValidationBundleDockerArgs({ version: 'test-version', bundlePath }), [
+    'run',
+    '--rm',
+    '--network',
+    'none',
+    '--read-only',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '-v',
+    `${bundlePath}:/validation-bundle:ro`,
+    '--user',
+    `${uid}:${gid}`,
+    '--entrypoint',
+    'node',
+    'shannon-worker',
+    'apps/worker/dist/scripts/validate-blackbox-bundle.js',
+    '/validation-bundle',
+  ]);
+});
+
+test('preprocessor output writes only a normalized selector under the target workspace', async (t) => {
+  const writeValidationSelection = exportedFunction('writeValidationSelection');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'shannon-validation-selection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const selector = validationSelector();
+
+  const result = writeValidationSelection(root, `${JSON.stringify(selector)}\n`);
+
+  assert.deepEqual(result, {
+    hostPath: path.join(root, '.shannon', 'blackbox', 'validation-selection.json'),
+    containerPath: '/target/.shannon/blackbox/validation-selection.json',
+    selectionDigest: selector.selectionDigest,
+  });
+  assert.deepEqual(await readdir(path.join(root, '.shannon', 'blackbox')), ['validation-selection.json']);
+  assert.equal(await readFile(result.hostPath, 'utf8'), `${JSON.stringify(selector, null, 2)}\n`);
+});
+
+test('preprocessor output must be exactly one valid normalized selector', async (t) => {
+  const writeValidationSelection = exportedFunction('writeValidationSelection');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'shannon-invalid-validation-selection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+
+  for (const output of [
+    '',
+    'null\n',
+    '[]\n',
+    '{}\n{}\n',
+    'validator log\n{}\n',
+    JSON.stringify({ ...validationSelector(), rawResponse: 'private' }),
+    JSON.stringify({ ...validationSelector(), routePathPrefix: '/tampered' }),
+  ]) {
+    assert.throws(() => writeValidationSelection(root, output), /normalized selector/i);
+  }
+
+  await assert.rejects(readdir(path.join(root, '.shannon')), /ENOENT/);
+});
+
+test('selector writing does not follow an existing hardlink', async (t) => {
+  const writeValidationSelection = exportedFunction('writeValidationSelection');
+  const root = await mkdtemp(path.join(os.tmpdir(), 'shannon-linked-validation-selection-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  const targetRoot = path.join(root, 'target');
+  const selectorPath = path.join(targetRoot, '.shannon', 'blackbox', 'validation-selection.json');
+  const outside = path.join(root, 'outside.txt');
+  await mkdir(path.dirname(selectorPath), { recursive: true });
+  await writeFile(outside, 'preserve-outside');
+  await link(outside, selectorPath);
+
+  const selector = validationSelector();
+  writeValidationSelection(targetRoot, JSON.stringify(selector));
+
+  assert.equal(await readFile(outside, 'utf8'), 'preserve-outside');
+  assert.equal(await readFile(selectorPath, 'utf8'), `${JSON.stringify(selector, null, 2)}\n`);
 });
 
 test('Burp environment variables are forwarded by name only when present', () => {
@@ -127,6 +284,68 @@ test('blackbox Docker args mount only the selected run, synthetic target, config
       '--workspace',
       'scan-one',
     ],
+  );
+});
+
+test('blackbox worker receives only the normalized validation selector contract', () => {
+  const buildWorkerDockerArgs = exportedFunction('buildWorkerDockerArgs');
+  const workspacePath = 'C:\\state\\workspaces\\scan-one';
+  const targetRoot = `${workspacePath}\\.shannon\\blackbox-target`;
+  const args = buildWorkerDockerArgs({
+    mode: 'blackbox',
+    version: 'test-version',
+    url: 'https://target.example',
+    targetRoot: { hostPath: targetRoot, containerPath: '/target' },
+    workspacePath,
+    workspacesDir: 'C:\\state\\workspaces',
+    taskQueue: 'queue-one',
+    containerName: 'worker-one',
+    envFlags: [],
+    config: { hostPath: 'C:\\configs\\target.yaml', containerPath: '/app/configs/target.yaml' },
+    workspace: 'scan-one',
+    validationSelectionPath: '/target/.shannon/blackbox/validation-selection.json',
+    validationSelectionDigest: 'a'.repeat(64),
+  });
+
+  assert.deepEqual(mounts(args), [
+    `${workspacePath}:/app/workspaces/scan-one`,
+    `${targetRoot}:/target`,
+    'C:\\configs\\target.yaml:/app/configs/target.yaml:ro',
+  ]);
+  assert.deepEqual(
+    args.slice(args.indexOf('--validation-selection'), args.indexOf('--validation-selection') + 2),
+    ['--validation-selection', '/target/.shannon/blackbox/validation-selection.json'],
+  );
+  assert.deepEqual(
+    args.slice(args.indexOf('--validation-selection-digest'), args.indexOf('--validation-selection-digest') + 2),
+    ['--validation-selection-digest', 'a'.repeat(64)],
+  );
+  assert.equal(args.some((argument) => argument.includes('saved comparison') || argument.includes('validation-bundle')), false);
+});
+
+test('blackbox worker requires an out-of-band digest with the selector path', () => {
+  const buildWorkerDockerArgs = exportedFunction('buildWorkerDockerArgs');
+  const base = {
+    mode: 'blackbox',
+    version: 'test-version',
+    url: 'https://target.example',
+    targetRoot: { hostPath: 'C:\\target', containerPath: '/target' },
+    workspacePath: 'C:\\state\\workspaces\\scan-one',
+    workspacesDir: 'C:\\state\\workspaces',
+    taskQueue: 'queue-one',
+    containerName: 'worker-one',
+    envFlags: [],
+    config: { hostPath: 'C:\\configs\\target.yaml', containerPath: '/app/configs/target.yaml' },
+    workspace: 'scan-one',
+  };
+
+  assert.throws(
+    () => buildWorkerDockerArgs({ ...base, validationSelectionPath: '/target/.shannon/blackbox/validation-selection.json' }),
+    /path and digest.*together/i,
+  );
+  assert.throws(
+    () => buildWorkerDockerArgs({ ...base, validationSelectionDigest: 'a'.repeat(64) }),
+    /path and digest.*together/i,
   );
 });
 

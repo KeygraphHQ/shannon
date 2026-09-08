@@ -9,7 +9,7 @@ import path from 'node:path';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { TSchema } from 'typebox';
 import { Value } from 'typebox/value';
-import { runPiPrompt } from '../ai/pi/pi-executor.js';
+import { resolveAllowedPlaywrightSessions, runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { AuditSession } from '../audit/index.js';
 import { PROMPTS_DIR } from '../paths.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -62,6 +62,7 @@ export interface BlackboxAgentRunInput {
   readonly customTools: readonly ToolDefinition[];
   readonly auditSession: AuditSession;
   readonly logger: ActivityLogger;
+  readonly allowedPlaywrightSessions?: readonly string[];
   readonly cancellationSignal?: AbortSignal;
 }
 
@@ -344,6 +345,12 @@ export class BlackboxAgentRunner {
     input.cancellationSignal?.throwIfAborted();
     const definition = BLACKBOX_AGENTS[input.kind];
     if (!definition) throw failure('invalid_submission', 'Unknown black-box agent kind', false);
+    let allowedPlaywrightSessions: readonly string[] | undefined;
+    try {
+      allowedPlaywrightSessions = resolveAllowedPlaywrightSessions(definition.policy, input.allowedPlaywrightSessions);
+    } catch {
+      throw failure('invalid_submission', `Invalid Playwright session authorization for ${input.kind}`, false);
+    }
 
     const actualTools = input.customTools.map(({ name }) => name).sort();
     const expectedTools = [...EXPECTED_CALLER_TOOLS[input.kind]].sort();
@@ -406,7 +413,11 @@ export class BlackboxAgentRunner {
         undefined,
         input.cancellationSignal,
         submitTool,
-        { toolPolicy: definition.policy, childTasks: false },
+        {
+          toolPolicy: definition.policy,
+          childTasks: false,
+          ...(allowedPlaywrightSessions ? { allowedPlaywrightSessions: [...allowedPlaywrightSessions] } : {}),
+        },
       );
       input.cancellationSignal?.throwIfAborted();
     } catch {

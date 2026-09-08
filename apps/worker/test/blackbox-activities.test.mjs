@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { runInNewContext } from 'node:vm';
+import { RunMetadataStore } from '../dist/audit/run-metadata.js';
+import { accessValidationResolvedDigest } from '../dist/blackbox-observation/access-validation.js';
 
 import { createBlackboxActivities } from '../dist/blackbox/activities.js';
 import { publishBlackboxArtifacts } from '../dist/blackbox/artifacts.js';
@@ -79,6 +81,93 @@ function input(root) {
     workspace: 'run-1',
     workflowId: 'workflow-1',
     auditDir: path.join(root, 'audit'),
+  };
+}
+
+function validationSelection(overrides = {}) {
+  const payload = {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: '1'.repeat(64),
+    sourceManifestSha256: '2'.repeat(64),
+    comparisonId: 'comparison-000001',
+    routeSignature: 'GET:/api/records/:id',
+    method: 'GET',
+    origin: TARGET_ORIGIN,
+    routePathPrefix: '/api/records',
+    requestClass: 'request-class-0001',
+    recordedRole: 'ordinary user',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    ...overrides,
+  };
+  return { ...payload, selectionDigest: accessValidationResolvedDigest(payload) };
+}
+
+function selectedPlannerEvidence(rawRecords) {
+  const victimExchange = normalizedExchange('ex_selected_victim', {
+    identity: 'victim',
+    routeSignature: 'GET:/api/records/:id',
+    path: '/api/records/fresh-victim-71',
+    candidateObjectReferences: ['fresh-victim-71'],
+  });
+  const attackerExchange = normalizedExchange('ex_selected_attacker', {
+    identity: 'attacker',
+    routeSignature: 'GET:/api/records/:id',
+    path: '/api/records/fresh-attacker-29',
+    candidateObjectReferences: ['fresh-attacker-29'],
+  });
+  rawRecords.set(victimExchange.exchangeId, {
+    request: 'GET /api/records/fresh-victim-71 HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+    response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"ownerId":"fresh-victim-71","secret":"never-forward-raw"}',
+    notes: '',
+    occurrence: 1,
+  });
+  rawRecords.set(attackerExchange.exchangeId, {
+    request: 'GET /api/records/fresh-attacker-29 HTTP/1.1\r\nHost: target.example\r\nAuthorization: attacker\r\n\r\n',
+    response: 'HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{"ownerId":"fresh-attacker-29"}',
+    notes: '',
+    occurrence: 1,
+  });
+  for (const exchange of [victimExchange, attackerExchange]) {
+    exchange.responseFingerprint = `sha256:${createHash('sha256').update(rawRecords.get(exchange.exchangeId).response).digest('hex')}`;
+  }
+  return {
+    identities: [
+      {
+        name: 'attacker',
+        role: 'ordinary user',
+        authenticated: true,
+        stateRef: '.shannon/blackbox/identities/attacker/storage-state.json',
+      },
+      {
+        name: 'victim',
+        role: 'ordinary user',
+        authenticated: true,
+        stateRef: '.shannon/blackbox/identities/victim/storage-state.json',
+      },
+    ],
+    exchanges: [victimExchange, attackerExchange],
+    resources: [
+      {
+        resourceId: 'res_selected_victim',
+        resourceType: 'record',
+        objectReferences: ['fresh-victim-71'],
+        ownerIdentity: 'victim',
+        visibility: 'private',
+        evidence: [{ id: victimExchange.exchangeId, kind: 'exchange' }],
+        provenance: victimExchange.provenance,
+      },
+      {
+        resourceId: 'res_selected_attacker',
+        resourceType: 'record',
+        objectReferences: ['fresh-attacker-29'],
+        ownerIdentity: 'attacker',
+        visibility: 'private',
+        evidence: [{ id: attackerExchange.exchangeId, kind: 'exchange' }],
+        provenance: attackerExchange.provenance,
+      },
+    ],
   };
 }
 
@@ -531,6 +620,19 @@ test('persisted scope mismatch fails before Burp, browser, replay, or model effe
   assert.deepEqual(agents, []);
 });
 
+test('selected validation rejects target or identity scope drift before effects', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, burpCalls, browserCalls, replayCalls, agents } = await makeDeps(t, root);
+  const activities = createBlackboxActivities(deps);
+  const selected = { ...input(root), validationSelection: validationSelection({ origin: 'https://other.example' }) };
+
+  await assert.rejects(activities.preflightBlackbox(selected), /selection|scope|invalid/i);
+  assert.deepEqual(burpCalls, []);
+  assert.deepEqual(browserCalls, []);
+  assert.deepEqual(replayCalls, []);
+  assert.deepEqual(agents, []);
+});
+
 test('preflight applies black-box Burp defaults, requires history delta, and closes its browser session', async (t) => {
   const root = await tempRoot(t);
   const { deps, board, burpCalls, browserCalls } = await makeDeps(t, root, {
@@ -578,6 +680,35 @@ test('preflight applies black-box Burp defaults, requires history delta, and clo
     assert.match(arguments_.regex, /X-Shannon-Capture/i);
     assert.match(arguments_.regex, new RegExp(CAPTURE_TOKEN));
   }
+});
+
+test('selected preflight bootstraps only the chosen identity pair', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board } = await makeDeps(t, root, {
+    historyQueue: [[], [{ id: 'preflight' }]],
+  });
+  const activities = createBlackboxActivities(deps);
+
+  const result = await activities.preflightBlackbox({
+    ...input(root),
+    validationSelection: validationSelection(),
+  });
+  const registration = board.calls.find(([name]) => name === 'registerTasks');
+
+  assert.deepEqual(registration[2].accepted.map(({ taskId }) => taskId), [
+    'bootstrap-attacker',
+    'bootstrap-victim',
+  ]);
+  for (const task of registration[2].accepted) {
+    assert.match(task.objective, /read-only GET route GET:\/api\/records\/:id/);
+    assert.match(task.objective, /path prefix \/api\/records/);
+    assert.match(task.objective, /read_target_history/);
+  }
+  assert.deepEqual(result.identities.map(({ name }) => name), ['attacker', 'victim']);
+  assert.equal(
+    board.calls.find(([name]) => name === 'initialize')[1].runScope.validationSelectionDigest,
+    validationSelection().selectionDigest,
+  );
 });
 
 test('activities forward Temporal cancellation to model, browser, and Burp boundaries', async (t) => {
@@ -1194,6 +1325,94 @@ test('planner preserves a deterministic authorization action when the model stop
   assert.deepEqual(registration[2].hypotheses, batch.compiledHypotheses);
 });
 
+test('selected planner emits exactly one fresh deterministic action without invoking the planner model', async (t) => {
+  const root = await tempRoot(t);
+  const rawRecords = new Map();
+  const { deps, board, agents } = await makeDeps(t, root, {
+    identityNames: ['attacker', 'victim'],
+    rawRecords,
+  });
+  board.seed({ revision: 7, ...selectedPlannerEvidence(rawRecords) });
+  const selectedInput = {
+    ...input(root),
+    validationSelection: validationSelection(),
+  };
+
+  const batch = await createBlackboxActivities(deps).runBlackboxPlanner(selectedInput, 7);
+
+  assert.equal(batch.stop, true);
+  assert.equal(batch.tasks.length, 1);
+  assert.equal(batch.compiledHypotheses.length, 1);
+  assert.equal(batch.tasks[0].identityLease, 'attacker');
+  assert.equal(batch.tasks[0].replayPlan.steps[0].sourceExchangeId, 'ex_selected_victim');
+  assert.deepEqual(batch.tasks[0].replayPlan.steps[0].mutations, []);
+  assert.deepEqual(agents, []);
+  assert.equal(JSON.stringify(batch).includes('never-forward-raw'), false);
+});
+
+test('selected planner closes a fresh denied replay instead of scheduling another attempt', async (t) => {
+  const root = await tempRoot(t);
+  const rawRecords = new Map();
+  const { deps, board, agents } = await makeDeps(t, root, {
+    identityNames: ['attacker', 'victim'],
+    rawRecords,
+  });
+  const evidence = selectedPlannerEvidence(rawRecords);
+  board.seed({ revision: 7, ...evidence });
+  const selectedInput = { ...input(root), validationSelection: validationSelection() };
+  const activities = createBlackboxActivities(deps);
+  const first = await activities.runBlackboxPlanner(selectedInput, 7);
+  const hypothesis = { ...first.compiledHypotheses[0], status: 'tested' };
+  const task = { ...first.tasks[0], status: 'completed' };
+  board.seed({
+    revision: 8,
+    hypotheses: [hypothesis],
+    tasks: [task],
+    actions: [
+      {
+        actionId: task.taskId,
+        hypothesisId: hypothesis.hypothesisId,
+        sequence: { actionId: task.taskId, ...task.replayPlan },
+        status: 'completed',
+        exchangeIds: [],
+        observation: { condition: task.replayPlan.proofCondition, passed: false, evidence: [] },
+        provenance: { actor: 'blackbox-action', taskId: task.taskId, baseRevision: 7 },
+      },
+    ],
+  });
+
+  const second = await activities.runBlackboxPlanner(selectedInput, 8);
+
+  assert.deepEqual(second.tasks, []);
+  assert.deepEqual(second.closeHypothesisIds, [hypothesis.hypothesisId]);
+  assert.equal(second.stop, true);
+  assert.deepEqual(agents, []);
+  const wave = validateAndScheduleWave(second, await activities.readPlannerSnapshot(selectedInput));
+  assert.deepEqual(wave.concurrent, []);
+  assert.deepEqual(wave.actions, []);
+});
+
+test('selected planner fails closed when the selected route is absent from the fresh snapshot', async (t) => {
+  const root = await tempRoot(t);
+  const { deps, board, agents, replayCalls } = await makeDeps(t, root, {
+    identityNames: ['attacker', 'victim'],
+  });
+  board.seed({
+    revision: 7,
+    identities: selectedPlannerEvidence(new Map()).identities,
+  });
+
+  await assert.rejects(
+    createBlackboxActivities(deps).runBlackboxPlanner(
+      { ...input(root), validationSelection: validationSelection() },
+      7,
+    ),
+    /selected|validation|fresh/i,
+  );
+  assert.deepEqual(agents, []);
+  assert.deepEqual(replayCalls, []);
+});
+
 test('preflight rejects a browser navigation that produces no target history delta', async (t) => {
   const root = await tempRoot(t);
   const { deps, browserCalls, agents } = await makeDeps(t, root, { historyQueue: [[], []] });
@@ -1251,6 +1470,10 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
   const backup = await activities.captureIdentity(runInput, 'backup');
 
   assert.deepEqual(agents.map((entry) => entry.identity?.name ?? 'anonymous'), ['anonymous', 'attacker', 'victim', 'backup']);
+  assert.deepEqual(
+    agents.map(({ identity, allowedPlaywrightSessions }) => allowedPlaywrightSessions),
+    [['bb-anonymous'], ...identityNames.map((name) => [`bb-${name}`])],
+  );
   for (const [index, agent] of agents.entries()) {
     if (index === 0) {
       assert.equal(agent.identity?.credentials, undefined);
@@ -1834,7 +2057,7 @@ test('one failed identity returns a safe failure while two successful identities
 
 test('recon preserves attributable traffic when the model submission fails after browsing', async (t) => {
   const root = await tempRoot(t);
-  const { deps, board } = await makeDeps(t, root, {
+  const { deps, board, agents } = await makeDeps(t, root, {
     identityNames: ['attacker'],
     agentErrorIdentity: 'attacker',
     historyQueue: [
@@ -1869,6 +2092,7 @@ test('recon preserves attributable traffic when the model submission fails after
   assert.equal(contribution.exchanges?.length, 1);
   assert.equal(contribution.resources, undefined);
   assert.equal(contribution.transitions, undefined);
+  assert.deepEqual(agents.at(-1).allowedPlaywrightSessions, ['bb-attacker']);
 });
 
 test('model-created recon record IDs are task-namespaced and internal references follow them', async (t) => {
@@ -2208,7 +2432,7 @@ test('action executes the persisted replay plan and derives its result from the 
     verificationExchangeId: replayed.exchangeId,
   };
   let actionToolResult;
-  const { deps, board, replayCalls, browserCalls } = await makeDeps(t, root, {
+  const { deps, board, agents, replayCalls, browserCalls } = await makeDeps(t, root, {
     strictStateRestore: true,
     historyQueue: [[], []],
     replayHandler: async () => ({
@@ -2316,6 +2540,7 @@ test('action executes the persisted replay plan and derives its result from the 
   }]);
   assert.equal(browserCalls.some(([, args]) => args.includes('state-save') && args.at(-1) === statePathFor(root, 'attacker')), true);
   assertStateRestore(browserCalls, 'bb-action-action-1-attacker', statePathFor(root, 'attacker'));
+  assert.deepEqual(agents[0].allowedPlaywrightSessions, ['bb-action-action-1-attacker']);
   assert.equal(JSON.stringify(actionToolResult).includes('HTTP/1.1'), false);
   assert.deepEqual(contribution.exchanges?.map(({ exchangeId }) => exchangeId), [replayed.exchangeId]);
   assert.deepEqual(contribution.actions, [{
@@ -2428,7 +2653,7 @@ test('action persists every restored authenticated actor before replay work', as
       proofCondition: { type: 'body_contains', marker: 'multi-actor-marker' },
     },
   };
-  const { deps, board, browserCalls } = await makeDeps(t, root, {
+  const { deps, board, agents, browserCalls } = await makeDeps(t, root, {
     identityNames: ['attacker', 'victim'],
     strictStateRestore: true,
     historyQueue: [[], []],
@@ -2461,6 +2686,10 @@ test('action persists every restored authenticated actor before replay work', as
     createBlackboxActivities(deps).runBlackboxAction({ ...input(root), task, revision: 7 }),
     /agent failed before replay/,
   );
+  assert.deepEqual(agents[0].allowedPlaywrightSessions, [
+    `bb-action-${task.taskId}-attacker`,
+    `bb-action-${task.taskId}-victim`,
+  ]);
 
   for (const actor of ['attacker', 'victim']) {
     const session = `-s=bb-action-${task.taskId}-${actor}`;
@@ -2732,6 +2961,17 @@ test('verifier replays the approved sequence under fresh identity state and deri
   assert.deepEqual(replayCalls[0].command.steps, action.sequence.steps);
   assert.deepEqual(replayCalls[0].command.proofCondition, action.sequence.proofCondition);
   assert.deepEqual(loginInputs.map(({ identity }) => identity.name), ['attacker', 'victim']);
+  assert.deepEqual(
+    loginInputs.map(({ allowedPlaywrightSessions }) => allowedPlaywrightSessions),
+    [
+      [`bb-verify-${verificationId}-attacker`],
+      [`bb-verify-${verificationId}-victim`],
+    ],
+  );
+  assert.deepEqual(verifierInput.allowedPlaywrightSessions, [
+    `bb-verify-${verificationId}-attacker`,
+    `bb-verify-${verificationId}-victim`,
+  ]);
   assert.deepEqual(loginInputs.map(({ identity }) => identity.credentials.username), [
     'attacker@example.com',
     'victim@example.com',
@@ -2994,6 +3234,16 @@ test('artifact publication failure occurs after terminal CAS and remains repaira
 
 test('an incomplete publication outage resumes from the committed failure', async (t) => {
   const root = await tempRoot(t);
+  const runAttemptId = '11111111-1111-4111-8111-111111111111';
+  const journal = new RunMetadataStore(root);
+  await journal.start({
+    attemptId: runAttemptId,
+    workflowId: 'workflow-1',
+    startedAt: '2026-09-07T10:00:00.000Z',
+    isResume: false,
+    code: { revision: null, dirty: null, sha256: null },
+    configuredModel: 'fixture:unused',
+  });
   let publishCalls = 0;
   const { deps } = await makeDeps(t, root);
   const createBlackboardStore = (repoPath) => new FileBlackboardStore(repoPath);
@@ -3007,6 +3257,8 @@ test('an incomplete publication outage resumes from the committed failure', asyn
   });
   const finalization = {
     ...input(root),
+    runAttemptId,
+    termination: { reason: 'component_error', endedAt: '2026-09-07T10:01:00.000Z' },
     revision: 0,
     status: 'incomplete',
     failure: `authenticated coverage failed with ${SECRET}`,
@@ -3035,11 +3287,25 @@ test('an incomplete publication outage resumes from the committed failure', asyn
     await readFile(path.join(root, '.shannon', 'deliverables', 'blackbox_blackboard.json'), 'utf8'),
   );
   assert.equal(metadata.failure, committedFailure);
+  assert.deepEqual(metadata.runMetadata, await journal.read());
+  assert.equal(metadata.runMetadata.resultAttemptId, runAttemptId);
+  assert.equal(metadata.runMetadata.attempts[0].endedAt, finalization.termination.endedAt);
+  assert.equal(metadata.runMetadata.attempts[0].termination.code, 'component_error');
   assert.equal(publishCalls, 2);
 });
 
 test('failed terminal CAS does not publish artifacts or copy output', async (t) => {
   const root = await tempRoot(t);
+  const runAttemptId = '22222222-2222-4222-8222-222222222222';
+  const journal = new RunMetadataStore(root);
+  await journal.start({
+    attemptId: runAttemptId,
+    workflowId: 'workflow-1',
+    startedAt: '2026-09-07T10:00:00.000Z',
+    isResume: false,
+    code: { revision: null, dirty: null, sha256: null },
+    configuredModel: null,
+  });
   const outputPath = path.join(root, 'exported');
   let publishCalls = 0;
   let copyCalls = 0;
@@ -3054,12 +3320,16 @@ test('failed terminal CAS does not publish artifacts or copy output', async (t) 
     createBlackboxActivities(deps).finalizeBlackboxRun({
       ...input(root),
       outputPath,
+      runAttemptId,
+      termination: { reason: 'completed', endedAt: '2026-09-07T10:01:00.000Z' },
       revision: 4,
       status: 'complete',
       operationKey: 'workflow-1:2:finalize:',
     }),
     /stale finalization revision/,
   );
+  assert.equal((await journal.read()).resultAttemptId, null);
+  assert.equal((await journal.read()).attempts[0].endedAt, null);
 
   assert.equal(publishCalls, 0);
   assert.equal(copyCalls, 0);

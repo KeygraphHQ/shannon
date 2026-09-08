@@ -266,6 +266,7 @@ export interface BlackboxRunScope {
   readonly burpProxyUrl: string;
   readonly evidenceBindingVersion: 1;
   readonly identityBindingContractDigest: string;
+  readonly validationSelectionDigest?: string;
 }
 
 export interface RejectedPlannerTask {

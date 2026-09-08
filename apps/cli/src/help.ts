@@ -33,6 +33,7 @@ export const START_OPTIONS: readonly (readonly [string, string])[] = [
   ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
   ['-f, --follow', 'Stream the scan log until it finishes'],
   ['--blackbox', 'Run source-hidden black-box authorization hunting'],
+  ['--validation-bundle <dir>', 'Validate one selected saved comparison during a black-box run'],
   ['--pipeline-testing', 'Use minimal prompts for fast testing'],
   ['--keep-container', 'Preserve the worker container after exit for log inspection'],
 ];

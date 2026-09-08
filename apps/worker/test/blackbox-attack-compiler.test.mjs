@@ -2,7 +2,11 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import test from 'node:test';
 
-import { compileAuthorizationAttacks } from '../dist/blackbox/attack-compiler.js';
+import {
+  compileAuthorizationAttacks,
+  compileSelectedAuthorizationAttack,
+} from '../dist/blackbox/attack-compiler.js';
+import { accessValidationResolvedDigest } from '../dist/blackbox-observation/access-validation.js';
 
 const TARGET_ORIGIN = 'https://target.example';
 const PROVENANCE = { actor: 'blackbox-recon', taskId: 'recon-fixture', baseRevision: 6 };
@@ -78,8 +82,9 @@ function snapshot() {
   };
 }
 
-function rawJsonResponse(body) {
-  return ['HTTP/1.1 200 OK', 'Content-Type: application/json', '', JSON.stringify(body)].join('\r\n');
+function rawJsonResponse(body, status = 200) {
+  const reason = status === 403 ? 'Forbidden' : 'OK';
+  return [`HTTP/1.1 ${status} ${reason}`, 'Content-Type: application/json', '', JSON.stringify(body)].join('\r\n');
 }
 
 function bindResponseFingerprints(input, rawResponses) {
@@ -87,6 +92,395 @@ function bindResponseFingerprints(input, rawResponses) {
     candidate.responseFingerprint = `sha256:${createHash('sha256').update(rawResponses.get(candidate.exchangeId)).digest('hex')}`;
   }
 }
+
+function selected(input, overrides = {}) {
+  const payload = {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: 'c'.repeat(64),
+    sourceManifestSha256: 'd'.repeat(64),
+    comparisonId: 'comparison-000002',
+    routeSignature: 'route_memo_get',
+    method: 'GET',
+    origin: TARGET_ORIGIN,
+    routePathPrefix: '/api/memos',
+    requestClass: 'request-class-0001',
+    recordedRole: 'ordinary user',
+    victimIdentity: 'victim',
+    attackerIdentity: 'attacker',
+    ...overrides,
+  };
+  const resolved = { ...payload, selectionDigest: accessValidationResolvedDigest(payload) };
+  input.runScope.validationSelectionDigest = resolved.selectionDigest;
+  return resolved;
+}
+
+function selectedRaw(input, options = {}) {
+  const victimMarker = options.victimMarker ?? 'victim-memo-4d2e';
+  const attackerMarker = options.attackerMarker ?? 'peer-9b1c';
+  const rawResponses = new Map([
+    ['ex_victim_memo', rawJsonResponse({ data: { ownerId: victimMarker, secret: 'victim-only' } })],
+    ['ex_attacker_memo', rawJsonResponse({ data: { ownerId: attackerMarker, secret: 'attacker-only' } })],
+  ]);
+  input.exchanges.find(value => value.exchangeId === 'ex_attacker_memo').path = '/api/memos/victim-memo-4d2e';
+  const rawRequests = new Map([
+    [
+      'ex_victim_memo',
+      'GET /api/memos/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+    ],
+    [
+      'ex_attacker_memo',
+      'GET /api/memos/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: attacker\r\n\r\n',
+    ],
+  ]);
+  bindResponseFingerprints(input, rawResponses);
+  return { rawRequests, rawResponses };
+}
+
+test('compiles only the selected fresh GET candidate with current raw proof', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+
+  assert.equal(compileAuthorizationAttacks(input, 6, rawResponses, rawRequests).tasks.length, 0);
+
+  const compiled = compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests);
+
+  assert.equal(compiled.hypotheses.length, 1);
+  assert.equal(compiled.tasks.length, 1);
+  assert.equal(compiled.tasks[0].identityLease, 'attacker');
+  assert.equal(compiled.tasks[0].replayPlan.steps.length, 1);
+  assert.deepEqual(compiled.tasks[0].replayPlan.steps[0], {
+    stepId: compiled.tasks[0].replayPlan.steps[0].stepId,
+    sourceExchangeId: 'ex_victim_memo',
+    actor: 'attacker',
+    mutations: [],
+  });
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'json_pointer_equals',
+    pointer: '/data/ownerId',
+    value: 'victim-memo-4d2e',
+  });
+});
+
+test('compiles fresh dynamic paths from the selected route without replaying the recorded path', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  input.exchanges[0].path = '/api/memos/current-victim-a17f';
+  input.exchanges[0].candidateObjectReferences = ['current-victim-a17f'];
+  input.exchanges[1].path = '/api/memos/current-attacker-c893';
+  input.resources[0].objectReferences = ['current-victim-a17f'];
+  rawRequests.set(
+    'ex_victim_memo',
+    'GET /api/memos/current-victim-a17f HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+  );
+  rawRequests.set(
+    'ex_attacker_memo',
+    'GET /api/memos/current-attacker-c893 HTTP/1.1\r\nHost: target.example\r\nAuthorization: attacker\r\n\r\n',
+  );
+  rawResponses.set(
+    'ex_victim_memo',
+    rawJsonResponse({ data: { ownerId: 'current-victim-a17f', secret: 'victim-only' } }),
+  );
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileSelectedAuthorizationAttack(
+    input,
+    selected(input),
+    rawResponses,
+    rawRequests,
+  );
+
+  assert.equal(compiled.tasks.length, 1);
+  assert.equal(compiled.tasks[0].replayPlan.steps[0].sourceExchangeId, 'ex_victim_memo');
+  assert.equal(compiled.tasks[0].replayPlan.proofCondition.value, 'current-victim-a17f');
+});
+
+test('selected compilation ignores newer same-signature traffic outside the selected path prefix', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  const unrelated = structuredClone(input.exchanges[0]);
+  unrelated.exchangeId = 'ex_victim_unrelated';
+  unrelated.captureSequence = 2;
+  unrelated.path = '/api/admin/victim-memo-4d2e';
+  unrelated.rawRecordRef = 'raw/ex_victim_unrelated.json';
+  input.exchanges.push(unrelated);
+  rawRequests.set(
+    unrelated.exchangeId,
+    'GET /api/admin/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+  );
+  rawResponses.set(
+    unrelated.exchangeId,
+    rawJsonResponse({ data: { ownerId: 'victim-memo-4d2e', secret: 'unrelated' } }),
+  );
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests);
+
+  assert.equal(compiled.tasks.length, 1);
+  assert.equal(compiled.tasks[0].replayPlan.steps[0].sourceExchangeId, 'ex_victim_memo');
+});
+
+test('selected compilation rejects same-signature traffic when no exchange is under the selected path prefix', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  input.exchanges[0].path = '/api/admin/victim-memo-4d2e';
+  input.exchanges[1].path = '/api/admin/victim-memo-4d2e';
+  rawRequests.set(
+    'ex_victim_memo',
+    'GET /api/admin/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+  );
+  rawRequests.set(
+    'ex_attacker_memo',
+    'GET /api/admin/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: attacker\r\n\r\n',
+  );
+
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+});
+
+test('filters the selected route before applying the generic candidate ceiling', () => {
+  const input = snapshot();
+  input.exchanges = [];
+  input.resources = [];
+  const rawRequests = new Map();
+  const rawResponses = new Map();
+  for (let index = 1; index <= 7; index += 1) {
+    const suffix = String(index).padStart(2, '0');
+    const victimReference = `victim-marker-${suffix}`;
+    const attackerReference = `attacker-peer-${suffix}`;
+    const victimExchange = exchange(`ex_victim_${suffix}`, 'victim', victimReference);
+    const attackerExchange = exchange(`ex_attacker_${suffix}`, 'attacker', attackerReference);
+    victimExchange.routeSignature = `route_selected_${suffix}`;
+    attackerExchange.routeSignature = `route_selected_${suffix}`;
+    victimExchange.path = `/api/selected/${suffix}`;
+    attackerExchange.path = `/api/selected/${suffix}`;
+    input.exchanges.push(victimExchange, attackerExchange);
+    input.resources.push(
+      resource(`res_victim_${suffix}`, 'victim', victimReference, victimExchange.exchangeId),
+      resource(`res_attacker_${suffix}`, 'attacker', attackerReference, attackerExchange.exchangeId),
+    );
+    const victimResponse = rawJsonResponse({ data: { ownerId: victimReference } });
+    const attackerResponse = rawJsonResponse({ data: { ownerId: attackerReference } });
+    rawResponses.set(victimExchange.exchangeId, victimResponse);
+    rawResponses.set(attackerExchange.exchangeId, attackerResponse);
+    rawRequests.set(
+      victimExchange.exchangeId,
+      `GET /api/selected/${suffix} HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n`,
+    );
+    rawRequests.set(
+      attackerExchange.exchangeId,
+      `GET /api/selected/${suffix} HTTP/1.1\r\nHost: target.example\r\nAuthorization: attacker\r\n\r\n`,
+    );
+  }
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileSelectedAuthorizationAttack(
+    input,
+    selected(input, {
+      routeSignature: 'route_selected_01',
+      routePathPrefix: '/api/selected',
+    }),
+    rawResponses,
+    rawRequests,
+  );
+
+  assert.equal(compiled.tasks.length, 1);
+  assert.equal(compiled.tasks[0].replayPlan.steps[0].sourceExchangeId, 'ex_victim_01');
+});
+
+test('selected compilation rejects unsafe, stale, unrelated, and raw-incomplete candidates', async (t) => {
+  const cases = [
+    ['unsafe method', input => { input.exchanges.forEach(value => { value.method = 'POST'; }); }, { method: 'POST' }],
+    ['unrelated route', () => {}, { routeSignature: 'route_other' }],
+    ['unrelated origin', () => {}, { origin: 'https://other.example' }],
+    ['missing victim', input => { input.identities = input.identities.filter(value => value.name !== 'victim'); }, {}],
+    ['stale victim state', input => { input.identities.find(value => value.name === 'victim').stateRef = null; }, {}],
+    ['unauthenticated attacker', input => { input.identities.find(value => value.name === 'attacker').authenticated = false; }, {}],
+    ['changed attacker role', input => { input.identities.find(value => value.name === 'attacker').role = 'administrator'; }, {}],
+    ['stale run scope', input => { input.runScope.targetOrigin = 'https://other.example'; }, {}],
+    ['changed selection scope', input => { input.runScope.validationSelectionDigest = 'e'.repeat(64); }, {}],
+  ];
+
+  for (const [name, mutate, overrides] of cases) {
+    await t.test(name, () => {
+      const input = snapshot();
+      const { rawRequests, rawResponses } = selectedRaw(input);
+      const selection = selected(input, overrides);
+      mutate(input);
+      assert.deepEqual(
+        compileSelectedAuthorizationAttack(input, selection, rawResponses, rawRequests),
+        { hypotheses: [], tasks: [] },
+      );
+    });
+  }
+
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  rawRequests.delete('ex_victim_memo');
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+  rawRequests.set(
+    'ex_victim_memo',
+    'GET /api/memos/victim-memo-4d2e HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+  );
+  rawResponses.delete('ex_attacker_memo');
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+});
+
+test('selected compilation rejects proof that also passes in the fresh peer control', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input, { attackerMarker: 'victim-memo-4d2e' });
+  input.exchanges[1].candidateObjectReferences = ['peer-9b1c'];
+
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+});
+
+test('selected compilation emits the victim replay when the fresh attacker control is denied', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  input.exchanges[1].responseStatus = 403;
+  input.resources = input.resources.filter(({ ownerIdentity }) => ownerIdentity === 'victim');
+  rawResponses.set('ex_attacker_memo', rawJsonResponse({ error: 'forbidden' }, 403));
+  bindResponseFingerprints(input, rawResponses);
+
+  const compiled = compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests);
+
+  assert.equal(compiled.tasks.length, 1);
+  assert.equal(compiled.tasks[0].identityLease, 'attacker');
+  assert.equal(compiled.tasks[0].replayPlan.steps[0].sourceExchangeId, 'ex_victim_memo');
+  assert.deepEqual(compiled.tasks[0].replayPlan.proofCondition, {
+    type: 'json_pointer_equals',
+    pointer: '/data/ownerId',
+    value: 'victim-memo-4d2e',
+  });
+});
+
+for (const responseStatus of [302, 503]) {
+  test(`selected compilation rejects an attacker control with status ${responseStatus}`, () => {
+    const input = snapshot();
+    const { rawRequests, rawResponses } = selectedRaw(input);
+    input.exchanges[1].responseStatus = responseStatus;
+    rawResponses.set('ex_attacker_memo', rawJsonResponse({ error: 'unusable control' }, responseStatus));
+    bindResponseFingerprints(input, rawResponses);
+
+    assert.deepEqual(
+      compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+      { hypotheses: [], tasks: [] },
+    );
+  });
+}
+
+test('selected compilation never falls back to an older exchange when the latest raw record is missing', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  const latestVictim = structuredClone(input.exchanges[0]);
+  latestVictim.exchangeId = 'ex_victim_latest';
+  latestVictim.captureSequence = 2;
+  latestVictim.rawRecordRef = 'raw/ex_victim_latest.json';
+  input.exchanges.push(latestVictim);
+  input.resources[0].evidence.push({ id: latestVictim.exchangeId, kind: 'exchange' });
+
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+});
+
+test('selected compilation rejects tampered selectors and untrusted raw records', async (t) => {
+  await t.test('selector field changed after digest binding', () => {
+    const input = snapshot();
+    const { rawRequests, rawResponses } = selectedRaw(input);
+    const selection = selected(input);
+    selection.requestClass = 'request-class-0002';
+    assert.deepEqual(
+      compileSelectedAuthorizationAttack(input, selection, rawResponses, rawRequests),
+      { hypotheses: [], tasks: [] },
+    );
+  });
+
+  await t.test('raw request declares another origin', () => {
+    const input = snapshot();
+    const { rawRequests, rawResponses } = selectedRaw(input);
+    rawRequests.set(
+      'ex_victim_memo',
+      'GET /api/memos/victim-memo-4d2e HTTP/1.1\r\nHost: other.example\r\nAuthorization: victim\r\n\r\n',
+    );
+    assert.deepEqual(
+      compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+      { hypotheses: [], tasks: [] },
+    );
+  });
+
+  await t.test('raw request target disagrees with its fresh exchange', () => {
+    const input = snapshot();
+    const { rawRequests, rawResponses } = selectedRaw(input);
+    rawRequests.set(
+      'ex_victim_memo',
+      'GET /api/memos/different-current-object HTTP/1.1\r\nHost: target.example\r\nAuthorization: victim\r\n\r\n',
+    );
+    assert.deepEqual(
+      compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+      { hypotheses: [], tasks: [] },
+    );
+  });
+
+  await t.test('raw control response is truncated', () => {
+    const input = snapshot();
+    const { rawRequests, rawResponses } = selectedRaw(input);
+    input.exchanges[1].responseStatus = 403;
+    input.resources = input.resources.filter(({ ownerIdentity }) => ownerIdentity === 'victim');
+    rawResponses.set('ex_attacker_memo', `${rawJsonResponse({ error: 'forbidden' }, 403)}... (truncated)`);
+    bindResponseFingerprints(input, rawResponses);
+    assert.deepEqual(
+      compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+      { hypotheses: [], tasks: [] },
+    );
+  });
+});
+
+test('selected compilation refuses a selected route after unknown delivery', () => {
+  const input = snapshot();
+  const { rawRequests, rawResponses } = selectedRaw(input);
+  const historicalSource = structuredClone(input.exchanges[0]);
+  historicalSource.exchangeId = 'ex_victim_historical';
+  historicalSource.path = '/api/memos/historical-victim-001';
+  historicalSource.rawRecordRef = 'raw/ex_victim_historical.json';
+  input.exchanges[0].captureSequence = 2;
+  input.exchanges.push(historicalSource);
+  input.actions.push({
+    actionId: 'prior-uncertain-action',
+    hypothesisId: 'prior-hypothesis',
+    sequence: {
+      actionId: 'prior-uncertain-action',
+      steps: [{
+        stepId: 'prior-step',
+        sourceExchangeId: 'ex_victim_historical',
+        actor: 'attacker',
+        mutations: [],
+      }],
+      proofCondition: { type: 'body_contains', marker: 'prior-marker' },
+    },
+    status: 'delivery_unknown',
+    exchangeIds: [],
+    observation: null,
+    provenance: { actor: 'blackbox-action', taskId: 'prior-uncertain-action', baseRevision: 6 },
+  });
+
+  assert.deepEqual(
+    compileSelectedAuthorizationAttack(input, selected(input), rawResponses, rawRequests),
+    { hypotheses: [], tasks: [] },
+  );
+});
 
 test('compiles owner-bound peer routes into an identity-swap action', () => {
   const compiled = compileAuthorizationAttacks(snapshot(), 1);

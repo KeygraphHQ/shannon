@@ -16,13 +16,33 @@ import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
 import { fail } from './errors.js';
 import { getMode, isDevMode } from './mode.js';
-import { INTERNAL_DIR } from './paths.js';
+import { INTERNAL_DIR, type MountPair } from './paths.js';
 import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const NPX_IMAGE_REPO = 'keygraph/shannon';
 const DEV_IMAGE = 'shannon-worker';
+const VALIDATION_BUNDLE_CONTAINER_PATH = '/validation-bundle';
+const VALIDATION_SELECTION_CONTAINER_PATH = '/target/.shannon/blackbox/validation-selection.json';
+const MAX_VALIDATION_SELECTION_BYTES = 64 * 1024;
+const VALIDATION_SELECTION_KEYS = Object.freeze([
+  'schemaVersion',
+  'kind',
+  'comparisonSha256',
+  'sourceManifestSha256',
+  'selectionDigest',
+  'comparisonId',
+  'routeSignature',
+  'method',
+  'origin',
+  'routePathPrefix',
+  'requestClass',
+  'recordedRole',
+  'victimIdentity',
+  'attackerIdentity',
+] as const);
+const VALIDATION_SHA256 = /^[a-f0-9]{64}$/u;
 
 /** Docker label stamped on each worker container, mapping it back to its workspace so a single scan can be stopped by name. */
 const WORKSPACE_LABEL = 'shannon.workspace';
@@ -303,6 +323,215 @@ export interface WorkerOptions {
   readonly pipelineTesting?: boolean;
   readonly keepContainer?: boolean;
   readonly piAuthHostPath?: string;
+  readonly validationSelectionPath?: string;
+  readonly validationSelectionDigest?: string;
+}
+
+export interface ValidationSelectionMount extends MountPair {
+  readonly selectionDigest: string;
+}
+
+export interface ValidationBundlePreprocessorOptions {
+  readonly version: string;
+  readonly bundlePath: string;
+}
+
+export interface PreprocessValidationBundleOptions extends ValidationBundlePreprocessorOptions {
+  readonly targetRoot: string;
+}
+
+/**
+ * Build a locked-down one-shot container invocation for reducing an evidence bundle
+ * to the normalized selector that a live black-box run may consume.
+ */
+export function buildValidationBundleDockerArgs(opts: ValidationBundlePreprocessorOptions): string[] {
+  const uid = process.getuid?.() ?? 1001;
+  const gid = process.getgid?.() ?? 1001;
+
+  return [
+    'run',
+    '--rm',
+    '--network',
+    'none',
+    '--read-only',
+    '--cap-drop',
+    'ALL',
+    '--security-opt',
+    'no-new-privileges',
+    '-v',
+    `${opts.bundlePath}:${VALIDATION_BUNDLE_CONTAINER_PATH}:ro`,
+    '--user',
+    `${uid}:${gid}`,
+    '--entrypoint',
+    'node',
+    getWorkerImage(opts.version),
+    'apps/worker/dist/scripts/validate-blackbox-bundle.js',
+    VALIDATION_BUNDLE_CONTAINER_PATH,
+  ];
+}
+
+function invalidValidationSelection(): never {
+  throw new Error('Validation bundle preprocessor must emit exactly one normalized selector');
+}
+
+function parseValidationSelection(output: string): Record<string, unknown> {
+  if (Buffer.byteLength(output, 'utf8') > MAX_VALIDATION_SELECTION_BYTES) {
+    return invalidValidationSelection();
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(output);
+  } catch {
+    return invalidValidationSelection();
+  }
+
+  if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return invalidValidationSelection();
+  }
+  const value = parsed as Record<string, unknown>;
+  const keys = Object.keys(value);
+  if (
+    keys.length !== VALIDATION_SELECTION_KEYS.length ||
+    keys.some((key) => !VALIDATION_SELECTION_KEYS.includes(key as (typeof VALIDATION_SELECTION_KEYS)[number])) ||
+    value.schemaVersion !== 1 ||
+    value.kind !== 'blackbox-cross-identity-validation' ||
+    typeof value.comparisonSha256 !== 'string' ||
+    !VALIDATION_SHA256.test(value.comparisonSha256) ||
+    typeof value.sourceManifestSha256 !== 'string' ||
+    !VALIDATION_SHA256.test(value.sourceManifestSha256) ||
+    typeof value.selectionDigest !== 'string' ||
+    !VALIDATION_SHA256.test(value.selectionDigest) ||
+    typeof value.comparisonId !== 'string' ||
+    !/^comparison-[0-9]{6}$/u.test(value.comparisonId) ||
+    typeof value.routeSignature !== 'string' ||
+    !/^[A-Za-z0-9][A-Za-z0-9._/:-]{0,127}$/u.test(value.routeSignature) ||
+    value.method !== 'GET' ||
+    typeof value.origin !== 'string' ||
+    value.origin.length === 0 ||
+    typeof value.routePathPrefix !== 'string' ||
+    !/^\/(?:[A-Za-z][A-Za-z0-9._~-]{0,63}(?:\/[A-Za-z][A-Za-z0-9._~-]{0,63})?)?$/u.test(value.routePathPrefix) ||
+    typeof value.requestClass !== 'string' ||
+    !/^request-class-[0-9]{4}$/u.test(value.requestClass) ||
+    typeof value.recordedRole !== 'string' ||
+    value.recordedRole.length === 0 ||
+    typeof value.victimIdentity !== 'string' ||
+    value.victimIdentity.length === 0 ||
+    typeof value.attackerIdentity !== 'string' ||
+    value.attackerIdentity.length === 0 ||
+    value.victimIdentity === value.attackerIdentity
+  ) {
+    return invalidValidationSelection();
+  }
+  try {
+    const origin = new URL(value.origin);
+    if (
+      !['http:', 'https:'].includes(origin.protocol) ||
+      origin.username ||
+      origin.password ||
+      origin.origin !== value.origin
+    ) {
+      return invalidValidationSelection();
+    }
+  } catch {
+    return invalidValidationSelection();
+  }
+  const payload = {
+    schemaVersion: 1,
+    kind: 'blackbox-cross-identity-validation',
+    comparisonSha256: value.comparisonSha256,
+    sourceManifestSha256: value.sourceManifestSha256,
+    comparisonId: value.comparisonId,
+    routeSignature: value.routeSignature,
+    method: 'GET',
+    origin: value.origin,
+    routePathPrefix: value.routePathPrefix,
+    requestClass: value.requestClass,
+    recordedRole: value.recordedRole,
+    victimIdentity: value.victimIdentity,
+    attackerIdentity: value.attackerIdentity,
+  };
+  const selectionDigest = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
+  if (selectionDigest !== value.selectionDigest) return invalidValidationSelection();
+  return {
+    schemaVersion: payload.schemaVersion,
+    kind: payload.kind,
+    comparisonSha256: payload.comparisonSha256,
+    sourceManifestSha256: payload.sourceManifestSha256,
+    selectionDigest,
+    comparisonId: payload.comparisonId,
+    routeSignature: payload.routeSignature,
+    method: payload.method,
+    origin: payload.origin,
+    routePathPrefix: payload.routePathPrefix,
+    requestClass: payload.requestClass,
+    recordedRole: payload.recordedRole,
+    victimIdentity: payload.victimIdentity,
+    attackerIdentity: payload.attackerIdentity,
+  };
+}
+
+/** Parse and persist only the normalized selector produced by the evidence preprocessor. */
+export function writeValidationSelection(targetRoot: string, output: string): ValidationSelectionMount {
+  const selection = parseValidationSelection(output);
+  const hostPath = path.join(targetRoot, INTERNAL_DIR, 'blackbox', 'validation-selection.json');
+  const parent = path.dirname(hostPath);
+  fs.mkdirSync(parent, { recursive: true, mode: 0o700 });
+  for (const directory of [targetRoot, path.join(targetRoot, INTERNAL_DIR), parent]) {
+    const stat = fs.lstatSync(directory);
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new Error('Validation selection directory is unsafe');
+    }
+  }
+  try {
+    fs.unlinkSync(hostPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+  }
+  fs.writeFileSync(hostPath, `${JSON.stringify(selection, null, 2)}\n`, {
+    encoding: 'utf8',
+    mode: 0o600,
+    flag: 'wx',
+  });
+  const written = fs.lstatSync(hostPath);
+  if (written.isSymbolicLink() || !written.isFile() || written.nlink !== 1) {
+    fs.unlinkSync(hostPath);
+    throw new Error('Validation selection file is unsafe');
+  }
+
+  return {
+    hostPath,
+    containerPath: VALIDATION_SELECTION_CONTAINER_PATH,
+    selectionDigest: selection.selectionDigest as string,
+  };
+}
+
+function validationPreprocessorDiagnostic(error: unknown): string | undefined {
+  if (error === null || typeof error !== 'object' || !('stderr' in error)) return undefined;
+  const stderr = (error as { stderr?: unknown }).stderr;
+  if (typeof stderr === 'string') return stderr.trim() || undefined;
+  if (Buffer.isBuffer(stderr)) return stderr.toString('utf8').trim() || undefined;
+  return undefined;
+}
+
+/** Run the evidence preprocessor and write its selector into the synthetic target root. */
+export function preprocessValidationBundle(opts: PreprocessValidationBundleOptions): ValidationSelectionMount {
+  let output: string;
+  try {
+    output = execFileSync('docker', buildValidationBundleDockerArgs(opts), {
+      encoding: 'utf8',
+      maxBuffer: MAX_VALIDATION_SELECTION_BYTES,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(os.platform() === 'win32' && { env: { ...process.env, MSYS_NO_PATHCONV: '1' } }),
+    });
+  } catch (error) {
+    const diagnostic = validationPreprocessorDiagnostic(error);
+    throw new Error(
+      diagnostic ? `Validation bundle rejected: ${diagnostic}` : 'Validation bundle preprocessing failed',
+    );
+  }
+
+  return writeValidationSelection(opts.targetRoot, output);
 }
 
 /**
@@ -310,6 +539,12 @@ export interface WorkerOptions {
  */
 export function buildWorkerDockerArgs(opts: WorkerOptions): string[] {
   const args = ['run', '-d'];
+  if (Boolean(opts.validationSelectionPath) !== Boolean(opts.validationSelectionDigest)) {
+    throw new Error('Validation selection path and digest must be supplied together');
+  }
+  if (opts.validationSelectionDigest && !VALIDATION_SHA256.test(opts.validationSelectionDigest)) {
+    throw new Error('Validation selection digest must be a lowercase SHA-256 digest');
+  }
   if (!opts.keepContainer) {
     args.push('--rm');
   }
@@ -392,6 +627,10 @@ export function buildWorkerDockerArgs(opts: WorkerOptions): string[] {
   args.push('--task-queue', opts.taskQueue);
   if (opts.config) {
     args.push('--config', opts.config.containerPath);
+  }
+  if (opts.validationSelectionPath) {
+    args.push('--validation-selection', opts.validationSelectionPath);
+    args.push('--validation-selection-digest', opts.validationSelectionDigest as string);
   }
   if (opts.outputDir) {
     args.push('--output', '/app/output');
