@@ -7,19 +7,23 @@
 /**
  * Authentication validation service.
  *
- * Drives a real browser via the playwright-cli skill to confirm
- * user-supplied credentials log in successfully, before the pentest
- * pipeline burns hours on broken auth.
+ * Two preflight modes, chosen by login_type:
+ *  - Browser flows (form/sso): drives a real browser via the playwright-cli skill to confirm
+ *    user-supplied credentials log in, then saves the session for downstream reuse.
+ *  - API flow (api): fetches an OAuth bearer token from the configured token endpoint and
+ *    writes the token config to disk for the `get-oauth-token` CLI, failing fast on a broken
+ *    grant instead of burning hours before the first authenticated request fails.
  */
 
-import { readFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
 import { defineTool } from '@earendil-works/pi-coding-agent';
 import { Type } from 'typebox';
 import { runPiPrompt } from '../ai/pi/pi-executor.js';
 import type { CapturedSubmitTool } from '../ai/submit-tool.js';
 import type { AuditSession } from '../audit/index.js';
 import { safeErrorFromUnknown } from '../audit/safe-fields.js';
-import { authStateFile } from '../audit/utils.js';
+import { authStateFile, oauthConfigFile } from '../audit/utils.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentEndResult } from '../types/audit.js';
 import type { DistributedConfig } from '../types/config.js';
@@ -27,6 +31,7 @@ import { ErrorCode } from '../types/errors.js';
 import type { AgentMetrics } from '../types/metrics.js';
 import { err, ok, type Result } from '../types/result.js';
 import { PentestError } from './error-handling.js';
+import { getValidToken, type OAuthConfig, OAuthTokenError } from './oauth-token.js';
 import { loadPrompt } from './prompt-manager.js';
 
 const FAILURE_POINTS = ['username_or_password', 'totp_secret', 'out_of_band'] as const;
@@ -120,6 +125,12 @@ export async function validateAuthentication(
     return ok(null);
   }
 
+  // API flow: no browser, no session capture. Acquire an OAuth token and persist the config
+  // for the get-oauth-token CLI that downstream agents call. Returns before any browser work.
+  if (authentication.login_type === 'api' || authentication.oauth) {
+    return acquireApiToken(authentication, auditSession, logger);
+  }
+
   logger.info('Validating authentication credentials with live browser...', {
     loginUrl: authentication.login_url,
     loginType: authentication.login_type,
@@ -203,6 +214,77 @@ export async function validateAuthentication(
     ...(result.model !== undefined && { model: result.model }),
   };
   return ok(metrics);
+}
+
+/**
+ * API-flow preflight: persist the OAuth config for the get-oauth-token CLI and fetch one token
+ * to prove the grant works. No browser, no LLM cost — returns ok(null) metrics on success.
+ */
+async function acquireApiToken(
+  authentication: NonNullable<DistributedConfig['authentication']>,
+  auditSession: AuditSession,
+  logger: ActivityLogger,
+): Promise<Result<AgentMetrics | null, PentestError>> {
+  const oauth = authentication.oauth;
+  if (!oauth) {
+    return err(
+      new PentestError(
+        "login_type 'api' requires an authentication.oauth block (token_url, grant_type, ...).",
+        'config',
+        false,
+        { loginType: authentication.login_type },
+        ErrorCode.CONFIG_VALIDATION_FAILED,
+      ),
+    );
+  }
+
+  const configFile = oauthConfigFile(auditSession.sessionMetadata);
+  // The config carries the client secret in plaintext; write it 0600 and let the workflow's
+  // end-of-run cleanup remove it (alongside the token cache) so it never outlives the scan.
+  const oauthForClient: OAuthConfig = { ...oauth };
+  try {
+    await mkdir(path.dirname(configFile), { recursive: true });
+    await writeFile(configFile, JSON.stringify(oauthForClient), { mode: 0o600 });
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(
+      new PentestError(
+        `Failed to persist OAuth config for the token helper: ${detail}`,
+        'filesystem',
+        true,
+        { configFile },
+        ErrorCode.AGENT_EXECUTION_FAILED,
+      ),
+    );
+  }
+
+  logger.info('Acquiring OAuth token for API authentication...', {
+    tokenUrl: oauth.token_url,
+    grantType: oauth.grant_type,
+  });
+
+  try {
+    // Primes the on-disk cache and proves the grant end-to-end, exactly as get-oauth-token will.
+    await getValidToken(configFile);
+  } catch (error) {
+    const retryable = error instanceof OAuthTokenError ? error.retryable : false;
+    const detail = error instanceof Error ? error.message : String(error);
+    return err(
+      new PentestError(
+        `OAuth token acquisition failed: ${detail}`,
+        'config',
+        retryable,
+        { tokenUrl: oauth.token_url, grantType: oauth.grant_type },
+        ErrorCode.AUTH_LOGIN_FAILED,
+      ),
+    );
+  }
+
+  logger.info('OAuth token acquired; API authentication preflight succeeded', {
+    tokenUrl: oauth.token_url,
+    grantType: oauth.grant_type,
+  });
+  return ok(null);
 }
 
 async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
