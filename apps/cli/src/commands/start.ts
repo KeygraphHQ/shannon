@@ -22,6 +22,7 @@ import {
   FINAL_REPORT_PDF_FILENAME,
   INTERNAL_DIR,
   resolveConfig,
+  resolveModelsConfig,
   resolveRepo,
   resolveRunFile,
 } from '../paths.js';
@@ -37,6 +38,7 @@ export interface StartArgs {
   url: string;
   repo: string;
   config?: string;
+  modelsConfig?: string;
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
@@ -231,6 +233,7 @@ export async function start(args: StartArgs): Promise<void> {
   }
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;
+  const modelsConfig = args.modelsConfig ? resolveModelsConfig(args.modelsConfig) : undefined;
   const workspacesDir = getWorkspacesDir();
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
@@ -322,6 +325,7 @@ export async function start(args: StartArgs): Promise<void> {
     containerName,
     envFlags: buildEnvFlags(),
     ...(config && { config }),
+    ...(modelsConfig && { modelsConfig }),
     ...(promptsDir && { promptsDir }),
     ...(outputDir && { outputDir }),
     workspace,
@@ -529,6 +533,10 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
   console.log(`  Workspace:  ${workspace}`);
   if (args.config) {
     console.log(`  Config:     ${interactive ? path.resolve(args.config) : path.basename(args.config)}`);
+  }
+  if (args.modelsConfig) {
+    const shown = interactive ? path.resolve(args.modelsConfig) : path.basename(args.modelsConfig);
+    console.log(`  Models:     ${shown}`);
   }
   if (args.pipelineTesting) {
     console.log('  Mode:       Pipeline Testing');

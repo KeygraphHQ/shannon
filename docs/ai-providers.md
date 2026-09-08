@@ -35,6 +35,8 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com # optional: route thr
 
 This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
 
+A model the catalogue does not yet carry, such as one released after Shannon's pinned Pi version, is reachable by describing it yourself. See [Custom model configuration](#custom-model-configuration).
+
 `npx @keygraph/shannon setup` exposes this as the **Other provider** option.
 
 > [!IMPORTANT]
@@ -107,12 +109,14 @@ Bedrock uses bearer-token authentication only. IAM access keys, session tokens, 
 
 `SHANNON_AI_BASE_URL` routes model traffic through a proxy or LLM gateway instead of the provider's default endpoint — an LLM gateway such as LiteLLM, a regional endpoint, or any other host you choose. It is a plain endpoint override: it changes only *where* requests go. The provider half of `SHANNON_AI_MODEL` still decides which credential is sent and which API dialect is spoken, and that is unchanged by the base URL.
 
-This works for **any** provider, curated or not. The one rule is that a provider's dialect is fixed, so the endpoint you point at must speak that provider's dialect:
+This works for **any** provider, curated or not, subject to two rules. A provider's dialect is fixed, so the endpoint you point at must speak that provider's dialect:
 
 | Provider prefix | Dialect the endpoint must speak |
 | --- | --- |
 | `anthropic:` | Anthropic Messages |
 | `openai:` | OpenAI Responses |
+
+And the model ID must still resolve in the harness catalogue. A base URL changes only the address; it grants no exemption from that check. A gateway serving a model under its own name needs that name described in a [custom model configuration](#custom-model-configuration) file.
 
 Anthropic Messages LLM gateway:
 
@@ -131,6 +135,121 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
 `npx @keygraph/shannon setup` configures a base URL two ways: **Custom Base URL** covers the common Anthropic Messages and OpenAI Responses LLM gateways, and **Other provider** takes any provider ID plus an optional base URL of its own.
+
+## Custom model configuration
+
+A model released after Shannon's pinned Pi version is not in the harness catalogue yet, so `SHANNON_AI_MODEL` alone cannot reach it. Rather than wait for a Shannon release, describe the model yourself and pass the file with `--models-config`:
+
+```bash
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo --models-config ./models.json
+```
+
+```bash
+./shannon start -u https://example.com -r ./my-repo --models-config ./models.json
+```
+
+[pi.dev/models](https://pi.dev/models) supplies the file contents. Find the model under the provider you want, since the same model has a different ID per provider, then open its page and expand **Show configuration** for a ready-to-paste snippet:
+
+```json
+{
+  "providers": {
+    "openrouter": {
+      "apiKey": "YOUR_API_KEY",
+      "models": [
+        {
+          "id": "z-ai/glm-5.3",
+          "name": "Z.ai: GLM 5.3",
+          "reasoning": true,
+          "input": [
+            "text"
+          ],
+          "thinkingLevelMap": {
+            "off": null,
+            "minimal": null,
+            "low": "low",
+            "medium": null,
+            "high": "high",
+            "xhigh": null,
+            "max": "max"
+          },
+          "contextWindow": 1048576,
+          "maxTokens": 943718,
+          "cost": {
+            "input": 1.4,
+            "output": 4.4,
+            "cacheRead": 0.26,
+            "cacheWrite": 0
+          },
+          "compat": {
+            "supportsDeveloperRole": false,
+            "thinkingFormat": "openrouter"
+          }
+        }
+      ],
+      "api": "openai-completions",
+      "baseUrl": "https://openrouter.ai/api/v1"
+    }
+  }
+}
+```
+
+Then name the model the usual way:
+
+```bash
+export SHANNON_AI_API_KEY=your-api-key
+export SHANNON_AI_MODEL=openrouter:z-ai/glm-5.3
+```
+
+Leave `YOUR_API_KEY` exactly as it is. Shannon sends the credential from your environment, and that takes precedence over anything the file declares, so the file describes the model and never has to hold a secret.
+
+Pi's [models documentation](https://pi.dev/docs/latest/models) describes the full format, including provider routing preferences and compatibility flags.
+
+## Local and self-hosted models
+
+Ollama, LM Studio, vLLM, and any other OpenAI-compatible server are reached through the same mechanism. Describe the server as a provider in a model config file, then name its model with `SHANNON_AI_MODEL`.
+
+> [!IMPORTANT]
+> Use `host.docker.internal`, not `localhost`. The scan runs inside a container, so `localhost` points at the container itself rather than at your machine.
+
+A `models.json` for Ollama:
+
+```json
+{
+  "providers": {
+    "ollama": {
+      "baseUrl": "http://host.docker.internal:11434/v1",
+      "api": "openai-completions",
+      "apiKey": "ollama",
+      "models": [
+        { "id": "<model-id>" }
+      ]
+    }
+  }
+}
+```
+
+Then name the model and run:
+
+```bash
+export SHANNON_AI_API_KEY=ollama                  # any value, see below
+export SHANNON_AI_MODEL=ollama:<model-id>
+./shannon start -u https://example.com -r ./my-repo --models-config ./models.json
+```
+
+LM Studio and vLLM take the same shape on their own ports, `http://host.docker.internal:1234/v1` and `http://host.docker.internal:8000/v1` respectively. The provider name is yours to choose, and only has to match the prefix in `SHANNON_AI_MODEL`.
+
+`SHANNON_AI_API_KEY` is still required even though a local server ignores it. Shannon checks that the selected provider has a credential before it starts, so set it to any placeholder value. It is sent to your server and discarded.
+
+> [!IMPORTANT]
+> Shannon drives every phase through multi-turn tool use. Capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests than a frontier model, so take this path only if you know how your chosen model behaves.
+
+Some servers need compatibility flags. If a reasoning-capable model is rejected, turn off the roles it does not understand, at either provider or model level:
+
+```json
+"compat": { "supportsDeveloperRole": false, "supportsReasoningEffort": false }
+```
+
+Pi's [models documentation](https://pi.dev/docs/latest/models) lists the full set of compatibility flags and local-runtime options.
 
 ## OpenAI Codex (ChatGPT Plus/Pro subscription)
 
@@ -197,7 +316,8 @@ These instructions apply only to `shannon-v1`.
 
 Checks run before a scan starts, so mistakes fail immediately rather than partway through a run:
 
-- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). A custom base URL exempts the model ID, since an LLM gateway may serve its own names.
+- **Provider and model ID** — validated against the Pi harness catalogue. An unknown provider or model ID fails preflight with a pointer to [pi.dev/models](https://pi.dev/models). To run a model the catalogue does not carry, describe it with [`--models-config`](#custom-model-configuration).
+- **Model configuration** — when `--models-config` is passed, the file is parsed and schema-checked before the scan starts, and a fault fails preflight with the offending field named.
 - **Credential presence** — validated for the selected provider, or read from Pi when `SHANNON_USE_PI_AUTH=1`.
 - **Credential validity** — one minimal request against the model the scan will use, so a rejected key, an exhausted quota, or a model the account cannot reach fails before any agent runs. Bedrock included: its bearer token and region go through the same probe.
 

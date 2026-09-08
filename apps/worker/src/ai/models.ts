@@ -20,6 +20,11 @@
  * Resolution returns a pi `Model` plus the `ModelRuntime` that owns its auth,
  * built over an in-memory credential store primed from the environment.
  *
+ * A model too new for the pinned pi release is reachable by passing its descriptor in a
+ * pi `models.json` (the CLI's `--models-config`), which merges over the catalogue. The
+ * credential store below outranks any `apiKey` that file carries, so it describes the
+ * model while the environment still supplies the secret.
+ *
  * The CLI cannot import this module (it ships as a separate bundle), so
  * `apps/cli/src/model-spec.ts` mirrors the parse rule and the provider/credential
  * tables by hand for its own `status` rendering and setup wizard. The two copies
@@ -32,6 +37,7 @@ import { existsSync } from 'node:fs';
 import path from 'node:path';
 import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@earendil-works/pi-ai';
 import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
+import { MODELS_CONFIG_PATH } from '../paths.js';
 
 /**
  * Providers Shannon curates with their own credential variables, config sections,
@@ -196,20 +202,43 @@ export function piAuthPresent(): boolean {
   return existsSync(piAuthPath());
 }
 
+/** Path of the mounted pi model config, or undefined when the scan supplied none. */
+export function modelsConfigPath(): string | undefined {
+  return existsSync(MODELS_CONFIG_PATH) ? MODELS_CONFIG_PATH : undefined;
+}
+
+/**
+ * Where pi persists remote model catalogues. Pinned to the writable agent dir because pi
+ * otherwise derives it from `dirname(modelsPath)`, which is a read-only mount.
+ */
+function modelsStorePath(): string {
+  return path.join(getAgentDir(), 'models-store.json');
+}
+
 /**
  * Build a ModelRuntime whose only credential is the one supplied. Model catalogs
  * stay offline (`allowModelNetwork` defaults to false) so a scan never blocks on
  * a catalog refresh.
+ *
+ * `modelsPath` is always explicit, never pi's default of `<agent dir>/models.json`: with no
+ * `--models-config` it is null, which switches models.json off outright, so a stray file in
+ * that shared dir cannot feed model definitions to a run that did not ask for them.
  *
  * When the host's pi auth.json is present, the runtime reads it instead: pi's
  * disk-backed store resolves the credential. The mount is writable so OAuth
  * refreshes persist to the host for subsequent runs.
  */
 export async function createModelRuntime(providerId: string, apiKey: string | undefined): Promise<ModelRuntime> {
+  const modelsPath = modelsConfigPath();
+  const modelSources = {
+    modelsPath: modelsPath ?? null,
+    ...(modelsPath ? { modelsStorePath: modelsStorePath() } : {}),
+  };
+
   if (piAuthPresent()) {
-    return ModelRuntime.create({ authPath: piAuthPath() });
+    return ModelRuntime.create({ ...modelSources, authPath: piAuthPath() });
   }
-  return ModelRuntime.create({ credentials: new RuntimeCredentialStore(providerId, apiKey) });
+  return ModelRuntime.create({ ...modelSources, credentials: new RuntimeCredentialStore(providerId, apiKey) });
 }
 
 export interface ModelSelection {
@@ -221,16 +250,13 @@ export interface ModelSelection {
 }
 
 /**
- * Resolve a model against a runtime.
+ * Resolve a model against a runtime, returning undefined when the id is unknown.
  *
- * Direct to a provider, the model must exist in the catalogue. Behind a custom
- * endpoint it need not: a gateway may serve models under its own names, so an
- * unknown id is passed through on a descriptor borrowed from the provider's
- * catalogue for its API dialect. Cost and context window on such a descriptor
- * are the reference model's, so spend figures are approximate there.
- *
- * Returns undefined when the id is unresolvable — unknown with no endpoint
- * override, or a provider carrying no models at all.
+ * The model must exist in the runtime's registry, whether or not an endpoint override
+ * is in play — a base URL changes the address and nothing else. A gateway serving a
+ * model under its own name, or one newer than the pinned pi release, is described in a
+ * `--models-config` file, which puts a real descriptor in the registry rather than
+ * guessing one from an unrelated model.
  */
 export function resolveModel(
   modelRuntime: ModelRuntime,
@@ -239,15 +265,9 @@ export function resolveModel(
   baseUrl: string | undefined,
 ): Model<Api> | undefined {
   const found = modelRuntime.getModel(providerId, modelId);
-  if (found) {
-    return baseUrl ? { ...found, baseUrl } : found;
-  }
-  if (!baseUrl) return undefined;
+  if (!found) return undefined;
 
-  const reference = modelRuntime.getModels(providerId)[0];
-  if (!reference) return undefined;
-
-  return { ...reference, id: modelId, name: modelId, baseUrl };
+  return baseUrl ? { ...found, baseUrl } : found;
 }
 
 /**

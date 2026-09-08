@@ -171,6 +171,7 @@ interface ParsedStartArgs {
   url: string;
   repo: string;
   config?: string;
+  modelsConfig?: string;
   workspace?: string;
   output?: string;
   pipelineTesting: boolean;
@@ -184,6 +185,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       url: ['-u', '--url'],
       repo: ['-r', '--repo'],
       config: ['-c', '--config'],
+      modelsConfig: ['--models-config'],
       output: ['-o', '--output'],
       workspace: ['-w', '--workspace'],
     },
@@ -213,6 +215,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     keepContainer: !!flags.keepContainer,
     follow: !!flags.follow,
     ...(values.config && { config: values.config }),
+    ...(values.modelsConfig && { modelsConfig: values.modelsConfig }),
     ...(values.workspace && { workspace: values.workspace }),
     ...(values.output && { output: values.output }),
   };

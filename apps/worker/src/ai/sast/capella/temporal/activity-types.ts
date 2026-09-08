@@ -276,7 +276,7 @@ function policy(
 }
 
 export const CAPELLA_ACTIVITY_POLICIES = Object.freeze({
-  capellaArchitecture: policy('architecture', 60 * MINUTE_MS, 60 * MINUTE_MS, 5 * MINUTE_MS, 3, 'large'),
+  capellaArchitecture: policy('architecture', 90 * MINUTE_MS, 90 * MINUTE_MS, 5 * MINUTE_MS, 3, 'large'),
   capellaThreatModel: policy('threat-model', 30 * MINUTE_MS, 30 * MINUTE_MS, 5 * MINUTE_MS, 2, 'medium'),
   capellaPlan: policy('plan', 30 * MINUTE_MS, 90 * MINUTE_MS, 5 * MINUTE_MS, 2, 'medium'),
   capellaResearch: policy('research', 3 * HOUR_MS, 4.5 * HOUR_MS, 5 * MINUTE_MS, 2, 'small + medium'),

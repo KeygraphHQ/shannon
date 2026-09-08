@@ -407,6 +407,7 @@ export interface WorkerOptions {
   containerName: string;
   envFlags: string[];
   config?: { hostPath: string; containerPath: string };
+  modelsConfig?: { hostPath: string; containerPath: string };
   promptsDir?: string;
   outputDir?: string;
   workspace: string;
@@ -467,6 +468,12 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
 
   if (opts.config) {
     args.push('-v', `${opts.config.hostPath}:${opts.config.containerPath}:ro`);
+  }
+
+  // pi model config. The mount is the only signal the worker gets: it detects the file at
+  // this fixed path, so nothing about --models-config travels through the environment.
+  if (opts.modelsConfig) {
+    args.push('-v', `${opts.modelsConfig.hostPath}:${opts.modelsConfig.containerPath}:ro`);
   }
 
   // Customer-copy destination. The workflow surfaces only final report artifacts here.
