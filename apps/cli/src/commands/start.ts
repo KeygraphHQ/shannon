@@ -31,7 +31,7 @@ import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../p
 import { indentFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
-import { getTerminalOutcome } from '../temporal-client.js';
+import { describeWorkflowLifecycle, getTerminalOutcome, queryProgress } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
 import { tailUntilComplete } from './logs.js';
 
@@ -414,6 +414,17 @@ export async function start(args: StartArgs): Promise<void> {
         } catch {
           warn(`Scan ${workspace} started, but its launch record could not be removed.`);
         }
+
+        // Hold until preflight clears, so an unreachable target or bad credential is reported here
+        // rather than after "Scan started".
+        spinner.message('Running preflight checks');
+        const outcome = await awaitPreflightOutcome(workflowId);
+        if (outcome.kind === 'failed') {
+          spinner.error('The scan could not start');
+          printScanStartFailure(outcome.message);
+          process.exit(1);
+        }
+
         spinner.stop(`Scan started — ${workspace}`);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
         if (args.follow) {
@@ -481,6 +492,42 @@ function readStartupError(startupErrorPath: string): StartupError | undefined {
   } catch {
     return undefined;
   }
+}
+
+/** Outcome of waiting for the in-workflow preflight to clear. */
+type PreflightOutcome = { kind: 'passed' } | { kind: 'failed'; message: string } | { kind: 'unconfirmed' };
+
+/**
+ * Wait for the registered workflow's preflight to pass or fail: passed once `currentPhase` moves
+ * beyond 'preflight' (or the scan already closed ok), failed when the workflow terminates with an
+ * error. Bounded, so a Temporal query outage falls through as 'unconfirmed' rather than hanging.
+ */
+async function awaitPreflightOutcome(workflowId: string): Promise<PreflightOutcome> {
+  for (let attempts = 0; attempts < 80; attempts++) {
+    try {
+      const lifecycle = await describeWorkflowLifecycle(workflowId);
+      if (lifecycle.kind === 'terminal') {
+        const outcome = await getTerminalOutcome(workflowId);
+        return outcome.kind === 'failed' ? { kind: 'failed', message: outcome.message } : { kind: 'passed' };
+      }
+
+      const progress = await queryProgress(workflowId);
+      if (progress && progress.currentPhase !== null && progress.currentPhase !== 'preflight') {
+        return { kind: 'passed' };
+      }
+    } catch {
+      // Transient query failure; keep waiting within the bound.
+    }
+    await sleep(1500);
+  }
+  return { kind: 'unconfirmed' };
+}
+
+/** Print a preflight failure the same way as a pre-workflow startup error. */
+function printScanStartFailure(message: string): void {
+  console.error('');
+  console.error(indentFailureSegments(message));
+  console.error('');
 }
 
 /** Print the worker's persisted startup-failure reason, with its reference code when present. */
