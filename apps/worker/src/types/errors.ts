@@ -40,6 +40,8 @@ export enum ErrorCode {
   TARGET_UNREACHABLE = 'TARGET_UNREACHABLE',
   AUTH_FAILED = 'AUTH_FAILED',
   AUTH_LOGIN_FAILED = 'AUTH_LOGIN_FAILED',
+  MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
+  MODEL_CONFIG_INVALID = 'MODEL_CONFIG_INVALID',
 }
 
 export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'unknown';

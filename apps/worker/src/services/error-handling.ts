@@ -332,6 +332,14 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
     case ErrorCode.AUTH_FAILED:
       return { type: 'AuthenticationError', retryable: false };
 
+    // Not AuthenticationError: the credential is not in question, and the pipeline
+    // appends an "is your API key valid" hint to anything classified that way.
+    case ErrorCode.MODEL_NOT_FOUND:
+      return { type: 'ModelNotFoundError', retryable: false };
+
+    case ErrorCode.MODEL_CONFIG_INVALID:
+      return { type: 'ModelConfigError', retryable: false };
+
     case ErrorCode.AUTH_LOGIN_FAILED:
       return { type: 'AuthLoginFailedError', retryable: false };
 

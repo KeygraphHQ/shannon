@@ -131,7 +131,7 @@ These reports are from Shannon Open Source scans of Photoview 2.4.0, one of the 
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](docs/ai-providers.md#custom-base-url). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](docs/ai-providers.md#suggested-models) for suggested model IDs.
+- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](docs/ai-providers.md#custom-base-url), and a model the catalogue does not yet carry can be described with a [custom model configuration](docs/ai-providers.md#custom-model-configuration). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](docs/ai-providers.md#suggested-models) for suggested model IDs.
 - **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 
@@ -375,11 +375,11 @@ Yes. Shannon emits SARIF 2.1.0, the OASIS standard format for static analysis re
 
 ### Which AI providers does Shannon support?
 
-Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. Shannon uses a single unified model setting throughout a pentest.
+Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. A model the catalogue does not yet carry, such as one released after Shannon's pinned harness version, runs without waiting for a Shannon release. Describe it in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file and pass it with `--models-config`. Shannon uses a single unified model setting throughout a pentest.
 
 ### Can I run Shannon on a local or self-hosted model?
 
-Shannon works with local models served through Ollama, vLLM, or LM Studio, which expose an OpenAI-compatible endpoint, as well as routers such as OpenRouter and LLM gateways such as LiteLLM. Point Shannon at the endpoint with a custom base URL. Capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests than a frontier model, so take this path only if you know how your chosen model behaves. See [AI providers](docs/ai-providers.md#custom-base-url).
+Shannon works with local models served through Ollama, vLLM, or LM Studio, which expose an OpenAI-compatible endpoint, as well as routers such as OpenRouter and LLM gateways such as LiteLLM. A model the harness catalogue does not carry, which most self-hosted models are, is described in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file passed with `--models-config`; routers and gateways can also be reached with a custom base URL. Capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests than a frontier model, so take this path only if you know how your chosen model behaves. See [Local and self-hosted models](docs/ai-providers.md#local-and-self-hosted-models).
 
 ### Does Shannon actually exploit vulnerabilities, or just scan?
 

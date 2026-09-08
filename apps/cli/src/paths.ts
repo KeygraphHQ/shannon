@@ -1,7 +1,7 @@
 /**
- * Path resolution for --repo and --config arguments.
+ * Path resolution for --repo, --config and --models-config arguments.
  *
- * Both --repo and --config are filesystem paths, absolute or relative to CWD.
+ * All three are filesystem paths, absolute or relative to CWD.
  */
 
 import fs from 'node:fs';
@@ -106,5 +106,34 @@ export function resolveConfig(configArg: string): MountPair {
   return {
     hostPath,
     containerPath: `/app/configs/${basename}`,
+  };
+}
+
+/**
+ * Container path for a mounted pi model config. Fixed, not derived from the host filename:
+ * the worker detects the file here to decide whether models.json is enabled at all. Must
+ * match MODELS_CONFIG_PATH in the worker package.
+ */
+export const MODELS_CONFIG_CONTAINER_PATH = '/app/models.json';
+
+/**
+ * Resolve --models-config to an absolute path and container mount. Content is left
+ * unparsed: pi's models.json permits comments, so JSON.parse would reject valid input,
+ * and pi's own loader reports schema faults far better — the worker surfaces those.
+ */
+export function resolveModelsConfig(modelsConfigArg: string): MountPair {
+  const hostPath = path.resolve(expandHome(modelsConfigArg));
+
+  if (!fs.existsSync(hostPath)) {
+    fail(`Model config file not found: ${hostPath}`);
+  }
+
+  if (!fs.statSync(hostPath).isFile()) {
+    fail(`Not a file: ${hostPath}`);
+  }
+
+  return {
+    hostPath,
+    containerPath: MODELS_CONFIG_CONTAINER_PATH,
   };
 }

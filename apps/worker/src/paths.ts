@@ -15,6 +15,12 @@ export const TYPST_TEMPLATE = path.join(WORKER_ROOT, 'templates', 'typst', 'repo
 /** Compiled pi extension dir that enforces bounded `bash` timeouts (resolved from dist/) */
 export const BASH_TIMEOUT_EXTENSION_DIR = path.join(import.meta.dirname, 'ai', 'extensions', 'bash-timeout');
 
+/**
+ * Where the CLI mounts a pi model config passed with `--models-config`; its presence is
+ * what enables models.json. Must match MODELS_CONFIG_CONTAINER_PATH in the CLI package.
+ */
+export const MODELS_CONFIG_PATH = '/app/models.json';
+
 /** Default deliverables subdirectory relative to repoPath */
 export const DEFAULT_DELIVERABLES_SUBDIR = '.shannon/deliverables';
 

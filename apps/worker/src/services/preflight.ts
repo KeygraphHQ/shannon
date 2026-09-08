@@ -40,6 +40,7 @@ import {
   createModelRuntime,
   GENERIC_API_KEY_ENV,
   type ModelSpec,
+  modelsConfigPath,
   PI_CATALOG_URL,
   piAuthPresent,
   resolveModel,
@@ -317,7 +318,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
         'config',
         false,
         {},
-        ErrorCode.AUTH_FAILED,
+        ErrorCode.MODEL_NOT_FOUND,
       ),
     );
   }
@@ -343,26 +344,42 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
     );
   }
 
-  // 3. Model must exist in the registry, for every provider — Bedrock IDs are the
-  //    easiest to get wrong, since region prefixes and version suffixes differ per
-  //    model (`us.anthropic.claude-opus-5` exists, bare `anthropic.` does not).
-  //    A custom endpoint is exempt: it may serve models under its own names.
+  // 3. Model must exist in the registry, for every provider and endpoint — Bedrock IDs
+  //    are the easiest to get wrong, since region prefixes and version suffixes differ
+  //    per model (`us.anthropic.claude-opus-5` exists, bare `anthropic.` does not).
+  //    An id the registry lacks is supplied by --models-config, not guessed at here.
   const modelRuntime = await createModelRuntime(spec.providerId, credentials.apiKey);
+
+  // A model config that fails to parse or compose leaves pi with an empty or fallback
+  // provider, which would surface below as "model not found" and blame SHANNON_AI_MODEL
+  // for the file's fault. Report the real cause first.
+  const modelsConfig = modelsConfigPath();
+  if (modelsConfig) {
+    logger.info(`Model config: ${modelsConfig}`);
+  }
+  const modelConfigError = modelRuntime.getError();
+  if (modelConfigError) {
+    return err(
+      new PentestError(
+        `Model configuration is invalid:\n${modelConfigError}`,
+        'config',
+        false,
+        { providerId: spec.providerId, ...(modelsConfig && { modelsConfig }) },
+        ErrorCode.MODEL_CONFIG_INVALID,
+      ),
+    );
+  }
+
   const baseModel = resolveModel(modelRuntime, spec.providerId, spec.modelId, credentials.baseUrl);
   if (!baseModel) {
     return err(
       new PentestError(
-        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}.`,
+        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}. A model too new for this pi release can be defined in a model config passed with --models-config.`,
         'config',
         false,
         { providerId: spec.providerId, modelId: spec.modelId },
-        ErrorCode.AUTH_FAILED,
+        ErrorCode.MODEL_NOT_FOUND,
       ),
-    );
-  }
-  if (!modelRuntime.getModel(spec.providerId, spec.modelId)) {
-    logger.warn(
-      `Model "${spec.modelId}" is not in the ${spec.providerId} catalogue; passing it to the custom endpoint as given. Cost figures will be approximate.`,
     );
   }
   if (credentials.baseUrl && spec.providerId === 'openai') {

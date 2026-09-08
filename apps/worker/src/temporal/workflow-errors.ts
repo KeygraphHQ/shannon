@@ -23,6 +23,8 @@ import { ErrorCode } from '../types/errors.js';
  */
 const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
   AuthenticationError: ErrorCode.AUTH_FAILED,
+  ModelNotFoundError: ErrorCode.MODEL_NOT_FOUND,
+  ModelConfigError: ErrorCode.MODEL_CONFIG_INVALID,
   ConfigurationError: ErrorCode.CONFIG_VALIDATION_FAILED,
   OutputValidationError: ErrorCode.OUTPUT_VALIDATION_FAILED,
   AgentExecutionError: ErrorCode.AGENT_EXECUTION_FAILED,
@@ -54,6 +56,8 @@ export function classifyErrorCode(error: unknown): ErrorCode | undefined {
  */
 const REMEDIATION_HINTS: Record<string, string> = {
   AuthenticationError: "Verify the selected provider's API key is valid and not expired.",
+  ModelNotFoundError: 'Check SHANNON_AI_MODEL against pi.dev/models, or supply the model with --models-config.',
+  ModelConfigError: 'Check the --models-config file parses and matches pi’s models.json schema.',
   ConfigurationError: 'Check your CONFIG file path and contents.',
   GitError: 'Check repository path and git state.',
   InvalidTargetError: 'Verify the target URL is correct and accessible.',
@@ -69,6 +73,8 @@ const REMEDIATION_HINTS: Record<string, string> = {
  */
 const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
   AuthenticationError: 'Provider authentication failed.',
+  ModelNotFoundError: 'The selected model was not found in the harness catalogue.',
+  ModelConfigError: 'The model configuration file could not be used.',
   ConfigurationError: 'The scan configuration is invalid.',
   OutputValidationError: 'A scan step returned an unusable result.',
   AgentExecutionError: 'An agent could not complete its work.',
