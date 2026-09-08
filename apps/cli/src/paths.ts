@@ -49,6 +49,13 @@ export const FINAL_REPORT_PDF_FILENAME = 'Security-Assessment-Report.pdf';
 export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
 
 /**
+ * Reason for a pre-workflow failure, written by the worker under INTERNAL_DIR. The CLI reads it
+ * during the startup poll to report the real cause instead of a generic timeout. Must match
+ * STARTUP_ERROR_FILENAME in the worker package.
+ */
+export const STARTUP_ERROR_FILENAME = 'startup-error.json';
+
+/**
  * Resolve a run-directory file (e.g. session.json, workflow.log), preferring the
  * current INTERNAL_DIR location and falling back to the legacy run-root location
  * so pre-restructure workspaces keep working. Returns the INTERNAL_DIR path when

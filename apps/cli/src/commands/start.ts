@@ -25,6 +25,7 @@ import {
   resolveModelsConfig,
   resolveRepo,
   resolveRunFile,
+  STARTUP_ERROR_FILENAME,
 } from '../paths.js';
 import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
 import { indentFailureSegments } from '../scan/failure.js';
@@ -314,6 +315,10 @@ export async function start(args: StartArgs): Promise<void> {
     process.exit(1);
   }
 
+  // Clear a stale startup-error from a previous launch so the poll reacts only to this worker's.
+  const startupErrorPath = path.join(internalPath, STARTUP_ERROR_FILENAME);
+  fs.rmSync(startupErrorPath, { force: true });
+
   // 9. Spawn the worker container.
   const proc = spawnWorker({
     version: args.version,
@@ -383,6 +388,16 @@ export async function start(args: StartArgs): Promise<void> {
   // Poll for the workflow to register in session.json; the spinner resolves once it does.
   spinner.message('Waiting for the scan to start');
   for (let attempts = 0; attempts < 60; attempts++) {
+    // A pre-workflow failure leaves its reason here (nothing reached Temporal); surface it
+    // rather than polling out to a generic timeout.
+    const startupError = readStartupError(startupErrorPath);
+    if (startupError) {
+      cleaned = true; // The worker already exited; nothing to stop.
+      spinner.error('The scan could not start');
+      printStartupError(startupError);
+      process.exit(1);
+    }
+
     try {
       const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
       const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
@@ -440,6 +455,47 @@ export function classifyStartupTimeout(sessionJsonPath: string): 'unregistered' 
     return 'unregistered';
   }
   return 'scan-running';
+}
+
+/** A pre-workflow failure the worker persisted; mirrors StartupErrorRecord in the worker. */
+interface StartupError {
+  phase?: string;
+  code?: string;
+  message?: string;
+}
+
+/**
+ * Read the worker's pre-workflow failure record, if it wrote one. Undefined until the file exists
+ * and parses, so a partial write is simply re-read on the next poll rather than treated as failure.
+ */
+function readStartupError(startupErrorPath: string): StartupError | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(startupErrorPath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Print the worker's persisted startup-failure reason, with its reference code when present. */
+function printStartupError(startupError: StartupError): void {
+  const message =
+    typeof startupError.message === 'string' && startupError.message.trim()
+      ? startupError.message.trim()
+      : 'The worker rejected the scan before it could start. Check the configuration file passed with -c.';
+  console.error('');
+  console.error(indentFailureSegments(message));
+  if (typeof startupError.code === 'string' && startupError.code.trim()) {
+    console.error('');
+    console.error(`  Reference code: ${startupError.code.trim()}`);
+  }
+  console.error('');
 }
 
 /** Point the operator at a scan that is running but whose startup this CLI could not confirm. */
