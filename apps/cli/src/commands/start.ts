@@ -490,7 +490,9 @@ function printStartupError(startupError: StartupError): void {
       ? startupError.message.trim()
       : 'The worker rejected the scan before it could start. Check the configuration file passed with -c.';
   console.error('');
-  console.error(indentFailureSegments(message));
+  for (const line of message.split('\n')) {
+    console.error(line.length > 0 ? `  ${line}` : '');
+  }
   if (typeof startupError.code === 'string' && startupError.code.trim()) {
     console.error('');
     console.error(`  Reference code: ${startupError.code.trim()}`);
