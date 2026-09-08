@@ -462,8 +462,19 @@ const performSecurityValidation = (config: Config): void => {
   }
 
   if (config.rules) {
-    validateRulesSecurity(config.rules.avoid, 'avoid');
-    validateRulesSecurity(config.rules.focus, 'focus');
+    // Report every bad rule at once, so a config is fixed in one pass rather than one per re-run.
+    const ruleErrors: string[] = [];
+    collectRuleErrors(config.rules.avoid, 'avoid', ruleErrors);
+    collectRuleErrors(config.rules.focus, 'focus', ruleErrors);
+    if (ruleErrors.length > 0) {
+      throw new PentestError(
+        `Configuration validation failed:\n\n${ruleErrors.join('\n\n')}`,
+        'config',
+        false,
+        { validationErrors: ruleErrors },
+        ErrorCode.CONFIG_VALIDATION_FAILED,
+      );
+    }
 
     checkForDuplicates(config.rules.avoid || [], 'avoid');
     checkForDuplicates(config.rules.focus || [], 'focus');
@@ -513,126 +524,108 @@ const performSecurityValidation = (config: Config): void => {
   }
 };
 
-const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): void => {
-  if (!rules) return;
+/** Human-readable rule label, e.g. "Focus rule 1" — 1-based to match how an operator counts them. */
+function ruleLabel(ruleType: string, index: number): string {
+  const capitalized = `${ruleType.charAt(0).toUpperCase()}${ruleType.slice(1)}`;
+  return `${capitalized} rule ${index + 1}`;
+}
 
-  rules.forEach((rule, index) => {
-    for (const pattern of DANGEROUS_PATTERNS) {
-      if (pattern.test(rule.value)) {
-        throw new PentestError(
-          `rules.${ruleType}[${index}].value contains potentially dangerous pattern: ${pattern.source}`,
-          'config',
-          false,
-          { field: `rules.${ruleType}[${index}].value`, pattern: pattern.source },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
-      }
-      if (rule.description !== undefined && pattern.test(rule.description)) {
-        throw new PentestError(
-          `rules.${ruleType}[${index}].description contains potentially dangerous pattern: ${pattern.source}`,
-          'config',
-          false,
-          { field: `rules.${ruleType}[${index}].description`, pattern: pattern.source },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
-      }
-    }
+/** A rule error as an aligned label/Value/Problem block, so the offending value is easy to spot. */
+function ruleValueMessage(label: string, value: string, problem: string): string {
+  return [`${label}:`, `  Value:   ${value}`, `  Problem: ${problem}`].join('\n');
+}
 
-    validateRuleTypeSpecific(rule, ruleType, index);
-  });
-};
-
-const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): void => {
-  const field = `rules.${ruleType}[${index}].value`;
-
+/**
+ * The type-specific constraint a rule value breaks, or undefined when valid. Returns rather than
+ * throws so every bad rule can be collected and reported together.
+ */
+function ruleTypeProblem(rule: Rule): string | undefined {
   switch (rule.type) {
     case 'url_path':
       if (!rule.value.startsWith('/')) {
-        throw new PentestError(
-          `${field} for type 'url_path' must start with '/'`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return "a 'url_path' rule matches the request path only, so it must begin with '/' (e.g. '/api/users')";
       }
-      break;
+      return undefined;
 
     case 'code_path':
       if (rule.value.includes('://')) {
-        throw new PentestError(
-          `${field} for type 'code_path' must not contain a URL protocol (got '${rule.value}')`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return "a 'code_path' rule points at source files, so it must not contain a URL protocol like 'http://' (e.g. 'src/api/users.ts' or 'src/**/*.ts')";
       }
-      break;
+      return undefined;
 
     case 'subdomain':
     case 'domain':
       // Basic domain validation - no slashes allowed
       if (rule.value.includes('/')) {
-        throw new PentestError(
-          `${field} for type '${rule.type}' cannot contain '/' characters`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return `a '${rule.type}' rule is a host name, so it cannot contain '/' (e.g. 'api.example.com')`;
       }
       // Must contain at least one dot for domains
       if (rule.type === 'domain' && !rule.value.includes('.')) {
-        throw new PentestError(
-          `${field} for type 'domain' must be a valid domain name`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return "a 'domain' rule must be a full domain name, including the top-level domain (e.g. 'example.com')";
       }
-      break;
+      return undefined;
 
     case 'method': {
       const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
       if (!allowedMethods.includes(rule.value.toUpperCase())) {
-        throw new PentestError(
-          `${field} for type 'method' must be one of: ${allowedMethods.join(', ')}`,
-          'config',
-          false,
-          { field, ruleType: rule.type, allowedMethods },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return `'${rule.value}' is not a recognized HTTP method — use one of: ${allowedMethods.join(', ')}`;
       }
-      break;
+      return undefined;
     }
 
     case 'header':
       if (!rule.value.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new PentestError(
-          `${field} for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
-        );
+        return "a header name may contain only letters, digits, hyphens, and underscores (e.g. 'Authorization' or 'X-Api-Key')";
       }
-      break;
+      return undefined;
 
     case 'parameter':
       if (!rule.value.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new PentestError(
-          `${field} for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`,
-          'config',
-          false,
-          { field, ruleType: rule.type },
-          ErrorCode.CONFIG_VALIDATION_FAILED,
+        return "a parameter name may contain only letters, digits, hyphens, and underscores (e.g. 'user_id' or 'redirect-url')";
+      }
+      return undefined;
+
+    default:
+      return undefined;
+  }
+}
+
+/**
+ * Append a block to `blocks` for every invalid rule — a dangerous pattern in the value or
+ * description, or a broken type-specific constraint — so all bad rules can be reported together.
+ */
+function collectRuleErrors(rules: Rule[] | undefined, ruleType: string, blocks: string[]): void {
+  if (!rules) return;
+
+  rules.forEach((rule, index) => {
+    const label = ruleLabel(ruleType, index);
+    const dangerousInValue = DANGEROUS_PATTERNS.find((pattern) => pattern.test(rule.value));
+    if (dangerousInValue) {
+      blocks.push(
+        ruleValueMessage(label, rule.value, `contains a potentially dangerous pattern (${dangerousInValue.source})`),
+      );
+    } else {
+      const problem = ruleTypeProblem(rule);
+      if (problem) {
+        blocks.push(ruleValueMessage(label, rule.value, problem));
+      }
+    }
+
+    const description = rule.description;
+    if (description !== undefined) {
+      const dangerousInDescription = DANGEROUS_PATTERNS.find((pattern) => pattern.test(description));
+      if (dangerousInDescription) {
+        blocks.push(
+          ruleValueMessage(
+            `${label} (description)`,
+            description,
+            `contains a potentially dangerous pattern (${dangerousInDescription.source})`,
+          ),
         );
       }
-      break;
-  }
-};
+    }
+  });
+}
 
 const checkForDuplicates = (rules: Rule[], ruleType: string): void => {
   const seen = new Set<string>();
