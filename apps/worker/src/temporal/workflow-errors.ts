@@ -131,10 +131,6 @@ export function formatWorkflowError(error: unknown, currentPhase: string | null,
 
   const segments: string[] = [phaseContext];
 
-  if (unwrapped.type) {
-    segments.push(unwrapped.type);
-  }
-
   segments.push(
     unwrapped.type === null
       ? 'The scan could not be completed.'
@@ -146,6 +142,7 @@ export function formatWorkflowError(error: unknown, currentPhase: string | null,
     if (hint) {
       segments.push(`Hint: ${hint}`);
     }
+    segments.push(`Reference code: ${unwrapped.type}`);
   }
 
   return segments.join('|');

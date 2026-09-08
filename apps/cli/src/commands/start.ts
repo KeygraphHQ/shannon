@@ -25,12 +25,13 @@ import {
   resolveModelsConfig,
   resolveRepo,
   resolveRunFile,
+  STARTUP_ERROR_FILENAME,
 } from '../paths.js';
 import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
-import { indentFailureSegments } from '../scan/failure.js';
+import { indentFailureSegments, parseFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
-import { getTerminalOutcome } from '../temporal-client.js';
+import { describeWorkflowLifecycle, getTerminalOutcome, queryProgress } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
 import { tailUntilComplete } from './logs.js';
 
@@ -314,6 +315,10 @@ export async function start(args: StartArgs): Promise<void> {
     process.exit(1);
   }
 
+  // Clear a stale startup-error from a previous launch so the poll reacts only to this worker's.
+  const startupErrorPath = path.join(internalPath, STARTUP_ERROR_FILENAME);
+  fs.rmSync(startupErrorPath, { force: true });
+
   // 9. Spawn the worker container.
   const proc = spawnWorker({
     version: args.version,
@@ -383,6 +388,16 @@ export async function start(args: StartArgs): Promise<void> {
   // Poll for the workflow to register in session.json; the spinner resolves once it does.
   spinner.message('Waiting for the scan to start');
   for (let attempts = 0; attempts < 60; attempts++) {
+    // A pre-workflow failure leaves its reason here (nothing reached Temporal); surface it
+    // rather than polling out to a generic timeout.
+    const startupError = readStartupError(startupErrorPath);
+    if (startupError) {
+      cleaned = true; // The worker already exited; nothing to stop.
+      spinner.error('The scan could not start');
+      printStartupError(startupError);
+      process.exit(1);
+    }
+
     try {
       const session = JSON.parse(fs.readFileSync(sessionJson, 'utf-8'));
       const resumeAttempts: { workflowId: string }[] = session.session?.resumeAttempts ?? [];
@@ -399,6 +414,17 @@ export async function start(args: StartArgs): Promise<void> {
         } catch {
           warn(`Scan ${workspace} started, but its launch record could not be removed.`);
         }
+
+        // Hold until preflight clears, so an unreachable target or bad credential is reported here
+        // rather than after "Scan started".
+        spinner.message('Running preflight checks');
+        const outcome = await awaitPreflightOutcome(workflowId);
+        if (outcome.kind === 'failed') {
+          spinner.error('The scan could not start');
+          printScanStartFailure(outcome.message);
+          process.exit(1);
+        }
+
         spinner.stop(`Scan started — ${workspace}`);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
         if (args.follow) {
@@ -440,6 +466,92 @@ export function classifyStartupTimeout(sessionJsonPath: string): 'unregistered' 
     return 'unregistered';
   }
   return 'scan-running';
+}
+
+/** A pre-workflow failure the worker persisted; mirrors StartupErrorRecord in the worker. */
+interface StartupError {
+  phase?: string;
+  code?: string;
+  message?: string;
+}
+
+/**
+ * Read the worker's pre-workflow failure record, if it wrote one. Undefined until the file exists
+ * and parses, so a partial write is simply re-read on the next poll rather than treated as failure.
+ */
+function readStartupError(startupErrorPath: string): StartupError | undefined {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(startupErrorPath, 'utf-8');
+  } catch {
+    return undefined;
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Outcome of waiting for the in-workflow preflight to clear. */
+type PreflightOutcome = { kind: 'passed' } | { kind: 'failed'; message: string } | { kind: 'unconfirmed' };
+
+/**
+ * Wait for the registered workflow's preflight to pass or fail: passed once `currentPhase` moves
+ * beyond 'preflight' (or the scan already closed ok), failed when the workflow terminates with an
+ * error. Bounded, so a Temporal query outage falls through as 'unconfirmed' rather than hanging.
+ */
+async function awaitPreflightOutcome(workflowId: string): Promise<PreflightOutcome> {
+  for (let attempts = 0; attempts < 80; attempts++) {
+    try {
+      const lifecycle = await describeWorkflowLifecycle(workflowId);
+      if (lifecycle.kind === 'terminal') {
+        const outcome = await getTerminalOutcome(workflowId);
+        return outcome.kind === 'failed' ? { kind: 'failed', message: outcome.message } : { kind: 'passed' };
+      }
+
+      const progress = await queryProgress(workflowId);
+      if (progress && progress.currentPhase !== null && progress.currentPhase !== 'preflight') {
+        return { kind: 'passed' };
+      }
+    } catch {
+      // Transient query failure; keep waiting within the bound.
+    }
+    await sleep(1500);
+  }
+  return { kind: 'unconfirmed' };
+}
+
+/** Print a preflight failure: context line, then the indented reason and hint, then the reference code. */
+function printScanStartFailure(message: string): void {
+  const segments = parseFailureSegments(message);
+  const phaseContext = segments.shift() ?? 'The scan failed';
+  const last = segments[segments.length - 1];
+  const reference = last?.startsWith('Reference code:') ? segments.pop() : undefined;
+
+  const lines = [`  ${phaseContext}`, '', ...segments.map((segment) => `  ${segment}`)];
+  if (reference) {
+    lines.push('', `  ${reference}`);
+  }
+  console.error(`\n${lines.join('\n')}\n`);
+}
+
+/** Print the worker's persisted startup-failure reason, with its reference code when present. */
+function printStartupError(startupError: StartupError): void {
+  const message =
+    typeof startupError.message === 'string' && startupError.message.trim()
+      ? startupError.message.trim()
+      : 'The worker rejected the scan before it could start. Check the configuration file passed with -c.';
+  console.error('');
+  for (const line of message.split('\n')) {
+    console.error(line.length > 0 ? `  ${line}` : '');
+  }
+  if (typeof startupError.code === 'string' && startupError.code.trim()) {
+    console.error('');
+    console.error(`  Reference code: ${startupError.code.trim()}`);
+  }
+  console.error('');
 }
 
 /** Point the operator at a scan that is running but whose startup this CLI could not confirm. */

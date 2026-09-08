@@ -56,6 +56,13 @@ export const SARIF_FILENAME = 'report.sarif';
 export const REPORT_FINALIZATION_MANIFEST_FILENAME = 'report_finalization_manifest.json';
 
 /**
+ * Reason for a pre-workflow failure (bad config, resume mismatch, worker setup), written under
+ * INTERNAL_DIR for the CLI to surface — at that point Temporal has no record of the run. Must
+ * match STARTUP_ERROR_FILENAME in the CLI package.
+ */
+export const STARTUP_ERROR_FILENAME = 'startup-error.json';
+
+/**
  * Resolve the session.json path for a run directory, preferring the current
  * `.shannon/` location and falling back to the legacy run-root location so
  * pre-restructure workspaces remain listable and resumable.
