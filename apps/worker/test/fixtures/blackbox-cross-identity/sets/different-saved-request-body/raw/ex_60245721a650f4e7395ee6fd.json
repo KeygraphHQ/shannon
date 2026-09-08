@@ -1,0 +1,1 @@
+{"request":"POST /submit HTTP/1.1\r\nHost: synthetic.invalid\r\nAuthorization: PRIVATE_SENTINEL-b\r\nContent-Length: 3\r\n\r\ntwo","response":"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

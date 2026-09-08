@@ -1,0 +1,1 @@
+{"request":"GET /framing HTTP/1.1\r\nHost: synthetic.invalid\r\nAuthorization: PRIVATE_SENTINEL-erin\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: 24\r\n\r\nPRIVATE_SENTINEL-FRAMING","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

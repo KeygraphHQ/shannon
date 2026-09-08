@@ -1,0 +1,1 @@
+{"request":"GET /absent HTTP/1.1\r\nHost: raw-states.invalid\r\nAuthorization: PRIVATE_SENTINEL-absent-b\r\n\r\n","response":"<no response>","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

@@ -1,0 +1,1 @@
+{"request":"GET /content HTTP/1.1\r\nHost: synthetic.invalid\r\nAuthorization: PRIVATE_SENTINEL-dave\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Type: text/html\r\nContent-Length: 24\r\n\r\nPRIVATE_SENTINEL-CONTENT","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

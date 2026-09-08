@@ -1,0 +1,1 @@
+{"request":"GET /orders?view=two HTTP/1.1\r\nHost: synthetic.invalid\r\nAuthorization: PRIVATE_SENTINEL-carol\r\n\r\n","response":"HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nContent-Length: 21\r\n\r\nPRIVATE_SENTINEL-DIFF","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

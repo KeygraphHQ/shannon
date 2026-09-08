@@ -1,0 +1,1 @@
+{"request":"GET /framing?case=10-eligible-control HTTP/1.1\r\nHost: framing-rejections.invalid\r\nAuthorization: PRIVATE_SENTINEL-bob\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Encoding: IDENTITY\r\nContent-Length: 2\r\nContent-Type: application/json; charset=utf-8\r\n\r\n{}","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

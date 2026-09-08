@@ -1,0 +1,164 @@
+{
+  "schemaVersion": 1,
+  "source": "Hand-derived synthetic native fixture records; no cross-identity implementation or output read.",
+  "sets": {
+    "sets/recorded-relations": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/raw-comparability": {
+      "rawFiles": [
+        "raw/ex_8dba8089ba8679a938f6dde7.json",
+        "raw/ex_bde338d34f2090d72475632b.json",
+        "raw/ex_5e428e10f46162c0b500b5b9.json",
+        "raw/ex_86040ed37eca42422a6d6371.json",
+        "raw/ex_c0dd967fbbf7cbbaeaf27fb0.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    },
+    "sets/raw-framing": {
+      "rawFiles": [
+        "raw/ex_f6e2dc1814eb72bc70409ee0.json",
+        "raw/ex_5a56888b38012223ca35fd5f.json",
+        "raw/ex_c3b32f8c60bb8910b48a09fd.json",
+        "raw/ex_8a71ce9ab320399aaffb4183.json",
+        "raw/ex_e61bad801e42a420f54d4feb.json",
+        "raw/ex_07bc4983f70987bc2c3d4310.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    },
+    "sets/identity-context": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/resource-context": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/incomplete-evidence": {
+      "rawFiles": [
+        "raw/ex_c41ce130ea0f1df84ae5b592.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": [
+        "raw/ex_500000000000000000000001.json"
+      ]
+    },
+    "sets/limits": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/outer-key-collision": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/duplicate-native-envelope": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/reordered-native-input": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/different-saved-request-body": {
+      "rawFiles": [
+        "raw/ex_89fa1243f7e81c65c87ebf03.json",
+        "raw/ex_60245721a650f4e7395ee6fd.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    },
+    "sets/saved-body-values-and-unframed": {
+      "rawFiles": [
+        "raw/ex_ddb4e4a0c466816e9f2411a8.json",
+        "raw/ex_7f99970624c456022ae86ee4.json",
+        "raw/ex_473e27e5e2ac14a2a9c88712.json",
+        "raw/ex_60121f14009ff5081cc5da84.json",
+        "raw/ex_12b71849974e97412d046a71.json",
+        "raw/ex_1a9bd0608f75c90c4d6cbba4.json",
+        "raw/ex_bd43faaaf9e585ceae559ea0.json",
+        "raw/ex_e7aa9fa1a3ae9782971fa9dc.json",
+        "raw/ex_e2f0f8adbb181fe12c1dafb2.json",
+        "raw/ex_305b689aa9ef637a106ae2b3.json",
+        "raw/ex_9636de852a0cdf8c4c3253b9.json",
+        "raw/ex_4fc0a8aca7df6335d2b21dcf.json",
+        "raw/ex_cfe306dd8e23cc342973addb.json",
+        "raw/ex_5392677434e72222039e0933.json",
+        "raw/ex_f5a9e4b443a91c85d6de1731.json",
+        "raw/ex_5581749abb0caf667a1e023d.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    },
+    "sets/raw-response-states": {
+      "rawFiles": [
+        "raw/ex_5cda03086716d80f0530e5d1.json",
+        "raw/ex_280c49a0a8ae3127dcf8f923.json",
+        "raw/ex_14f54fe516cc1fd57e6b752e.json",
+        "raw/ex_20ecf2a1d9387e9a29243bb3.json",
+        "raw/ex_7dc1a7807082a0c02104da61.json",
+        "raw/ex_5b7a1bab9248d0379c13770c.json",
+        "raw/ex_d3241a237f007199b0f1fae1.json",
+        "raw/ex_082a9d1c7f4f6bde65135896.json",
+        "raw/ex_c9c58a3046ebbb32c4669eb4.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": [
+        "raw/ex_c4c9aceca14eae088bf46e32.json"
+      ]
+    },
+    "sets/findings-empty": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/findings-absent": {
+      "rawFiles": [],
+      "rawRequested": false,
+      "missingRawFiles": []
+    },
+    "sets/framing-rejections": {
+      "rawFiles": [
+        "raw/ex_877d93e446c5f841598808ad.json",
+        "raw/ex_3a304cecf649bb7499e2abd9.json",
+        "raw/ex_64be4861dd7e5123e19a70b4.json",
+        "raw/ex_6299ec3c4e7eb7053689b1f3.json",
+        "raw/ex_d75650f220e3bf3daf344006.json",
+        "raw/ex_d5e74aa957f3f13833926257.json",
+        "raw/ex_84f5b892587d2b8f0b41598a.json",
+        "raw/ex_be28ca5a391c847b92713fa9.json",
+        "raw/ex_6090160631d8f6bdc3fac3d2.json",
+        "raw/ex_4921595f0c3dbdbf201a2665.json",
+        "raw/ex_f505646720fc9b99b1ed1914.json",
+        "raw/ex_e9dfb91b6eddbe6c6b12e414.json",
+        "raw/ex_50092ca3e7cd7522af3f4a07.json",
+        "raw/ex_93b3b4ffc00b2c026bd0fdd4.json",
+        "raw/ex_ac840e4fc459c07fee42b67e.json",
+        "raw/ex_75acf1b118df022bb3697628.json",
+        "raw/ex_0e7b3672d93af221041fdbc0.json",
+        "raw/ex_35361a582a821b04138e48a6.json",
+        "raw/ex_6bd2ac49e231432fa2391efa.json",
+        "raw/ex_48cb570135e51c1e7f483b9c.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    },
+    "sets/integration-boundaries": {
+      "rawFiles": [
+        "raw/ex_2104ddfb786042f45c6baea1.json",
+        "raw/ex_8df04027316a58379d74f1e7.json"
+      ],
+      "rawRequested": true,
+      "missingRawFiles": []
+    }
+  }
+}

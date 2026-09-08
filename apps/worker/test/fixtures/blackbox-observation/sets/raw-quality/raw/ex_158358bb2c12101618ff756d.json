@@ -1,0 +1,6 @@
+{
+  "request": "GET /truncated HTTP/1.1\r\nHost: synthetic.example.invalid\r\n\r\n",
+  "response": "HTTP/1.1 200 OK\r\n\r\npartial... (truncated)",
+  "notes": "RAW_NOTES_SENTINEL",
+  "occurrence": 1
+}

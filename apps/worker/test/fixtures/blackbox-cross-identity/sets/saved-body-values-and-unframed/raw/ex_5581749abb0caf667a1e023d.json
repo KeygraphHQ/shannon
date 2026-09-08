@@ -1,0 +1,1 @@
+{"request":"GET /values?case=08-different HTTP/1.1\r\nHost: body-values.invalid\r\nAuthorization: PRIVATE_SENTINEL-bob\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Length: 3\r\nContent-Type: application/json; charset=utf-8\r\n\r\ntwo","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

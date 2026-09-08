@@ -1,0 +1,86 @@
+[
+  {
+    "exchangeId": "ex_449b039af96c4f53bacd9291",
+    "routeSignature": "route_c119d02caaa1757c412666e8",
+    "identity": "alice",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/missing",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 0,
+    "responseContentType": null,
+    "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_158358bb2c12101618ff756d",
+    "routeSignature": "route_a03dc5c67b00a9c9af0d6c55",
+    "identity": "alice",
+    "captureSequence": 2,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/truncated",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 0,
+    "responseContentType": null,
+    "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_a3570b83f2181dd06fea6b61",
+    "routeSignature": "route_8054d6b0397a83ced4ae3697",
+    "identity": "alice",
+    "captureSequence": 3,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/malformed",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 0,
+    "responseContentType": null,
+    "responseFingerprint": "sha256:6f3df05f2cdaa8cd0a8f85d398404312d796a08694da312af57fbfdf847c86b6",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_66aea37f9dd01ea4642ff3a0",
+    "routeSignature": "route_8481883ef39089f4574f20f9",
+    "identity": "alice",
+    "captureSequence": 4,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/usable",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  }
+]

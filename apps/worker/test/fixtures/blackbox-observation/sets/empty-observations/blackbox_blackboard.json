@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "revision": 2,
+  "targetOrigin": "https://synthetic.example.invalid",
+  "runStatus": "complete",
+  "failure": null,
+  "identities": [
+    {
+      "name": "alice",
+      "role": "reader",
+      "authenticated": true
+    },
+    {
+      "name": "bob",
+      "role": "editor",
+      "authenticated": true
+    }
+  ],
+  "exchanges": [],
+  "resources": [],
+  "transitions": [],
+  "hypotheses": [],
+  "actions": [],
+  "candidateProofs": [],
+  "verifications": [],
+  "tasks": [],
+  "rejectedTasks": []
+}

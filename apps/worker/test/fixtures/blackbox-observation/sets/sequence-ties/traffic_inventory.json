@@ -1,0 +1,86 @@
+[
+  {
+    "exchangeId": "ex_f8ca6e0a852ac191f2b00109",
+    "routeSignature": "route_27e5aa5229a2cfa760d3167d",
+    "identity": "alice",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/first",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_3d9556650aa878be895ec294",
+    "routeSignature": "route_3ef097b9420bf09c5817931d",
+    "identity": "alice",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/second",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_816063e0345e390496784005",
+    "routeSignature": "route_a0e9984305a80fbe61d672e9",
+    "identity": "alice",
+    "captureSequence": 4,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/fourth",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+    "routeSignature": "route_9194a1935fdafbed08b3ca03",
+    "identity": "bob",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/items",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-bob",
+      "baseRevision": 1
+    }
+  }
+]

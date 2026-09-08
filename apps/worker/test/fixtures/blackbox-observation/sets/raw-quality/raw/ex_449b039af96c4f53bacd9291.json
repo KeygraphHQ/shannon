@@ -1,0 +1,6 @@
+{
+  "request": "GET /missing HTTP/1.1\r\nHost: synthetic.example.invalid\r\n\r\n",
+  "response": "<no response>",
+  "notes": "RAW_NOTES_SENTINEL",
+  "occurrence": 1
+}

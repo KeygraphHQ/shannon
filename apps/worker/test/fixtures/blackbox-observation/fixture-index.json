@@ -1,0 +1,96 @@
+{
+  "schemaVersion": 1,
+  "source": "Synthetic fixtures derived from native exported shapes and documented capture hashing; no new observation implementation/output was read.",
+  "exchanges": {
+    "alice-items": {
+      "id": "ex_539f9129f105b80d50f5110f",
+      "route": "route_9194a1935fdafbed08b3ca03",
+      "identity": "alice",
+      "captureSequence": 1
+    },
+    "alice-save": {
+      "id": "ex_7c74a4b77caf33789ea0aa46",
+      "route": "route_fcc2488399f7c6edbf6f0212",
+      "identity": "alice",
+      "captureSequence": 2
+    },
+    "bob-items": {
+      "id": "ex_d62edc547e3fa9d2e0593718",
+      "route": "route_9194a1935fdafbed08b3ca03",
+      "identity": "bob",
+      "captureSequence": 1
+    },
+    "bob-save": {
+      "id": "ex_5407757b3411f2d3300a234e",
+      "route": "route_fcc2488399f7c6edbf6f0212",
+      "identity": "bob",
+      "captureSequence": 2
+    },
+    "anonymous-items": {
+      "id": "ex_c1db3bc24b72547c0e7046cc",
+      "route": "route_9194a1935fdafbed08b3ca03",
+      "identity": "anonymous",
+      "captureSequence": 1
+    },
+    "unattributed-items": {
+      "id": "ex_1c9087b0a2ef821963a26130",
+      "route": "route_9194a1935fdafbed08b3ca03",
+      "identity": "visitor",
+      "captureSequence": 1
+    },
+    "normalized-zero": {
+      "id": "ex_7f757dc6d7f1e343e23e5057",
+      "route": "route_be19ce4452c46aa1d8a8e22d",
+      "identity": "alice",
+      "captureSequence": 1
+    },
+    "raw-absent-response": {
+      "id": "ex_449b039af96c4f53bacd9291",
+      "route": "route_c119d02caaa1757c412666e8",
+      "identity": "alice",
+      "captureSequence": 1
+    },
+    "raw-truncated-response": {
+      "id": "ex_158358bb2c12101618ff756d",
+      "route": "route_a03dc5c67b00a9c9af0d6c55",
+      "identity": "alice",
+      "captureSequence": 2
+    },
+    "raw-malformed-response": {
+      "id": "ex_a3570b83f2181dd06fea6b61",
+      "route": "route_8054d6b0397a83ced4ae3697",
+      "identity": "alice",
+      "captureSequence": 3
+    },
+    "raw-usable-response": {
+      "id": "ex_66aea37f9dd01ea4642ff3a0",
+      "route": "route_8481883ef39089f4574f20f9",
+      "identity": "alice",
+      "captureSequence": 4
+    },
+    "tie-a": {
+      "id": "ex_f8ca6e0a852ac191f2b00109",
+      "route": "route_27e5aa5229a2cfa760d3167d",
+      "identity": "alice",
+      "captureSequence": 1
+    },
+    "tie-b": {
+      "id": "ex_3d9556650aa878be895ec294",
+      "route": "route_3ef097b9420bf09c5817931d",
+      "identity": "alice",
+      "captureSequence": 1
+    },
+    "gap": {
+      "id": "ex_816063e0345e390496784005",
+      "route": "route_a0e9984305a80fbe61d672e9",
+      "identity": "alice",
+      "captureSequence": 4
+    },
+    "unicode": {
+      "id": "ex_b1b6a96188466f48190d8783",
+      "route": "route_26b29a47bcfc266a3832039b",
+      "identity": "alice",
+      "captureSequence": 1
+    }
+  }
+}

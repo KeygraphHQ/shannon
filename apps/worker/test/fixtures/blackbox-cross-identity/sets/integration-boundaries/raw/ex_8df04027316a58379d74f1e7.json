@@ -1,0 +1,1 @@
+{"request":"GET /private HTTP/1.1\r\nHost: integration.invalid\r\nAuthorization: PRIVATE_SENTINEL-integration-b\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\n\r\nok","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

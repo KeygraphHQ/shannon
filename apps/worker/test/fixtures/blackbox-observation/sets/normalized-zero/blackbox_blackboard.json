@@ -1,0 +1,55 @@
+{
+  "schemaVersion": 1,
+  "revision": 2,
+  "targetOrigin": "https://synthetic.example.invalid",
+  "runStatus": "complete",
+  "failure": null,
+  "identities": [
+    {
+      "name": "alice",
+      "role": "reader",
+      "authenticated": true
+    }
+  ],
+  "exchanges": [
+    {
+      "exchangeId": "ex_7f757dc6d7f1e343e23e5057",
+      "routeSignature": "route_be19ce4452c46aa1d8a8e22d",
+      "identity": "alice",
+      "captureSequence": 1,
+      "method": "GET",
+      "origin": "https://synthetic.example.invalid",
+      "path": "/unknown",
+      "queryKeys": [],
+      "bodyShape": "none",
+      "requestContentType": null,
+      "responseStatus": 0,
+      "responseContentType": null,
+      "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+      "candidateObjectReferences": [],
+      "provenance": {
+        "actor": "blackbox-recon",
+        "taskId": "capture-alice",
+        "baseRevision": 1
+      }
+    }
+  ],
+  "resources": [],
+  "transitions": [],
+  "hypotheses": [],
+  "actions": [],
+  "candidateProofs": [],
+  "verifications": [],
+  "tasks": [
+    {
+      "taskId": "capture-alice",
+      "kind": "recon",
+      "objective": "Synthetic saved capture",
+      "evidence": [],
+      "identityLease": "alice",
+      "hypothesisId": null,
+      "status": "completed"
+    }
+  ],
+  "rejectedTasks": []
+}

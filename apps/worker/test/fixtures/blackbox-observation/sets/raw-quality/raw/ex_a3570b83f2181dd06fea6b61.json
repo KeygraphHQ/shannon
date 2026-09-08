@@ -1,0 +1,6 @@
+{
+  "request": "GET /malformed HTTP/1.1\r\nHost: synthetic.example.invalid\r\n\r\n",
+  "response": "not an HTTP response",
+  "notes": "RAW_NOTES_SENTINEL",
+  "occurrence": 1
+}

@@ -1,0 +1,1 @@
+{"request":"GET /status-zero HTTP/1.1\r\nHost: raw-states.invalid\r\nAuthorization: PRIVATE_SENTINEL-zero-b\r\n\r\n","response":"HTTP/1.1 000 Unavailable\r\nContent-Length: 0\r\n\r\n","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

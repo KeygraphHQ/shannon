@@ -1,0 +1,65 @@
+[
+  {
+    "exchangeId": "ex_539f9129f105b80d50f5110f",
+    "routeSignature": "route_9194a1935fdafbed08b3ca03",
+    "identity": "alice",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/items",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-alice",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_c1db3bc24b72547c0e7046cc",
+    "routeSignature": "route_9194a1935fdafbed08b3ca03",
+    "identity": "anonymous",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/items",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-anonymous",
+      "baseRevision": 1
+    }
+  },
+  {
+    "exchangeId": "ex_1c9087b0a2ef821963a26130",
+    "routeSignature": "route_9194a1935fdafbed08b3ca03",
+    "identity": "visitor",
+    "captureSequence": 1,
+    "method": "GET",
+    "origin": "https://synthetic.example.invalid",
+    "path": "/items",
+    "queryKeys": [],
+    "bodyShape": "none",
+    "requestContentType": null,
+    "responseStatus": 200,
+    "responseContentType": "application/json",
+    "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+    "candidateObjectReferences": [],
+    "provenance": {
+      "actor": "blackbox-recon",
+      "taskId": "capture-visitor",
+      "baseRevision": 1
+    }
+  }
+]

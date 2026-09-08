@@ -1,0 +1,1 @@
+{"request":"GET /values?case=06-unframed HTTP/1.1\r\nHost: body-values.invalid\r\nAuthorization: PRIVATE_SENTINEL-alice\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\n\r\nok","notes":"PRIVATE_SENTINEL-notes","occurrence":1}

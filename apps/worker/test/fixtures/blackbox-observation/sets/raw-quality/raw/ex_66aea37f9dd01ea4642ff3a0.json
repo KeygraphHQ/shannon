@@ -1,0 +1,6 @@
+{
+  "request": "GET /usable HTTP/1.1\r\nHost: synthetic.example.invalid\r\n\r\n",
+  "response": "HTTP/1.1 200 Synthetic\r\nContent-Type: application/json\r\n\r\n{\"recorded\":true}",
+  "notes": "RAW_NOTES_SENTINEL",
+  "occurrence": 1
+}

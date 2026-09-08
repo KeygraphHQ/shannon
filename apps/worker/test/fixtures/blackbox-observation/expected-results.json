@@ -1,0 +1,4697 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "1.0.0",
+  "labeling": {
+    "basis": "Goal, native exporter/schema, fixed synthetic bytes, and frozen public interfaces/semantics. No blackbox-observation implementation or output was read before these labels.",
+    "reviewStatus": "independent-review-pending",
+    "scope": "Finite passive observation agreement only; not detection accuracy, control coverage, session validity or causality.",
+    "evaluatedFields": "Exact status/counts, identities, normalized/raw observation states, route cells, recorded fact categories, workflow groups/gaps/link states/uncertainty codes, diagnostic code sets; required/forbidden explanation codes and required source record pointers. Unspecified display/context fields are not scored."
+  },
+  "coverage": [
+    {
+      "scenario": "normal multi-identity observations",
+      "caseIds": [
+        "multi-identity-linked-workflow"
+      ]
+    },
+    {
+      "scenario": "anonymous/unattributed identities",
+      "caseIds": [
+        "anonymous-and-unattributed"
+      ]
+    },
+    {
+      "scenario": "observed HTTP success/error without authorization inference",
+      "caseIds": [
+        "multi-identity-linked-workflow"
+      ]
+    },
+    {
+      "scenario": "normalized status zero without raw evidence",
+      "caseIds": [
+        "normalized-zero-without-raw"
+      ]
+    },
+    {
+      "scenario": "saved absent/truncated/malformed responses with raw evidence",
+      "caseIds": [
+        "associated-native-raw-quality",
+        "raw-association-mismatch"
+      ]
+    },
+    {
+      "scenario": "exact duplicates and conflicting IDs",
+      "caseIds": [
+        "exact-duplicate-records",
+        "conflicting-id-retains-independent-evidence"
+      ]
+    },
+    {
+      "scenario": "absent optional findings versus valid empty findings",
+      "caseIds": [
+        "optional-findings-absent",
+        "multi-identity-linked-workflow",
+        "empty-observed-inventory"
+      ]
+    },
+    {
+      "scenario": "malformed required/optional inputs",
+      "caseIds": [
+        "optional-findings-invalid",
+        "required-traffic-envelope-invalid",
+        "unsupported-blackboard-schema"
+      ]
+    },
+    {
+      "scenario": "linked recorded transitions",
+      "caseIds": [
+        "multi-identity-linked-workflow"
+      ]
+    },
+    {
+      "scenario": "missing references",
+      "caseIds": [
+        "transition-reference-problems"
+      ]
+    },
+    {
+      "scenario": "tied/per-identity capture order",
+      "caseIds": [
+        "local-counter-ties-and-gaps",
+        "anonymous-and-unattributed"
+      ]
+    },
+    {
+      "scenario": "absent workflow metadata",
+      "caseIds": [
+        "exchange-sequence-without-transitions"
+      ]
+    },
+    {
+      "scenario": "recorded blocked/incomplete runs",
+      "caseIds": [
+        "recorded-incomplete-and-blocked-work"
+      ]
+    },
+    {
+      "scenario": "Unicode/inert private metadata",
+      "caseIds": [
+        "unicode-inert-private-metadata"
+      ]
+    },
+    {
+      "scenario": "resource exhaustion and source/output preservation",
+      "caseIds": [
+        "aggregate-exchange-limit"
+      ],
+      "additionalIntegrationOwner": "Root: local-file/parser/deadline boundaries, exact input byte preservation, exclusive output creation, and clean Windows/Linux CLI execution."
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "multi-identity-linked-workflow",
+      "set": "sets/rich",
+      "scenario": "normal multi-identity observations",
+      "rationale": "Both named identities have recorded requests on both routes. HTTP200 and HTTP403 are response metadata only. Alice has two linked recorded transitions with matching local counters and an existing resource; Bob has no transition records.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 4,
+          "routes": 2,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_7c74a4b77caf33789ea0aa46",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_5407757b3411f2d3300a234e",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 403,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:41ef63eed3ad4af83e050e6383301af330565cc8e935ac2217081de003a67a95",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/3"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/3"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [
+              {
+                "transitionId": "transition-a1",
+                "recordedIdentity": "alice",
+                "fromState": "start",
+                "toState": "viewed",
+                "captureSequence": 1,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_539f9129f105b80d50f5110f",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/0"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/0"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": "resource-a",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "blackboard",
+                      "pointer": "/resources/0"
+                    }
+                  ]
+                },
+                "sequenceRelation": "same-recorded-sequence",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/0"
+                  }
+                ]
+              },
+              {
+                "transitionId": "transition-a2",
+                "recordedIdentity": "alice",
+                "fromState": "viewed",
+                "toState": "saved",
+                "captureSequence": 2,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_7c74a4b77caf33789ea0aa46",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/1"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/1"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": "resource-a",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "blackboard",
+                      "pointer": "/resources/0"
+                    }
+                  ]
+                },
+                "sequenceRelation": "same-recorded-sequence",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/1"
+                  }
+                ]
+              }
+            ],
+            "transitionAvailability": "recorded",
+            "uncertainties": []
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings",
+          "unknown-empty-result-reason"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "anonymous-and-unattributed",
+      "set": "sets/anonymous-unattributed",
+      "scenario": "anonymous/unattributed identities",
+      "rationale": "The literal anonymous capture is distinct from an undeclared visitor label. The visitor stays in an unattributed bucket; its numeric counter cannot establish shared chronology. Configured Bob remains visible as not observed.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "partial",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 3,
+          "routes": 1,
+          "identities": 4,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          },
+          {
+            "key": "anonymous",
+            "kind": "anonymous",
+            "name": "anonymous",
+            "role": null,
+            "authenticated": null
+          },
+          {
+            "key": "unattributed",
+            "kind": "unattributed",
+            "name": null,
+            "role": null,
+            "authenticated": null
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_c1db3bc24b72547c0e7046cc",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "anonymous",
+            "recordedIdentity": "anonymous",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_1c9087b0a2ef821963a26130",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "unattributed",
+            "recordedIdentity": "visitor",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              },
+              {
+                "identityKey": "anonymous",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_c1db3bc24b72547c0e7046cc"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "identityKey": "unattributed",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_1c9087b0a2ef821963a26130"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "anonymous",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_c1db3bc24b72547c0e7046cc"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "unattributed",
+            "sequenceGroups": [
+              {
+                "captureSequence": null,
+                "exchangeIds": [
+                  "ex_1c9087b0a2ef821963a26130"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable",
+              "unattributed-identity",
+              "unknown-capture-sequence"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-anonymous",
+              "state": "completed"
+            },
+            {
+              "id": "capture-visitor",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": [
+          "unattributed-identity"
+        ]
+      }
+    },
+    {
+      "caseId": "normalized-zero-without-raw",
+      "set": "sets/normalized-zero",
+      "scenario": "normalized status zero without raw evidence",
+      "rationale": "Normalized status zero has no usable response metadata and cannot identify why the response is unavailable. Omitting optional raw evidence permits completed interpretation with limited evidence.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_7f757dc6d7f1e343e23e5057",
+            "routeSignature": "route_be19ce4452c46aa1d8a8e22d",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/unknown",
+            "responseStatus": 0,
+            "normalizedResponse": "unavailable",
+            "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_be19ce4452c46aa1d8a8e22d",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 1,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_7f757dc6d7f1e343e23e5057"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_7f757dc6d7f1e343e23e5057"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings",
+          "limited-response-evidence"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "associated-native-raw-quality",
+      "set": "sets/raw-quality",
+      "scenario": "saved absent/truncated/malformed responses with raw evidence",
+      "rationale": "Associated saved bytes distinguish explicit absent, truncation-marked, malformed, and usable responses. These conditions describe the capture evidence and do not establish authorization behavior.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "rawRequested": true,
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 4,
+          "routes": 4,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_449b039af96c4f53bacd9291",
+            "routeSignature": "route_c119d02caaa1757c412666e8",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/missing",
+            "responseStatus": 0,
+            "normalizedResponse": "unavailable",
+            "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+            "raw": {
+              "availability": "available",
+              "association": "matched",
+              "response": "absent",
+              "requiredSources": [
+                {
+                  "source": "raw",
+                  "pointer": "",
+                  "exchangeId": "ex_449b039af96c4f53bacd9291"
+                }
+              ]
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_158358bb2c12101618ff756d",
+            "routeSignature": "route_a03dc5c67b00a9c9af0d6c55",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/truncated",
+            "responseStatus": 0,
+            "normalizedResponse": "unavailable",
+            "responseFingerprint": "sha256:739c7956dcb2ee6a12f00ef063349bc82cb1ed6e2c1e2ab3ce1115f9cb7c64c9",
+            "raw": {
+              "availability": "available",
+              "association": "matched",
+              "response": "truncated",
+              "requiredSources": [
+                {
+                  "source": "raw",
+                  "pointer": "",
+                  "exchangeId": "ex_158358bb2c12101618ff756d"
+                }
+              ]
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_a3570b83f2181dd06fea6b61",
+            "routeSignature": "route_8054d6b0397a83ced4ae3697",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 3,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/malformed",
+            "responseStatus": 0,
+            "normalizedResponse": "unavailable",
+            "responseFingerprint": "sha256:6f3df05f2cdaa8cd0a8f85d398404312d796a08694da312af57fbfdf847c86b6",
+            "raw": {
+              "availability": "available",
+              "association": "matched",
+              "response": "malformed",
+              "requiredSources": [
+                {
+                  "source": "raw",
+                  "pointer": "",
+                  "exchangeId": "ex_a3570b83f2181dd06fea6b61"
+                }
+              ]
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_66aea37f9dd01ea4642ff3a0",
+            "routeSignature": "route_8481883ef39089f4574f20f9",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 4,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/usable",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "available",
+              "association": "matched",
+              "response": "usable",
+              "requiredSources": [
+                {
+                  "source": "raw",
+                  "pointer": "",
+                  "exchangeId": "ex_66aea37f9dd01ea4642ff3a0"
+                }
+              ]
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/3"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/3"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_c119d02caaa1757c412666e8",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 1,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 1,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": [
+                  "ex_449b039af96c4f53bacd9291"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_a03dc5c67b00a9c9af0d6c55",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 1,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 1,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": [
+                  "ex_158358bb2c12101618ff756d"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_8054d6b0397a83ced4ae3697",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 1,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 1,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": [
+                  "ex_a3570b83f2181dd06fea6b61"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_8481883ef39089f4574f20f9",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 1,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": [
+                  "ex_66aea37f9dd01ea4642ff3a0"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_449b039af96c4f53bacd9291"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_158358bb2c12101618ff756d"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 3,
+                "exchangeIds": [
+                  "ex_a3570b83f2181dd06fea6b61"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 4,
+                "exchangeIds": [
+                  "ex_66aea37f9dd01ea4642ff3a0"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings",
+          "limited-response-evidence"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "raw-association-mismatch",
+      "set": "sets/raw-mismatch",
+      "scenario": "saved absent/truncated/malformed responses with raw evidence",
+      "rationale": "The supplied response was changed while its filename/exchange ID and normalized fingerprint refer to the original capture. Its association is mismatched, and the response is unknown rather than trusted.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "rawRequested": true,
+      "expected": {
+        "status": "partial",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_66aea37f9dd01ea4642ff3a0",
+            "routeSignature": "route_8481883ef39089f4574f20f9",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 4,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/usable",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "available",
+              "association": "mismatch",
+              "response": "unknown",
+              "requiredSources": [
+                {
+                  "source": "raw",
+                  "pointer": "",
+                  "exchangeId": "ex_66aea37f9dd01ea4642ff3a0"
+                }
+              ]
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_8481883ef39089f4574f20f9",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_66aea37f9dd01ea4642ff3a0"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 4,
+                "exchangeIds": [
+                  "ex_66aea37f9dd01ea4642ff3a0"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": [
+          "raw-association-mismatch"
+        ]
+      }
+    },
+    {
+      "caseId": "exact-duplicate-records",
+      "set": "sets/exact-duplicates",
+      "scenario": "exact duplicates and conflicting IDs",
+      "rationale": "Each native collection contains one extra exact duplicate. Normal traffic/blackboard overlap is not itself duplication: one observation survives, with two extra records counted.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 2,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "conflicting-id-retains-independent-evidence",
+      "set": "sets/conflicting-id",
+      "scenario": "exact duplicates and conflicting IDs",
+      "rationale": "Alice's same exchange ID has contradictory response statuses across the two native artifacts. Isolate that logical ID and keep Bob's consistent observation; do not turn conflicting records into two observations.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "partial",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 1,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": [
+          "conflicting-record"
+        ]
+      }
+    },
+    {
+      "caseId": "optional-findings-absent",
+      "set": "sets/findings-absent",
+      "scenario": "absent optional findings versus valid empty findings",
+      "rationale": "An omitted findings property provides no known finding count. Tasks and normalized exchanges cannot substitute for the optional findings array.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "unavailable",
+            "count": null
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "finding-count-unavailable"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-zero-findings",
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "optional-findings-invalid",
+      "set": "sets/findings-invalid",
+      "scenario": "malformed required/optional inputs",
+      "rationale": "A supplied object is not the native findings array. Preserve independent observations but mark analysis partial and the recorded finding count unavailable.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "partial",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "unavailable",
+            "count": null
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "finding-count-unavailable"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-zero-findings",
+          "recorded-findings"
+        ],
+        "diagnosticCodes": [
+          "invalid-optional-input"
+        ]
+      }
+    },
+    {
+      "caseId": "required-traffic-envelope-invalid",
+      "set": "sets/required-invalid",
+      "scenario": "malformed required/optional inputs",
+      "rationale": "The native traffic envelope must be an array; an object cannot support route or identity conclusions.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "failed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 0,
+          "routes": 0,
+          "identities": 0,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [],
+        "exchanges": [],
+        "routes": [],
+        "workflows": [],
+        "diagnosticCodes": [
+          "invalid-required-input"
+        ]
+      }
+    },
+    {
+      "caseId": "unsupported-blackboard-schema",
+      "set": "sets/schema-unknown",
+      "scenario": "malformed required/optional inputs",
+      "rationale": "An unknown exported schema version cannot be treated as the supported native version1 envelope.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "failed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 0,
+          "routes": 0,
+          "identities": 0,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [],
+        "exchanges": [],
+        "routes": [],
+        "workflows": [],
+        "diagnosticCodes": [
+          "invalid-required-input"
+        ]
+      }
+    },
+    {
+      "caseId": "transition-reference-problems",
+      "set": "sets/transition-problems",
+      "scenario": "missing references",
+      "rationale": "Missing triggers, a trigger belonging to another identity, and a missing declared resource prevent supported transition linkage. Same-counter recorded transitions remain tied; no cross-identity chronology or state change is inferred.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "partial",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 2,
+          "routes": 1,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [
+              {
+                "transitionId": "transition-missing-trigger",
+                "recordedIdentity": "alice",
+                "fromState": "start",
+                "toState": "viewed",
+                "captureSequence": 1,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_missing",
+                  "state": "missing"
+                },
+                "resource": {
+                  "resourceId": null,
+                  "state": "not-declared"
+                },
+                "sequenceRelation": "unknown",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/0"
+                  }
+                ]
+              },
+              {
+                "transitionId": "transition-missing-resource",
+                "recordedIdentity": "alice",
+                "fromState": "start",
+                "toState": "viewed",
+                "captureSequence": 1,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_539f9129f105b80d50f5110f",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/0"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/0"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": "resource-missing",
+                  "state": "missing"
+                },
+                "sequenceRelation": "same-recorded-sequence",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/2"
+                  }
+                ]
+              }
+            ],
+            "transitionAvailability": "recorded",
+            "uncertainties": [
+              "no-linked-transitions",
+              "tied-transition-sequence",
+              "transition-reference-problem"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [
+              {
+                "transitionId": "transition-wrong-identity",
+                "recordedIdentity": "bob",
+                "fromState": "start",
+                "toState": "viewed",
+                "captureSequence": 1,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_539f9129f105b80d50f5110f",
+                  "state": "identity-conflict",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/0"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/0"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": null,
+                  "state": "not-declared"
+                },
+                "sequenceRelation": "unknown",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/1"
+                  }
+                ]
+              }
+            ],
+            "transitionAvailability": "recorded",
+            "uncertainties": [
+              "no-linked-transitions",
+              "transition-reference-problem"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": [
+          "workflow-reference-problem"
+        ]
+      }
+    },
+    {
+      "caseId": "local-counter-ties-and-gaps",
+      "set": "sets/sequence-ties",
+      "scenario": "tied/per-identity capture order",
+      "rationale": "Two distinct Alice exchanges share local sequence1 and another has sequence4. Preserve the tie and numbering gap without estimating missing requests; Bob's sequence1 is a separate identity namespace.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 4,
+          "routes": 4,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_f8ca6e0a852ac191f2b00109",
+            "routeSignature": "route_27e5aa5229a2cfa760d3167d",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/first",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_3d9556650aa878be895ec294",
+            "routeSignature": "route_3ef097b9420bf09c5817931d",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/second",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_816063e0345e390496784005",
+            "routeSignature": "route_a0e9984305a80fbe61d672e9",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 4,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/fourth",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/3"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/3"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_27e5aa5229a2cfa760d3167d",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_f8ca6e0a852ac191f2b00109"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_3ef097b9420bf09c5817931d",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_3d9556650aa878be895ec294"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_a0e9984305a80fbe61d672e9",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_816063e0345e390496784005"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "not-observed",
+                "counts": {
+                  "requests": 0,
+                  "usableNormalizedResponses": 0,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 0
+                },
+                "exchangeIds": []
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_3d9556650aa878be895ec294",
+                  "ex_f8ca6e0a852ac191f2b00109"
+                ],
+                "tied": true,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  },
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 4,
+                "exchangeIds": [
+                  "ex_816063e0345e390496784005"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ],
+            "gaps": [
+              {
+                "after": 1,
+                "before": 4
+              }
+            ],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "capture-sequence-gap",
+              "tied-capture-sequence",
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "exchange-sequence-without-transitions",
+      "set": "sets/no-transitions",
+      "scenario": "absent workflow metadata",
+      "rationale": "Recorded exchanges remain inspectable when the saved transition array is empty. No workflow states or transitions are invented from route names or adjacency.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 4,
+          "routes": 2,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_7c74a4b77caf33789ea0aa46",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_5407757b3411f2d3300a234e",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 403,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:41ef63eed3ad4af83e050e6383301af330565cc8e935ac2217081de003a67a95",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/3"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/3"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "recorded-incomplete-and-blocked-work",
+      "set": "sets/blocked-incomplete",
+      "scenario": "recorded blocked/incomplete runs",
+      "rationale": "An incomplete saved run and blocked/failed historical work can coexist with zero recorded findings. The passive interpretation itself completes, and these facts do not prove the cause of an empty result.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 4,
+          "routes": 2,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_539f9129f105b80d50f5110f",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_7c74a4b77caf33789ea0aa46",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/1"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/1"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_d62edc547e3fa9d2e0593718",
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/items",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/2"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/2"
+              }
+            ]
+          },
+          {
+            "exchangeId": "ex_5407757b3411f2d3300a234e",
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "identityKey": "named:bob",
+            "recordedIdentity": "bob",
+            "captureSequence": 2,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/save",
+            "responseStatus": 403,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:41ef63eed3ad4af83e050e6383301af330565cc8e935ac2217081de003a67a95",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/3"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/3"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_9194a1935fdafbed08b3ca03",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "routeSignature": "route_fcc2488399f7c6edbf6f0212",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              },
+              {
+                "identityKey": "named:bob",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_539f9129f105b80d50f5110f"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_7c74a4b77caf33789ea0aa46"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/1"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/1"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [
+              {
+                "transitionId": "transition-a1",
+                "recordedIdentity": "alice",
+                "fromState": "start",
+                "toState": "viewed",
+                "captureSequence": 1,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_539f9129f105b80d50f5110f",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/0"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/0"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": "resource-a",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "blackboard",
+                      "pointer": "/resources/0"
+                    }
+                  ]
+                },
+                "sequenceRelation": "same-recorded-sequence",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/0"
+                  }
+                ]
+              },
+              {
+                "transitionId": "transition-a2",
+                "recordedIdentity": "alice",
+                "fromState": "viewed",
+                "toState": "saved",
+                "captureSequence": 2,
+                "recordState": "consistent",
+                "trigger": {
+                  "exchangeId": "ex_7c74a4b77caf33789ea0aa46",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "traffic",
+                      "pointer": "/1"
+                    },
+                    {
+                      "source": "blackboard",
+                      "pointer": "/exchanges/1"
+                    }
+                  ]
+                },
+                "resource": {
+                  "resourceId": "resource-a",
+                  "state": "linked",
+                  "requiredSources": [
+                    {
+                      "source": "blackboard",
+                      "pointer": "/resources/0"
+                    }
+                  ]
+                },
+                "sequenceRelation": "same-recorded-sequence",
+                "requiredSources": [
+                  {
+                    "source": "blackboard",
+                    "pointer": "/transitions/1"
+                  }
+                ]
+              }
+            ],
+            "transitionAvailability": "recorded",
+            "uncertainties": []
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_d62edc547e3fa9d2e0593718"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/2"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/2"
+                  }
+                ]
+              },
+              {
+                "captureSequence": 2,
+                "exchangeIds": [
+                  "ex_5407757b3411f2d3300a234e"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/3"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/3"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "incomplete",
+          "failureRecorded": true,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [
+            {
+              "id": "hypothesis-blocked",
+              "state": "blocked"
+            }
+          ],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            },
+            {
+              "id": "capture-bob",
+              "state": "completed"
+            },
+            {
+              "id": "task-unresolved",
+              "state": "failed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings",
+          "recorded-blocked-work",
+          "recorded-unresolved-work",
+          "recorded-incomplete-run"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "unicode-inert-private-metadata",
+      "set": "sets/unicode ü 東京",
+      "scenario": "Unicode/inert private metadata",
+      "rationale": "Unicode and markup-like recorded role metadata remain literal private data. Recorded authenticated:false is preserved without claiming current session validity.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 1,
+          "routes": 1,
+          "identities": 1,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader | <b>東京</b> [role](https://example.invalid/)",
+            "authenticated": false,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          }
+        ],
+        "exchanges": [
+          {
+            "exchangeId": "ex_b1b6a96188466f48190d8783",
+            "routeSignature": "route_26b29a47bcfc266a3832039b",
+            "identityKey": "named:alice",
+            "recordedIdentity": "alice",
+            "captureSequence": 1,
+            "method": "GET",
+            "origin": "https://synthetic.example.invalid",
+            "path": "/r%C3%A9sum%C3%A9/%3Ctag%3E",
+            "responseStatus": 200,
+            "normalizedResponse": "usable",
+            "responseFingerprint": "sha256:a3cc737a828c108f8287b362a0d38a33b2d7845ede0d527fa0c6873209112eac",
+            "raw": {
+              "availability": "not-supplied",
+              "association": "not-assessed",
+              "response": "unknown"
+            },
+            "requiredSources": [
+              {
+                "source": "traffic",
+                "pointer": "/0"
+              },
+              {
+                "source": "blackboard",
+                "pointer": "/exchanges/0"
+              }
+            ]
+          }
+        ],
+        "routes": [
+          {
+            "routeSignature": "route_26b29a47bcfc266a3832039b",
+            "cells": [
+              {
+                "identityKey": "named:alice",
+                "state": "observed",
+                "counts": {
+                  "requests": 1,
+                  "usableNormalizedResponses": 1,
+                  "unavailableNormalizedResponses": 0,
+                  "invalidNormalizedResponses": 0,
+                  "rawUsableResponses": 0,
+                  "rawAbsentResponses": 0,
+                  "rawTruncatedResponses": 0,
+                  "rawMalformedResponses": 0,
+                  "rawUnknownResponses": 1
+                },
+                "exchangeIds": [
+                  "ex_b1b6a96188466f48190d8783"
+                ],
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [
+              {
+                "captureSequence": 1,
+                "exchangeIds": [
+                  "ex_b1b6a96188466f48190d8783"
+                ],
+                "tied": false,
+                "requiredSources": [
+                  {
+                    "source": "traffic",
+                    "pointer": "/0"
+                  },
+                  {
+                    "source": "blackboard",
+                    "pointer": "/exchanges/0"
+                  }
+                ]
+              }
+            ],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [
+            {
+              "id": "capture-alice",
+              "state": "completed"
+            }
+          ],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "empty-observed-inventory",
+      "set": "sets/empty-observations",
+      "scenario": "absent optional findings versus valid empty findings",
+      "rationale": "A valid empty traffic inventory with a valid empty findings array establishes zero supplied observations and zero recorded findings only. Configured identities remain present with no invented routes or workflows.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox/artifacts.ts",
+        "apps/worker/src/types/blackbox.ts"
+      ],
+      "expected": {
+        "status": "completed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 0,
+          "routes": 0,
+          "identities": 2,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [
+          {
+            "key": "named:alice",
+            "kind": "named",
+            "name": "alice",
+            "role": "reader",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/0"
+              }
+            ]
+          },
+          {
+            "key": "named:bob",
+            "kind": "named",
+            "name": "bob",
+            "role": "editor",
+            "authenticated": true,
+            "requiredSources": [
+              {
+                "source": "blackboard",
+                "pointer": "/identities/1"
+              }
+            ]
+          }
+        ],
+        "exchanges": [],
+        "routes": [],
+        "workflows": [
+          {
+            "identityKey": "named:alice",
+            "sequenceGroups": [],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          },
+          {
+            "identityKey": "named:bob",
+            "sequenceGroups": [],
+            "gaps": [],
+            "transitions": [],
+            "transitionAvailability": "unavailable",
+            "uncertainties": [
+              "transitions-unavailable"
+            ]
+          }
+        ],
+        "recorded": {
+          "runStatus": "complete",
+          "failureRecorded": false,
+          "termination": {
+            "state": "unavailable",
+            "code": null,
+            "source": null
+          },
+          "findings": {
+            "availability": "known",
+            "count": 0
+          },
+          "hypotheses": [],
+          "candidates": [],
+          "verifications": [],
+          "tasks": [],
+          "rejectedTasks": []
+        },
+        "requiredReasonCodes": [
+          "recorded-zero-findings",
+          "no-recorded-exchanges"
+        ],
+        "forbiddenReasonCodes": [
+          "recorded-findings"
+        ],
+        "diagnosticCodes": []
+      }
+    },
+    {
+      "caseId": "aggregate-exchange-limit",
+      "set": "sets/rich",
+      "scenario": "resource exhaustion and source/output preservation",
+      "rationale": "A public maxExchanges ceiling of1 cannot accept the rich fixture's four unique exchanges. The analysis fails explicitly with no truncated plausible inventory.",
+      "primarySources": [
+        "docs/goals/blackbox-observation-coverage.md",
+        "apps/worker/src/blackbox-observation/limits.ts"
+      ],
+      "limits": {
+        "maxExchanges": 1
+      },
+      "expected": {
+        "status": "failed",
+        "scope": {
+          "basis": "supplied-saved-records",
+          "authorization": "not-assessed",
+          "sessionValidity": "not-assessed",
+          "causality": "not-established",
+          "applicationCoverage": "unknown"
+        },
+        "counts": {
+          "exchanges": 0,
+          "routes": 0,
+          "identities": 0,
+          "duplicates": 0,
+          "conflicts": 0,
+          "rejectedRecords": 0
+        },
+        "identities": [],
+        "exchanges": [],
+        "routes": [],
+        "workflows": [],
+        "diagnosticCodes": [
+          "resource-limit"
+        ]
+      }
+    }
+  ]
+}

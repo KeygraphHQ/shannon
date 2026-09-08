@@ -1,0 +1,1 @@
+{"request":"GET /values?case=07-malformed HTTP/1.1\r\nHost: body-values.invalid\r\nAuthorization: PRIVATE_SENTINEL-alice\r\n\r\n","response":"HTTP/1.1 200 OK\r\nContent-Length: 02\r\nContent-Type: text\r\n\r\nok","notes":"PRIVATE_SENTINEL-notes","occurrence":1}
