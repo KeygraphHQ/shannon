@@ -1,0 +1,13 @@
+openapi: 3.0.4
+info: {title: Synthetic contract, version: 1.0.0}
+components:
+  securitySchemes:
+    HeaderKey: {type: apiKey, in: header, name: X-Synthetic-Key}
+security:
+  - HeaderKey: []
+paths:
+  /public:
+    get:
+      security: []
+      responses:
+        '200': {description: Public response}

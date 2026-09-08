@@ -1,0 +1,4 @@
+services:
+  worker:
+    image: synthetic:fixture
+    privileged: !unreviewed true

@@ -1,0 +1,6 @@
+services:
+  worker:
+    image: synthetic:fixture
+    security_opt:
+      - apparmor=docker-default
+      - no-new-privileges:true

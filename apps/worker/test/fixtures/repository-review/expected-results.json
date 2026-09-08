@@ -1,0 +1,1788 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "1.0.0",
+  "labeling": {
+    "basis": "Goal and frozen public types/contract, plus cited declaration specifications; discovery/comparison implementations and outputs were not read to derive labels.",
+    "reviewStatus": "independent-review-passed",
+    "sourceNature": "Synthetic local projects only. Source URLs are metadata and are never fetched by tests.",
+    "scope": "Finite supported workflow agreement, not field accuracy or complete project coverage.",
+    "independentReview": {
+      "reviewer": "root",
+      "scope": "All 21 case rationales, snapshot expectations, 22 comparison change labels, and all 24 synthetic fixture file contents were reviewed before evaluator execution.",
+      "rationale": "The reviewer did not implement discovery/comparison. Labels agree with the frozen goal and public contract: exact current pointers survive supported reordering, unrelated known evidence remains comparable, and moves/incompatible semantics remain separate unknown observations.",
+      "expectedLabelChanges": "None",
+      "fixtureConstraintCorrection": "Before API execution, author and independent reviewer agreed that exact-cap discovery may conservatively remain incomplete. The complete side of two capped-inventory pairs uses maxEntries:2 rather than 1; the incomplete side retains 1. All comparison labels, pointers, and counts are unchanged."
+    }
+  },
+  "coverage": [
+    {
+      "scenario": "mixed-format discovery",
+      "caseIds": [
+        "mixed-format-discovery"
+      ]
+    },
+    {
+      "scenario": "explicit nonstandard filenames",
+      "caseIds": [
+        "explicit-unicode-selector"
+      ]
+    },
+    {
+      "scenario": "excluded/generated content",
+      "caseIds": [
+        "excluded-generated-content"
+      ]
+    },
+    {
+      "scenario": "empty inventory",
+      "caseIds": [
+        "empty-supported-inventory"
+      ]
+    },
+    {
+      "scenario": "new observation",
+      "caseIds": [
+        "new-existing-file-observation",
+        "new-file-observation"
+      ]
+    },
+    {
+      "scenario": "unchanged observation",
+      "caseIds": [
+        "unchanged-despite-metadata"
+      ]
+    },
+    {
+      "scenario": "supported removal",
+      "caseIds": [
+        "supported-declaration-removal"
+      ]
+    },
+    {
+      "scenario": "equivalent reordering",
+      "caseIds": [
+        "equivalent-list-reordering"
+      ]
+    },
+    {
+      "scenario": "deleted file/ambiguous rename",
+      "caseIds": [
+        "deleted-file-is-unknown",
+        "exact-content-move-is-unknown"
+      ]
+    },
+    {
+      "scenario": "incomplete baseline",
+      "caseIds": [
+        "incomplete-baseline-preserves-independent-match",
+        "incomplete-baseline-inventory-cannot-establish-new"
+      ]
+    },
+    {
+      "scenario": "incomplete candidate",
+      "caseIds": [
+        "incomplete-candidate-preserves-independent-match",
+        "incomplete-candidate-inventory-cannot-establish-removal"
+      ]
+    },
+    {
+      "scenario": "incompatible or malformed snapshot",
+      "caseIds": [
+        "invalid-snapshot-id",
+        "incompatible-selection-policy",
+        "incompatible-reviewer-semantics"
+      ]
+    },
+    {
+      "scenario": "aggregate-limit exhaustion",
+      "caseIds": [
+        "aggregate-selected-file-limit",
+        "aggregate-byte-limit",
+        "aggregate-entry-limit"
+      ]
+    },
+    {
+      "scenario": "output/Unicode-path handling",
+      "caseIds": [
+        "explicit-unicode-selector"
+      ],
+      "additionalIntegrationOwner": "Root CLI tests: reject existing snapshot outputs, preserve source inputs, and validate/execute the local CI example. The corpus checks portable Unicode evidence and input immutability."
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "mixed-format-discovery",
+      "scenario": "mixed-format discovery",
+      "kind": "repository",
+      "rationale": "Conventional Compose and OpenAPI filenames in different folders are selected; unrelated project metadata stays ignored. Both explicit declarations remain observable.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object"
+      ],
+      "project": "projects/mixed",
+      "options": {},
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            },
+            {
+              "path": "api/openapi.json",
+              "format": "openapi",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "openapi/undeclared-security-scheme",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "api/openapi.json",
+                  "pointer": "/security/0/Missing"
+                }
+              ]
+            }
+          ],
+          "ignoredFilesAtLeast": 2
+        }
+      }
+    },
+    {
+      "caseId": "explicit-unicode-selector",
+      "scenario": "explicit nonstandard filenames",
+      "kind": "repository",
+      "rationale": "An explicit root-relative selector admits the nonstandard contract name. Unicode in the project and file paths is preserved as private evidence metadata.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "docs/repository-review-plan.md",
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object",
+        "https://www.rfc-editor.org/rfc/rfc6901.html#section-3"
+      ],
+      "project": "projects/selected ü 東京",
+      "options": {
+        "include": [
+          {
+            "format": "openapi",
+            "path": "config/contract ü.yaml"
+          }
+        ]
+      },
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "config/contract ü.yaml",
+              "format": "openapi",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "openapi/undeclared-security-scheme",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "config/contract ü.yaml",
+                  "pointer": "/security/0/Missing"
+                }
+              ]
+            }
+          ],
+          "ignoredFilesAtLeast": 1
+        }
+      }
+    },
+    {
+      "caseId": "excluded-generated-content",
+      "scenario": "excluded/generated content",
+      "kind": "repository",
+      "rationale": "The default generated build tree and explicitly excluded vendor tree must not contribute observations. Deliberate skipped scope stays visible; the remaining Compose file is assessed.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "docs/repository-review-plan.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ],
+      "project": "projects/exclusions",
+      "options": {
+        "exclude": [
+          "vendor"
+        ]
+      },
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": []
+            }
+          ],
+          "skippedPrefixes": [
+            "build",
+            "vendor"
+          ],
+          "ignoredFilesAtLeast": 1
+        }
+      }
+    },
+    {
+      "caseId": "empty-supported-inventory",
+      "scenario": "empty inventory",
+      "kind": "repository",
+      "rationale": "A complete inventory containing only unrelated README and package metadata is a valid empty supported-file result; it does not establish project security.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "project": "projects/empty",
+      "options": {},
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [],
+          "ignoredFilesAtLeast": 1
+        }
+      }
+    },
+    {
+      "caseId": "new-existing-file-observation",
+      "scenario": "new observation",
+      "kind": "comparison",
+      "rationale": "The same file is fully assessed on both sides, and the candidate newly requests privileged mode.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ],
+      "baseline": {
+        "project": "projects/clean",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": []
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "completed",
+          "compatible": true,
+          "counts": {
+            "new": 1,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 0
+          },
+          "changes": [
+            {
+              "state": "new",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": false
+        }
+      }
+    },
+    {
+      "caseId": "new-file-observation",
+      "scenario": "new observation",
+      "kind": "comparison",
+      "rationale": "Complete compatible baseline discovery establishes that the candidate's conventional Compose file did not exist within the same scope. Its declaration is new, unlike a missing baseline snapshot.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ],
+      "baseline": {
+        "project": "projects/empty",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [],
+          "ignoredFilesAtLeast": 1
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "completed",
+          "compatible": true,
+          "counts": {
+            "new": 1,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 0
+          },
+          "changes": [
+            {
+              "state": "new",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": false
+        }
+      }
+    },
+    {
+      "caseId": "unchanged-despite-metadata",
+      "scenario": "unchanged observation",
+      "kind": "comparison",
+      "rationale": "Reordering mapping fields and adding harmless labels preserve the same explicit privilege declaration. Absolute fixture roots and bytes differ without changing declaration identity.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/unchanged",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "completed",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 1,
+            "removed": 0,
+            "unknown": 0
+          },
+          "changes": [
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": false
+        }
+      }
+    },
+    {
+      "caseId": "supported-declaration-removal",
+      "scenario": "supported removal",
+      "kind": "comparison",
+      "rationale": "The candidate fully assesses the same file/rule and contains explicit false in place of true. Report removal of this declaration, not deployed remediation.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/clean",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": []
+            }
+          ]
+        },
+        "comparison": {
+          "status": "completed",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 1,
+            "unknown": 0
+          },
+          "changes": [
+            {
+              "state": "removed",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            }
+          ],
+          "diagnosticsRequired": false
+        }
+      }
+    },
+    {
+      "caseId": "equivalent-list-reordering",
+      "scenario": "equivalent reordering",
+      "kind": "comparison",
+      "rationale": "Capability list order, security alternative order and required-scope order do not change the supported declarations. Match their semantic identities while retaining exact current array-index evidence.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/services/#cap_add",
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object",
+        "https://spec.openapis.org/oas/v3.1.1.html#oauth-flow-object",
+        "https://www.rfc-editor.org/rfc/rfc6901.html#section-3"
+      ],
+      "baseline": {
+        "project": "projects/reorder-before",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/reorder-after",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/cap_add/1"
+                },
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/cap_add/2"
+                }
+              ]
+            },
+            {
+              "path": "openapi.json",
+              "format": "openapi",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "openapi/undeclared-security-scheme",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/0/Missing"
+                },
+                {
+                  "ruleId": "openapi/undeclared-oauth-scope",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/1/OAuth/0"
+                },
+                {
+                  "ruleId": "openapi/undeclared-oauth-scope",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/1/OAuth/1"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/cap_add/2"
+                },
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/cap_add/0"
+                }
+              ]
+            },
+            {
+              "path": "openapi.json",
+              "format": "openapi",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "openapi/undeclared-security-scheme",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/1/Missing"
+                },
+                {
+                  "ruleId": "openapi/undeclared-oauth-scope",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/0/OAuth/1"
+                },
+                {
+                  "ruleId": "openapi/undeclared-oauth-scope",
+                  "classification": "contract-consistency",
+                  "applicability": "declared",
+                  "file": "openapi.json",
+                  "pointer": "/security/0/OAuth/0"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "completed",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 5,
+            "removed": 0,
+            "unknown": 0
+          },
+          "changes": [
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/cap_add/1"
+              },
+              "after": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/cap_add/2"
+              }
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/cap_add/2"
+              },
+              "after": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/cap_add/0"
+              }
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "openapi/undeclared-security-scheme",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/0/Missing"
+              },
+              "after": {
+                "ruleId": "openapi/undeclared-security-scheme",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/1/Missing"
+              }
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "openapi/undeclared-oauth-scope",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/1/OAuth/0"
+              },
+              "after": {
+                "ruleId": "openapi/undeclared-oauth-scope",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/0/OAuth/1"
+              }
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "openapi/undeclared-oauth-scope",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/1/OAuth/1"
+              },
+              "after": {
+                "ruleId": "openapi/undeclared-oauth-scope",
+                "classification": "contract-consistency",
+                "applicability": "declared",
+                "file": "openapi.json",
+                "pointer": "/security/0/OAuth/0"
+              }
+            }
+          ],
+          "diagnosticsRequired": false
+        }
+      }
+    },
+    {
+      "caseId": "deleted-file-is-unknown",
+      "scenario": "deleted file/ambiguous rename",
+      "kind": "comparison",
+      "rationale": "A deleted configuration file does not demonstrate removal from a still-assessed declaration or deployed remediation. Retain the baseline observation with unknown change status.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/empty",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [],
+          "ignoredFilesAtLeast": 1
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 1
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "exact-content-move-is-unknown",
+      "scenario": "deleted file/ambiguous rename",
+      "kind": "comparison",
+      "rationale": "Identical content moved between paths is ambiguous under the bounded rename policy. The frozen contract exposes separate before-only and after-only unknown records, without a fabricated introduction.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "docs/repository-review-plan.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/moved",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "infra/compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "infra/compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 2
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            },
+            {
+              "state": "unknown",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "infra/compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incomplete-baseline-preserves-independent-match",
+      "scenario": "incomplete baseline",
+      "kind": "comparison",
+      "rationale": "Unresolved baseline interpolation prevents establishing introduction for that file/rule. A separate fully assessed capability declaration still compares unchanged.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://docs.docker.com/reference/compose-file/services/#cap_add"
+      ],
+      "baseline": {
+        "project": "projects/partial",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/known",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "partial"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "partial",
+              "observations": []
+            },
+            {
+              "path": "stable/compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "stable/compose.yml",
+                  "pointer": "/services/stable/cap_add/0"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            },
+            {
+              "path": "stable/compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "stable/compose.yml",
+                  "pointer": "/services/stable/cap_add/0"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 1,
+            "removed": 0,
+            "unknown": 1
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "stable/compose.yml",
+                "pointer": "/services/stable/cap_add/0"
+              },
+              "after": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "stable/compose.yml",
+                "pointer": "/services/stable/cap_add/0"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incomplete-candidate-preserves-independent-match",
+      "scenario": "incomplete candidate",
+      "kind": "comparison",
+      "rationale": "Unresolved candidate interpolation prevents establishing removal. Unrelated compatible evidence remains comparable instead of discarding the whole project's known observations.",
+      "primarySources": [
+        "docs/goals/repository-review.md",
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://docs.docker.com/reference/compose-file/services/#cap_add"
+      ],
+      "baseline": {
+        "project": "projects/known",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/partial",
+        "options": {}
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            },
+            {
+              "path": "stable/compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "stable/compose.yml",
+                  "pointer": "/services/stable/cap_add/0"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "partial"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "partial",
+              "observations": []
+            },
+            {
+              "path": "stable/compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/expanded-capabilities",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "stable/compose.yml",
+                  "pointer": "/services/stable/cap_add/0"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 1,
+            "removed": 0,
+            "unknown": 1
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            },
+            {
+              "state": "unchanged",
+              "before": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "stable/compose.yml",
+                "pointer": "/services/stable/cap_add/0"
+              },
+              "after": {
+                "ruleId": "compose/expanded-capabilities",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "stable/compose.yml",
+                "pointer": "/services/stable/cap_add/0"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incomplete-baseline-inventory-cannot-establish-new",
+      "scenario": "incomplete baseline",
+      "kind": "comparison",
+      "rationale": "An entry limit of one stops baseline discovery among two unrelated files. The supported-file inventory is empty but incomplete, so it cannot prove absence of the candidate declaration. A limit of two allows the one-file candidate project to establish complete inventory without depending on EOF behavior at the exact cap; selection policy is unchanged.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/empty",
+        "options": {
+          "limits": {
+            "maxEntries": 1
+          }
+        }
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {
+          "limits": {
+            "maxEntries": 2
+          }
+        }
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "partial",
+            "failed"
+          ],
+          "discoveryState": "incomplete",
+          "files": [],
+          "maxEntriesVisited": 1,
+          "diagnosticsRequired": true
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 1
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incomplete-candidate-inventory-cannot-establish-removal",
+      "scenario": "incomplete candidate",
+      "kind": "comparison",
+      "rationale": "An entry limit of one stops candidate discovery among two unrelated files. Empty observed inventory cannot support a removal claim. A limit of two permits complete inventory of the one-file baseline project; its declaration evidence remains unknown while candidate discovery is incomplete. The selection policy is unchanged.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {
+          "limits": {
+            "maxEntries": 2
+          }
+        }
+      },
+      "candidate": {
+        "project": "projects/empty",
+        "options": {
+          "limits": {
+            "maxEntries": 1
+          }
+        }
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "partial",
+            "failed"
+          ],
+          "discoveryState": "incomplete",
+          "files": [],
+          "maxEntriesVisited": 1,
+          "diagnosticsRequired": true
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": true,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 1
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "invalid-snapshot-id",
+      "scenario": "incompatible or malformed snapshot",
+      "kind": "snapshot-mutation",
+      "rationale": "Changing a snapshot ID without resealing breaks its content identity. Invalid snapshots are rejected with failed comparison and no asserted changes.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "mutation": {
+        "kind": "invalidate-id",
+        "side": "candidate"
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "failed",
+          "compatible": false,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 0
+          },
+          "changes": [],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incompatible-selection-policy",
+      "scenario": "incompatible or malformed snapshot",
+      "kind": "snapshot-mutation",
+      "rationale": "A valid resealed snapshot with a different exclusion policy has incompatible selected scope. Each side's observation remains a separate unknown record; no introduction/removal is asserted.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "mutation": {
+        "kind": "change-policy",
+        "side": "candidate",
+        "exclude": "unselected-local-folder"
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": false,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 2
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            },
+            {
+              "state": "unknown",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "incompatible-reviewer-semantics",
+      "scenario": "incompatible or malformed snapshot",
+      "kind": "snapshot-mutation",
+      "rationale": "A valid resealed snapshot from different reviewer semantics cannot establish a trustworthy delta. Change only the digest dynamically; no current engine fingerprint is hard-coded.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "baseline": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "candidate": {
+        "project": "projects/privileged",
+        "options": {}
+      },
+      "mutation": {
+        "kind": "change-reviewer-digest",
+        "side": "candidate"
+      },
+      "expected": {
+        "baseline": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "candidate": {
+          "statuses": [
+            "completed"
+          ],
+          "discoveryState": "complete",
+          "files": [
+            {
+              "path": "compose.yml",
+              "format": "compose",
+              "status": "completed",
+              "observations": [
+                {
+                  "ruleId": "compose/privileged",
+                  "classification": "configuration-risk",
+                  "applicability": "declared",
+                  "file": "compose.yml",
+                  "pointer": "/services/app/privileged"
+                }
+              ]
+            }
+          ]
+        },
+        "comparison": {
+          "status": "partial",
+          "compatible": false,
+          "counts": {
+            "new": 0,
+            "unchanged": 0,
+            "removed": 0,
+            "unknown": 2
+          },
+          "changes": [
+            {
+              "state": "unknown",
+              "before": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              },
+              "after": null
+            },
+            {
+              "state": "unknown",
+              "before": null,
+              "after": {
+                "ruleId": "compose/privileged",
+                "classification": "configuration-risk",
+                "applicability": "declared",
+                "file": "compose.yml",
+                "pointer": "/services/app/privileged"
+              }
+            }
+          ],
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "aggregate-selected-file-limit",
+      "scenario": "aggregate-limit exhaustion",
+      "kind": "repository",
+      "rationale": "A one-file ceiling cannot silently classify a project with two conventional candidates as fully covered.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "project": "projects/mixed",
+      "options": {
+        "limits": {
+          "maxFiles": 1
+        }
+      },
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "partial",
+            "failed"
+          ],
+          "discoveryState": "incomplete",
+          "maxReviewedFiles": 1,
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "aggregate-byte-limit",
+      "scenario": "aggregate-limit exhaustion",
+      "kind": "repository",
+      "rationale": "A byte ceiling smaller than either candidate prevents analysis and must remain explicit incomplete discovery rather than a completed empty project.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "project": "projects/mixed",
+      "options": {
+        "limits": {
+          "maxBytes": 1
+        }
+      },
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "partial",
+            "failed"
+          ],
+          "discoveryState": "incomplete",
+          "maxReviewedFiles": 0,
+          "diagnosticsRequired": true
+        }
+      }
+    },
+    {
+      "caseId": "aggregate-entry-limit",
+      "scenario": "aggregate-limit exhaustion",
+      "kind": "repository",
+      "rationale": "The directory-entry ceiling bounds inventory itself. Partial traversal cannot establish absence even if no observation was emitted.",
+      "primarySources": [
+        "docs/goals/repository-review.md"
+      ],
+      "project": "projects/mixed",
+      "options": {
+        "limits": {
+          "maxEntries": 1
+        }
+      },
+      "expected": {
+        "snapshot": {
+          "statuses": [
+            "partial",
+            "failed"
+          ],
+          "discoveryState": "incomplete",
+          "maxEntriesVisited": 1,
+          "diagnosticsRequired": true
+        }
+      }
+    }
+  ]
+}

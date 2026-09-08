@@ -1,0 +1,5 @@
+services:
+  worker:
+    image: synthetic:fixture
+    cap_add:
+      - SYS_ADMIN

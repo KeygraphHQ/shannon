@@ -1,0 +1,18 @@
+openapi: 3.1.1
+info: {title: Synthetic contract, version: 1.0.0}
+components:
+  securitySchemes:
+    OAuth:
+      type: oauth2
+      flows:
+        authorizationCode:
+          authorizationUrl: https://authorization.example.invalid/authorize
+          tokenUrl: https://authorization.example.invalid/token
+          scopes: {}
+paths:
+  /records:
+    post:
+      security:
+        - OAuth: [write]
+      responses:
+        '201': {description: Created}

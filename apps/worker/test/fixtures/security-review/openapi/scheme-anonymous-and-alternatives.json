@@ -1,0 +1,28 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "Synthetic contract",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "securitySchemes": {
+      "HeaderKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "X-Synthetic-Key"
+      },
+      "Bearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "security": [
+    {},
+    {
+      "HeaderKey": [],
+      "Bearer": []
+    }
+  ]
+}

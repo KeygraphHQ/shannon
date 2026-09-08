@@ -1,0 +1,4 @@
+services:
+  app:
+    image: synthetic:fixture
+    privileged: true

@@ -1,0 +1,6 @@
+services:
+  proxy:
+    image: synthetic:fixture
+  worker:
+    image: synthetic:fixture
+    network_mode: service:proxy

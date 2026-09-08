@@ -1,0 +1,5 @@
+services:
+  worker:
+    extends:
+      file: ./never-read.yaml
+      service: base

@@ -1,0 +1,9 @@
+openapi: 3.1.1
+info: {title: Synthetic contract, version: 1.0.0}
+paths: {}
+components:
+  securitySchemes:
+    First: {$ref: '#/components/securitySchemes/Second'}
+    Second: {$ref: '#/components/securitySchemes/First'}
+security:
+  - First: []

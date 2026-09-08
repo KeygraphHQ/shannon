@@ -1,0 +1,20 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Synthetic contract",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "securitySchemes": {
+      "External": {
+        "$ref": "https://definitions.example.invalid/schemes.yaml#/Key"
+      }
+    }
+  },
+  "security": [
+    {
+      "External": []
+    }
+  ]
+}

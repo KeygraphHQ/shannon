@@ -1,0 +1,5 @@
+services:
+  worker:
+    image: synthetic:fixture
+    privileged: true
+    privileged: false

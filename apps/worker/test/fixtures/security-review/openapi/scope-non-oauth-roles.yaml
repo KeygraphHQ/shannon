@@ -1,0 +1,8 @@
+openapi: 3.1.1
+info: {title: Synthetic contract, version: 1.0.0}
+paths: {}
+components:
+  securitySchemes:
+    Bearer: {type: http, scheme: bearer}
+security:
+  - Bearer: [auditor]

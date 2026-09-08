@@ -1,0 +1,4 @@
+services:
+  app:
+    cap_add: [ALL, NET_BIND_SERVICE, SYS_ADMIN]
+    image: synthetic:fixture

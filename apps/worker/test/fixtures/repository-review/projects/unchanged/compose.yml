@@ -1,0 +1,5 @@
+services:
+  app:
+    privileged: true
+    labels: {description: Harmless metadata}
+    image: synthetic:fixture

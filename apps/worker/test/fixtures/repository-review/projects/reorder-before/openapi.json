@@ -1,0 +1,32 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Synthetic contract",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "components": {
+    "securitySchemes": {
+      "OAuth": {
+        "type": "oauth2",
+        "flows": {
+          "clientCredentials": {
+            "tokenUrl": "https://authorization.example.invalid/token",
+            "scopes": {}
+          }
+        }
+      }
+    }
+  },
+  "security": [
+    {
+      "Missing": []
+    },
+    {
+      "OAuth": [
+        "write",
+        "read"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+services:
+  worker:
+    image: synthetic:fixture
+    network_mode: "${NETWORK_MODE}"

@@ -1,0 +1,791 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "1.0.0",
+  "labeling": {
+    "authorRole": "independent-corpus-author",
+    "basis": "Goal contract, public result types, and cited primary specifications; rule implementation and outputs were not read to derive labels.",
+    "createdAt": "2026-09-07",
+    "reviewStatus": "independent-review-pending",
+    "statusSemantics": "completed means no diagnostics; partial means unsupported or malformed rule semantics; failed means input loading or parsing did not complete.",
+    "issueSemantics": "Expected issue fields and evidence pointers are exact, order-independent multisets. Empty expected issues never override an expected partial or failed status.",
+    "scope": "Synthetic fixture agreement only; no estimate of field accuracy, complete coverage, or deployed vulnerability."
+  },
+  "families": [
+    "openapi/undeclared-security-scheme",
+    "openapi/undeclared-oauth-scope",
+    "compose/privileged",
+    "compose/host-namespace",
+    "compose/unconfined-profile",
+    "compose/expanded-capabilities"
+  ],
+  "cases": [
+    {
+      "caseId": "scheme-root-missing",
+      "input": "openapi/scheme missing ü.json",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "openapi/undeclared-security-scheme",
+            "classification": "contract-consistency",
+            "applicability": "declared",
+            "pointer": "/security/0/Missing"
+          }
+        ]
+      },
+      "rationale": "A named root requirement has no security-scheme declaration. The absent local name is a contract inconsistency even when no paths are exposed.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "scheme-operation-missing",
+      "input": "openapi/scheme-operation-missing.yaml",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "openapi/undeclared-security-scheme",
+            "classification": "contract-consistency",
+            "applicability": "declared",
+            "pointer": "/paths/~1audit~0v1/get/security/0/Missing"
+          }
+        ]
+      },
+      "rationale": "The operation names an undeclared scheme. The evidence identifies that declaration; the path token escapes both slash and tilde.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object",
+        "https://www.rfc-editor.org/rfc/rfc6901.html#section-3"
+      ]
+    },
+    {
+      "caseId": "scheme-anonymous-and-alternatives",
+      "input": "openapi/scheme-anonymous-and-alternatives.json",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "Anonymous access and alternative requirement objects are allowed. Both names in the conjunctive alternative exist; optional access does not itself create a defect.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "scheme-operation-clears-inheritance",
+      "input": "openapi/scheme-operation-clears-inheritance.yaml",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "The root name is declared. An operation may remove the root security requirement with an empty array; this is not an undeclared-scheme issue.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#operation-object",
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "scheme-external-definition",
+      "input": "openapi/scheme-external-definition.json",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The name is present but its external definition is unresolved within the single local file. Report incomplete analysis instead of claiming a missing name; do not fetch the reference.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#reference-object",
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "scheme-cyclic-local-definition",
+      "input": "openapi/scheme-cyclic-local-definition.yaml",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-security-scheme",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "A local reference cycle does not resolve to a security-scheme definition. It requires bounded incomplete analysis, not an invented undeclared name.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#reference-object",
+        "https://spec.openapis.org/oas/v3.1.1.html#handling-reference-cycles"
+      ]
+    },
+    {
+      "caseId": "scope-root-absent",
+      "input": "openapi/scope-root-absent.json",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "openapi/undeclared-oauth-scope",
+            "classification": "contract-consistency",
+            "applicability": "declared",
+            "pointer": "/security/0/OAuth/0"
+          }
+        ]
+      },
+      "rationale": "The required OAuth2 scope is absent from the available scopes of the only declared flow.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object",
+        "https://spec.openapis.org/oas/v3.0.4.html#oauth-flow-object"
+      ]
+    },
+    {
+      "caseId": "scope-operation-empty-declaration",
+      "input": "openapi/scope-operation-empty-declaration.yaml",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "openapi/undeclared-oauth-scope",
+            "classification": "contract-consistency",
+            "applicability": "declared",
+            "pointer": "/paths/~1records/post/security/0/OAuth/0"
+          }
+        ]
+      },
+      "rationale": "An empty available-scope map is valid, but the operation requires a scope not present in that map. Evidence identifies the required array element.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object",
+        "https://spec.openapis.org/oas/v3.1.1.html#oauth-flow-object"
+      ]
+    },
+    {
+      "caseId": "scope-available-in-second-flow",
+      "input": "openapi/scope-available-in-second-flow.json",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "The required scope appears in a locally declared supported flow. The rule concerns absence from locally declared flows, not identical scope maps across flows.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object",
+        "https://spec.openapis.org/oas/v3.0.4.html#oauth-flow-object"
+      ]
+    },
+    {
+      "caseId": "scope-non-oauth-roles",
+      "input": "openapi/scope-non-oauth-roles.yaml",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "OpenAPI 3.1 allows role names for non-OAuth security types. An HTTP bearer role is not an undeclared OAuth2 scope.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "scope-openid-discovery",
+      "input": "openapi/scope-openid-discovery.json",
+      "format": "openapi",
+      "version": "3.1.1",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "OpenID scopes depend on provider discovery, which is outside a local file review. The required scope remains unknown; no discovery request is allowed.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.1.1.html#security-requirement-object",
+        "https://spec.openapis.org/oas/v3.1.1.html#security-scheme-object"
+      ]
+    },
+    {
+      "caseId": "scope-unresolved-definition",
+      "input": "openapi/scope-unresolved-definition.yaml",
+      "format": "openapi",
+      "version": "3.0.4",
+      "family": "openapi/undeclared-oauth-scope",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The referenced scheme is outside the input document. Its type and available scopes are unresolved, so a missing OAuth2 scope cannot be concluded.",
+      "primarySources": [
+        "https://spec.openapis.org/oas/v3.0.4.html#reference-object",
+        "https://spec.openapis.org/oas/v3.0.4.html#security-requirement-object"
+      ]
+    },
+    {
+      "caseId": "privileged-literal-true",
+      "input": "compose/privileged-literal-true.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/privileged",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/privileged"
+          }
+        ]
+      },
+      "rationale": "The service explicitly requests elevated privileges. Applicability is the declaration; support and effective impact remain platform dependent.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ]
+    },
+    {
+      "caseId": "privileged-profile-gated",
+      "input": "compose/privileged-profile-gated.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/privileged",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/debug/privileged"
+          }
+        ]
+      },
+      "rationale": "A service profile controls activation, but does not erase an explicit privilege request in the saved configuration. This does not assert that the profile was activated.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://docs.docker.com/reference/compose-file/services/#profiles"
+      ]
+    },
+    {
+      "caseId": "privileged-literal-false",
+      "input": "compose/privileged-literal-false.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "An explicit false value does not request privileged mode.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://raw.githubusercontent.com/compose-spec/compose-spec/main/schema/compose-spec.json"
+      ]
+    },
+    {
+      "caseId": "privileged-omitted-unrelated-text",
+      "input": "compose/privileged-omitted-unrelated-text.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "The service privilege setting is omitted. Extension data and label prose are not service privilege declarations; omission does not prove any runtime security baseline.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#privileged",
+        "https://docs.docker.com/reference/compose-file/extension/"
+      ]
+    },
+    {
+      "caseId": "privileged-interpolated-default",
+      "input": "compose/privileged-interpolated-default.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The default expression can be overridden by an environment value. A file-only review cannot substitute the default and claim a literal privilege request.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ]
+    },
+    {
+      "caseId": "privileged-external-extends",
+      "input": "compose/privileged-external-extends.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/privileged",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "External service composition could supply settings absent locally. The bounded single-file reviewer must expose unsupported composition and must not read the sibling file.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#extends",
+        "https://docs.docker.com/reference/compose-file/services/#privileged"
+      ]
+    },
+    {
+      "caseId": "host-network-declared",
+      "input": "compose/host-network-declared.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/host-namespace",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/network_mode"
+          }
+        ]
+      },
+      "rationale": "The service explicitly requests the host network mode. This is a declaration observation, not proof that a container joined a deployed host network.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#network_mode"
+      ]
+    },
+    {
+      "caseId": "host-pid-declared",
+      "input": "compose/host-pid-declared.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/host-namespace",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/pid"
+          }
+        ]
+      },
+      "rationale": "The host PID mode requests use of the host process namespace. Applicability and support depend on runtime platform.",
+      "primarySources": [
+        "https://docs.docker.com/reference/cli/docker/container/run/#pid"
+      ]
+    },
+    {
+      "caseId": "host-network-disabled",
+      "input": "compose/host-network-disabled.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "The none network mode is not a host namespace request, and no PID host setting is declared.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#network_mode"
+      ]
+    },
+    {
+      "caseId": "host-service-namespace",
+      "input": "compose/host-service-namespace.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "Joining another named service namespace is not an explicit host namespace request. The rule must not infer host settings from the service name.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#network_mode"
+      ]
+    },
+    {
+      "caseId": "host-network-interpolation",
+      "input": "compose/host-network-interpolation.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The requested network mode depends on external interpolation and cannot be labeled host or non-host from this local value.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#network_mode"
+      ]
+    },
+    {
+      "caseId": "host-pid-invalid-type",
+      "input": "compose/host-pid-invalid-type.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/host-namespace",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "PID mode is a string setting; a sequence is malformed and cannot be treated as a literal host request or a clean negative.",
+      "primarySources": [
+        "https://raw.githubusercontent.com/compose-spec/compose-spec/main/schema/compose-spec.json",
+        "https://docs.docker.com/reference/cli/docker/container/run/#pid"
+      ]
+    },
+    {
+      "caseId": "profile-seccomp-equals",
+      "input": "compose/profile-seccomp-equals.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/unconfined-profile",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/security_opt/0"
+          }
+        ]
+      },
+      "rationale": "The explicit unconfined seccomp option requests no seccomp profile. The equals syntax is supported.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#security_opt",
+        "https://docs.docker.com/engine/security/seccomp/#run-without-the-default-seccomp-profile"
+      ]
+    },
+    {
+      "caseId": "profile-apparmor-colon",
+      "input": "compose/profile-apparmor-colon.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/unconfined-profile",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/security_opt/0"
+          }
+        ]
+      },
+      "rationale": "The explicit unconfined AppArmor option disables that profile confinement. Compose supports the colon option separator as well as equals.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#security_opt",
+        "https://docs.docker.com/reference/cli/docker/container/run/#security-opt",
+        "https://docs.docker.com/engine/security/apparmor/#understand-the-policies"
+      ]
+    },
+    {
+      "caseId": "profile-named-and-no-new-privileges",
+      "input": "compose/profile-named-and-no-new-privileges.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "A named AppArmor profile and enabled no-new-privileges option do not request either supported unconfined profile. Profile contents are not inspected.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#security_opt",
+        "https://docs.docker.com/reference/cli/docker/container/run/#security-opt",
+        "https://docs.docker.com/engine/security/apparmor/#understand-the-policies"
+      ]
+    },
+    {
+      "caseId": "profile-omitted",
+      "input": "compose/profile-omitted.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "No isolation-profile override is declared. Absence alone cannot establish an unconfined runtime configuration.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#security_opt",
+        "https://docs.docker.com/engine/security/seccomp/#run-without-the-default-seccomp-profile"
+      ]
+    },
+    {
+      "caseId": "profile-interpolated",
+      "input": "compose/profile-interpolated.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "Interpolation determines the seccomp value. Neither an unconfined observation nor a clean literal-value conclusion is justified.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#security_opt"
+      ]
+    },
+    {
+      "caseId": "profile-mapping-invalid",
+      "input": "compose/profile-mapping-invalid.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/unconfined-profile",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The service security_opt field requires a list of option strings. A mapping is unsupported structure, not the supported colon string syntax.",
+      "primarySources": [
+        "https://raw.githubusercontent.com/compose-spec/compose-spec/main/schema/compose-spec.json",
+        "https://docs.docker.com/reference/compose-file/services/#security_opt"
+      ]
+    },
+    {
+      "caseId": "capabilities-all",
+      "input": "compose/capabilities-all.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/expanded-capabilities",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/cap_add/0"
+          }
+        ]
+      },
+      "rationale": "ALL explicitly requests all capabilities through the additions list. Actual grants depend on the platform and runtime.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#cap_add",
+        "https://docs.docker.com/engine/containers/run/#security-configuration"
+      ]
+    },
+    {
+      "caseId": "capabilities-sys-admin",
+      "input": "compose/capabilities-sys-admin.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "positive",
+      "expected": {
+        "status": "completed",
+        "issues": [
+          {
+            "ruleId": "compose/expanded-capabilities",
+            "classification": "configuration-risk",
+            "applicability": "declared",
+            "pointer": "/services/worker/cap_add/0"
+          }
+        ]
+      },
+      "rationale": "The additions list explicitly names SYS_ADMIN, one of the two bound expanded-capability observations.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#cap_add",
+        "https://docs.docker.com/engine/containers/run/#security-configuration"
+      ]
+    },
+    {
+      "caseId": "capabilities-drop-only",
+      "input": "compose/capabilities-drop-only.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "The capability names appear only in the drop list. A requested removal must not be interpreted as an addition.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#cap_drop"
+      ]
+    },
+    {
+      "caseId": "capabilities-other-additions",
+      "input": "compose/capabilities-other-additions.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "negative",
+      "expected": {
+        "status": "completed",
+        "issues": []
+      },
+      "rationale": "These additions are outside the two bound capability names. Their presence does not declare ALL or SYS_ADMIN.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/services/#cap_add"
+      ]
+    },
+    {
+      "caseId": "capabilities-interpolated",
+      "input": "compose/capabilities-interpolated.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The capability string depends on external interpolation and cannot be interpreted as a known addition without unavailable context.",
+      "primarySources": [
+        "https://docs.docker.com/reference/compose-file/interpolation/",
+        "https://docs.docker.com/reference/compose-file/services/#cap_add"
+      ]
+    },
+    {
+      "caseId": "capabilities-scalar-invalid",
+      "input": "compose/capabilities-scalar-invalid.yaml",
+      "format": "compose",
+      "version": "Compose Specification",
+      "family": "compose/expanded-capabilities",
+      "category": "ambiguous",
+      "expected": {
+        "status": "partial",
+        "issues": []
+      },
+      "rationale": "The additions field requires an array of strings. A scalar with a sensitive name must produce malformed-field coverage, not a normal positive or negative conclusion.",
+      "primarySources": [
+        "https://raw.githubusercontent.com/compose-spec/compose-spec/main/schema/compose-spec.json",
+        "https://docs.docker.com/reference/compose-file/services/#cap_add"
+      ]
+    },
+    {
+      "caseId": "parse-json-trailing-comma",
+      "input": "parsing/json-trailing-comma.json",
+      "format": "openapi",
+      "version": "JSON",
+      "family": "parser",
+      "category": "ambiguous",
+      "expected": {
+        "status": "failed",
+        "issues": []
+      },
+      "rationale": "JSON object grammar does not allow a trailing comma. Parsing failure must remain failed, rather than falling back to permissive YAML or returning a clean review.",
+      "primarySources": [
+        "https://www.rfc-editor.org/rfc/rfc8259.html#section-4"
+      ]
+    },
+    {
+      "caseId": "parse-yaml-duplicate-key",
+      "input": "parsing/yaml-duplicate-key.yaml",
+      "format": "compose",
+      "version": "YAML 1.2",
+      "family": "parser",
+      "category": "ambiguous",
+      "expected": {
+        "status": "failed",
+        "issues": []
+      },
+      "rationale": "Duplicate mapping keys make the selected privilege value ambiguous. The parser must reject the input instead of selecting the last value.",
+      "primarySources": [
+        "https://yaml.org/spec/1.2.2/"
+      ]
+    },
+    {
+      "caseId": "parse-yaml-custom-tag",
+      "input": "parsing/yaml-custom-tag.yaml",
+      "format": "compose",
+      "version": "YAML 1.2",
+      "family": "parser",
+      "category": "ambiguous",
+      "expected": {
+        "status": "failed",
+        "issues": []
+      },
+      "rationale": "A custom tag changes interpretation beyond the JSON-compatible parser contract. No type construction or inferred boolean is permitted.",
+      "primarySources": [
+        "https://yaml.org/spec/1.2.2/"
+      ]
+    },
+    {
+      "caseId": "parse-yaml-multiple-documents",
+      "input": "parsing/yaml-multiple-documents.yaml",
+      "format": "compose",
+      "version": "YAML 1.2 stream",
+      "family": "parser",
+      "category": "ambiguous",
+      "expected": {
+        "status": "failed",
+        "issues": []
+      },
+      "rationale": "YAML permits a document stream, but this review contract accepts one Compose document only. It must not silently choose one or merge the stream.",
+      "primarySources": [
+        "https://yaml.org/spec/1.2.2/"
+      ]
+    },
+    {
+      "caseId": "parse-yaml-unclosed-sequence",
+      "input": "parsing/yaml-unclosed-sequence.yaml",
+      "format": "compose",
+      "version": "YAML 1.2",
+      "family": "parser",
+      "category": "ambiguous",
+      "expected": {
+        "status": "failed",
+        "issues": []
+      },
+      "rationale": "An unclosed flow sequence cannot be parsed as a complete YAML document. Failed input handling is separate from configuration observations.",
+      "primarySources": [
+        "https://yaml.org/spec/1.2.2/"
+      ]
+    }
+  ]
+}

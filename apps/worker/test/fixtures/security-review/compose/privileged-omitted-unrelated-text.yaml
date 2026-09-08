@@ -1,0 +1,7 @@
+x-notes:
+  privileged: true
+services:
+  worker:
+    image: synthetic:fixture
+    labels:
+      description: "privileged: true"

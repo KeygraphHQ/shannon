@@ -1,0 +1,5 @@
+services:
+  debug:
+    image: synthetic:fixture
+    profiles: [debug]
+    privileged: true

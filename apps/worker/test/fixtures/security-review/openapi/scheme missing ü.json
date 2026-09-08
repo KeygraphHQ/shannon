@@ -1,0 +1,13 @@
+{
+  "openapi": "3.0.4",
+  "info": {
+    "title": "Synthetic contract",
+    "version": "1.0.0"
+  },
+  "paths": {},
+  "security": [
+    {
+      "Missing": []
+    }
+  ]
+}
