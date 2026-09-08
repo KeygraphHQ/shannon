@@ -425,7 +425,9 @@ async function makeDeps(t, root, options = {}) {
       }
       if (stateSaveIndex >= 0 && commandArguments[stateSaveIndex + 1]) {
         const stateFile = commandArguments[stateSaveIndex + 1];
-        await mkdir(path.dirname(stateFile), { recursive: true });
+        if (!options.stateSaveRequiresExistingParent) {
+          await mkdir(path.dirname(stateFile), { recursive: true });
+        }
         await writeFile(stateFile, JSON.stringify({ cookies: [], origins: [] }), 'utf8');
       }
       const serialized = JSON.stringify(args);
@@ -1529,6 +1531,31 @@ test('capture bootstraps anonymous first, then identities sequentially, imports 
   assert.equal(anonymous.authenticated, false);
   assert.equal(anonymous.successEvidence, null);
   assert.equal(anonymous.failureReason, null);
+});
+
+test('identity capture creates the storage-state parent before saving a fresh session', async (t) => {
+  const root = await tempRoot(t);
+  const { deps } = await makeDeps(t, root, {
+    identityNames: ['attacker'],
+    stateSaveRequiresExistingParent: true,
+    historyQueue: [
+      [],
+      [{ id: 'preflight' }],
+      [{ id: 'preflight' }],
+      [{ id: 'preflight' }, { id: 'attacker' }],
+    ],
+  });
+  const activities = createBlackboxActivities(deps);
+  const runInput = input(root);
+
+  await activities.preflightBlackbox(runInput);
+  const capture = await activities.captureIdentity(runInput, 'attacker');
+
+  assert.equal(capture.authenticated, true);
+  assert.deepEqual(JSON.parse(await readFile(statePathFor(root, 'attacker'), 'utf8')), {
+    cookies: [],
+    origins: [],
+  });
 });
 
 test('identity auth checks poll the configured condition before saving browser state', async (t) => {

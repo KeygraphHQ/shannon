@@ -1035,6 +1035,7 @@ async function saveIdentityState(
   signal: AbortSignal | undefined,
 ): Promise<void> {
   const storagePath = statePath(repoPath, identity);
+  await dependencies.fileSystem.mkdir(path.dirname(storagePath), { recursive: true });
   await dependencies.runBrowserCommand(
     'playwright-cli',
     [`-s=${session}`, 'state-save', storagePath],
