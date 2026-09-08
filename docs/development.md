@@ -54,6 +54,35 @@ The target repository is mounted read-only inside the worker container.
 
 ## Common Commands
 
+### Saved report tools
+
+The source checkout also includes local tools for existing black-box report bundles. These commands require Node.js 22 or newer and pnpm 10.33.0, as pinned by the root package. They do not require Docker, provider credentials, or a running application.
+
+Help is available before installing dependencies:
+
+```sh
+node scripts/reports.mjs --help
+```
+
+Install the locked dependencies, build, and check a saved bundle:
+
+```sh
+pnpm install --frozen-lockfile
+pnpm --filter @shannon/worker build
+pnpm --silent reports check "path/to/deliverables"
+```
+
+Use `reports archive` for an exact private copy or `reports share` for a separate sanitized summary. Both require a new destination. To inventory a saved-report tree and create an offline browser:
+
+```sh
+pnpm --silent reports catalog workspaces
+pnpm --silent reports library workspaces output/report-library-2026-09-07
+```
+
+Ensure `output` exists and choose a new destination outside `workspaces`. The library contains private folder metadata and is a static snapshot, not a sanitized share. See [the local report library](report-library.md) for discovery limits, result interpretation and current evidence; [saved report tools](report-bundles.md) covers individual bundles. [Reporting readiness](reporting-readiness.md) records platform acceptance and limitations. These are source-checkout commands; the published `npx @keygraph/shannon` package does not include this local addition.
+
+### Assessment commands
+
 Monitor progress:
 
 ```bash

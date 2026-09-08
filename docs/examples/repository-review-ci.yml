@@ -1,0 +1,22 @@
+# Inert example: this file is not installed under .github/workflows.
+name: Offline repository review example
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  local-comparison:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @shannon/worker build
+      - name: Demonstrate unchanged, introduced and incomplete local comparisons
+        run: node scripts/repository-review-ci-example.mjs

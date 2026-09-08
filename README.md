@@ -199,6 +199,8 @@ Use these guides for operational detail:
 | Guide | Use it for |
 | --- | --- |
 | [Source build and CLI commands](docs/development.md) | Cloning, building, common commands, output paths, and local development. |
+| [Saved report tools](docs/report-bundles.md) | Checking saved evidence, creating exact private archives, and exporting sanitized summaries locally. |
+| [Local report library](docs/report-library.md) | Cataloging saved folders and browsing results, validation issues, provenance and exact copies offline. |
 | [Configuration](docs/configuration.md) | Authenticated testing, login flows, rules of engagement, and report filters. |
 | [AI providers](docs/ai-providers.md) | Selecting the model, the supported providers (Anthropic, OpenAI, xAI, AWS Bedrock, and any other Pi-supported provider), and custom gateways. |
 | [Platforms and networking](docs/platforms.md) | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames. |
