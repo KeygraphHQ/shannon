@@ -1,0 +1,8 @@
+{
+  "assetRef": "https://app.example.com/internal/admin/users",
+  "endpoint": "/internal/admin/users",
+  "responses": {
+    "anonymous": { "status": 200, "bodySnippet": "admin-users-payload-v1" },
+    "privileged-user": { "status": 200, "bodySnippet": "admin-users-payload-v1" }
+  }
+}

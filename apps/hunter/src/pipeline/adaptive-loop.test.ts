@@ -1,0 +1,269 @@
+import assert from 'node:assert/strict';
+import type { ChildProcess } from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { test } from 'node:test';
+import { HeuristicReasoningProvider } from '../reasoning/heuristic-provider.js';
+import type { ReasoningProvider } from '../reasoning/provider.js';
+import type { ReasoningRouter } from '../reasoning/router.js';
+import type { SpawnFn } from '../shannon/execution-adapter.js';
+import type { ActionProposal } from '../types.js';
+import { crossSourceCorrelatedNodes, findNode } from '../worldmodel/graph.js';
+import { runAdaptiveHunt } from './adaptive-loop.js';
+import { buildBundledSimulationInput } from './simulation-loader.js';
+
+async function withTempWorkspace<T>(fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await mkdtemp(join(tmpdir(), 'hunter-adaptive-loop-test-'));
+  try {
+    return await fn(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+test('full bundled simulation: recon builds a correlated world model, hypotheses compete, one is validated and drafted', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-1', workspaceDir, maxRounds: 6 });
+    const result = await runAdaptiveHunt(input);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const { worldModel, checkpoint, finding, reportDraftPath, metrics, log } = result.value;
+
+    // DISCOVER / CORRELATE
+    assert.ok(findNode(worldModel, 'host', 'app.example.com'));
+    assert.ok(findNode(worldModel, 'host', 'admin.example.com'), 'out-of-scope host is still recorded, just tagged');
+    assert.equal(findNode(worldModel, 'host', 'admin.example.com')?.scopeStatus, 'out-of-scope');
+    assert.equal(
+      findNode(worldModel, 'endpoint', '/admin/panel'),
+      undefined,
+      'active recon must skip out-of-scope endpoints entirely',
+    );
+    assert.ok(crossSourceCorrelatedNodes(worldModel).length >= 2);
+    assert.equal(metrics.crossSourceCorrelatedAssetCount, 2);
+
+    // HYPOTHESIZE
+    assert.ok(checkpoint.hypotheses.length >= 6);
+    const xssHypothesis = checkpoint.hypotheses.find((h) => h.vulnClass === 'xss');
+    const authzHypothesis = checkpoint.hypotheses.find((h) => h.vulnClass === 'authz');
+    assert.ok(xssHypothesis);
+    assert.ok(authzHypothesis);
+
+    // LEARN / UPDATE MODEL: the authz lead gets refuted and abandoned
+    const finalAuthz = checkpoint.hypotheses.find((h) => h.id === authzHypothesis?.id);
+    assert.equal(finalAuthz?.status, 'contradicted');
+
+    // VALIDATE -> EVIDENCE -> DEDUPLICATE -> REPORT DRAFT
+    assert.ok(finding);
+    assert.equal(finding?.vulnClass, 'xss');
+    assert.equal(finding?.status, 'reported');
+    assert.ok(finding && finding.evidenceIds.length >= 2);
+    assert.ok(reportDraftPath);
+
+    if (reportDraftPath) {
+      const draft = await readFile(reportDraftPath, 'utf8');
+      assert.match(draft, /DRAFT — NOT SUBMITTED/);
+      assert.match(draft, /`candidate` at/);
+      assert.match(
+        draft,
+        /`report_ready` at/,
+        'the draft is written one step before the final "reported" transition, so its own history stops at report_ready',
+      );
+    }
+
+    assert.equal(metrics.validatedFindingRate, 1);
+    assert.equal(metrics.evidenceCompletenessRate, 1);
+
+    // The log should read as a legible trace of the whole pipeline.
+    const joined = log.join('\n');
+    assert.match(joined, /scope: /);
+    assert.match(joined, /discover \(passive\)/);
+    assert.match(joined, /enumerate \(active/);
+    assert.match(joined, /understand \(js-intelligence\)/);
+    assert.match(joined, /observe \(behavioral\)/);
+    assert.match(joined, /hypothesize:/);
+    assert.match(joined, /next-best-action/);
+    assert.match(joined, /validate:/);
+    assert.match(joined, /evidence:/);
+    assert.match(joined, /deduplicate:/);
+    assert.match(joined, /report-draft:/);
+    assert.doesNotMatch(
+      joined,
+      /https?:\/\/(?!app\.example\.com|api\.example\.com|staging\.example\.com|admin\.example\.com|partner-api\.example\.com)/,
+      'log must never reference a real external host',
+    );
+  });
+});
+
+test('resuming a hunt reloads world model and hypotheses instead of re-running recon', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const firstInput = await buildBundledSimulationInput({ engagementId: 'sim-resume', workspaceDir, maxRounds: 1 });
+    const first = await runAdaptiveHunt(firstInput);
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.equal(first.value.checkpoint.round, 1);
+    assert.equal(first.value.finding, undefined, 'one round is not enough to reach a validated finding');
+
+    const secondInput = await buildBundledSimulationInput({ engagementId: 'sim-resume', workspaceDir, maxRounds: 10 });
+    const second = await runAdaptiveHunt(secondInput);
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+
+    assert.match(second.value.log.join('\n'), /resuming hunt/);
+    assert.equal(
+      second.value.log.some((line) => line.includes('discover (passive)')),
+      false,
+      'recon bootstrap must not re-run on resume',
+    );
+    assert.ok(second.value.checkpoint.round > first.value.checkpoint.round);
+    assert.equal(second.value.finding?.vulnClass, 'xss');
+    assert.equal(second.value.finding?.status, 'reported');
+  });
+});
+
+test('Shannon is skipped, not executed, when no local repository is available for a black-box target', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-blackbox', workspaceDir, maxRounds: 6 });
+    const result = await runAdaptiveHunt({ ...input, repoPath: undefined });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const shannonAction = result.value.checkpoint.actions.find((a) => a.kind === 'shannon');
+    assert.ok(shannonAction);
+    assert.equal(shannonAction?.status, 'skipped');
+    assert.match(shannonAction?.resultSummary ?? '', /black-box/);
+    // Without Shannon's verified observation, nothing can be reproduced.
+    assert.equal(result.value.finding, undefined);
+  });
+});
+
+test('scope validation rejects a target that is not in scope before any recon runs', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-oos', workspaceDir, maxRounds: 6 });
+    const result = await runAdaptiveHunt({ ...input, url: 'https://not-in-scope.other.org' });
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.match(result.error, /scope validation failed/);
+  });
+});
+
+function mockChildProcess(exitCode: number): ChildProcess {
+  const child = new EventEmitter() as unknown as ChildProcess & { stdout: EventEmitter; stderr: EventEmitter };
+  (child as unknown as { stdout: EventEmitter }).stdout = new EventEmitter();
+  (child as unknown as { stderr: EventEmitter }).stderr = new EventEmitter();
+  (child as unknown as { kill: () => void }).kill = () => {
+    child.emit('close', 143);
+  };
+  setTimeout(() => child.emit('close', exitCode), 0);
+  return child;
+}
+
+test('live Shannon execution only runs when explicitly confirmed, and its (mocked) captured output reaches the finding', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const reportDir = join(workspaceDir, 'shannon-run', '.shannon', 'deliverables');
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      join(reportDir, 'report.json'),
+      JSON.stringify({
+        report_meta: {
+          target: 'https://app.example.com/search',
+          assessment_date: '2026-01-01',
+          scope: 'https://app.example.com/search',
+          executive_summary: 'Live-executed DOM XSS confirmed.',
+          exploit: true,
+        },
+        findings: [
+          {
+            finding_id: 'XSS-01',
+            title: 'Live-executed DOM XSS',
+            category: 'XSS',
+            owasp_category: 'A05:2025 — Injection',
+            severity: 'medium',
+            vulnerable_location: '/search',
+            http_location: { method: 'GET', url: 'https://app.example.com/search', parameter: 'q' },
+            overview: 'Confirmed live by a (mocked) Shannon process.',
+            impact: 'Arbitrary script execution.',
+            remediation: 'Encode output.',
+            status: 'exploited',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-live-shannon', workspaceDir, maxRounds: 6 });
+    let spawnedCommand: string | undefined;
+    let spawnedArgs: readonly string[] | undefined;
+    const spawnImpl: SpawnFn = (command, args) => {
+      spawnedCommand = command;
+      spawnedArgs = args;
+      return mockChildProcess(0);
+    };
+
+    const result = await runAdaptiveHunt({ ...input, liveShannon: { confirmed: true, spawnImpl } });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const shannonAction = result.value.checkpoint.actions.find((a) => a.kind === 'shannon');
+    assert.match(shannonAction?.resultSummary ?? '', /executed live/);
+    assert.equal(spawnedCommand, 'npx');
+    assert.ok(spawnedArgs?.includes('start'));
+    assert.equal(result.value.finding?.vulnClass, 'xss');
+    assert.equal(result.value.finding?.status, 'reported');
+  });
+});
+
+class HallucinatingReasoningProvider implements ReasoningProvider {
+  readonly source = 'claude' as const;
+  selectNextBestAction(): Promise<ActionProposal | undefined> {
+    return Promise.resolve({
+      kind: 'shannon',
+      targetRef: 'https://not-a-real-target.example.com',
+      hypothesisId: 'not-a-real-hypothesis-id',
+      whyThisAction: 'fabricated',
+      hypothesisTested: 'fabricated',
+      uncertaintyReduced: 'fabricated',
+      confirmingObservation: 'fabricated',
+      contradictingObservation: 'fabricated',
+      nextStepIfConfirmed: 'fabricated',
+      nextStepIfContradicted: 'fabricated',
+    });
+  }
+  generateHypotheses(): Promise<readonly []> {
+    return Promise.resolve([]);
+  }
+}
+
+test('a hallucinated action proposal is rejected by the policy gate and the loop falls back to deterministic selection, still reaching the correct outcome', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-hallucination', workspaceDir, maxRounds: 6 });
+    const router: ReasoningRouter = {
+      primary: new HallucinatingReasoningProvider(),
+      fallback: new HeuristicReasoningProvider(),
+      configuredSource: 'claude',
+    };
+    const result = await runAdaptiveHunt({ ...input, reasoningRouter: router });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.ok(
+      result.value.checkpoint.decisions.some((d) => !d.accepted && d.acceptanceReason.includes('hallucination guard')),
+      'every proposal from the hallucinating provider must be rejected as not matching a real queued action',
+    );
+    assert.equal(result.value.finding?.vulnClass, 'xss');
+    assert.equal(result.value.finding?.status, 'reported');
+  });
+});
+
+test('the hunt stops once the action budget is exhausted, even with rounds remaining', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-budget', workspaceDir, maxRounds: 6 });
+    const result = await runAdaptiveHunt({ ...input, budget: { maxActions: 1 } });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.value.checkpoint.actions.length, 1);
+    assert.equal(result.value.checkpoint.status, 'completed');
+  });
+});

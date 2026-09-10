@@ -1,0 +1,40 @@
+{
+  "programId": "simulation-program",
+  "programName": "Simulated Example Corp (offline simulation — not a real program)",
+  "platform": "hackerone",
+  "authorizationConfirmed": true,
+  "assets": [
+    {
+      "identifier": "*.example.com",
+      "type": "wildcard-domain",
+      "instruction": "in-scope",
+      "tier": "critical",
+      "bountyEligible": true,
+      "requiresAuthentication": false
+    },
+    {
+      "identifier": "admin.example.com",
+      "type": "domain",
+      "instruction": "out-of-scope",
+      "tier": "standard",
+      "bountyEligible": false,
+      "requiresAuthentication": true
+    },
+    {
+      "identifier": "partner-api.example.com",
+      "type": "domain",
+      "instruction": "in-scope",
+      "tier": "low",
+      "bountyEligible": false,
+      "requiresAuthentication": true
+    }
+  ],
+  "rulesOfEngagement": [
+    "No automated denial-of-service or resource-exhaustion testing.",
+    "No testing against third-party integrations out of the program's control.",
+    "Do not access, modify, or exfiltrate other users' data.",
+    "partner-api.example.com is in-scope for reporting only; not bounty-eligible."
+  ],
+  "disallowedTechniques": ["dos", "social-engineering", "physical-access"],
+  "rateLimitPerMinute": 30
+}

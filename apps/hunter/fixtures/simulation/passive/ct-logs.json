@@ -1,0 +1,4 @@
+[
+  { "kind": "host", "label": "api.example.com", "confidence": 0.9 },
+  { "kind": "host", "label": "staging.example.com", "confidence": 0.5 }
+]

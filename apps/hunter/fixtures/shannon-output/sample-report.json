@@ -1,0 +1,47 @@
+{
+  "report_meta": {
+    "target": "https://app.example.com",
+    "assessment_date": "2026-01-01",
+    "scope": "https://app.example.com",
+    "executive_summary": "Two findings: a confirmed, exploited reflected XSS and an analysis-only authorization gap awaiting independent verification.",
+    "exploit": true,
+    "model": "anthropic:claude-sonnet-4-6"
+  },
+  "findings": [
+    {
+      "finding_id": "XSS-01",
+      "title": "Reflected XSS in search query parameter",
+      "category": "XSS",
+      "owasp_category": "A05:2025 — Injection",
+      "severity": "medium",
+      "vulnerable_location": "/search",
+      "http_location": { "method": "GET", "url": "https://app.example.com/search", "parameter": "q" },
+      "overview": "The `q` parameter on /search is reflected unencoded into the page HTML, allowing script injection.",
+      "impact": "An attacker-controlled script executes in the victim's browser session.",
+      "remediation": "HTML-encode the reflected value before writing it into the page.",
+      "auth_state": "Unauthenticated",
+      "prerequisites": "None",
+      "exploitation_steps": [
+        {
+          "title": "Send payload",
+          "items": [{ "kind": "prose", "text": "Request /search?q=<script>alert(1)</script>" }]
+        }
+      ],
+      "proof_of_impact": [{ "kind": "prose", "text": "The script executed and raised an alert." }],
+      "status": "exploited"
+    },
+    {
+      "finding_id": "AUTHZ-01",
+      "title": "Missing authorization check on internal admin endpoint",
+      "category": "Authorization",
+      "owasp_category": "A01:2025 — Broken Access Control",
+      "severity": "high",
+      "vulnerable_location": "/internal/admin/users",
+      "http_location": { "method": "GET", "url": "https://app.example.com/internal/admin/users" },
+      "overview": "GET /internal/admin/users appears to return user data without verifying the caller has an admin role.",
+      "impact": "An unauthenticated or low-privilege user could enumerate all user records.",
+      "remediation": "Enforce an admin-role check on this route before returning data.",
+      "confidence": "medium"
+    }
+  ]
+}

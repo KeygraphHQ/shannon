@@ -1,0 +1,36 @@
+{
+  "report_meta": {
+    "target": "https://app.example.com/search",
+    "assessment_date": "2026-01-01",
+    "scope": "https://app.example.com/search",
+    "executive_summary": "Shannon's exploitation phase confirmed a DOM XSS in the search results rendering path.",
+    "exploit": true,
+    "model": "anthropic:claude-sonnet-4-6"
+  },
+  "findings": [
+    {
+      "finding_id": "XSS-01",
+      "title": "DOM XSS in search results rendering via unescaped query parameter",
+      "category": "XSS",
+      "owasp_category": "A05:2025 — Injection",
+      "severity": "medium",
+      "vulnerable_location": "/search",
+      "http_location": { "method": "GET", "url": "https://app.example.com/search", "parameter": "q" },
+      "overview": "Shannon's exploitation phase confirmed that the `q` query parameter is read via URLSearchParams and written into the results container's innerHTML without encoding, allowing arbitrary script execution in the victim's browser.",
+      "impact": "Arbitrary JavaScript executes in the context of any user who follows a crafted link.",
+      "remediation": "Use textContent (or an encoding-aware render path) instead of innerHTML for the results container.",
+      "auth_state": "Unauthenticated",
+      "prerequisites": "None",
+      "exploitation_steps": [
+        {
+          "title": "Deliver a crafted link",
+          "items": [
+            { "kind": "prose", "text": "Send /search?q=<img src=x onerror=alert(document.domain)> to the victim." }
+          ]
+        }
+      ],
+      "proof_of_impact": [{ "kind": "prose", "text": "The onerror handler executed in the victim's browser." }],
+      "status": "exploited"
+    }
+  ]
+}
