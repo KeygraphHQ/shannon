@@ -589,7 +589,16 @@ depth-bounded paths from a JS/endpoint observation to a caller-defined
 high-value target, scoring each chain as the product of its steps'
 confidences — connecting a low-severity clue in one graph to a verified
 signal in another, per the "a low-severity clue may become important when
-connected" requirement.
+connected" requirement. `pipeline/research-track.attack-path.live.test.ts`
+proves this live: a real fetch of `testing/local-app-server.ts`'s search
+page, real JS collection of its script, and the real DOM-XSS pattern in
+that script produce a genuine provenance edge into the page asset, which
+then chains into a workflow transition (seeded via
+`worldmodel/state-graph.ts:saveStateGraph`, exactly as a prior round of
+real behavioral testing would have recorded one) to reach a two-hop,
+scope-checked, confidence-scored chain — the js-collection/provenance half
+is genuinely live; the workflow-transition half is deterministically
+seeded, and the test says so.
 
 **Experiment designer** (`reasoning/experiment.ts`) turns a hypothesis into
 an `Experiment` (objective, expected outcomes, information gain, cost,
@@ -618,7 +627,23 @@ per engagement): `memoryFromFinding` only ever derives an entry from a
 finding that has actually concluded (never a still-open "candidate"), and
 `prioritizationMultiplier` is a bounded (0.5x-1.5x) nudge to future
 scoring — never a hard include/exclude decision, and never a substitute for
-the current engagement's own evidence.
+the current engagement's own evidence. It is consulted in **both** tracks:
+the research track's own experiment selection (scaling a candidate
+experiment's information gain before `selectBestExperiment` ranks them —
+see above) and, since it is loaded and threaded through by
+`pipeline/adaptive-loop.ts` itself, the primary loop's own
+`reasoning/hypothesis.ts:scoreHypothesisGroup`/`updateHypothesisWithObservation`
+(each takes an optional `memory` parameter, defaulting to empty so every
+pre-existing call site is unaffected). In both places the multiplier only
+ever touches `priorityScore` — a vulnClass's program-wide track record can
+change *which* still-open hypothesis looks worth investigating next, but
+never `confidence`, which must stay an honest reflection of the current
+engagement's own evidence. `reasoning/hypothesis.test.ts` and
+`pipeline/adaptive-loop.test.ts`'s `'hunt memory from a prior engagement
+genuinely biases hypothesis prioritization'` test prove this — the latter
+seeds real memory from one engagement in a workspace and shows a
+subsequent, different engagement in that same workspace prioritizes an
+`authz` hypothesis differently because of it.
 
 **Real execution stays opt-in**, exactly like `liveRecon`/`liveShannon`:
 `AdaptiveHuntInput.researchTrack.live` (a `ToolRegistry` plus, for a live
@@ -677,21 +702,20 @@ reported as a finding.
 
 ### What the research track does not (yet) do
 
-- Attack-path discovery has no dedicated live E2E test — `research-track.test.ts`
-  exercises it against a synthetic combined graph; a live demonstration
-  connecting a real JS discovery through a real provenance edge to a real
-  state-graph transition is future work.
-- Hunt memory is loaded once per research-track run (from prior engagements'
-  *concluded* findings only — never from this run's own in-progress work)
-  and `prioritizationMultiplier` scales each candidate experiment's
-  information gain before `selectBestExperiment` ranks them — a bounded
-  0.5x-1.5x nudge, never a hard include/exclude decision.
-- There is no dedicated live E2E test for a Shannon-kind experiment
-  discovered via the workflow/state-graph or authorization-matrix path
-  (only via a real DOM-XSS provenance edge, `xss` -> `shannon`); the
-  underlying wiring is identical regardless of which generator produced the
-  hypothesis, since `reasoning/actions.ts:actionKindFor` is the single
-  routing table all of them share.
+- A Shannon-kind experiment is never reachable from a state-graph or
+  authorization-matrix hypothesis today, and this is a deliberate routing
+  decision, not a missing test: `stateGraphAnomaliesToHypotheses` and
+  `privilegeInversionsToHypotheses` only ever produce `vulnClass: 'authz'`
+  or `'workflow-bypass'`, both routed to the cheap `behavioral-diff` action
+  in `reasoning/actions.ts:ACTION_KIND_BY_VULN_CLASS` — a full source-aware
+  Shannon re-scan is not the first thing to reach for on an authorization
+  signal. `xss` (from a DOM-XSS provenance edge) remains the one class that
+  routes to `shannon`. `reasoning/actions.test.ts`'s
+  `'actionKindFor is generator-agnostic'` test proves the underlying claim
+  directly — the same vulnClass routes through the same action kind
+  regardless of which generator (provenance graph, state graph,
+  authorization matrix) produced the hypothesis — without misrepresenting
+  which vulnClasses those generators actually produce today.
 
 ## What's still not wired up (read before assuming more than is implemented)
 

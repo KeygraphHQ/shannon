@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
+import { appendMemory, recordMemory } from '../memory/hunt-memory.js';
 import { HeuristicReasoningProvider } from '../reasoning/heuristic-provider.js';
 import type { ReasoningProvider } from '../reasoning/provider.js';
 import type { ReasoningRouter } from '../reasoning/router.js';
@@ -348,6 +349,65 @@ test('a Shannon-kind research experiment executes live through runAdaptiveHunt, 
     assert.ok(result.value.research.log.some((line) => line.includes('Shannon executed live')));
     assert.equal(result.value.research.findings.length, 1);
     assert.equal(result.value.research.findings[0]?.status, 'reproduced');
+  });
+});
+
+test('hunt memory from a prior engagement genuinely biases hypothesis prioritization in a later hunt, through the real runAdaptiveHunt entry point', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const baselineInput = await buildBundledSimulationInput({
+      engagementId: 'sim-memory-baseline',
+      workspaceDir,
+      maxRounds: 1,
+    });
+    const baseline = await runAdaptiveHunt(baselineInput);
+    assert.equal(baseline.ok, true);
+    if (!baseline.ok) return;
+    const baselineAuthz = baseline.value.checkpoint.hypotheses.find((h) => h.vulnClass === 'authz');
+    assert.ok(baselineAuthz, 'the bundled simulation must produce an authz hypothesis to compare against');
+
+    // hunt-memory.jsonl is workspace-level, not engagement-level — seeding
+    // it here affects every subsequent engagement in this same workspace.
+    await appendMemory(
+      workspaceDir,
+      recordMemory({
+        kind: 'false-positive-pattern',
+        description: 'authz leads on this program have repeatedly been false positives',
+        outcome: 'negative',
+        confidence: 0.6,
+        source: 'test',
+        vulnClass: 'authz',
+      }),
+    );
+    await appendMemory(
+      workspaceDir,
+      recordMemory({
+        kind: 'false-positive-pattern',
+        description: 'authz leads on this program have repeatedly been false positives',
+        outcome: 'negative',
+        confidence: 0.6,
+        source: 'test',
+        vulnClass: 'authz',
+      }),
+    );
+
+    const biasedInput = await buildBundledSimulationInput({
+      engagementId: 'sim-memory-biased',
+      workspaceDir,
+      maxRounds: 1,
+    });
+    const biased = await runAdaptiveHunt(biasedInput);
+    assert.equal(biased.ok, true);
+    if (!biased.ok) return;
+    const biasedAuthz = biased.value.checkpoint.hypotheses.find((h) => h.vulnClass === 'authz');
+    assert.ok(biasedAuthz);
+
+    assert.ok(
+      biasedAuthz.priorityScore < baselineAuthz.priorityScore,
+      "a program-wide history of authz false positives must lower this run's own authz priority score",
+    );
+    // Memory must never fabricate or suppress confidence — only reprioritize.
+    assert.equal(biasedAuthz.confidence, baselineAuthz.confidence);
+    assert.ok(biased.value.log.some((line) => line.includes('memory: loaded 2 prior experience')));
   });
 });
 

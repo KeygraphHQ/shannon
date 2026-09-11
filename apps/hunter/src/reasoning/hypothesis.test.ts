@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { recordMemory } from '../memory/hunt-memory.js';
 import type { Observation } from '../types.js';
 import {
   hypothesesFromObservations,
@@ -129,4 +130,105 @@ test('updateHypothesisWithObservation can flip a hypothesis to contradicted', ()
   assert.equal(updated.status, 'contradicted');
   assert.ok(updated.contradictingObservationIds.includes('obs-contra'));
   assert.ok(updated.confidence < hypothesis.confidence);
+});
+
+test('scoreHypothesisGroup with no memory (or empty memory) behaves exactly as before — the default is a pure no-op', () => {
+  const group = { vulnClass: 'xss', assetRef: 'a', observations: [observation()] };
+  const withoutMemoryArg = scoreHypothesisGroup(group);
+  const withEmptyMemory = scoreHypothesisGroup(group, []);
+  assert.deepEqual(withoutMemoryArg, withEmptyMemory);
+});
+
+test('a vulnClass with a history of successful hypotheses scores a higher priority than the same evidence with no history', () => {
+  const group = { vulnClass: 'idor', assetRef: 'a', observations: [observation({ vulnClass: 'idor' })] };
+  const neutral = scoreHypothesisGroup(group);
+  const memory = [
+    recordMemory({
+      kind: 'successful-hypothesis-pattern',
+      description: 'x',
+      outcome: 'positive',
+      confidence: 0.8,
+      source: 'test',
+      vulnClass: 'idor',
+    }),
+    recordMemory({
+      kind: 'successful-hypothesis-pattern',
+      description: 'x',
+      outcome: 'positive',
+      confidence: 0.8,
+      source: 'test',
+      vulnClass: 'idor',
+    }),
+  ];
+  const boosted = scoreHypothesisGroup(group, memory);
+  assert.ok(boosted.priorityScore > neutral.priorityScore);
+  // Memory must never touch confidence — only which hypothesis looks worth investigating next.
+  assert.equal(boosted.confidence, neutral.confidence);
+});
+
+test('a vulnClass with a history of false positives scores a lower priority than the same evidence with no history', () => {
+  const group = {
+    vulnClass: 'js-intel-feature-flags',
+    assetRef: 'a',
+    observations: [observation({ vulnClass: 'js-intel-feature-flags' })],
+  };
+  const neutral = scoreHypothesisGroup(group);
+  const memory = [
+    recordMemory({
+      kind: 'false-positive-pattern',
+      description: 'x',
+      outcome: 'negative',
+      confidence: 0.6,
+      source: 'test',
+      vulnClass: 'js-intel-feature-flags',
+    }),
+    recordMemory({
+      kind: 'false-positive-pattern',
+      description: 'x',
+      outcome: 'negative',
+      confidence: 0.6,
+      source: 'test',
+      vulnClass: 'js-intel-feature-flags',
+    }),
+  ];
+  const suppressed = scoreHypothesisGroup(group, memory);
+  assert.ok(suppressed.priorityScore < neutral.priorityScore);
+  assert.equal(suppressed.confidence, neutral.confidence);
+});
+
+test('hypothesesFromObservations threads memory through to every generated hypothesis', () => {
+  const observations = [observation({ vulnClass: 'idor', assetRef: 'a' })];
+  const memory = [
+    recordMemory({
+      kind: 'successful-hypothesis-pattern',
+      description: 'x',
+      outcome: 'positive',
+      confidence: 0.8,
+      source: 'test',
+      vulnClass: 'idor',
+    }),
+  ];
+  const withoutMemory = hypothesesFromObservations(observations, 'e1');
+  const withMemory = hypothesesFromObservations(observations, 'e1', memory);
+  assert.ok((withMemory[0]?.priorityScore ?? 0) > (withoutMemory[0]?.priorityScore ?? 0));
+});
+
+test('updateHypothesisWithObservation threads memory through without changing confidence', () => {
+  const [hypothesis] = hypothesesFromObservations([observation({ vulnClass: 'idor', confidenceHint: 'low' })], 'e1');
+  if (!hypothesis) throw new Error('expected a hypothesis');
+  const newObservation = observation({ id: 'obs-new', vulnClass: 'idor', confidenceHint: 'high', verified: true });
+  const memory = [
+    recordMemory({
+      kind: 'successful-hypothesis-pattern',
+      description: 'x',
+      outcome: 'positive',
+      confidence: 0.8,
+      source: 'test',
+      vulnClass: 'idor',
+    }),
+  ];
+  const withoutMemory = updateHypothesisWithObservation(hypothesis, newObservation, true);
+  const withMemory = updateHypothesisWithObservation(hypothesis, newObservation, true, memory);
+  assert.ok(withMemory.priorityScore > withoutMemory.priorityScore);
+  assert.equal(withMemory.confidence, withoutMemory.confidence);
 });

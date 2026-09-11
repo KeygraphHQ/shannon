@@ -1,8 +1,16 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { privilegeInversionsToHypotheses } from '../authz/matrix.js';
 import type { Hypothesis } from '../types.js';
+import { provenanceToHypotheses, recordProvenanceEdge } from '../worldmodel/provenance.js';
+import {
+  detectAuthorizationInconsistencies,
+  recordTransition,
+  stateGraphAnomaliesToHypotheses,
+} from '../worldmodel/state-graph.js';
 import {
   actionKey,
+  actionKindFor,
   buildActionQueue,
   markActionDone,
   markActionFailed,
@@ -94,4 +102,114 @@ test('markActionFailed is distinct from skipped — a genuine execution error, n
   const failed = markActionFailed(action, 'ffuf exited 1: connection refused');
   assert.equal(failed.status, 'failed');
   assert.ok(failed.completedAt);
+});
+
+test('actionKindFor is generator-agnostic: an authz hypothesis routes identically whether it came from the provenance graph, the state graph, or the authorization matrix', () => {
+  const fromProvenance = provenanceToHypotheses(
+    [
+      recordProvenanceEdge({
+        engagementId: 'e1',
+        sourceKind: 'role',
+        sourceRef: 'bundle.js',
+        transformation: 'client-side role check',
+        sinkKind: 'authorization-decision',
+        sinkRef: 'https://app.example.com/admin',
+        observation: 'x',
+        source: 'js-intelligence',
+        confidence: 0.6,
+      }),
+    ],
+    'e1',
+  );
+
+  const transitions = [
+    recordTransition({
+      engagementId: 'e1',
+      actorRef: 'user-a',
+      role: 'user',
+      authState: 'authenticated-user',
+      fromState: 'authenticated',
+      action: 'read',
+      toState: 'authenticated',
+      authorizationOutcome: 'denied',
+      resourceRef: 'doc-42',
+      source: 'behavioral-diff',
+    }),
+    recordTransition({
+      engagementId: 'e1',
+      actorRef: 'user-b',
+      role: 'user',
+      authState: 'authenticated-user',
+      fromState: 'authenticated',
+      action: 'read',
+      toState: 'authenticated',
+      authorizationOutcome: 'allowed',
+      resourceRef: 'doc-42',
+      source: 'behavioral-diff',
+    }),
+  ];
+  const fromStateGraph = stateGraphAnomaliesToHypotheses(detectAuthorizationInconsistencies(transitions), 'e1');
+
+  const fromMatrix = privilegeInversionsToHypotheses(
+    [
+      {
+        action: 'export',
+        objectRef: 'doc-42',
+        applicationState: 'authenticated',
+        lowerPrivilegeEntry: {
+          actorRef: 'user-a',
+          role: 'user',
+          action: 'export',
+          objectRef: 'doc-42',
+          applicationState: 'authenticated',
+          authState: 'authenticated-user',
+          outcome: 'allowed',
+          observedAt: new Date().toISOString(),
+          source: 'behavioral-diff',
+        },
+        higherPrivilegeEntry: {
+          actorRef: 'user-b',
+          role: 'admin',
+          action: 'export',
+          objectRef: 'doc-42',
+          applicationState: 'authenticated',
+          authState: 'privileged-user',
+          outcome: 'denied',
+          observedAt: new Date().toISOString(),
+          source: 'behavioral-diff',
+        },
+        confidence: 0.75,
+      },
+    ],
+    'e1',
+  );
+
+  assert.equal(fromProvenance[0]?.vulnClass, 'authz');
+  assert.equal(fromStateGraph[0]?.vulnClass, 'authz');
+  assert.equal(fromMatrix[0]?.vulnClass, 'authz');
+
+  const kinds = new Set([fromProvenance, fromStateGraph, fromMatrix].map((hs) => actionKindFor(hs[0] as Hypothesis)));
+  assert.equal(kinds.size, 1, 'every generator producing the same vulnClass must route through the same action kind');
+  assert.deepEqual([...kinds], ['behavioral-diff']);
+});
+
+test('a DOM-XSS-derived authz-adjacent hypothesis (vulnClass xss) is the one class that actually routes to shannon — a deliberate, not accidental, choice', () => {
+  const fromProvenance = provenanceToHypotheses(
+    [
+      recordProvenanceEdge({
+        engagementId: 'e1',
+        sourceKind: 'url-parameter',
+        sourceRef: 'bundle-search.js',
+        transformation: 'read from location.search with no visible sanitization',
+        sinkKind: 'dom-sink',
+        sinkRef: 'https://app.example.com/search',
+        observation: 'x',
+        source: 'js-intelligence',
+        confidence: 0.6,
+      }),
+    ],
+    'e1',
+  );
+  assert.equal(fromProvenance[0]?.vulnClass, 'xss');
+  assert.equal(actionKindFor(fromProvenance[0] as Hypothesis), 'shannon');
 });

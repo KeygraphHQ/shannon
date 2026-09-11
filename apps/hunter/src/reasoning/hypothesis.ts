@@ -18,6 +18,8 @@
  */
 
 import { randomUUID } from 'node:crypto';
+import type { HuntMemoryEntry } from '../memory/hunt-memory.js';
+import { prioritizationMultiplier } from '../memory/hunt-memory.js';
 import type { Hypothesis, HypothesisStatus, ImpactLevel, Observation } from '../types.js';
 
 const SEVERITY_WEIGHT: Readonly<Record<string, number>> = {
@@ -101,8 +103,19 @@ export interface HypothesisScore {
   readonly priorityScore: number;
 }
 
-/** MVP scoring heuristic — see module docstring for why this is a seam, not the final design. */
-export function scoreHypothesisGroup(group: HypothesisSourceGroup): HypothesisScore {
+/**
+ * MVP scoring heuristic — see module docstring for why this is a seam, not
+ * the final design. `memory` is optional and defaults to empty, so every
+ * existing caller is completely unaffected; when supplied (see
+ * `pipeline/adaptive-loop.ts`), `memory/hunt-memory.ts:prioritizationMultiplier`
+ * applies a bounded (0.5x-1.5x) nudge to `priorityScore` only — never to
+ * `confidence`, which must stay an honest reflection of the current
+ * engagement's own evidence, not this vulnClass's track record elsewhere.
+ */
+export function scoreHypothesisGroup(
+  group: HypothesisSourceGroup,
+  memory: readonly HuntMemoryEntry[] = [],
+): HypothesisScore {
   const severity = Math.max(...group.observations.map((o) => severityWeightOf(o.severityHint)));
   const confidenceWeight = Math.max(...group.observations.map((o) => confidenceWeightOf(o.confidenceHint)));
   const verifiedBonus = group.observations.some((o) => o.verified) ? 0.2 : 0;
@@ -114,15 +127,15 @@ export function scoreHypothesisGroup(group: HypothesisSourceGroup): HypothesisSc
   // value of investigation; a hypothesis already at high confidence has
   // little left to learn from further investigation.
   const informationGain = clamp01((1 - confidence) * (0.5 + 0.5 * severity));
-  const priorityScore = Number(
-    (severity * 0.4 + confidence * 0.3 + informationGain * 0.2 + corroborationBonus).toFixed(4),
-  );
+  const multiplier = prioritizationMultiplier(memory, group.vulnClass);
+  const rawPriorityScore = severity * 0.4 + confidence * 0.3 + informationGain * 0.2 + corroborationBonus;
+  const memoryAdjustedPriorityScore = Number((rawPriorityScore * multiplier).toFixed(4));
 
   return {
     confidence: Number(confidence.toFixed(4)),
     potentialImpact,
     informationGain: Number(informationGain.toFixed(4)),
-    priorityScore,
+    priorityScore: memoryAdjustedPriorityScore,
   };
 }
 
@@ -144,10 +157,14 @@ function groupObservations(observations: readonly Observation[]): readonly Hypot
   }));
 }
 
-export function hypothesesFromObservations(observations: readonly Observation[], engagementId: string): Hypothesis[] {
+export function hypothesesFromObservations(
+  observations: readonly Observation[],
+  engagementId: string,
+  memory: readonly HuntMemoryEntry[] = [],
+): Hypothesis[] {
   const now = new Date().toISOString();
   return groupObservations(observations).map((group) => {
-    const score = scoreHypothesisGroup(group);
+    const score = scoreHypothesisGroup(group, memory);
     return {
       id: `hyp-${randomUUID()}`,
       engagementId,
@@ -190,6 +207,7 @@ export function updateHypothesisWithObservation(
   hypothesis: Hypothesis,
   observation: Observation,
   supportive: boolean,
+  memory: readonly HuntMemoryEntry[] = [],
 ): Hypothesis {
   const weight = confidenceWeightOf(observation.confidenceHint);
   const delta = supportive ? weight * 0.2 : -weight * 0.3;
@@ -201,7 +219,9 @@ export function updateHypothesisWithObservation(
     ? hypothesis.contradictingObservationIds
     : Array.from(new Set([...hypothesis.contradictingObservationIds, observation.id]));
   const informationGain = clamp01((1 - confidence) * 0.75);
-  const priorityScore = Number((confidence * 0.3 + informationGain * 0.2 + (supportive ? 0.5 : 0.1)).toFixed(4));
+  const multiplier = prioritizationMultiplier(memory, hypothesis.vulnClass);
+  const rawPriorityScore = confidence * 0.3 + informationGain * 0.2 + (supportive ? 0.5 : 0.1);
+  const priorityScore = Number((rawPriorityScore * multiplier).toFixed(4));
 
   return {
     ...hypothesis,

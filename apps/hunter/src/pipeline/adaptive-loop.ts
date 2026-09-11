@@ -39,6 +39,7 @@ import { LocalSignatureDeduplicator } from '../dedup/local-dedup.js';
 import { appendEvidence, createEvidenceEntry } from '../evidence/store.js';
 import { createFinding, listFindings, saveFinding, transitionFinding, withEvidence } from '../findings/lifecycle.js';
 import { LocalFileIntake } from '../intake/hackerone.js';
+import { loadMemory } from '../memory/hunt-memory.js';
 import { computeReconMetrics } from '../metrics/recon-quality.js';
 import {
   actionKey,
@@ -340,6 +341,18 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
   const isFreshHunt = worldModel.nodes.length === 0 && checkpoint.hypotheses.length === 0;
   let jsProvenanceEdges: readonly ProvenanceEdge[] = [];
 
+  // Loaded once, from prior engagements' concluded findings — never
+  // updated mid-run from this hunt's own not-yet-concluded work, exactly
+  // like `pipeline/research-track.ts`'s own memory loading. Biases which
+  // hypothesis looks most worth investigating next (`priorityScore` only);
+  // never touches `confidence`, which must stay an honest reflection of
+  // this engagement's own evidence.
+  const priorMemory = await loadMemory(input.workspaceDir);
+  const memory = priorMemory.ok ? priorMemory.value : [];
+  if (memory.length > 0) {
+    log.push(`memory: loaded ${memory.length} prior experience entry/ies to bias hypothesis prioritization`);
+  }
+
   if (isFreshHunt) {
     // === DISCOVER / ENUMERATE / CORRELATE (passive) ===
     const programNode = upsertNode(worldModel, {
@@ -446,7 +459,7 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
     allObservations = [...allObservations, ...bootstrapObservations];
 
     // === HYPOTHESIZE / PRIORITIZE ===
-    const hypotheses = hypothesesFromObservations(bootstrapObservations, engagement.id);
+    const hypotheses = hypothesesFromObservations(bootstrapObservations, engagement.id, memory);
     log.push(`hypothesize: derived ${hypotheses.length} initial hypothesis/es`);
 
     checkpoint = { ...checkpoint, hypotheses, observationIds: bootstrapObservations.map((o) => o.id) };
@@ -582,7 +595,7 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
         const supportive =
           !refutes &&
           (observation.verified || observation.vulnClass.toLowerCase() === targetHypothesis.vulnClass.toLowerCase());
-        updated = updateHypothesisWithObservation(updated, observation, supportive);
+        updated = updateHypothesisWithObservation(updated, observation, supportive, memory);
       }
       hypotheses = hypotheses.map((h) => (h.id === updated.id ? updated : h));
     }
@@ -591,7 +604,7 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
     const unclaimedObservations = newObservations.filter(
       (o) => !newVulnClasses.has(`${o.vulnClass.toLowerCase()}::${o.assetRef}`),
     );
-    const freshHypotheses = hypothesesFromObservations(unclaimedObservations, engagement.id);
+    const freshHypotheses = hypothesesFromObservations(unclaimedObservations, engagement.id, memory);
     hypotheses = [...hypotheses, ...freshHypotheses];
     if (freshHypotheses.length > 0) {
       log.push(`round ${checkpoint.round}: new discovery spawned ${freshHypotheses.length} additional hypothesis/es`);

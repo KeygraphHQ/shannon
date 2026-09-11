@@ -25,6 +25,20 @@ flip it to "contradicted" and drop it from consideration), and checkpoints
 before the next round. Every round's reasoning decision is recorded in
 `checkpoint.decisions`.
 
+After that round loop, every run also executes the **research track**
+(`pipeline/research-track.ts`) automatically — anomaly detection, a
+competing-hypothesis cascade, a provenance graph, an application state/
+workflow graph, an authorization matrix, attack-path discovery, an
+experiment designer, adversarial validation, and hunt memory. It is a
+second, independent hypothesis/finding space (see "What the research
+track found" below) that can never change the primary loop's own
+`finding`/`checkpoint` — it only ever *analyzes* what the round loop above
+already collected. This command never configures `researchTrack.live`, so
+the research track's own experiment designer only ever plans/dry-runs —
+including for a `shannon`-kind research experiment, which requires its own
+separate, programmatic `researchTrack.live.shannon.confirmed` this command
+never sets, exactly like `liveShannon` above.
+
 **Only one concrete run mode exists today: `hunter hunt --simulate`**, which
 runs this entire loop against the bundled offline scenario in
 `apps/hunter/fixtures/simulation/` — multiple domains discovered by
@@ -43,9 +57,12 @@ improvise that from this command.
   action only plans the invocation (`shannon/config.ts` +
   `shannon/invoke.ts:planInvocation`) and, if a captured output file is
   already available for that asset, ingests it. Nothing here ever spawns
-  Shannon. If the user wants to actually launch a scan, point them at
-  `/shannon` (its own explicit confirmation step) — do not improvise a
-  live-execution path here.
+  Shannon. This applies equally to the research track's own `shannon`-kind
+  experiments (`pipeline/shannon-action.ts`) — they only ever plan/dry-run
+  here too, since this command never sets
+  `researchTrack.live.shannon.confirmed`. If the user wants to actually
+  launch a scan, point them at `/shannon` (its own explicit confirmation
+  step) — do not improvise a live-execution path here.
 - **Never contact HackerOne or submit a report.** Report drafts are always
   local Markdown files banner-marked "DRAFT — NOT SUBMITTED". Submission is
   manual and out of scope for this command.
@@ -119,6 +136,27 @@ Summarize, from the JSON the CLI printed:
 - The recon-quality `metrics` (unique assets, cross-source correlation,
   validated-finding rate, evidence completeness, etc.) if the user wants
   them.
+
+### What the research track found
+
+The JSON also carries a `research` object — a second, independent
+hypothesis/finding space (see the module docstring in
+`pipeline/research-track.ts` for why it is kept separate from the primary
+loop's own `finding`/`checkpoint` above). Summarize it distinctly, never
+folded into the primary loop's own results:
+
+- `research.hypothesisCount` and, for the ones worth mentioning, each
+  hypothesis's `vulnClass`, `assetRef`, `status`, `confidence`, and — where
+  present — its `assumptions` and `competingHypothesisIds` (multiple
+  competing explanations for the same anomaly, not yet resolved).
+- `research.anomalyCount` and `research.attackChainCount` — these came from
+  anomaly detection and attack-path discovery over the same bootstrap data,
+  never from a live probe in this command.
+- `research.findings` — always empty when run through this command, since
+  `researchTrack.live` is never configured here; if the user asks "did the
+  research track find anything," the honest answer is "it generated
+  hypotheses/leads for investigation, but ran no real experiment against
+  them because this command never enables live execution."
 
 Re-running the same `--workspace-dir` and `--engagement-id` resumes the
 hunt (reloads the world model and hypotheses instead of re-running recon)
