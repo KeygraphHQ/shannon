@@ -60,6 +60,79 @@ test('runReconSources skips unavailable sources and concatenates the rest', asyn
   });
 });
 
+test('runReconSources runs independent sources concurrently — a slow source never blocks a fast one', async () => {
+  let fastResolvedAt = 0;
+  let slowStartedAt = 0;
+  const slow = {
+    name: 'slow-source',
+    isAvailable: async () => true,
+    discover: async () => {
+      slowStartedAt = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      return [];
+    },
+  };
+  const fast = {
+    name: 'fast-source',
+    isAvailable: async () => true,
+    discover: async () => {
+      fastResolvedAt = Date.now();
+      return [
+        {
+          source: 'fast-source',
+          kind: 'host' as const,
+          label: 'fast.example.com',
+          attributes: {},
+          confidence: 0.5,
+          discoveredAt: '',
+        },
+      ];
+    },
+  };
+
+  await runReconSources([slow, fast]);
+
+  assert.ok(slowStartedAt > 0 && fastResolvedAt > 0);
+  // The proof is overlap, not total wall-clock (which is bounded by the
+  // slowest source either way, concurrent or not): with `[slow, fast]`
+  // given in that order, a sequential implementation would only start
+  // (and resolve) `fast` *after* `slow`'s own 100ms completes — well over
+  // 50ms after `slowStartedAt`. Concurrent execution starts both together,
+  // so `fast` resolves almost immediately, still well inside `slow`'s own
+  // 100ms window.
+  assert.ok(
+    fastResolvedAt - slowStartedAt < 50,
+    `the fast source must resolve while the slow source is still running, not after it (gap was ${fastResolvedAt - slowStartedAt}ms)`,
+  );
+});
+
+test("runReconSources preserves every other source's results when one source throws during discover()", async () => {
+  const throwing = {
+    name: 'broken-source',
+    isAvailable: async () => true,
+    discover: async () => {
+      throw new Error('simulated tool crash');
+    },
+  };
+  const healthy = {
+    name: 'healthy-source',
+    isAvailable: async () => true,
+    discover: async () => [
+      {
+        source: 'healthy-source',
+        kind: 'host' as const,
+        label: 'ok.example.com',
+        attributes: {},
+        confidence: 0.5,
+        discoveredAt: '',
+      },
+    ],
+  };
+  const discoveries = await runReconSources([throwing, healthy]);
+  assert.equal(discoveries.length, 1);
+  assert.equal(discoveries[0]?.source, 'healthy-source');
+});
+
 test('verifyToolIdentity reports unavailable for a binary name that does not exist, without throwing', async () => {
   const capability = await verifyToolIdentity({
     binary: 'definitely-not-a-real-tool-xyz-123',

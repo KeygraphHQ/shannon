@@ -1,15 +1,16 @@
 import assert from 'node:assert/strict';
 import type { ChildProcess } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { appendMemory, recordMemory } from '../memory/hunt-memory.js';
 import { HeuristicReasoningProvider } from '../reasoning/heuristic-provider.js';
 import type { ReasoningProvider } from '../reasoning/provider.js';
 import type { ReasoningRouter } from '../reasoning/router.js';
 import type { SpawnFn } from '../shannon/execution-adapter.js';
+import { checkpointFilePath } from '../state/checkpoint.js';
 import { buildDefaultToolRegistry } from '../tools/default-registry.js';
 import type { ActionProposal } from '../types.js';
 import { crossSourceCorrelatedNodes, findNode } from '../worldmodel/graph.js';
@@ -122,6 +123,47 @@ test('resuming a hunt reloads world model and hypotheses instead of re-running r
     assert.ok(second.value.checkpoint.round > first.value.checkpoint.round);
     assert.equal(second.value.finding?.vulnClass, 'xss');
     assert.equal(second.value.finding?.status, 'reported');
+  });
+});
+
+test('a corrupted checkpoint recovers instead of failing the whole hunt — durable observations rebuild it', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const firstInput = await buildBundledSimulationInput({ engagementId: 'sim-corrupt', workspaceDir, maxRounds: 1 });
+    const first = await runAdaptiveHunt(firstInput);
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.ok(first.value.checkpoint.hypotheses.length > 0);
+
+    // Simulate real-world corruption (a truncated write, a crash mid-save).
+    const path = checkpointFilePath(workspaceDir, 'sim-corrupt');
+    await writeFile(path, '{ this is not valid json', 'utf8');
+
+    const secondInput = await buildBundledSimulationInput({ engagementId: 'sim-corrupt', workspaceDir, maxRounds: 10 });
+    const second = await runAdaptiveHunt(secondInput);
+
+    assert.equal(second.ok, true, 'a corrupted checkpoint must not fail the entire hunt');
+    if (!second.ok) return;
+    assert.ok(second.value.log.some((line) => line.includes('checkpoint recovery:') && line.includes('quarantined')));
+    assert.ok(
+      second.value.log.some((line) => line.includes('checkpoint recovery: rebuilt') && line.includes('hypothesis')),
+      'hypotheses must be rebuilt from the durable observation log, not lost',
+    );
+    // Recon bootstrap must not blindly re-run either — the world model already has data.
+    assert.equal(
+      second.value.log.some((line) => line.includes('discover (passive)')),
+      false,
+    );
+    assert.ok(
+      second.value.checkpoint.hypotheses.length > 0,
+      'hypotheses must survive the corruption, not reset to zero',
+    );
+    // A rebuilt hunt can still reach the same validated finding using the same durable observations/fixtures.
+    assert.equal(second.value.finding?.vulnClass, 'xss');
+    assert.equal(second.value.finding?.status, 'reported');
+
+    // The corrupted file itself is preserved for forensics, never silently deleted.
+    const quarantinedFiles = await readdir(dirname(path));
+    assert.ok(quarantinedFiles.some((f) => f.startsWith('checkpoint.json.corrupted-')));
   });
 });
 

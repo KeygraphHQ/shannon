@@ -68,7 +68,13 @@ import {
 import { type ReconSource, runReconSources } from '../recon/sources.js';
 import { writeDraft } from '../report/draft.js';
 import { validateTarget } from '../scope/validator.js';
-import { type HuntCheckpoint, loadCheckpoint, saveCheckpoint } from '../state/checkpoint.js';
+import {
+  type HuntCheckpoint,
+  loadCheckpoint,
+  newCheckpoint,
+  quarantineCorruptedCheckpoint,
+  saveCheckpoint,
+} from '../state/checkpoint.js';
 import { loadEngagement, newEngagement, saveEngagement } from '../state/engagement-store.js';
 import { appendObservations, listObservations } from '../state/observation-log.js';
 import type { ToolRegistry } from '../tools/registry.js';
@@ -330,16 +336,32 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
   if (!worldModelResult.ok) return err(worldModelResult.error);
   let worldModel = worldModelResult.value;
 
+  // A corrupted checkpoint.json no longer fails the entire hunt: the world
+  // model and the append-only observation log (loaded independently, right
+  // below) are the durable sources of truth, so a damaged checkpoint is
+  // recoverable — quarantine the bad file (never delete it — it stays
+  // available for forensics) and rebuild hypotheses from the durable
+  // observation log instead of losing all prior progress. This is loud,
+  // never silent: every recovery is logged and the quarantine path is
+  // recorded.
   const checkpointResult = await loadCheckpoint(input.workspaceDir, engagement.id);
-  if (!checkpointResult.ok) return err(checkpointResult.error);
-  let checkpoint = checkpointResult.value;
+  let checkpoint: HuntCheckpoint;
+  let recoveringFromCorruptedCheckpoint = false;
+  if (checkpointResult.ok) {
+    checkpoint = checkpointResult.value;
+  } else {
+    const quarantineResult = await quarantineCorruptedCheckpoint(input.workspaceDir, engagement.id);
+    if (!quarantineResult.ok) return err(quarantineResult.error);
+    checkpoint = newCheckpoint(engagement.id);
+    recoveringFromCorruptedCheckpoint = true;
+    log.push(
+      `checkpoint recovery: ${checkpointResult.error}; quarantined to "${quarantineResult.value ?? '(nothing to quarantine)'}" and rebuilding from the durable observation log rather than failing the hunt`,
+    );
+  }
 
   const observationsResult = await listObservations(input.workspaceDir, engagement.id);
   if (!observationsResult.ok) return err(observationsResult.error);
   let allObservations = [...observationsResult.value];
-
-  const isFreshHunt = worldModel.nodes.length === 0 && checkpoint.hypotheses.length === 0;
-  let jsProvenanceEdges: readonly ProvenanceEdge[] = [];
 
   // Loaded once, from prior engagements' concluded findings — never
   // updated mid-run from this hunt's own not-yet-concluded work, exactly
@@ -352,6 +374,21 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
   if (memory.length > 0) {
     log.push(`memory: loaded ${memory.length} prior experience entry/ies to bias hypothesis prioritization`);
   }
+
+  if (recoveringFromCorruptedCheckpoint && allObservations.length > 0) {
+    const rebuiltHypotheses = hypothesesFromObservations(allObservations, engagement.id, memory);
+    checkpoint = {
+      ...checkpoint,
+      hypotheses: rebuiltHypotheses,
+      observationIds: allObservations.map((o) => o.id),
+    };
+    log.push(
+      `checkpoint recovery: rebuilt ${rebuiltHypotheses.length} hypothesis/es from ${allObservations.length} durable observation(s); round/action/decision history could not be recovered and restarts at 0`,
+    );
+  }
+
+  const isFreshHunt = worldModel.nodes.length === 0 && checkpoint.hypotheses.length === 0;
+  let jsProvenanceEdges: readonly ProvenanceEdge[] = [];
 
   if (isFreshHunt) {
     // === DISCOVER / ENUMERATE / CORRELATE (passive) ===

@@ -10,7 +10,7 @@
  * loses at most one in-flight action.
  */
 
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
   err,
@@ -90,5 +90,32 @@ export async function loadCheckpoint(
     return ok({ decisions: [], events: [], ...parsed } as HuntCheckpoint);
   } catch (error) {
     return err(`hunt checkpoint file "${filePath}" is not valid JSON: ${(error as Error).message}`);
+  }
+}
+
+/**
+ * Moves a corrupted `checkpoint.json` aside — never deletes it, so it stays
+ * available for forensics — and returns the quarantine path. Callers use
+ * this to recover from a corrupted checkpoint (rebuild a fresh one from the
+ * durable observation log, see `pipeline/adaptive-loop.ts`) rather than
+ * failing an entire hunt outright over one damaged file, while never
+ * silently discarding the evidence that something was wrong. A missing
+ * file (nothing to quarantine) is not an error — the caller may call this
+ * defensively without first checking existence.
+ */
+export async function quarantineCorruptedCheckpoint(
+  workspaceDir: string,
+  engagementId: string,
+): Promise<Result<string | undefined, string>> {
+  const filePath = checkpointFilePath(workspaceDir, engagementId);
+  const quarantinePath = `${filePath}.corrupted-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+  try {
+    await rename(filePath, quarantinePath);
+    return ok(quarantinePath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return ok(undefined);
+    }
+    return err(`could not quarantine corrupted checkpoint "${filePath}": ${(error as Error).message}`);
   }
 }

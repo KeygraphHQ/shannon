@@ -16,12 +16,30 @@
  * hypothesis its own tests expect to win. Both tracks execute through the
  * exact same primitives, though — `pipeline/tool-bridge.ts:executeActionViaRegistry`,
  * `reasoning/policy.ts`'s rate limiter, `findings/lifecycle.ts`'s state
- * machine, `evidence/store.ts`'s redaction — never a parallel execution
- * implementation. Real experiment execution only happens when the caller
- * supplies `liveRecon`, exactly like the primary loop's own opt-in; without
- * it, this still genuinely computes anomalies, competing hypotheses,
- * provenance, state-graph inconsistencies, and attack chains from whatever
- * was already collected, and persists all of it for inspection.
+ * machine, `evidence/store.ts`'s redaction — never a *second*, duplicate
+ * execution implementation. Real experiment execution only happens when
+ * the caller supplies `liveRecon`, exactly like the primary loop's own
+ * opt-in; without it, this still genuinely computes anomalies, competing
+ * hypotheses, provenance, state-graph inconsistencies, and attack chains
+ * from whatever was already collected, and persists all of it for
+ * inspection.
+ *
+ * Batched concurrent execution: up to `ResearchTrackBudget.maxConcurrentExperiments`
+ * experiments run together via `Promise.all` when they target distinct
+ * (kind, target) pairs — genuinely independent work, since none of them
+ * reads another's result before running. Selection within a batch stays
+ * synchronous and sequential (each pick immediately claims its
+ * `executedActionKeys` entry before the next pick runs, so two batch
+ * members can never collide), and every result is folded back into
+ * `researchHypotheses`/`findings` sequentially once the whole batch
+ * settles, so there is no concurrent mutation of shared state. A
+ * `shannon`-kind experiment's budget check-and-increment happens
+ * synchronously before that member's first `await`, so
+ * `maxShannonExecutions` is still enforced exactly even when multiple
+ * Shannon-kind candidates land in the same batch. `reasoning/policy.ts`'s
+ * `ToolRateLimiter` is itself concurrency-safe by construction (per-tool
+ * FIFO queues), so real recon adapters sharing a batch never bypass rate
+ * limiting.
  */
 
 import { type Anomaly, detectAnomaliesAgainstBaseline, jsonStructureFingerprint } from '../anomaly/engine.js';
@@ -42,7 +60,12 @@ import {
   type CascadeEvent,
   runResearchCascade,
 } from '../reasoning/cascade.js';
-import { designExperiments, experimentToHuntAction, selectBestExperiment } from '../reasoning/experiment.js';
+import {
+  designExperiments,
+  type Experiment,
+  experimentToHuntAction,
+  selectBestExperiment,
+} from '../reasoning/experiment.js';
 import { DEFAULT_BUDGET, type ToolRateLimiter } from '../reasoning/policy.js';
 import type { AuthState, StateResponseMap } from '../recon/behavioral.js';
 import type { AuthStateHeaders } from '../recon/behavioral-live.js';
@@ -89,6 +112,8 @@ export interface ResearchTrackBudget {
   readonly maxExperiments: number;
   /** Independent of the primary loop's own `HuntBudget.maxShannonExecutions` — this track has its own hypothesis/action space (see module docstring) and so its own, deliberately small, Shannon execution cap. */
   readonly maxShannonExecutions: number;
+  /** How many experiments may execute concurrently within one batch — see "batched concurrent execution" in the module docstring. Distinct, independent-target experiments only; never raises `maxShannonExecutions` or bypasses per-tool rate limiting (`reasoning/policy.ts:ToolRateLimiter` is itself concurrency-safe by design). */
+  readonly maxConcurrentExperiments: number;
 }
 
 export const DEFAULT_RESEARCH_BUDGET: ResearchTrackBudget = {
@@ -96,6 +121,7 @@ export const DEFAULT_RESEARCH_BUDGET: ResearchTrackBudget = {
   maxCascadeDepth: 4,
   maxExperiments: 5,
   maxShannonExecutions: 1,
+  maxConcurrentExperiments: 3,
 };
 
 export interface ResearchLiveOptions {
@@ -356,59 +382,57 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
   // ingestion that could have spawned) toward the research track's own,
   // independent Shannon budget — never the primary loop's counter, and
   // never incremented for an experiment that was deferred/blocked before
-  // reaching `pipeline/shannon-action.ts`.
+  // reaching `pipeline/shannon-action.ts`. Mutated synchronously (see
+  // `executeBatchMember` below) so it stays correct even when multiple
+  // shannon-kind candidates land in the same concurrent batch.
   let shannonExecutionsSoFar = 0;
 
-  for (let i = 0; i < budget.maxExperiments; i += 1) {
-    const candidates = designExperiments(
-      researchHypotheses.filter((h) => h.status === 'open' || h.status === 'investigating'),
-      executedActionKeys,
-    ).map((experiment) => {
-      const hypothesis = researchHypotheses.find((h) => h.id === experiment.hypothesisId);
-      const multiplier = hypothesis ? prioritizationMultiplier(memory, hypothesis.vulnClass, experiment.actionKind) : 1;
-      return { ...experiment, informationGain: Number((experiment.informationGain * multiplier).toFixed(4)) };
-    });
-    const selection = selectBestExperiment(candidates);
-    if (!selection.selected) break;
-    const experiment = selection.selected;
-    const action: HuntAction = experimentToHuntAction(experiment, input.engagementId);
-    // Marked as attempted *before* any gate runs, exactly like
-    // `pipeline/adaptive-loop.ts`'s `completedActionKeys` — a duplicate or
-    // repeated experiment for the same (kind, target) is never re-selected
-    // on a later iteration of this same loop, deferred or not.
-    executedActionKeys.add(`${action.kind}::${action.targetRef}`);
+  interface NormalizedExecutionResult {
+    readonly status: ExecutionStatus;
+    readonly toolName: string | undefined;
+    readonly summary: string;
+    readonly observations: readonly Observation[];
+  }
 
+  interface BatchMember {
+    readonly experiment: Experiment;
+    readonly action: HuntAction;
+  }
+
+  type BatchOutcome =
+    | { readonly ran: false; readonly logLine: string }
+    | { readonly ran: true; readonly member: BatchMember; readonly result: NormalizedExecutionResult };
+
+  /** Everything up to and including the shannon-budget check must run synchronously (no `await` yet) so concurrent batch members never race on `shannonExecutionsSoFar` or `executedActionKeys`. */
+  async function executeBatchMember(member: BatchMember): Promise<BatchOutcome> {
+    const { experiment, action } = member;
     if (!input.isInScope(action.targetRef)) {
-      log.push(`research-track experiment: blocked "${experiment.objective}" — target is not in scope`);
-      continue;
+      return {
+        ran: false,
+        logLine: `research-track experiment: blocked "${experiment.objective}" — target is not in scope`,
+      };
     }
-
     if (!input.live) {
-      log.push(
-        `research-track experiment: deferred "${experiment.objective}" — no live execution configured for this run`,
-      );
-      continue;
+      return {
+        ran: false,
+        logLine: `research-track experiment: deferred "${experiment.objective}" — no live execution configured for this run`,
+      };
     }
+    const live = input.live;
 
-    interface NormalizedExecutionResult {
-      readonly status: ExecutionStatus;
-      readonly toolName: string | undefined;
-      readonly summary: string;
-      readonly observations: readonly Observation[];
-    }
-
-    let result: NormalizedExecutionResult;
     if (action.kind === 'shannon') {
-      // The research track's own Shannon budget — separate from, and
-      // enforced before, `shannon/eligibility.ts`/`shannon/execution-adapter.ts`
-      // ever run, exactly like `reasoning/policy.ts:evaluateProposal` checks
-      // `maxShannonExecutions` before the primary loop's action executes.
+      // Synchronous check-and-increment: `Array.map`/`Promise.all` invoke
+      // every batch member's callback body synchronously up to its first
+      // `await`, in order — so this check is race-free even though the
+      // members run "concurrently" from here on.
       if (shannonExecutionsSoFar >= budget.maxShannonExecutions) {
-        log.push(
-          `research-track experiment: deferred "${experiment.objective}" — Shannon execution budget exhausted (${shannonExecutionsSoFar}/${budget.maxShannonExecutions})`,
-        );
-        continue;
+        return {
+          ran: false,
+          logLine: `research-track experiment: deferred "${experiment.objective}" — Shannon execution budget exhausted (${shannonExecutionsSoFar}/${budget.maxShannonExecutions})`,
+        };
       }
+      shannonExecutionsSoFar += 1;
+
       // The one authoritative Shannon execution path (see
       // `pipeline/shannon-action.ts`) — the research track never spawns
       // Shannon itself, and never sets `confirmed: true` on its own; that
@@ -418,37 +442,40 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
         engagementId: input.engagementId,
         workspaceDir: input.workspaceDir,
         shannonOutputsByAsset: input.shannonOutputsByAsset ?? new Map(),
-        liveShannon: input.live.shannon,
+        liveShannon: live.shannon,
       });
-      if (!shannonResult.skipped) {
-        shannonExecutionsSoFar += 1;
-      }
-      result = {
+      const result: NormalizedExecutionResult = {
         status: shannonResult.executionStatus,
         toolName: shannonResult.toolName,
         summary: shannonResult.resultSummary,
         observations: shannonResult.observations,
       };
-    } else {
-      result = await executeActionViaRegistry(action, input.program, DEFAULT_BUDGET, {
-        registry: input.live.registry,
-        ...(input.live.rateLimiter !== undefined ? { rateLimiter: input.live.rateLimiter } : {}),
-        ...(input.live.preferredToolNames !== undefined ? { preferredToolNames: input.live.preferredToolNames } : {}),
-        ...(input.live.wordlistPath !== undefined ? { wordlistPath: input.live.wordlistPath } : {}),
-        ...(input.live.nucleiSeverity !== undefined ? { nucleiSeverity: input.live.nucleiSeverity } : {}),
-        ...(input.live.amassOutputDir !== undefined ? { amassOutputDir: input.live.amassOutputDir } : {}),
-        ...(input.live.allowHighRisk !== undefined ? { allowHighRisk: input.live.allowHighRisk } : {}),
-        ...(input.live.behavioralAuthStatesByAsset !== undefined
-          ? { behavioralAuthStatesByAsset: input.live.behavioralAuthStatesByAsset }
-          : {}),
-        engagementId: input.engagementId,
-      } satisfies ToolBridgeLiveReconOptions & { engagementId: string });
+      return { ran: true, member, result };
     }
 
+    const result = await executeActionViaRegistry(action, input.program, DEFAULT_BUDGET, {
+      registry: live.registry,
+      ...(live.rateLimiter !== undefined ? { rateLimiter: live.rateLimiter } : {}),
+      ...(live.preferredToolNames !== undefined ? { preferredToolNames: live.preferredToolNames } : {}),
+      ...(live.wordlistPath !== undefined ? { wordlistPath: live.wordlistPath } : {}),
+      ...(live.nucleiSeverity !== undefined ? { nucleiSeverity: live.nucleiSeverity } : {}),
+      ...(live.amassOutputDir !== undefined ? { amassOutputDir: live.amassOutputDir } : {}),
+      ...(live.allowHighRisk !== undefined ? { allowHighRisk: live.allowHighRisk } : {}),
+      ...(live.behavioralAuthStatesByAsset !== undefined
+        ? { behavioralAuthStatesByAsset: live.behavioralAuthStatesByAsset }
+        : {}),
+      engagementId: input.engagementId,
+    } satisfies ToolBridgeLiveReconOptions & { engagementId: string });
+    return { ran: true, member, result };
+  }
+
+  /** Folds one already-executed batch member's result back into hypotheses/findings. Always called sequentially, after the whole batch has settled, so there is never concurrent mutation of `researchHypotheses`/`findings`. */
+  async function foldBackResult(member: BatchMember, result: NormalizedExecutionResult): Promise<void> {
+    const { experiment } = member;
     log.push(`research-track experiment: ran "${experiment.objective}" -> [${result.status}] ${result.summary}`);
 
     const hypothesis = researchHypotheses.find((h) => h.id === experiment.hypothesisId);
-    if (!hypothesis) continue;
+    if (!hypothesis) return;
     let updated = hypothesis;
     for (const observation of result.observations) {
       const supportive =
@@ -471,7 +498,7 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
     });
     log.push(`research-track adversarial-validation: "${updated.statement}" -> ${review.validationResult}`);
 
-    if (review.validationResult !== 'passed') continue;
+    if (review.validationResult !== 'passed') return;
 
     let finding = createFinding({
       engagementId: researchStorageId,
@@ -487,14 +514,14 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
       'investigated',
       'reviewed via the research track experiment designer',
     );
-    if (!toInvestigated.ok) continue;
+    if (!toInvestigated.ok) return;
     finding = toInvestigated.value;
     const toReproduced = transitionFinding(
       finding,
       'reproduced',
       'a supporting observation was independently verified',
     );
-    if (!toReproduced.ok) continue;
+    if (!toReproduced.ok) return;
     finding = toReproduced.value;
 
     const distinctSources = new Set(supportingObservations.map((o) => o.source)).size;
@@ -536,6 +563,51 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
     await saveFinding(input.workspaceDir, finding);
     findings.push(finding);
     memoryEntries.push(...memoryFromFinding(finding, updated, 'research-track'));
+  }
+
+  let remainingBudget = budget.maxExperiments;
+  while (remainingBudget > 0) {
+    // === Synchronous batch selection ===
+    // Each pick immediately claims its executedActionKeys entry before the
+    // next pick runs, so two members of the same batch can never target
+    // the same (kind, target) pair.
+    const batch: BatchMember[] = [];
+    while (batch.length < Math.min(budget.maxConcurrentExperiments, remainingBudget)) {
+      const candidates = designExperiments(
+        researchHypotheses.filter((h) => h.status === 'open' || h.status === 'investigating'),
+        executedActionKeys,
+      ).map((experiment) => {
+        const hypothesis = researchHypotheses.find((h) => h.id === experiment.hypothesisId);
+        const multiplier = hypothesis
+          ? prioritizationMultiplier(memory, hypothesis.vulnClass, experiment.actionKind)
+          : 1;
+        return { ...experiment, informationGain: Number((experiment.informationGain * multiplier).toFixed(4)) };
+      });
+      const selection = selectBestExperiment(candidates);
+      if (!selection.selected) break;
+      const experiment = selection.selected;
+      const action: HuntAction = experimentToHuntAction(experiment, input.engagementId);
+      // Marked as attempted *before* any gate runs, exactly like
+      // `pipeline/adaptive-loop.ts`'s `completedActionKeys` — a duplicate
+      // or repeated experiment for the same (kind, target) is never
+      // re-selected later, deferred or not.
+      executedActionKeys.add(`${action.kind}::${action.targetRef}`);
+      batch.push({ experiment, action });
+    }
+    if (batch.length === 0) break;
+    remainingBudget -= batch.length;
+
+    // === Concurrent execution ===
+    const outcomes = await Promise.all(batch.map((member) => executeBatchMember(member)));
+
+    // === Sequential fold-back — no concurrent mutation of shared state ===
+    for (const outcome of outcomes) {
+      if (!outcome.ran) {
+        log.push(outcome.logLine);
+        continue;
+      }
+      await foldBackResult(outcome.member, outcome.result);
+    }
   }
 
   for (const entry of memoryEntries) {

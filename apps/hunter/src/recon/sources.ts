@@ -130,14 +130,36 @@ export class LocalFixtureReconSource implements ReconSource {
   }
 }
 
-/** Runs every available source and concatenates their raw discoveries. */
+/**
+ * Runs every available source and concatenates their raw discoveries.
+ *
+ * Sources are independent — none reads another's output — so every
+ * `isAvailable()`/`discover()` pair runs concurrently via `Promise.all`
+ * rather than one at a time. This is a genuine concurrency boundary, not a
+ * cosmetic one: a slow source (a real network call) can never block a fast
+ * one, and one source throwing during `discover()` still lets every other
+ * source's result through (`Promise.allSettled` semantics), rather than
+ * failing the whole recon phase. Result order is not meaningful — callers
+ * (`recon/correlate.ts`, `worldmodel/graph.ts:upsertNode`) group/merge by
+ * (kind, label), never by array position.
+ */
 export async function runReconSources(sources: readonly ReconSource[]): Promise<readonly RawDiscovery[]> {
+  const settled = await Promise.allSettled(
+    sources.map(async (source) => {
+      if (!(await source.isAvailable())) {
+        return [];
+      }
+      return source.discover();
+    }),
+  );
   const results: RawDiscovery[] = [];
-  for (const source of sources) {
-    if (!(await source.isAvailable())) {
-      continue;
+  for (const outcome of settled) {
+    if (outcome.status === 'fulfilled') {
+      results.push(...outcome.value);
     }
-    results.push(...(await source.discover()));
+    // A source that threw during discover() contributes nothing — the same
+    // outcome as it never having been available — rather than failing every
+    // other concurrently-running source's result.
   }
   return results;
 }

@@ -374,6 +374,54 @@ test('an out-of-scope Shannon-kind experiment is blocked before any execution is
   });
 });
 
+test('two independent Shannon-kind experiments in the same batch genuinely overlap in wall-clock time', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const assetA = 'https://app.example.com/search-a';
+    const assetB = 'https://app.example.com/search-b';
+    const repoPath = await makeFakeRepo(workspaceDir);
+
+    const timeline: { readonly asset: string; readonly start: number; readonly end: number }[] = [];
+    const spawnImpl: SpawnFn = (_command, args) => {
+      const start = Date.now();
+      const asset = args.includes(assetA) ? assetA : assetB;
+      const child = new EventEmitter() as unknown as ChildProcess & { stdout: EventEmitter; stderr: EventEmitter };
+      (child as unknown as { stdout: EventEmitter }).stdout = new EventEmitter();
+      (child as unknown as { stderr: EventEmitter }).stderr = new EventEmitter();
+      (child as unknown as { kill: () => void }).kill = () => child.emit('close', 143);
+      setTimeout(() => {
+        timeline.push({ asset, start, end: Date.now() });
+        child.emit('close', 0);
+      }, 100);
+      return child;
+    };
+
+    await runResearchTrack({
+      engagementId: 'e1',
+      workspaceDir,
+      program: program(),
+      worldModel: emptyWorldModel(),
+      jsProvenanceEdges: [
+        ...shannonEligibleProvenanceEdges(assetA, 'bundle-a.js'),
+        ...shannonEligibleProvenanceEdges(assetB, 'bundle-b.js'),
+      ],
+      behavioralFixtures: [],
+      isInScope: () => true,
+      repoPath,
+      budget: { maxShannonExecutions: 2, maxConcurrentExperiments: 2, maxExperiments: 10 },
+      live: { registry: buildDefaultToolRegistry(), shannon: { confirmed: true, spawnImpl } },
+    });
+
+    assert.equal(timeline.length, 2, 'both Shannon-kind experiments must actually execute');
+    const [first, second] = timeline;
+    if (!first || !second) throw new Error('expected two timeline entries');
+    const overlap = first.start < second.end && second.start < first.end;
+    assert.ok(
+      overlap,
+      `expected the two Shannon executions to overlap in wall-clock time (genuine concurrency), got ${JSON.stringify(timeline)}`,
+    );
+  });
+});
+
 test('the research track never imports a process-spawning module directly — Shannon execution is only reachable through the shared adapter', async () => {
   const compiled = await readFile(new URL('./research-track.js', import.meta.url), 'utf8');
   assert.doesNotMatch(compiled, /from ['"]node:child_process['"]/);

@@ -366,6 +366,75 @@ checkpoint whose budget ran out (`status: "stopped"`) resumes automatically
 on the next call; only a checkpoint that reached `"completed"` (queue
 genuinely empty, or a budget/policy decision ended the hunt) does not.
 
+### Corrupted-checkpoint recovery
+
+A `checkpoint.json` that fails to parse (a truncated write, a crash
+mid-save) no longer fails the entire `runAdaptiveHunt` call.
+`state/checkpoint.ts:quarantineCorruptedCheckpoint` moves the damaged file
+aside as `checkpoint.json.corrupted-<timestamp>` — it is never deleted, so
+it stays available for forensics — and `pipeline/adaptive-loop.ts` rebuilds
+a fresh checkpoint's hypotheses from `observations.jsonl` (the durable,
+append-only log, loaded and validated independently of the checkpoint).
+Round/action/decision history genuinely cannot be recovered from a
+corrupted checkpoint alone and is honestly reported as lost — only the
+hypothesis view is rebuilt — but the hunt does not have to restart from
+zero, and recon/JS/behavioral bootstrap is not blindly re-run (the world
+model already has data, so `isFreshHunt` still correctly evaluates to
+`false`). Every recovery is logged explicitly
+(`'checkpoint recovery: ...; quarantined to "..."'` /
+`'checkpoint recovery: rebuilt N hypothesis/es from M durable
+observation(s)'`), never silent. `pipeline/adaptive-loop.test.ts`'s
+`'a corrupted checkpoint recovers instead of failing the whole hunt'` test
+proves this against a real corrupted file through the real entry point.
+
+## Concurrency — what is genuinely parallel, and what is not
+
+Two places run genuinely concurrent work; one place is deliberately
+sequential, and the distinction matters:
+
+- **`recon/sources.ts:runReconSources`** — every passive/active source's
+  `isAvailable()`/`discover()` runs together via `Promise.allSettled`, not
+  a `for` loop. Sources are independent (none reads another's output), so
+  a slow one can never block a fast one, and one source throwing no longer
+  loses every other source's results — partial results are preserved.
+  `recon/sources.test.ts`'s `'runs independent sources concurrently'` and
+  `'preserves every other source's results when one source throws'` tests
+  prove both properties with real timing, not just code inspection.
+- **`pipeline/research-track.ts`'s experiment loop** — up to
+  `ResearchTrackBudget.maxConcurrentExperiments` (default 3) experiments
+  targeting distinct `(kind, target)` pairs execute together via
+  `Promise.all`. Selection stays synchronous and sequential (each pick
+  claims its `executedActionKeys` entry before the next pick runs, so two
+  batch members can never collide), and every result is folded back into
+  `researchHypotheses`/`findings` sequentially once the whole batch
+  settles — no concurrent mutation of shared state. A `shannon`-kind
+  member's budget check-and-increment happens synchronously before its
+  first `await`, so `maxShannonExecutions` stays exactly correct even when
+  multiple Shannon-kind candidates land in the same batch (`Array.map`
+  invokes every callback body synchronously up to its first `await`, in
+  order, before any of them actually run concurrently).
+  `reasoning/policy.ts`'s `ToolRateLimiter` is itself concurrency-safe by
+  construction (per-tool FIFO queues), so real recon adapters sharing a
+  batch never bypass rate limiting.
+  `pipeline/research-track.shannon.test.ts`'s `'two independent
+  Shannon-kind experiments in the same batch genuinely overlap in
+  wall-clock time'` test proves this with real timing over the injected
+  spawn seam.
+- **`pipeline/adaptive-loop.ts`'s primary round loop is deliberately
+  sequential, not a gap.** Each round's next-best-action selection depends
+  on the *previous* round's observation — that is what "adaptive" means
+  here, and there is nothing independent to parallelize within it. The
+  same is true of `pipeline/research-track.ts`'s own batch-*selection*
+  step (picking experiment 2 requires knowing experiment 1 was already
+  claimed) — only *execution* of an already-selected, non-conflicting
+  batch is a concurrency opportunity, and that is exactly what is
+  parallelized above.
+- **Shannon's own internal concurrency (the worker's 5 parallel vuln/exploit
+  agents, documented in the root `CLAUDE.md`) is a separate system.** From
+  Hunter's point of view, one Shannon invocation is one `await` — whatever
+  parallelism happens inside that scan is Shannon's own, not something
+  Hunter's orchestration provides or needs to.
+
 ## Budget / safety controls
 
 `HuntBudget` (merged over `DEFAULT_BUDGET` in `reasoning/policy.ts`) caps
