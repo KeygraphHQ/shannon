@@ -1,0 +1,26 @@
+[
+  {
+    "kind": "application",
+    "label": "app.example.com:443",
+    "confidence": 0.9,
+    "attributes": { "host": "app.example.com", "tech": "nginx+node" }
+  },
+  {
+    "kind": "endpoint",
+    "label": "/search",
+    "confidence": 0.8,
+    "attributes": { "host": "app.example.com", "method": "GET" }
+  },
+  {
+    "kind": "endpoint",
+    "label": "/internal/admin/users",
+    "confidence": 0.7,
+    "attributes": { "host": "app.example.com", "method": "GET" }
+  },
+  {
+    "kind": "endpoint",
+    "label": "/admin/panel",
+    "confidence": 0.6,
+    "attributes": { "host": "admin.example.com", "method": "GET" }
+  }
+]

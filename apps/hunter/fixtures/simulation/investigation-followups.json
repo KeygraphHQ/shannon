@@ -1,0 +1,29 @@
+[
+  {
+    "actionKey": "behavioral-diff::https://app.example.com/internal/admin/users",
+    "discoveries": [],
+    "observations": [
+      {
+        "vulnClass": "authz",
+        "title": "Second-account follow-up contradicts the initial anonymous/privileged match",
+        "description": "A fresh anonymous session (no cached auth artifacts from the shared test proxy) now receives HTTP 401 from /internal/admin/users. The original identical-response observation was a caching artifact, not a real access-control gap.",
+        "severityHint": "informational",
+        "confidenceHint": "high",
+        "verified": false,
+        "tags": ["behavioral-diff", "refutes"]
+      }
+    ]
+  },
+  {
+    "actionKey": "active-recon::https://app.example.com/search",
+    "discoveries": [
+      {
+        "kind": "endpoint",
+        "label": "/api/v2/results",
+        "confidence": 0.85,
+        "attributes": { "host": "app.example.com", "method": "GET", "status": 200 }
+      }
+    ],
+    "observations": []
+  }
+]

@@ -43,6 +43,8 @@ importers:
         specifier: ^0.21.5
         version: 0.21.5(typescript@5.9.3)
 
+  apps/hunter: {}
+
   apps/worker:
     dependencies:
       '@earendil-works/pi-agent-core':

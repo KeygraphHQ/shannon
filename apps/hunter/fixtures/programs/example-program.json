@@ -1,0 +1,16 @@
+{
+  "programId": "example-program",
+  "programName": "Example Corp (fixture — not a real program)",
+  "platform": "hackerone",
+  "authorizationConfirmed": true,
+  "assets": [
+    { "identifier": "*.example.com", "type": "wildcard-domain", "instruction": "in-scope" },
+    { "identifier": "admin.example.com", "type": "domain", "instruction": "out-of-scope" }
+  ],
+  "rulesOfEngagement": [
+    "No automated denial-of-service or resource-exhaustion testing.",
+    "No testing against third-party integrations out of the program's control.",
+    "Do not access, modify, or exfiltrate other users' data."
+  ],
+  "disallowedTechniques": ["dos", "social-engineering", "physical-access"]
+}

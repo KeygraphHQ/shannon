@@ -1,0 +1,17 @@
+{
+  "name": "@shannon/hunter",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Claude Code controller foundation for authorized HackerOne engagements, using Shannon 1.9.0 as an execution engine.",
+  "type": "module",
+  "bin": {
+    "hunter": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "check": "tsc --noEmit",
+    "test": "tsc && node --test dist/**/*.test.js",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {}
+}
