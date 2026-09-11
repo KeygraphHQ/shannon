@@ -243,6 +243,29 @@ export interface RedactedHttpExchange {
   readonly bodyExcerpt: string | undefined;
 }
 
+/** Evidence that an action moved the application from one observed state to another — the proof engine's structured form of "before/after," for a workflow/authorization transition specifically. */
+export interface StateTransitionEvidence {
+  readonly beforeState: string;
+  readonly afterState: string;
+  readonly trigger: string;
+}
+
+/** Content-level before/after evidence (e.g. a resource's representation pre- and post-action) — hashed, never the raw content, consistent with the rest of this store. */
+export interface BeforeAfterEvidence {
+  readonly beforeDescription: string;
+  readonly afterDescription: string;
+  readonly beforeHash: string | undefined;
+  readonly afterHash: string | undefined;
+}
+
+/** Two identities' outcomes for the same action/object, captured together as one piece of evidence — the authorization-matrix analogue of before/after. */
+export interface AuthorizationComparisonEvidence {
+  readonly actorA: string;
+  readonly actorB: string;
+  readonly outcomeA: string;
+  readonly outcomeB: string;
+}
+
 export interface EvidenceEntry {
   readonly id: string;
   readonly engagementId: string;
@@ -253,12 +276,22 @@ export interface EvidenceEntry {
   readonly redacted: boolean;
   readonly httpExchange: RedactedHttpExchange | undefined;
   readonly contentHash: string | undefined;
+  readonly stateTransition?: StateTransitionEvidence;
+  readonly beforeAfter?: BeforeAfterEvidence;
+  readonly authorizationComparison?: AuthorizationComparisonEvidence;
 }
 
 // === Hypotheses ===
 
 export type HypothesisStatus = 'open' | 'investigating' | 'supported' | 'contradicted' | 'resolved' | 'discarded';
 export type ImpactLevel = 'low' | 'medium' | 'high' | 'critical';
+
+/** A structured contradiction — preserved even after a hypothesis is discarded, since a failed hypothesis remains useful as negative evidence (see `reasoning/cascade.ts`). */
+export interface HypothesisContradiction {
+  readonly observationId: string;
+  readonly note: string;
+  readonly at: string;
+}
 
 export interface Hypothesis {
   readonly id: string;
@@ -277,6 +310,21 @@ export interface Hypothesis {
   readonly status: HypothesisStatus;
   readonly createdAt: string;
   readonly updatedAt: string;
+  /**
+   * Everything below is optional and additive — populated only by the
+   * research-cascade engine (`reasoning/cascade.ts`) and read defensively
+   * (`?? default`) everywhere else, so every pre-existing construction site
+   * (deterministic scoring, the Claude/heuristic providers, every existing
+   * test) is unaffected.
+   */
+  readonly assumptions?: readonly string[];
+  readonly structuredContradictions?: readonly HypothesisContradiction[];
+  readonly parentHypothesisId?: string;
+  readonly cascadeDepth?: number;
+  /** Other open hypotheses proposed as alternative explanations for the same anomaly/observation cluster — never merged away, so contradiction and convergence both stay visible. */
+  readonly competingHypothesisIds?: readonly string[];
+  readonly risk?: ToolRisk;
+  readonly cost?: number;
 }
 
 // === Next-best-action ===

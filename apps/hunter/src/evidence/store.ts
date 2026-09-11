@@ -11,12 +11,15 @@ import { createHash, randomUUID } from 'node:crypto';
 import { appendFile, mkdir, readFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import {
+  type AuthorizationComparisonEvidence,
+  type BeforeAfterEvidence,
   type EvidenceEntry,
   err,
   type ObservationSource,
   ok,
   type RedactedHttpExchange,
   type Result,
+  type StateTransitionEvidence,
 } from '../types.js';
 
 export function evidenceFilePath(workspaceDir: string, engagementId: string): string {
@@ -71,6 +74,9 @@ export interface NewEvidenceInput {
   readonly description: string;
   readonly httpExchange?: RedactedHttpExchange;
   readonly contentForHash?: string;
+  readonly stateTransition?: StateTransitionEvidence;
+  readonly beforeAfter?: BeforeAfterEvidence;
+  readonly authorizationComparison?: AuthorizationComparisonEvidence;
 }
 
 export function createEvidenceEntry(input: NewEvidenceInput): EvidenceEntry {
@@ -84,6 +90,24 @@ export function createEvidenceEntry(input: NewEvidenceInput): EvidenceEntry {
     httpExchange: input.httpExchange,
     contentHash: input.contentForHash !== undefined ? contentHash(input.contentForHash) : undefined,
     collectedAt: new Date().toISOString(),
+    ...(input.stateTransition !== undefined ? { stateTransition: input.stateTransition } : {}),
+    ...(input.beforeAfter !== undefined ? { beforeAfter: input.beforeAfter } : {}),
+    ...(input.authorizationComparison !== undefined ? { authorizationComparison: input.authorizationComparison } : {}),
+  };
+}
+
+/** Builds before/after content evidence, hashing both sides — never storing raw content, consistent with `contentHash` above. */
+export function buildBeforeAfterEvidence(input: {
+  readonly beforeDescription: string;
+  readonly afterDescription: string;
+  readonly beforeContent?: string;
+  readonly afterContent?: string;
+}): BeforeAfterEvidence {
+  return {
+    beforeDescription: input.beforeDescription,
+    afterDescription: input.afterDescription,
+    beforeHash: input.beforeContent !== undefined ? contentHash(input.beforeContent) : undefined,
+    afterHash: input.afterContent !== undefined ? contentHash(input.afterContent) : undefined,
   };
 }
 

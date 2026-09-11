@@ -485,6 +485,214 @@ them would have thrown away exactly the scope-vs-policy distinction the
 audit trail (`HuntEvent.scopeDecision`/`.policyDecision`) exists to
 preserve.
 
+## The research track: from scanner to research loop
+
+Everything above this section is the original MVP pipeline: one hypothesis
+per (vulnClass, asset), one action per hypothesis, matched strictly by id.
+It is a real, working, well-tested loop, and it is deliberately left alone —
+see below for why. The **research track** (`pipeline/research-track.ts`,
+invoked automatically by `runAdaptiveHunt` after every round budget is
+spent, and exposed as `AdaptiveHuntOutput.research`) is what turns this from
+"run more scanners" into an application-behavior research loop:
+
+```
+ANOMALY ENGINE            <- anomaly/engine.ts
+        |
+RESEARCH CASCADE           <- reasoning/cascade.ts
+   (competing hypotheses, contradiction tracking, convergence)
+        |
+PROVENANCE GRAPH            <- worldmodel/provenance.ts
+   (source -> transformation -> sink -> hypothesis)
+        |
+STATE / WORKFLOW GRAPH      <- worldmodel/state-graph.ts
+AUTHORIZATION MATRIX        <- authz/matrix.ts
+   (unexpected transitions, role/state mismatches, privilege inversions)
+        |
+ATTACK-PATH DISCOVERY       <- worldmodel/attack-path.ts
+   (chains across the three graphs above, confidence-scored, scope-checked)
+        |
+EXPERIMENT DESIGNER         <- reasoning/experiment.ts
+   (risk-adjusted info-gain selection; "don't test this yet" reasoning)
+        |
+[opt-in real execution, via the SAME pipeline/tool-bridge.ts gate chain]
+        |
+ADVERSARIAL VALIDATION      <- validation/adversarial.ts
+   (never "passed" without a verified supporting observation)
+        |
+FINDING (own lifecycle) -> EVIDENCE -> DEDUP -> HUNT MEMORY
+   findings/lifecycle.ts    evidence/store.ts   local-dedup.ts   memory/hunt-memory.ts
+```
+
+**Why a separate hypothesis/finding space, not a merge into `checkpoint.hypotheses`.**
+The primary loop's winner-selection and its own extensive test suite
+(`adaptive-loop.test.ts`/`.full-loop.test.ts`/`.live.test.ts`) depend on a
+strict one-hypothesis-to-one-action mapping matched by id. Feeding
+research-track hypotheses into that same list risked a second hypothesis
+targeting the same (action kind, asset) pair as an existing one and
+silently stealing its action slot in a given round — changing which
+hypothesis a verified observation gets folded into. The research track
+gets its own `Hypothesis`/`Finding` space instead, so it can never change
+what the primary loop reports, while still executing through the *exact
+same* primitives: `pipeline/tool-bridge.ts:executeActionViaRegistry`,
+`reasoning/policy.ts`'s rate limiter, `findings/lifecycle.ts`'s state
+machine, `evidence/store.ts`'s redaction. There is no second execution
+implementation anywhere in this track.
+
+**Anomaly engine** (`anomaly/engine.ts`) compares two structured
+`ObservationSample`s (never full request/response — only status, header/
+cookie *names*, a structural body fingerprint, content-type, redirects,
+timing, auth state, authorization outcome, application/workflow/resource
+state, cache header names) across 15 dimensions and reports what changed,
+how significant it is, and — critically — a list of *competing*
+explanations and distinguishing experiments, never a vulnerability claim.
+
+**Research cascade** (`reasoning/cascade.ts`) turns one anomaly into
+*multiple* competing hypotheses (one per plausible explanation), each
+carrying its originating assumption, cross-linked to its competitors via
+`competingHypothesisIds`. `resolveCompetingHypotheses` only declares a
+winner once every alternative but one has actually been contradicted —
+contradictions are structural (`Hypothesis.structuredContradictions`,
+`worldmodel/provenance.ts`... — a `HypothesisContradiction` record with the
+observation id and a note) and survive even once a hypothesis is
+`discarded`, so a disproven lead remains available as negative evidence
+(feeding `memory/hunt-memory.ts`). Deterministic termination: `maxDepth`,
+`maxNewHypotheses`, and same-signature dedup are all enforced and reported
+as `CascadeEvent`s, never silently.
+
+**Provenance graph** (`worldmodel/provenance.ts`) is a persisted,
+append-only edge list — `SOURCE -> TRANSFORMATION -> SINK`, each with its
+own `Provenance`/confidence/verification state — kept separate from
+`worldmodel/graph.ts`'s structural node/edge graph rather than folded into
+it, so neither graph's existing persisted shape changes.
+`recon/js-intel.ts` is the primary producer: a dynamic route segment, a
+client-side auth/role check, or a feature flag gating a code path each
+becomes an edge into a security-relevant sink kind (`cookie`,
+`authorization-decision`, `redirect`, `workflow`, `dom-sink`,
+`server-side-processing`), and `provenanceToHypotheses` turns a suspicious
+one into a real hypothesis rather than only logging it.
+
+**Application state/workflow graph + authorization matrix**
+(`worldmodel/state-graph.ts`, `authz/matrix.ts`) record observed
+`(actor, role, authState, fromState, action, resource, toState,
+authorizationOutcome)` transitions and reason over them generically —
+`detectUnexpectedTransitions`/`detectAuthorizationInconsistencies` need no
+declared vulnerability class, and `findPrivilegeInversions` compares a
+caller-declared role hierarchy against observed outcomes for the same
+action/object/state (never guessing a hierarchy, and never performing
+unauthorized access — only ever comparing identities the engagement
+already tested).
+
+**Attack-path discovery** (`worldmodel/attack-path.ts`) treats the
+structural graph, the provenance graph, and the state graph as one combined
+directed graph keyed by label, and finds cycle-safe, scope-checked,
+depth-bounded paths from a JS/endpoint observation to a caller-defined
+high-value target, scoring each chain as the product of its steps'
+confidences — connecting a low-severity clue in one graph to a verified
+signal in another, per the "a low-severity clue may become important when
+connected" requirement.
+
+**Experiment designer** (`reasoning/experiment.ts`) turns a hypothesis into
+an `Experiment` (objective, expected outcomes, information gain, cost,
+risk, prerequisites, required authorization, validation criteria), priced
+with the exact same `COST_BY_KIND` table `reasoning/actions.ts` already
+uses, and picks the best risk-adjusted candidate — every non-selected
+candidate's `deferred[].reason` literally states *why* ("do not test this
+yet — X has a higher risk-adjusted information gain"). `experimentToHuntAction`
+converts the winner into a plain `HuntAction`, so it flows through the
+existing scope/policy/rate-limit/tool-registry pipeline unchanged; there is
+no parallel execution path.
+
+**Adversarial validation** (`validation/adversarial.ts`) runs a
+researcher/skeptic/validator cycle before a hypothesis can produce a
+finding: counterclaims are grounded in the hypothesis's own recorded
+contradictions and unverified assumptions (never invented), and
+`validationResult` can only be `'passed'` when at least one supporting
+observation was independently verified — an LLM's or heuristic's
+confidence number is never itself proof (see the live test below for a
+demonstration that a real, unverified anomaly still correctly resolves to
+`'inconclusive'`, not `'passed'`).
+
+**Hunt memory** (`memory/hunt-memory.ts`) is a provenance-tracked
+experience layer, persisted once per workspace (`hunt-memory.jsonl`, not
+per engagement): `memoryFromFinding` only ever derives an entry from a
+finding that has actually concluded (never a still-open "candidate"), and
+`prioritizationMultiplier` is a bounded (0.5x-1.5x) nudge to future
+scoring — never a hard include/exclude decision, and never a substitute for
+the current engagement's own evidence.
+
+**Real execution stays opt-in**, exactly like `liveRecon`/`liveShannon`:
+`AdaptiveHuntInput.researchTrack.live` (a `ToolRegistry` plus, for a live
+`behavioral-diff` experiment, `behavioralAuthStatesByAsset`) is required
+before the research track's experiment designer is allowed to actually run
+a non-Shannon experiment; omitted, the track still computes real anomalies,
+hypotheses, provenance, and attack chains from whatever was already
+collected, and logs every deferred experiment.
+
+**Shannon-kind experiments execute through the exact same authoritative
+path the primary loop uses — never a second implementation.**
+`pipeline/shannon-action.ts:executeShannonHuntAction` was extracted from
+`pipeline/adaptive-loop.ts`'s own "shannon" action branch so both the
+primary loop and the research track call the identical function: real
+execution requires the research track's own, separate
+`researchTrack.live.shannon.confirmed` (never inherited from the primary
+loop's `liveShannon`, and never implied by `researchTrack.live` being
+otherwise configured for non-Shannon experiments); without it, a
+Shannon-kind experiment still safely plans/dry-runs and can ingest a
+captured `researchTrack.shannonOutputsByAsset` fixture, exactly like the
+primary loop's own default behavior. The research track enforces its own,
+independent `ResearchTrackBudget.maxShannonExecutions` (default `1`)
+*before* `shannon/eligibility.ts` or `shannon/execution-adapter.ts` ever
+run — separate from, and never counted against, the primary loop's own
+`HuntBudget.maxShannonExecutions`. A research-track finding is stored
+under a `<engagementId>::research` id so it can never collide with — or be
+mistaken for a duplicate of — the primary loop's own finding in
+`findings/lifecycle.ts`'s shared, engagement-keyed storage (a real
+regression caught and fixed while wiring this: without the distinct id, a
+research-track finding written to disk before the primary loop's own
+validation step could cause the primary loop's own, canonical finding to
+be wrongly deduplicated against it).
+
+`pipeline/research-track.test.ts` covers the full pipeline offline
+(synthetic anomalies/provenance/transitions); `pipeline/research-track.live.test.ts`
+proves the non-Shannon path end to end against `testing/local-app-server.ts`:
+a real status-code anomaly on the fixture app's deliberately-buggy
+`/api/admin/users` endpoint drives a real `BehavioralTestAdapter` execution
+through the exact same gate chain the primary loop uses, and — because the
+resulting observation is never independently verified — adversarial
+validation correctly reports `'inconclusive'` and zero findings are
+produced, live. `pipeline/research-track.shannon.test.ts` is the Shannon
+equivalent (against an injected `spawnImpl`, never a real subprocess):
+exploited/non-exploited/malformed/failed Shannon outputs, an unavailable
+local repository, an unconfirmed-but-fixture-backed dry run, the
+research-track's own Shannon budget, and out-of-scope blocking, plus a
+static check that `pipeline/research-track.ts` never imports
+`node:child_process` or calls `spawn` directly. `pipeline/adaptive-loop.test.ts`'s
+`'a Shannon-kind research experiment executes live through runAdaptiveHunt'`
+proves the same thing through the real top-level entry point, alongside
+the primary loop's own independent, unaffected Shannon run.
+`worldmodel/state-graph.test.ts`'s `'detectUnexpectedTransitions ignores
+denied attempts'` test is the structural analogue for the workflow decoy
+case: an access-control check that is *working correctly* must never be
+reported as a finding.
+
+### What the research track does not (yet) do
+
+- Attack-path discovery has no dedicated live E2E test — `research-track.test.ts`
+  exercises it against a synthetic combined graph; a live demonstration
+  connecting a real JS discovery through a real provenance edge to a real
+  state-graph transition is future work.
+- Hunt memory is loaded once per research-track run (from prior engagements'
+  *concluded* findings only — never from this run's own in-progress work)
+  and `prioritizationMultiplier` scales each candidate experiment's
+  information gain before `selectBestExperiment` ranks them — a bounded
+  0.5x-1.5x nudge, never a hard include/exclude decision.
+- There is no dedicated live E2E test for a Shannon-kind experiment
+  discovered via the workflow/state-graph or authorization-matrix path
+  (only via a real DOM-XSS provenance edge, `xss` -> `shannon`); the
+  underlying wiring is identical regardless of which generator produced the
+  hypothesis, since `reasoning/actions.ts:actionKindFor` is the single
+  routing table all of them share.
+
 ## What's still not wired up (read before assuming more than is implemented)
 
 - **Local, signature-based deduplication only.** `LocalSignatureDeduplicator`

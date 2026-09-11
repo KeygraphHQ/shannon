@@ -28,9 +28,29 @@ const ACTION_KIND_BY_VULN_CLASS: Readonly<Record<string, ActionKind>> = {
   'js-intel-internal-reference': 'manual-review',
   'js-intel-feature-flags': 'manual-review',
   'behavioral-note': 'manual-review',
+  // Research-track-originated vulnClasses (anomaly/cascade, provenance,
+  // state-graph — see reasoning/cascade.ts, worldmodel/provenance.ts,
+  // worldmodel/state-graph.ts) route through the same real action kinds
+  // rather than falling back to the generic "shannon" default, so the
+  // experiment designer prices and gates them appropriately.
+  'behavioral-anomaly': 'behavioral-diff',
+  'workflow-bypass': 'behavioral-diff',
+  'session-manipulation': 'behavioral-diff',
+  'open-redirect': 'active-recon',
+  'input-validation-anomaly': 'active-recon',
+  'provenance-tainted-flow': 'active-recon',
+  'js-intel-graphql-operation': 'manual-review',
+  'js-intel-auth-logic': 'behavioral-diff',
+  'js-intel-workflow-function': 'manual-review',
+  'js-intel-third-party-integration': 'manual-review',
+  'js-intel-env-reference': 'manual-review',
+  'js-intel-sourcemap-reference': 'js-intelligence',
+  'js-intel-chunk-reference': 'js-intelligence',
+  'js-intel-client-state-transition': 'behavioral-diff',
 };
 
-const COST_BY_KIND: Readonly<Record<ActionKind, number>> = {
+/** Exported so `reasoning/experiment.ts` prices a designed experiment the same way a plain hypothesis-driven action is priced — one cost table, not two. */
+export const COST_BY_KIND: Readonly<Record<ActionKind, number>> = {
   'passive-recon': 0.1,
   'active-recon': 0.3,
   'js-intelligence': 0.2,

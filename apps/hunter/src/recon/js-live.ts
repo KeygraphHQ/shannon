@@ -61,7 +61,11 @@ export interface LiveJsPipelineResult extends JsIntelResult {
 }
 
 function mergeResults(a: JsIntelResult, b: JsIntelResult): JsIntelResult {
-  return { discoveries: [...a.discoveries, ...b.discoveries], observations: [...a.observations, ...b.observations] };
+  return {
+    discoveries: [...a.discoveries, ...b.discoveries],
+    observations: [...a.observations, ...b.observations],
+    provenanceEdges: [...a.provenanceEdges, ...b.provenanceEdges],
+  };
 }
 
 export interface LiveJsPipelineOptions {
@@ -81,7 +85,7 @@ export async function analyzeLiveApplication(
   options: LiveJsPipelineOptions = {},
 ): Promise<LiveJsPipelineResult> {
   const timeoutMs = options.timeoutMs ?? 10_000;
-  let result: JsIntelResult = { discoveries: [], observations: [] };
+  let result: JsIntelResult = { discoveries: [], observations: [], provenanceEdges: [] };
   let scriptsAnalyzed = 0;
   let sourceMapsRecovered = 0;
 
@@ -115,7 +119,11 @@ export async function analyzeLiveApplication(
         confidence: 1,
         discoveredAt: new Date().toISOString(),
       };
-      result = { discoveries: [...result.discoveries, sourceMapDiscovery], observations: result.observations };
+      result = {
+        discoveries: [...result.discoveries, sourceMapDiscovery],
+        observations: result.observations,
+        provenanceEdges: result.provenanceEdges,
+      };
 
       for (let i = 0; i < parsedMap.sources.length; i += 1) {
         const content = parsedMap.sourcesContent[i];

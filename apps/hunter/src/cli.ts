@@ -170,6 +170,20 @@ async function runHunt(flags: Map<string, string>): Promise<number> {
     reportDraftPath: result.value.reportDraftPath,
     metrics: result.value.metrics,
     log: result.value.log,
+    research: {
+      hypothesisCount: result.value.research.hypotheses.length,
+      hypotheses: result.value.research.hypotheses.map((h) => ({
+        vulnClass: h.vulnClass,
+        assetRef: h.assetRef,
+        status: h.status,
+        confidence: h.confidence,
+        assumptions: h.assumptions,
+        competingHypothesisIds: h.competingHypothesisIds,
+      })),
+      anomalyCount: result.value.research.anomalies.length,
+      attackChainCount: result.value.research.attackChains.length,
+      findings: result.value.research.findings,
+    },
   });
   return 0;
 }

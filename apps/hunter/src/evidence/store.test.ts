@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import {
   appendEvidence,
+  buildBeforeAfterEvidence,
   buildRedactedHttpExchange,
   contentHash,
   createEvidenceEntry,
@@ -132,4 +133,30 @@ test('createEvidenceEntry attaches an httpExchange and contentHash when provided
   });
   assert.equal(withHttp.httpExchange?.url, 'http://127.0.0.1:1/x');
   assert.equal(withHttp.contentHash, contentHash('response body'));
+});
+
+test('buildBeforeAfterEvidence hashes both sides and never stores raw content', () => {
+  const evidence = buildBeforeAfterEvidence({
+    beforeDescription: 'resource visible to owner only',
+    afterDescription: 'resource visible to a second, unrelated actor',
+    beforeContent: 'owner-only-view',
+    afterContent: 'unexpectedly-shared-view',
+  });
+  assert.equal(evidence.beforeHash, contentHash('owner-only-view'));
+  assert.equal(evidence.afterHash, contentHash('unexpectedly-shared-view'));
+});
+
+test('createEvidenceEntry attaches stateTransition, beforeAfter, and authorizationComparison when provided', () => {
+  const entry = createEvidenceEntry({
+    engagementId: 'e1',
+    findingId: 'f1',
+    source: 'behavioral-diff',
+    description: 'workflow/authz comparison',
+    stateTransition: { beforeState: 'guest', afterState: 'authenticated', trigger: 'login' },
+    beforeAfter: buildBeforeAfterEvidence({ beforeDescription: 'a', afterDescription: 'b' }),
+    authorizationComparison: { actorA: 'user-a', actorB: 'user-b', outcomeA: 'denied', outcomeB: 'allowed' },
+  });
+  assert.equal(entry.stateTransition?.trigger, 'login');
+  assert.equal(entry.beforeAfter?.beforeDescription, 'a');
+  assert.equal(entry.authorizationComparison?.outcomeB, 'allowed');
 });

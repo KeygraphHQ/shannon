@@ -35,11 +35,9 @@
  * before it can influence a hypothesis.
  */
 
-import { readFile } from 'node:fs/promises';
 import { LocalSignatureDeduplicator } from '../dedup/local-dedup.js';
 import { appendEvidence, createEvidenceEntry } from '../evidence/store.js';
 import { createFinding, listFindings, saveFinding, transitionFinding, withEvidence } from '../findings/lifecycle.js';
-import { ingestShannonOutput, parseShannonReport } from '../ingestion/shannon-output.js';
 import { LocalFileIntake } from '../intake/hackerone.js';
 import { computeReconMetrics } from '../metrics/recon-quality.js';
 import {
@@ -69,10 +67,6 @@ import {
 import { type ReconSource, runReconSources } from '../recon/sources.js';
 import { writeDraft } from '../report/draft.js';
 import { validateTarget } from '../scope/validator.js';
-import { buildShannonInvocation } from '../shannon/config.js';
-import { checkShannonEligibility } from '../shannon/eligibility.js';
-import { executeShannonAction, type SpawnFn } from '../shannon/execution-adapter.js';
-import { planInvocation } from '../shannon/invoke.js';
 import { type HuntCheckpoint, loadCheckpoint, saveCheckpoint } from '../state/checkpoint.js';
 import { loadEngagement, newEngagement, saveEngagement } from '../state/engagement-store.js';
 import { appendObservations, listObservations } from '../state/observation-log.js';
@@ -97,6 +91,14 @@ import {
   type WorldModelSnapshot,
 } from '../types.js';
 import { addEdge, loadWorldModel, saveWorldModel, upsertNode } from '../worldmodel/graph.js';
+import type { ProvenanceEdge } from '../worldmodel/provenance.js';
+import {
+  type ResearchLiveOptions,
+  type ResearchTrackBudget,
+  type ResearchTrackOutput,
+  runResearchTrack,
+} from './research-track.js';
+import { executeShannonHuntAction, type LiveShannonOptions } from './shannon-action.js';
 import { executeActionViaRegistry } from './tool-bridge.js';
 
 export interface JsArtifactInput {
@@ -114,12 +116,6 @@ export interface BehavioralFixtureInput {
 export interface InvestigationFixture {
   readonly discoveries: readonly RawDiscovery[];
   readonly observations: readonly Observation[];
-}
-
-export interface LiveShannonOptions {
-  readonly confirmed: boolean;
-  readonly spawnImpl?: SpawnFn;
-  readonly timeoutMs?: number;
 }
 
 /**
@@ -167,6 +163,25 @@ export interface AdaptiveHuntInput {
   readonly liveShannon?: LiveShannonOptions;
   /** Opt-in real tool execution for non-"shannon" actions — see LiveReconOptions. Omitted by default. */
   readonly liveRecon?: LiveReconOptions;
+  /**
+   * The research track (anomaly detection, competing-hypothesis cascade,
+   * provenance graph, application state graph, authorization matrix,
+   * attack-path discovery, experiment design, adversarial validation, hunt
+   * memory — see `pipeline/research-track.ts`) always *analyzes* whatever
+   * this run already collected. Supplying `live` here additionally lets it
+   * *execute* the experiments it designs: non-"shannon" experiments through
+   * the exact same `tool-bridge.ts` gate chain `liveRecon` uses, and a
+   * "shannon"-kind experiment through the exact same
+   * `pipeline/shannon-action.ts` path `liveShannon` uses above — requiring
+   * its own separate `live.shannon.confirmed`, never inherited from
+   * `liveShannon`. Omitted, exactly like `liveRecon`/`liveShannon`, the
+   * research track still runs and still produces real hypotheses/
+   * anomalies/attack-chains, it simply never touches a live target.
+   */
+  readonly researchTrack?: {
+    readonly budget?: Partial<ResearchTrackBudget>;
+    readonly live?: ResearchLiveOptions;
+  };
 }
 
 export interface AdaptiveHuntOutput {
@@ -177,6 +192,8 @@ export interface AdaptiveHuntOutput {
   readonly reportDraftPath: string | undefined;
   readonly metrics: ReconMetrics;
   readonly log: readonly string[];
+  /** The research track's own result — see `pipeline/research-track.ts`. Its hypotheses/findings are kept separate from `checkpoint`/`finding` above (see that module's docstring for why), never silently merged into the primary loop's own state. */
+  readonly research: ResearchTrackOutput;
 }
 
 interface ActionExecutionResult {
@@ -204,113 +221,16 @@ async function executeAction(
   },
 ): Promise<ActionExecutionResult> {
   if (action.kind === 'shannon') {
-    const eligibility = await checkShannonEligibility(ctx.repoPath);
-    if (!eligibility.eligible) {
-      return {
-        discoveries: [],
-        observations: [],
-        resultSummary: `Shannon skipped: ${eligibility.reason}`,
-        skipped: true,
-        failed: false,
-        executionStatus: 'UNAVAILABLE',
-        toolName: 'shannon',
-      };
-    }
-    const built = buildShannonInvocation({ url: action.targetRef, repo: ctx.repoPath as string });
-    if (!built.ok) {
-      return {
-        discoveries: [],
-        observations: [],
-        resultSummary: `Shannon skipped: ${built.error}`,
-        skipped: true,
-        failed: false,
-        executionStatus: 'UNAVAILABLE',
-        toolName: 'shannon',
-      };
-    }
-    const plan = planInvocation(built.value);
-
-    if (ctx.liveShannon?.confirmed) {
-      const execResult = await executeShannonAction(built.value, {
-        confirmed: true,
-        engagementId: ctx.engagementId,
-        workspaceDir: ctx.workspaceDir,
-        ...(ctx.liveShannon.spawnImpl !== undefined ? { spawnImpl: ctx.liveShannon.spawnImpl } : {}),
-        ...(ctx.liveShannon.timeoutMs !== undefined ? { timeoutMs: ctx.liveShannon.timeoutMs } : {}),
-      });
-      if (!execResult.ok) {
-        return {
-          discoveries: [],
-          observations: [],
-          resultSummary: `Shannon live execution failed: ${execResult.error}`,
-          skipped: false,
-          failed: true,
-          executionStatus: 'FAILED',
-          toolName: 'shannon',
-        };
-      }
-      const { exitCode, timedOut, observations } = execResult.value;
-      const shannonExecutionStatus: ExecutionStatus =
-        exitCode !== 0 ? 'FAILED' : observations.length > 0 ? 'EXECUTED_WITH_RESULTS' : 'EXECUTED_NO_RESULTS';
-      return {
-        discoveries: [],
-        observations,
-        resultSummary: `Shannon executed live (${plan.commandLine}); exit ${exitCode}${timedOut ? ' (timed out)' : ''}; ingested ${observations.length} observation(s)`,
-        skipped: false,
-        failed: exitCode !== 0,
-        executionStatus: shannonExecutionStatus,
-        toolName: 'shannon',
-      };
-    }
-
-    const fixturePath = ctx.shannonOutputsByAsset.get(action.targetRef);
-    if (!fixturePath) {
-      return {
-        discoveries: [],
-        observations: [],
-        resultSummary: `planned Shannon invocation (dry-run, never executed): ${plan.commandLine}; no captured output available yet for this asset`,
-        skipped: false,
-        failed: false,
-        executionStatus: 'UNAVAILABLE',
-        toolName: 'shannon',
-      };
-    }
-    let raw: unknown;
-    try {
-      raw = JSON.parse(await readFile(fixturePath, 'utf8'));
-    } catch (error) {
-      return {
-        discoveries: [],
-        observations: [],
-        resultSummary: `Shannon output ingestion failed: ${(error as Error).message}`,
-        skipped: true,
-        failed: false,
-        executionStatus: 'FAILED',
-        toolName: 'shannon',
-      };
-    }
-    const parsed = parseShannonReport(raw);
-    if (!parsed.ok) {
-      return {
-        discoveries: [],
-        observations: [],
-        resultSummary: `Shannon output ingestion failed: ${parsed.error}`,
-        skipped: true,
-        failed: false,
-        executionStatus: 'FAILED',
-        toolName: 'shannon',
-      };
-    }
-    const observations = ingestShannonOutput(parsed.value, ctx.engagementId);
-    return {
-      discoveries: [],
-      observations,
-      resultSummary: `planned Shannon invocation (dry-run, never executed): ${plan.commandLine}; ingested ${observations.length} observation(s) from captured output`,
-      skipped: false,
-      failed: false,
-      executionStatus: 'MOCKED',
-      toolName: 'shannon',
-    };
+    // The one authoritative Shannon execution path — see
+    // `pipeline/shannon-action.ts`'s docstring. Shared with
+    // `pipeline/research-track.ts` rather than duplicated.
+    return executeShannonHuntAction(action, {
+      repoPath: ctx.repoPath,
+      engagementId: ctx.engagementId,
+      workspaceDir: ctx.workspaceDir,
+      shannonOutputsByAsset: ctx.shannonOutputsByAsset,
+      liveShannon: ctx.liveShannon,
+    });
   }
 
   // Real recon execution (opt-in): try the tool-bridge gate chain first. It
@@ -418,6 +338,7 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
   let allObservations = [...observationsResult.value];
 
   const isFreshHunt = worldModel.nodes.length === 0 && checkpoint.hypotheses.length === 0;
+  let jsProvenanceEdges: readonly ProvenanceEdge[] = [];
 
   if (isFreshHunt) {
     // === DISCOVER / ENUMERATE / CORRELATE (passive) ===
@@ -485,6 +406,7 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
 
     // === UNDERSTAND (JavaScript intelligence) ===
     const jsObservations: Observation[] = [];
+    const collectedJsProvenanceEdges: ProvenanceEdge[] = [];
     for (const artifact of input.jsArtifacts) {
       if (classifyDiscoveryScope(program, 'asset', artifact.assetRef) === 'out-of-scope') continue;
       const result = analyzeJavaScript(artifact.content, artifact.sourceRef, artifact.assetRef, engagement.id);
@@ -500,7 +422,9 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
         worldModel = up.model;
       }
       jsObservations.push(...result.observations);
+      collectedJsProvenanceEdges.push(...result.provenanceEdges);
     }
+    jsProvenanceEdges = collectedJsProvenanceEdges;
     log.push(
       `understand (js-intelligence): analyzed ${input.jsArtifacts.length} artifact(s), ${jsObservations.length} observation(s)`,
     );
@@ -718,6 +642,43 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
     await saveCheckpoint(input.workspaceDir, checkpoint);
   }
 
+  // === RESEARCH TRACK ===
+  //
+  // Always analyzes what this run collected (anomalies, competing
+  // hypotheses, provenance, application state graph, authorization matrix,
+  // attack paths) — see `pipeline/research-track.ts`. Real experiment
+  // execution stays opt-in via `input.researchTrack.live`, exactly like
+  // `liveRecon`/`liveShannon` above; kept in its own hypothesis/finding
+  // space so it can never change which hypothesis the primary loop's own
+  // winner-selection below picks.
+  const research = await runResearchTrack({
+    engagementId: engagement.id,
+    workspaceDir: input.workspaceDir,
+    program,
+    worldModel,
+    jsProvenanceEdges,
+    behavioralFixtures: input.behavioralFixtures,
+    // Matches `recon/scope-tagging.ts:filterInScopeObservations`'s polarity: a
+    // JS artifact's sourceRef is a filename, not a host, and correctly
+    // resolves to "unknown" rather than "in-scope" — only an explicit
+    // "out-of-scope" host may ever block a provenance edge/hypothesis here.
+    isInScope: (ref) => classifyDiscoveryScope(program, 'asset', ref) !== 'out-of-scope',
+    // Mirrors what the primary loop's own "shannon" branch already
+    // receives — a "shannon"-kind research hypothesis is otherwise
+    // permanently UNAVAILABLE (no eligible repo, no fixture to ingest),
+    // never a bypass of `shannon/eligibility.ts`.
+    ...(input.repoPath !== undefined ? { repoPath: input.repoPath } : {}),
+    shannonOutputsByAsset: input.shannonOutputsByAsset,
+    ...(input.researchTrack?.budget !== undefined ? { budget: input.researchTrack.budget } : {}),
+    ...(input.researchTrack?.live !== undefined ? { live: input.researchTrack.live } : {}),
+  });
+  log.push(...research.log);
+  if (research.findings.length > 0) {
+    log.push(
+      `research-track: produced ${research.findings.length} additional finding(s) via its own validation chain (see AdaptiveHuntOutput.research)`,
+    );
+  }
+
   // === VALIDATE -> EVIDENCE -> DEDUPLICATE -> REPORT DRAFT ===
   //
   // The winner is the highest-confidence, not-contradicted hypothesis that
@@ -880,5 +841,5 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
     huntStartedAt: checkpoint.startedAt,
   });
 
-  return ok({ engagement, worldModel, checkpoint, finding, reportDraftPath, metrics, log });
+  return ok({ engagement, worldModel, checkpoint, finding, reportDraftPath, metrics, log, research });
 }

@@ -9,6 +9,7 @@ import { HeuristicReasoningProvider } from '../reasoning/heuristic-provider.js';
 import type { ReasoningProvider } from '../reasoning/provider.js';
 import type { ReasoningRouter } from '../reasoning/router.js';
 import type { SpawnFn } from '../shannon/execution-adapter.js';
+import { buildDefaultToolRegistry } from '../tools/default-registry.js';
 import type { ActionProposal } from '../types.js';
 import { crossSourceCorrelatedNodes, findNode } from '../worldmodel/graph.js';
 import { runAdaptiveHunt } from './adaptive-loop.js';
@@ -254,6 +255,99 @@ test('a hallucinated action proposal is rejected by the policy gate and the loop
     );
     assert.equal(result.value.finding?.vulnClass, 'xss');
     assert.equal(result.value.finding?.status, 'reported');
+  });
+});
+
+test('the research track is genuinely wired into runAdaptiveHunt: it analyzes real bootstrap data and produces its own hypotheses', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const input = await buildBundledSimulationInput({ engagementId: 'sim-research', workspaceDir, maxRounds: 6 });
+    const result = await runAdaptiveHunt(input);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    const { research } = result.value;
+    assert.ok(research, 'AdaptiveHuntOutput must expose research-track output');
+    assert.ok(
+      research.hypotheses.length > 0,
+      'client-side feature-flag/auth-logic provenance in the bundled JS should produce at least one research hypothesis',
+    );
+    assert.ok(research.provenanceEdges.length > 0, 'JS intelligence provenance edges must reach the research track');
+    // The research track never touches the primary loop's own winner selection.
+    assert.equal(result.value.finding?.vulnClass, 'xss');
+    assert.equal(result.value.finding?.status, 'reported');
+    // Real experiment execution is opt-in — without researchTrack.live, no research finding is fabricated.
+    assert.equal(research.findings.length, 0);
+  });
+});
+
+test('a Shannon-kind research experiment executes live through runAdaptiveHunt, via the exact same confirmed spawn seam as the primary loop', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const reportDir = join(workspaceDir, 'shannon-research-run', '.shannon', 'deliverables');
+    await mkdir(reportDir, { recursive: true });
+    await writeFile(
+      join(reportDir, 'report.json'),
+      JSON.stringify({
+        report_meta: {
+          target: 'https://app.example.com/search',
+          assessment_date: '2026-01-01',
+          scope: 'https://app.example.com/search',
+          executive_summary: 'Research-track-driven Shannon run confirmed a DOM XSS.',
+          exploit: true,
+        },
+        findings: [
+          {
+            finding_id: 'XSS-RESEARCH-01',
+            title: 'DOM XSS confirmed via the research track',
+            category: 'XSS',
+            owasp_category: 'A05:2025 — Injection',
+            severity: 'medium',
+            vulnerable_location: '/search',
+            http_location: { method: 'GET', url: 'https://app.example.com/search', parameter: 'q' },
+            overview: 'Confirmed by a (mocked) Shannon process invoked by the research track.',
+            impact: 'Arbitrary script execution.',
+            remediation: 'Encode output.',
+            status: 'exploited',
+          },
+        ],
+      }),
+      'utf8',
+    );
+
+    const input = await buildBundledSimulationInput({
+      engagementId: 'sim-research-shannon',
+      workspaceDir,
+      maxRounds: 6,
+    });
+    let spawnCalls = 0;
+    const spawnImpl: SpawnFn = (command, args) => {
+      spawnCalls += 1;
+      const child = new EventEmitter() as unknown as ChildProcess & { stdout: EventEmitter; stderr: EventEmitter };
+      (child as unknown as { stdout: EventEmitter }).stdout = new EventEmitter();
+      (child as unknown as { stderr: EventEmitter }).stderr = new EventEmitter();
+      (child as unknown as { kill: () => void }).kill = () => child.emit('close', 143);
+      assert.equal(command, 'npx');
+      assert.ok(args.includes('start'));
+      setTimeout(() => child.emit('close', 0), 0);
+      return child;
+    };
+
+    const result = await runAdaptiveHunt({
+      ...input,
+      // The primary loop's own liveShannon is deliberately left unset —
+      // this proves the research track's Shannon confirmation is genuinely
+      // separate, not inherited.
+      researchTrack: { live: { registry: buildDefaultToolRegistry(), shannon: { confirmed: true, spawnImpl } } },
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.equal(spawnCalls, 1, 'Shannon must be invoked exactly once, through the shared adapter');
+    // The primary loop's own finding is completely unaffected by the research track's Shannon run.
+    assert.equal(result.value.finding?.vulnClass, 'xss');
+    assert.equal(result.value.finding?.status, 'reported');
+    assert.ok(result.value.research.log.some((line) => line.includes('Shannon executed live')));
+    assert.equal(result.value.research.findings.length, 1);
+    assert.equal(result.value.research.findings[0]?.status, 'reproduced');
   });
 });
 
