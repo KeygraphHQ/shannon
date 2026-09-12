@@ -248,8 +248,8 @@
   #v(1.6cm)
   #set par(leading: 0.4em)
   #text(size: 46pt, weight: "bold", fill: ink)[
-    Security\\
-    Assessment\\
+    Security\
+    Assessment\
     Report
   ]
   #set par(leading: 0.7em)
