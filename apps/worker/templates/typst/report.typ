@@ -248,8 +248,8 @@
   #v(1.6cm)
   #set par(leading: 0.4em)
   #text(size: 46pt, weight: "bold", fill: ink)[
-    Security\
-    Assessment\
+    Security\\
+    Assessment\\
     Report
   ]
   #set par(leading: 0.7em)
@@ -474,7 +474,7 @@
     ..(if show-confidence-col { (text(size: 9.5pt, weight: "semibold")[Confidence],) } else { () }),
   ),
   ..data.findings.map(f => (
-    text(weight: "semibold")[#f.id],
+    link(label("finding-" + f.id))[#text(weight: "semibold")[#f.id]],
     inline-code(f.title),
     text(size: 9.5pt)[#f.category],
     sev-chip(f.severity),
@@ -483,6 +483,11 @@
 )
 
 // ---------- FINDING RENDER --------------------------------------------------
+#let render-finding-heading(f) = [
+  #heading(level: 2)[#f.id: #inline-code(f.title)]
+  #label("finding-" + f.id)
+]
+
 #let render-finding-owasp(f) = [
   #grid(
     columns: (auto, 1fr),
@@ -531,7 +536,7 @@
 
 #let render-exploit(f) = {
   block(breakable: false)[
-    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #render-finding-heading(f)
     #sev-chip(f.severity)
     #v(8pt)
     #render-finding-owasp(f)
@@ -553,7 +558,7 @@
 
 #let render-analysis(f) = {
   block(breakable: false)[
-    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #render-finding-heading(f)
     #sev-chip(f.severity)
     #h(4pt)
     #confidence-chip(f.confidence)
