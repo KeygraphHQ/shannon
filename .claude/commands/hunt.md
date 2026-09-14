@@ -1,15 +1,32 @@
 ---
-description: Run the hunter adaptive recon + reasoning controller — scope validation, multi-source discovery, hypothesis generation, next-best-action selection, Shannon integration, validation, and a HackerOne report draft — against an authorized target
+description: Run the hunter adaptive recon + reasoning controller — program discovery/ranking, scope validation, multi-source discovery, hypothesis generation, next-best-action selection, Shannon integration, validation, and a HackerOne report draft — against an authorized target
 ---
 
 You are operating **hunter** (`apps/hunter/`), the local controller
 foundation for an autonomous HackerOne engagement with Claude Code as the
 reasoning layer and Shannon 1.9.0 as one execution engine among others.
 
-It runs the full workflow: SCOPE → DISCOVER → ENUMERATE → CORRELATE →
-UNDERSTAND → OBSERVE → HYPOTHESIZE → PRIORITIZE → SELECT NEXT-BEST ACTION →
-INVESTIGATE → LEARN → UPDATE MODEL → REPEAT → VALIDATE → EVIDENCE →
-DEDUPLICATE → HACKERONE REPORT DRAFT → HUMAN REVIEW. Each round, a
+Two entry points exist today, and this command must ask the user which one
+they want before doing anything else — see "Step 0" below:
+
+- **`hunter hunt --simulate`** — the original MVP: runs the full adaptive
+  loop against the bundled offline scenario in `fixtures/simulation/`. No
+  program discovery, no target selection — the target is fixed.
+- **`hunter lifecycle`** — discovers candidate programs (from a local
+  dataset file or an `h1-brain` snapshot file — see "Program discovery"
+  below), ranks them with an inspectable opportunity score, selects the
+  best one, and *stops*, printing its scope/ROE/rationale, until the
+  operator supplies an explicit `--authorize <file>`. Only then does it
+  write a normalized, authorized scope file and run the real adaptive loop
+  against the selected program. **Discovery and ranking are always
+  offline/read-only; nothing runs against a real target until an explicit
+  authorization file exists.**
+
+It runs the full workflow: DISCOVER PROGRAMS → RANK → SELECT → SCOPE →
+DISCOVER → ENUMERATE → CORRELATE → UNDERSTAND → OBSERVE → HYPOTHESIZE →
+PRIORITIZE → SELECT NEXT-BEST ACTION → INVESTIGATE → LEARN → UPDATE MODEL →
+REPEAT → VALIDATE → EVIDENCE → DEDUPLICATE → HACKERONE REPORT DRAFT → HUMAN
+REVIEW. Each round, a
 reasoning provider (Claude-backed when `ANTHROPIC_API_KEY` is configured,
 a deterministic heuristic provider otherwise — `reasoning/router.ts`)
 *proposes* the next-best action; a deterministic policy gate
@@ -53,33 +70,75 @@ improvise that from this command.
 
 ## Hard safety rules — do not deviate
 
-- **Never invoke Shannon for real from this command.** Every "shannon"
-  action only plans the invocation (`shannon/config.ts` +
-  `shannon/invoke.ts:planInvocation`) and, if a captured output file is
-  already available for that asset, ingests it. Nothing here ever spawns
-  Shannon. This applies equally to the research track's own `shannon`-kind
-  experiments (`pipeline/shannon-action.ts`) — they only ever plan/dry-run
-  here too, since this command never sets
-  `researchTrack.live.shannon.confirmed`. If the user wants to actually
-  launch a scan, point them at `/shannon` (its own explicit confirmation
-  step) — do not improvise a live-execution path here.
+- **"Start hunting" is never authorization to test anything.** Program
+  discovery and ranking (`hunter discover`/`hunter rank`/`hunter lifecycle`
+  without `--authorize`) are always read-only and offline — they only ever
+  read a local dataset file (or a local h1-brain snapshot file the operator
+  or a prior tool call produced; there is no live HackerOne API call
+  anywhere in this package). Nothing runs against a real target until the
+  operator has reviewed the printed scope/ROE and written a real
+  `AuthorizationRecord` JSON file (`{confirmed:true, confirmedBy,
+  confirmedAt, scopeReviewed:true}`) passed via `--authorize <file>`. Do not
+  fabricate this file on the user's behalf or treat a verbal "yes" as
+  equivalent to it — ask the user to confirm they reviewed the printed
+  scope, then either help them write the file with the details they gave
+  you, or have them provide it themselves.
+- **ROE (`disallowedTechniques`) is enforced, not just recorded.** A
+  program's declared disallowed techniques (e.g. "active scanning",
+  "fuzzing", "denial of service") are checked before every recon/Shannon
+  action actually runs (`discovery/roe.ts`, wired into
+  `pipeline/tool-bridge.ts` and `pipeline/shannon-action.ts`) — a blocked
+  action is reported as `BLOCKED_BY_POLICY` with the matched rule, never
+  silently skipped or silently allowed.
+- **Never invoke Shannon for real except via `hunter lifecycle
+  --authorize <file> --live-shannon`, and never pass `--live-shannon`
+  yourself without the user explicitly asking for a live Shannon run in
+  this hunt.** By default, every "shannon" action only plans the invocation
+  (`shannon/config.ts` + `shannon/invoke.ts:planInvocation`) and, if a
+  captured output file is already available for that asset, ingests it —
+  this is the *only* behavior for `hunt --simulate` and for `lifecycle`
+  without `--live-shannon`. If the user wants to actually launch a scan
+  outside of a hunt entirely, point them at `/shannon` (its own explicit
+  confirmation step) instead.
 - **Never contact HackerOne or submit a report.** Report drafts are always
   local Markdown files banner-marked "DRAFT — NOT SUBMITTED". Submission is
-  manual and out of scope for this command.
+  manual and out of scope for this command, in both modes.
 - **Scope validation must pass before anything else runs**, and no
   observation whose asset resolves to an out-of-scope host may ever
   influence a hypothesis or action (`recon/scope-tagging.ts:filterInScopeObservations`).
   If scope validation fails, stop and report why.
-- **Only accept a program scope from a local file.** There is no live
-  HackerOne API integration (`HackerOneApiIntake` is an intentionally
-  disabled stub) — never attempt to fetch scope from the network.
+- **A program scope only ever comes from a local file — never a live
+  network call from inside this package.** `hunter hunt`/`scope-validate`
+  read an operator-exported scope file (`intake/hackerone.ts`); `hunter
+  discover`/`rank`/`lifecycle` read either a local synthetic dataset file or
+  a local h1-brain *snapshot* file (`discovery/h1-brain-provider.ts`) — a
+  file the operator or a prior `mcp__h1-brain__*` tool call produced, not
+  something this package fetches itself. `HackerOneApiIntake` remains an
+  intentionally disabled stub.
 - **A finding is never claimed beyond its actual validation stage.** Report
   exactly what the run's `finding.status` and `finding.transitionLog` say
   (`candidate → investigated → reproduced → independently_validated →
   impact_demonstrated → deduplicated → report_ready → reported`, or
   `rejected`/`duplicate`) — never round up "investigated" to "confirmed".
 
-## Step 1: Confirm before running
+## Step 0: Which mode?
+
+Ask the user which they want:
+
+1. **Simulation** — the bundled offline scenario, no target selection, safe
+   to run with zero setup. Go to "Simulation mode" below.
+2. **A real hunt** — discover candidate programs from a dataset the user
+   already has (a local JSON file — see `fixtures/discovery/programs.json`
+   for the expected shape — or an h1-brain snapshot file), rank them, and
+   (only after the user explicitly authorizes it) run the adaptive loop
+   against the winner. Go to "Live discovery/selection mode" below.
+
+If the user just says "start hunting" with no further detail, ask which of
+these two they mean — do not assume.
+
+## Simulation mode
+
+### Step 1: Confirm before running
 
 Tell the user this will run the bundled offline simulation only (no real
 target, no network, nothing executed against anything) and ask for:
@@ -91,7 +150,7 @@ target, no network, nothing executed against anything) and ask for:
 3. **Engagement ID** (optional) — to resume a prior run in that same
    workspace directory instead of starting fresh.
 
-## Step 2: Run it
+### Step 2: Run it
 
 ```bash
 pnpm --filter @shannon/hunter run build
@@ -102,6 +161,73 @@ node apps/hunter/dist/cli.js hunt --simulate \
   [--engagement-id <ID>] \
   [--resume]
 ```
+
+## Live discovery/selection mode
+
+### Step 1: Get a programs dataset
+
+Ask the user for a path to a JSON file of candidate programs (an array
+shaped like `fixtures/discovery/programs.json` — see
+`discovery/types.ts:DiscoveredProgram`), or an h1-brain snapshot file (see
+`discovery/h1-brain-provider.ts:H1BrainSnapshot`). If they want the latter
+and don't already have one, you may build it yourself by calling the real
+`mcp__h1-brain__search_programs`/`fetch_program_scopes`/`hack`/
+`search_disclosed_reports` tools and writing what they return into that
+shape — this is still entirely local once written; hunter itself never
+calls those tools.
+
+### Step 2: Discover and rank, read-only
+
+```bash
+node apps/hunter/dist/cli.js discover --programs <FILE> [--provider fixture|h1-brain]
+node apps/hunter/dist/cli.js rank --programs <FILE> [--provider fixture|h1-brain]
+```
+
+Summarize the ranking and, for the winner, the `rationale` string
+(`"Program X ranked above Program Y because…"`) — this is the "why this
+program" the review process cares about. Do not proceed further without the
+user's go-ahead.
+
+### Step 3: Authorization — a real artifact, not a flag
+
+If the user wants to proceed, have them confirm they reviewed the winning
+program's scope/ROE, then help them write an `AuthorizationRecord` file:
+
+```json
+{
+  "confirmed": true,
+  "confirmedBy": "<user's name/handle>",
+  "confirmedAt": "<ISO timestamp>",
+  "scopeReviewed": true,
+  "note": "<why this hunt/what's being authorized>"
+}
+```
+
+### Step 4: Run the lifecycle
+
+```bash
+node apps/hunter/dist/cli.js lifecycle \
+  --programs <FILE> [--provider fixture|h1-brain] \
+  --workspace-dir <WORKSPACE_DIR> \
+  --engagement-id <ID> \
+  --max-rounds <N> \
+  --authorize <AUTHORIZATION_FILE> \
+  [--repo <LOCAL_REPO_PATH>] \
+  [--live-recon [--wordlist <PATH>] [--nuclei-severity <critical,high,...>] [--amass-output-dir <DIR>]] \
+  [--live-shannon]
+```
+
+Without `--live-recon`, the hunt still runs but has no recon sources to
+seed hypotheses from (it will genuinely complete with zero hypotheses —
+report this honestly, never as a failure). `--live-recon` wires up real
+recon adapters (`recon/live-bootstrap-sources.ts` +
+`tools/default-registry.ts`) for both bootstrap discovery and round-loop
+investigation — **this makes real outbound network requests against the
+selected program's real assets.** Only pass it when the user has explicitly
+authorized active testing of that real target; never pass it against a
+synthetic/fixture program. `--live-shannon` is the same deliberate,
+separate confirmation `liveShannon.confirmed` always required — only pass
+it when the user explicitly asks for a live Shannon run in this hunt.
 
 Other available subcommands, for inspecting one phase at a time (still
 fully offline):
@@ -115,13 +241,21 @@ hunter hypotheses  --workspace-dir <dir> --engagement-id <id>
 hunter checkpoint  --workspace-dir <dir> --engagement-id <id>
 ```
 
-There is no `--live` flag, deliberately — see `apps/hunter/README.md`'s
-"Live/authorized execution" section. Do not improvise one.
+`hunter hunt` has no `--live` flag, deliberately — see
+`apps/hunter/README.md`'s "Live/authorized execution" section. `hunter
+lifecycle` does have `--live-recon`/`--live-shannon`, but both require the
+`--authorize <file>` artifact from Step 3 above first, and neither is ever
+implied by the other or by running `lifecycle` at all — do not improvise a
+shortcut past that file.
 
-## Step 3: Report results
+## Reporting results (both modes)
 
 Summarize, from the JSON the CLI printed:
 
+- (Live discovery/selection mode only) The lifecycle's `finalState` and its
+  `transitions` — if it stopped at `AWAITING_AUTHORIZATION` or `BLOCKED`,
+  say exactly why and what the user needs to do next; never describe a
+  `BLOCKED`/`AWAITING_AUTHORIZATION` result as if the hunt ran.
 - Scope validation result and which asset matched.
 - Recon summary: how many discoveries per source, how many were corroborated
   by 2+ independent sources, how many were skipped as out-of-scope.

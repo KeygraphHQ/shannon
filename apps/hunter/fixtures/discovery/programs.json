@@ -1,0 +1,486 @@
+[
+  {
+    "programId": "globex-crowded",
+    "programName": "Globex Financial",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      { "identifier": "*.globex.com", "type": "wildcard-domain", "instruction": "in-scope", "tier": "critical" },
+      { "identifier": "internal.globex.com", "type": "domain", "instruction": "out-of-scope" }
+    ],
+    "rulesOfEngagement": ["no social engineering", "no testing against production payment rails"],
+    "disallowedTechniques": [],
+    "rateLimitPerMinute": 30,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.95,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "published bounty up to $4750 for critical"
+      },
+      "competitionPressure": {
+        "value": 0.05,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "1,400+ researchers active; extremely crowded leaderboard"
+      },
+      "disclosedReportDensity": {
+        "value": 0.9,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "340 disclosed reports on record"
+      },
+      "vulnClassHistory": {
+        "value": 0.3,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "disclosed reports mostly XSS/CSRF, well-picked-over"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.15,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "1 in-scope asset (wildcard), narrow surface"
+      },
+      "researchCost": {
+        "value": 0.85,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "small surface, cheap to cover exhaustively"
+      },
+      "programFreshness": {
+        "value": 0.9,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "scope updated within the last week"
+      },
+      "capabilityFit": {
+        "value": 1,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-10T00:00:00.000Z",
+        "detail": "web application, Hunter's adapters apply directly"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-10T00:00:00.000Z"
+  },
+  {
+    "programId": "initech-midrich",
+    "programName": "Initech Workflow Platform",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      { "identifier": "*.initech.io", "type": "wildcard-domain", "instruction": "in-scope", "tier": "critical" },
+      { "identifier": "https://api.initech.io", "type": "url", "instruction": "in-scope", "tier": "critical" },
+      { "identifier": "https://admin.initech.io", "type": "url", "instruction": "in-scope", "tier": "standard" }
+    ],
+    "rulesOfEngagement": ["report before disclosing", "test accounts only, never real customer data"],
+    "disallowedTechniques": ["denial of service"],
+    "rateLimitPerMinute": 60,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.5,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "published bounty up to $2500"
+      },
+      "competitionPressure": {
+        "value": 0.85,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "~40 researchers active; program is newer, low crowding"
+      },
+      "disclosedReportDensity": {
+        "value": 0.4,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "18 disclosed reports on record"
+      },
+      "vulnClassHistory": {
+        "value": 0.9,
+        "confidence": 0.7,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "disclosed reports span IDOR, SSRF, authz, and workflow-bypass classes"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.7,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "3 in-scope assets incl. a distinct API and admin console"
+      },
+      "researchCost": {
+        "value": 0.5,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "multi-role workflow app, moderate investigation depth needed"
+      },
+      "programFreshness": {
+        "value": 0.85,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "scope updated 6 days ago"
+      },
+      "capabilityFit": {
+        "value": 1,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-12T00:00:00.000Z",
+        "detail": "web application with a distinct JSON API, strong fit for JS/authz research"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-12T00:00:00.000Z"
+  },
+  {
+    "programId": "umbrella-poorsurface",
+    "programName": "Umbrella Consumer Portal",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      { "identifier": "www.umbrella-portal.example", "type": "domain", "instruction": "in-scope", "tier": "low" }
+    ],
+    "rulesOfEngagement": ["no automated scanning without prior approval"],
+    "disallowedTechniques": [],
+    "rateLimitPerMinute": 10,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.9,
+        "confidence": 0.6,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "policy advertises up to $4000, unconfirmed whether ever actually paid at that tier"
+      },
+      "competitionPressure": {
+        "value": 0.6,
+        "confidence": 0.4,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "researcher activity unclear from available data"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.05,
+        "confidence": 0.9,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "a single static marketing domain, almost no attack surface"
+      },
+      "researchCost": {
+        "value": 0.2,
+        "confidence": 0.4,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "little functionality to investigate for a high theoretical payout"
+      },
+      "programFreshness": {
+        "value": 0.2,
+        "confidence": 0.5,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "scope/policy not updated in ~10 months"
+      },
+      "capabilityFit": {
+        "value": 0.4,
+        "confidence": 0.7,
+        "freshnessAt": "2025-11-01T00:00:00.000Z",
+        "detail": "mostly static content; little for behavioral/authz research to find"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2025-11-01T00:00:00.000Z"
+  },
+  {
+    "programId": "hydra-hugesurface",
+    "programName": "Hydra Logistics Network",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      {
+        "identifier": "*.hydra-logistics.example",
+        "type": "wildcard-domain",
+        "instruction": "in-scope",
+        "tier": "standard"
+      },
+      {
+        "identifier": "*.hydra-carrier.example",
+        "type": "wildcard-domain",
+        "instruction": "in-scope",
+        "tier": "standard"
+      },
+      {
+        "identifier": "https://api.hydra-logistics.example",
+        "type": "url",
+        "instruction": "in-scope",
+        "tier": "critical"
+      },
+      {
+        "identifier": "https://partners.hydra-logistics.example",
+        "type": "url",
+        "instruction": "in-scope",
+        "tier": "standard"
+      },
+      { "identifier": "legacy.hydra-logistics.example", "type": "domain", "instruction": "out-of-scope" }
+    ],
+    "rulesOfEngagement": ["coordinate load-testing-adjacent findings with the security team before retesting"],
+    "disallowedTechniques": [],
+    "rateLimitPerMinute": 20,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.25,
+        "confidence": 0.8,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "published bounty up to $600"
+      },
+      "competitionPressure": {
+        "value": 0.7,
+        "confidence": 0.7,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "moderate researcher activity, low bounty deters most"
+      },
+      "disclosedReportDensity": {
+        "value": 0.3,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "12 disclosed reports on record"
+      },
+      "vulnClassHistory": {
+        "value": 0.6,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "disclosed reports span SSRF and IDOR classes"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.95,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "4 in-scope assets across two wildcard domains, an API, and a partner portal"
+      },
+      "researchCost": {
+        "value": 0.2,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "large multi-asset surface requires substantial recon before any single lead pays off"
+      },
+      "programFreshness": {
+        "value": 0.75,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "scope updated within the last two weeks"
+      },
+      "capabilityFit": {
+        "value": 1,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-08T00:00:00.000Z",
+        "detail": "multiple web/API assets, strong fit for Hunter's recon+JS+behavioral adapters"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-08T00:00:00.000Z"
+  },
+  {
+    "programId": "oldcorp-inactive",
+    "programName": "OldCorp Legacy Systems",
+    "platform": "hackerone",
+    "offersBounty": false,
+    "assets": [{ "identifier": "legacy.oldcorp.example", "type": "domain", "instruction": "in-scope", "tier": "low" }],
+    "rulesOfEngagement": [],
+    "disallowedTechniques": [],
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0,
+        "confidence": 0.9,
+        "freshnessAt": "2024-01-15T00:00:00.000Z",
+        "detail": "no bounty offered"
+      },
+      "programFreshness": {
+        "value": 0.05,
+        "confidence": 0.6,
+        "freshnessAt": "2024-01-15T00:00:00.000Z",
+        "detail": "scope/policy last touched over a year ago; program appears dormant"
+      },
+      "capabilityFit": {
+        "value": 0.6,
+        "confidence": 0.6,
+        "freshnessAt": "2024-01-15T00:00:00.000Z",
+        "detail": "a single legacy domain, unclear whether still actively maintained"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2024-01-15T00:00:00.000Z"
+  },
+  {
+    "programId": "vertex-activedisclosed",
+    "programName": "Vertex Collaboration Suite",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      {
+        "identifier": "*.vertex-suite.example",
+        "type": "wildcard-domain",
+        "instruction": "in-scope",
+        "tier": "critical"
+      },
+      { "identifier": "https://app.vertex-suite.example", "type": "url", "instruction": "in-scope", "tier": "critical" }
+    ],
+    "rulesOfEngagement": ["single test account provided on request"],
+    "disallowedTechniques": [],
+    "rateLimitPerMinute": 45,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.6,
+        "confidence": 0.85,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "published bounty up to $3000"
+      },
+      "competitionPressure": {
+        "value": 0.55,
+        "confidence": 0.8,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "~120 researchers active; moderately crowded"
+      },
+      "disclosedReportDensity": {
+        "value": 0.7,
+        "confidence": 0.75,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "96 disclosed reports on record — a genuinely active, well-documented program"
+      },
+      "vulnClassHistory": {
+        "value": 0.85,
+        "confidence": 0.75,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "disclosed reports span authz, SSRF, XSS, and workflow-bypass classes"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.4,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "2 in-scope assets"
+      },
+      "researchCost": {
+        "value": 0.55,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "moderate surface, well-documented history shortens the investigation path"
+      },
+      "programFreshness": {
+        "value": 0.95,
+        "confidence": 0.7,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "scope updated yesterday"
+      },
+      "capabilityFit": {
+        "value": 1,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-13T00:00:00.000Z",
+        "detail": "collaboration web app with rich client-side JS, strong fit"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-13T00:00:00.000Z"
+  },
+  {
+    "programId": "ironclad-restrictiveroe",
+    "programName": "Ironclad Defense Contractor Portal",
+    "platform": "hackerone",
+    "offersBounty": true,
+    "assets": [
+      {
+        "identifier": "*.ironclad-portal.example",
+        "type": "wildcard-domain",
+        "instruction": "in-scope",
+        "tier": "critical"
+      }
+    ],
+    "rulesOfEngagement": [
+      "written approval required before any active testing window opens",
+      "no testing outside 09:00-17:00 UTC weekdays"
+    ],
+    "disallowedTechniques": ["active scanning", "fuzzing", "automated exploitation", "port scanning"],
+    "rateLimitPerMinute": 5,
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.85,
+        "confidence": 0.7,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "published bounty up to $4000"
+      },
+      "competitionPressure": {
+        "value": 0.75,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "restrictive ROE keeps most researchers away"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.15,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "1 in-scope asset"
+      },
+      "researchCost": {
+        "value": 0.3,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "heavy ROE (no active scanning/fuzzing/automated exploitation) removes most of Hunter's cheap active recon actions"
+      },
+      "programFreshness": {
+        "value": 0.6,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "scope updated within the last month"
+      },
+      "capabilityFit": {
+        "value": 0.5,
+        "confidence": 0.8,
+        "freshnessAt": "2026-09-05T00:00:00.000Z",
+        "detail": "web application, but most of Hunter's active-recon action kinds are ROE-disallowed here"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-05T00:00:00.000Z"
+  },
+  {
+    "programId": "apiforge-interesting",
+    "programName": "APIForge Developer Platform",
+    "platform": "hackerone",
+    "offersBounty": false,
+    "assets": [
+      { "identifier": "*.apiforge.example", "type": "wildcard-domain", "instruction": "in-scope", "tier": "standard" },
+      {
+        "identifier": "https://console.apiforge.example",
+        "type": "url",
+        "instruction": "in-scope",
+        "tier": "standard"
+      },
+      { "identifier": "https://graph.apiforge.example", "type": "url", "instruction": "in-scope", "tier": "standard" }
+    ],
+    "rulesOfEngagement": ["a swag/recognition-only program — see policy for eligibility"],
+    "disallowedTechniques": [],
+    "signals": {
+      "bountyAttractiveness": {
+        "value": 0.05,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-11T00:00:00.000Z",
+        "detail": "recognition/swag only — no monetary bounty is paid (offersBounty: false)"
+      },
+      "assetSurfaceBreadth": {
+        "value": 0.7,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-11T00:00:00.000Z",
+        "detail": "3 in-scope assets incl. a GraphQL surface and a developer console"
+      },
+      "researchCost": {
+        "value": 0.45,
+        "confidence": 0.5,
+        "freshnessAt": "2026-09-11T00:00:00.000Z",
+        "detail": "unusual GraphQL + plugin architecture needs real investigation depth"
+      },
+      "programFreshness": {
+        "value": 0.9,
+        "confidence": 0.6,
+        "freshnessAt": "2026-09-11T00:00:00.000Z",
+        "detail": "scope updated 3 days ago"
+      },
+      "capabilityFit": {
+        "value": 1,
+        "confidence": 0.9,
+        "freshnessAt": "2026-09-11T00:00:00.000Z",
+        "detail": "GraphQL API + heavy client-side JS console — exactly the shape js-intelligence and authz-matrix research targets"
+      }
+    },
+    "sourceProvider": "fixture",
+    "discoveredAt": "2026-09-11T00:00:00.000Z"
+  }
+]

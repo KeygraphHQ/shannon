@@ -163,3 +163,53 @@ export async function runReconSources(sources: readonly ReconSource[]): Promise<
   }
   return results;
 }
+
+export interface ReconStreamEvent {
+  readonly source: string;
+  readonly discoveries: readonly RawDiscovery[];
+  readonly at: string;
+}
+
+/**
+ * Same concurrency guarantee as `runReconSources` — every source's
+ * `isAvailable()`/`discover()` still runs independently via
+ * `Promise.allSettled`, one slow source can never block a fast one, and a
+ * throwing source still lets every other source's result through — but
+ * `onSourceComplete` fires the instant *that individual source's* own
+ * promise settles, not after the whole batch does. This is the difference
+ * that lets a caller (`pipeline/adaptive-loop.ts`'s bootstrap phase) fold a
+ * fast source's discoveries into the world model — and make them eligible
+ * for correlation/hypothesis generation — while a slower sibling source is
+ * still running, instead of waiting for every source to finish before any
+ * of them can influence anything.
+ *
+ * `onSourceComplete` is called with an empty `discoveries` array (never
+ * skipped) for a source that was unavailable or threw, so a caller tracking
+ * "how many sources have reported in" gets an accurate count either way.
+ * Callback ordering is whatever real completion order the sources settle
+ * in — deliberately not sorted or batched — and a callback's own
+ * synchronous body always finishes before the next source's `then` can run
+ * (JavaScript has no preemptive threading), so a caller mutating shared
+ * state directly inside the callback never needs its own lock.
+ */
+export async function runReconSourcesStreaming(
+  sources: readonly ReconSource[],
+  onSourceComplete: (event: ReconStreamEvent) => void | Promise<void>,
+): Promise<readonly RawDiscovery[]> {
+  const results: RawDiscovery[] = [];
+  await Promise.allSettled(
+    sources.map(async (source) => {
+      let discoveries: readonly RawDiscovery[] = [];
+      try {
+        if (await source.isAvailable()) {
+          discoveries = await source.discover();
+        }
+      } catch {
+        discoveries = [];
+      }
+      results.push(...discoveries);
+      await onSourceComplete({ source: source.name, discoveries, at: new Date().toISOString() });
+    }),
+  );
+  return results;
+}

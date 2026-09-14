@@ -9,16 +9,37 @@
  * (`pipeline/adaptive-loop.ts`'s `liveShannon` option) is reachable only by
  * calling `runAdaptiveHunt()` programmatically, which forces a deliberate
  * integration decision rather than a casual command-line flag.
+ *
+ * `discover`/`rank`/`lifecycle` are the exception to "offline except where
+ * explicitly noted": they drive `orchestration/lifecycle.ts`'s
+ * discover -> rank -> select -> authorize -> hunt flow. `discover`/`rank`
+ * are always read-only/offline (a `ProgramDiscoveryProvider` never touches
+ * the network from inside this package — see `discovery/h1-brain-provider.ts`'s
+ * docstring). `lifecycle` stays offline/simulate-only until the operator
+ * supplies `--authorize <file>` — a real, human-authored `AuthorizationRecord`
+ * — at which point it can drive a genuinely live engagement if `--live-recon`/
+ * `--live-shannon` are also given, exactly as deliberate and explicit as
+ * `hunt`'s own `liveRecon`/`liveShannon` options, just reachable from the
+ * command line instead of requiring a hand-written script.
  */
 
+import { readFile } from 'node:fs/promises';
+import { FixtureDiscoveryProvider } from './discovery/fixture-provider.js';
+import { H1BrainSnapshotProvider } from './discovery/h1-brain-provider.js';
+import { explainSelection, rankPrograms, selectBestProgram } from './discovery/scoring.js';
+import type { ProgramDiscoveryProvider } from './discovery/types.js';
 import { ingestShannonOutput, parseShannonReport } from './ingestion/shannon-output.js';
 import { LocalFileIntake } from './intake/hackerone.js';
+import type { AuthorizationRecord } from './orchestration/lifecycle.js';
+import { runHuntLifecycle } from './orchestration/lifecycle.js';
 import { runAdaptiveHunt } from './pipeline/adaptive-loop.js';
 import { buildBundledSimulationInput } from './pipeline/simulation-loader.js';
+import { buildLiveBootstrapSources } from './recon/live-bootstrap-sources.js';
 import { validateTarget } from './scope/validator.js';
 import { buildShannonInvocation } from './shannon/config.js';
 import { planInvocation } from './shannon/invoke.js';
 import { loadCheckpoint } from './state/checkpoint.js';
+import { buildDefaultToolRegistry } from './tools/default-registry.js';
 import { loadWorldModel } from './worldmodel/graph.js';
 
 function parseFlags(argv: readonly string[]): Map<string, string> {
@@ -87,7 +108,6 @@ async function runIngest(flags: Map<string, string>): Promise<number> {
   const inputPath = requireFlag(flags, 'input');
   const engagementId = flags.get('engagement-id') ?? 'cli-ingest';
 
-  const { readFile } = await import('node:fs/promises');
   const raw = JSON.parse(await readFile(inputPath, 'utf8'));
   const parsed = parseShannonReport(raw);
   if (!parsed.ok) {
@@ -97,6 +117,155 @@ async function runIngest(flags: Map<string, string>): Promise<number> {
   const observations = ingestShannonOutput(parsed.value, engagementId);
   printJson({ ok: true, observations });
   return 0;
+}
+
+function buildDiscoveryProvider(flags: Map<string, string>): ProgramDiscoveryProvider {
+  const programsPath = requireFlag(flags, 'programs');
+  const kind = flags.get('provider') ?? 'fixture';
+  if (kind === 'h1-brain') {
+    return new H1BrainSnapshotProvider(programsPath);
+  }
+  if (kind !== 'fixture') {
+    throw new Error(`unknown --provider "${kind}" (expected "fixture" or "h1-brain")`);
+  }
+  return new FixtureDiscoveryProvider(programsPath);
+}
+
+async function runDiscover(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const result = await provider.discoverPrograms();
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  printJson({ ok: true, provider: provider.name, programCount: result.value.length, programs: result.value });
+  return 0;
+}
+
+async function runRank(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const result = await provider.discoverPrograms();
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  const ranked = rankPrograms(result.value);
+  const winner = selectBestProgram(ranked);
+  printJson({
+    ok: true,
+    ranked: ranked.map((r) => ({
+      rank: r.rank,
+      programId: r.program.programId,
+      programName: r.program.programName,
+      totalScore: r.score.totalScore,
+      evidenceWeight: r.score.evidenceWeight,
+      missingSignals: r.score.missingSignals,
+      components: r.score.components,
+    })),
+    selected: winner?.program.programId,
+    rationale: explainSelection(ranked),
+  });
+  return 0;
+}
+
+/**
+ * Runs `orchestration/lifecycle.ts:runHuntLifecycle` end to end: discover ->
+ * rank -> select -> (stop at AWAITING_AUTHORIZATION unless `--authorize` is
+ * given) -> normalize/write scope -> run the real adaptive loop. This is
+ * the CLI's answer to "the user should not need to hand-write TypeScript"
+ * for a live engagement — see this file's module docstring.
+ *
+ * `--authorize <file>` must point at a JSON file shaped like
+ * `AuthorizationRecord` (`{ confirmed: true, confirmedBy, confirmedAt,
+ * scopeReviewed: true }`) that the operator writes by hand after reviewing
+ * the scope/ROE/rationale a prior `--provider`/`--programs`-only run (or
+ * this same run without `--authorize`) printed. This is deliberately not a
+ * boolean flag: an operator cannot "just pass true" without having actually
+ * produced the file.
+ */
+async function runLifecycle(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const workspaceDir = requireFlag(flags, 'workspace-dir');
+  const engagementId = flags.get('engagement-id') ?? `lifecycle-${Date.now()}`;
+  const maxRounds = Number(flags.get('max-rounds') ?? '6');
+  const repo = flags.get('repo');
+
+  let authorization: AuthorizationRecord | undefined;
+  const authorizePath = flags.get('authorize');
+  if (authorizePath) {
+    const raw = JSON.parse(await readFile(authorizePath, 'utf8')) as AuthorizationRecord;
+    authorization = raw;
+  }
+
+  const wordlistPath = flags.get('wordlist');
+  const nucleiSeverity = flags.get('nuclei-severity');
+  const amassOutputDir = flags.get('amass-output-dir');
+  const liveRecon = flags.has('live-recon');
+  const liveShannon = flags.has('live-shannon');
+
+  const result = await runHuntLifecycle({
+    providers: [provider],
+    workspaceDir,
+    engagementId,
+    maxRounds,
+    ...(authorization !== undefined ? { authorization } : {}),
+    ...(repo !== undefined ? { repoPath: repo } : {}),
+    ...(liveShannon ? { liveShannon: { confirmed: true } } : {}),
+    ...(liveRecon
+      ? {
+          bootstrapSourcesFromTarget: (target: { domain: string; url: string }) =>
+            buildLiveBootstrapSources(buildDefaultToolRegistry(), target.domain, target.url, {
+              ...(amassOutputDir !== undefined ? { amassOutputDir } : {}),
+            }),
+          liveReconFromTarget: () => ({
+            registry: buildDefaultToolRegistry(),
+            ...(wordlistPath !== undefined ? { wordlistPath } : {}),
+            ...(nucleiSeverity !== undefined ? { nucleiSeverity } : {}),
+            ...(amassOutputDir !== undefined ? { amassOutputDir } : {}),
+          }),
+        }
+      : {}),
+  });
+
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  const output = result.value;
+  printJson({
+    ok: true,
+    finalState: output.finalState,
+    transitions: output.transitions,
+    selected: output.selected
+      ? {
+          programId: output.selected.program.programId,
+          programName: output.selected.program.programName,
+          rank: output.selected.rank,
+          totalScore: output.selected.score.totalScore,
+        }
+      : undefined,
+    selectionRationale: output.selectionRationale,
+    droppedAssets: output.droppedAssets,
+    normalizedScopePath: output.normalizedScopePath,
+    targetUrl: output.targetUrl,
+    hunt: output.huntResult
+      ? {
+          rounds: output.huntResult.checkpoint.round,
+          checkpointStatus: output.huntResult.checkpoint.status,
+          hypothesisCount: output.huntResult.checkpoint.hypotheses.length,
+          finding: output.huntResult.finding,
+          reportDraftPath: output.huntResult.reportDraftPath,
+          metrics: output.huntResult.metrics,
+          log: output.huntResult.log,
+        }
+      : undefined,
+  });
+  if (output.finalState === 'AWAITING_AUTHORIZATION') {
+    process.stderr.write(
+      'AWAITING_AUTHORIZATION: review the printed scope/ROE/rationale, then write an AuthorizationRecord JSON file and re-run with --authorize <file> to proceed.\n',
+    );
+  }
+  return output.finalState === 'BLOCKED' || output.finalState === 'FAILED' ? 1 : 0;
 }
 
 /**
@@ -229,6 +398,9 @@ const COMMANDS: Readonly<Record<string, (flags: Map<string, string>) => Promise<
   'shannon-plan': runShannonPlan,
   ingest: runIngest,
   hunt: runHunt,
+  discover: runDiscover,
+  rank: runRank,
+  lifecycle: runLifecycle,
   'world-model': runWorldModel,
   hypotheses: runHypotheses,
   checkpoint: runCheckpoint,

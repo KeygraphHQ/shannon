@@ -405,6 +405,104 @@ test('executeActionViaRegistry falls through to the next preferred adapter when 
   assert.equal(result.toolName, 'subfinder');
 });
 
+// === ROE (disallowedTechniques) enforcement ===
+
+test('an allowed action executes normally when the program declares no disallowed techniques', async () => {
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter());
+  const result = await executeActionViaRegistry(action({ kind: 'passive-recon' }), program(), BUDGET, {
+    registry,
+    engagementId: 'e1',
+  });
+  assert.equal(result.status, 'EXECUTED_NO_RESULTS');
+});
+
+test('a disallowed action-kind technique is rejected before the adapter runs', async () => {
+  const registry = new ToolRegistry();
+  let called = false;
+  registry.register(
+    new (class extends FakeAdapter {
+      override run(): Promise<ToolRunResult> {
+        called = true;
+        return super.run();
+      }
+    })(),
+  );
+  const result = await executeActionViaRegistry(
+    action({ kind: 'passive-recon' }),
+    program({ disallowedTechniques: ['passive-recon'] }),
+    BUDGET,
+    { registry, engagementId: 'e1' },
+  );
+  assert.equal(result.status, 'BLOCKED_BY_POLICY');
+  assert.match(result.summary, /ROE:/);
+  assert.equal(called, false, 'the adapter must never run once ROE has blocked the action');
+});
+
+test('a disallowed alias phrase (not the bare action-kind string) still blocks the action', async () => {
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter());
+  const result = await executeActionViaRegistry(
+    action({ kind: 'active-recon' }),
+    program({ disallowedTechniques: ['no automated scanning'] }),
+    BUDGET,
+    { registry, engagementId: 'e1' },
+  );
+  assert.equal(result.status, 'BLOCKED_BY_POLICY');
+});
+
+test('a tool-specific ROE rule blocks that adapter but falls through to the next preferred one', async () => {
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter({ name: 'certificate-transparency' }));
+  registry.register(new FakeAdapter({ name: 'subfinder' }));
+  const result = await executeActionViaRegistry(
+    action({ kind: 'passive-recon' }),
+    program({ disallowedTechniques: ['certificate-transparency'] }),
+    BUDGET,
+    { registry, engagementId: 'e1' },
+  );
+  assert.equal(result.status, 'EXECUTED_NO_RESULTS');
+  assert.equal(result.toolName, 'subfinder');
+});
+
+test('an unrelated ROE rule never blocks an action kind it does not name', async () => {
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter());
+  const result = await executeActionViaRegistry(
+    action({ kind: 'passive-recon' }),
+    program({ disallowedTechniques: ['no social engineering'] }),
+    BUDGET,
+    { registry, engagementId: 'e1' },
+  );
+  assert.equal(result.status, 'EXECUTED_NO_RESULTS');
+});
+
+test('scope is still checked before ROE — an out-of-scope target never even reaches the ROE check', async () => {
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter());
+  const result = await executeActionViaRegistry(
+    action({ kind: 'passive-recon', targetRef: 'https://not-in-scope.example.org' }),
+    program({ disallowedTechniques: ['passive-recon'] }),
+    BUDGET,
+    { registry, engagementId: 'e1' },
+  );
+  assert.equal(result.status, 'BLOCKED_BY_SCOPE', 'scope must be checked first regardless of ROE');
+});
+
+test('budget exhaustion (checked by the caller/policy layer, not this function) is a separate gate from ROE', async () => {
+  // executeActionViaRegistry itself has no action-count budget check (that
+  // lives in reasoning/policy.ts, before an action is even selected) — this
+  // documents that ROE and policy/budget are independent gates that both
+  // must pass, not that one subsumes the other.
+  const registry = new ToolRegistry();
+  registry.register(new FakeAdapter());
+  const result = await executeActionViaRegistry(action({ kind: 'passive-recon' }), program(), BUDGET, {
+    registry,
+    engagementId: 'e1',
+  });
+  assert.notEqual(result.status, 'BLOCKED_BY_POLICY');
+});
+
 test('executeActionViaRegistry: overriding preferredToolNames for one action kind does not starve every other kind of its default preference list', async () => {
   const registry = new ToolRegistry();
   registry.register(new FakeAdapter({ name: 'subfinder' })); // the passive-recon default this test relies on staying in effect

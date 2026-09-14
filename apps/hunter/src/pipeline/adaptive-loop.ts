@@ -65,7 +65,7 @@ import {
   classifyRawDiscoveryScope,
   filterInScopeObservations,
 } from '../recon/scope-tagging.js';
-import { type ReconSource, runReconSources } from '../recon/sources.js';
+import { type ReconSource, runReconSourcesStreaming } from '../recon/sources.js';
 import { writeDraft } from '../report/draft.js';
 import { validateTarget } from '../scope/validator.js';
 import {
@@ -232,6 +232,7 @@ async function executeAction(
     // `pipeline/shannon-action.ts`'s docstring. Shared with
     // `pipeline/research-track.ts` rather than duplicated.
     return executeShannonHuntAction(action, {
+      program: ctx.program,
       repoPath: ctx.repoPath,
       engagementId: ctx.engagementId,
       workspaceDir: ctx.workspaceDir,
@@ -412,46 +413,62 @@ export async function runAdaptiveHunt(input: AdaptiveHuntInput): Promise<Result<
     worldModel = rootAsset.model;
     worldModel = addEdge(worldModel, programNode.node.id, rootAsset.node.id, 'belongs-to');
 
-    const passiveDiscoveries = await runReconSources(input.passiveSources);
-    for (const discovery of passiveDiscoveries) {
-      const up = upsertNode(worldModel, {
-        kind: discovery.kind,
-        label: discovery.label,
-        source: discovery.source,
-        confidence: discovery.confidence,
-        attributes: discovery.attributes,
-        scopeStatus: classifyRawDiscoveryScope(program, discovery),
-      });
-      worldModel = up.model;
-    }
+    // Streaming, not batched: each source's own discoveries are folded into
+    // `worldModel` (and so become eligible for correlation/hypothesis
+    // generation) the instant *that* source's promise settles, while any
+    // slower sibling source is still running — see
+    // `recon/sources.ts:runReconSourcesStreaming`'s docstring for the
+    // concurrency guarantee this rests on. `passiveSourcesReported` lets the
+    // summary log line below report accurately even though sources no
+    // longer all finish at once.
+    let passiveSourcesReported = 0;
+    const passiveDiscoveries = await runReconSourcesStreaming(input.passiveSources, (event) => {
+      passiveSourcesReported += 1;
+      for (const discovery of event.discoveries) {
+        const up = upsertNode(worldModel, {
+          kind: discovery.kind,
+          label: discovery.label,
+          source: discovery.source,
+          confidence: discovery.confidence,
+          attributes: discovery.attributes,
+          scopeStatus: classifyRawDiscoveryScope(program, discovery),
+        });
+        worldModel = up.model;
+      }
+    });
     const correlatedPassive = correlateDiscoveries(passiveDiscoveries);
     log.push(
-      `discover (passive): ${passiveDiscoveries.length} raw discoveries from ${input.passiveSources.length} source(s) -> ${correlatedPassive.length} unique node(s), ${crossSourceCorrelated(correlatedPassive).length} corroborated by 2+ independent sources`,
+      `discover (passive): ${passiveDiscoveries.length} raw discoveries from ${passiveSourcesReported}/${input.passiveSources.length} source(s) (streamed into the world model as each source completed) -> ${correlatedPassive.length} unique node(s), ${crossSourceCorrelated(correlatedPassive).length} corroborated by 2+ independent sources`,
     );
 
     // === DISCOVER / ENUMERATE (active, authorized only) ===
-    const activeDiscoveries = await runReconSources(input.activeSources);
     let skippedOutOfScope = 0;
     let skippedUnknownScope = 0;
-    for (const discovery of activeDiscoveries) {
-      const scopeStatus = classifyRawDiscoveryScope(program, discovery);
-      if (scopeStatus !== 'in-scope') {
-        if (scopeStatus === 'out-of-scope') skippedOutOfScope += 1;
-        else skippedUnknownScope += 1;
-        continue;
+    let appliedActive = 0;
+    let activeSourcesReported = 0;
+    await runReconSourcesStreaming(input.activeSources, (event) => {
+      activeSourcesReported += 1;
+      for (const discovery of event.discoveries) {
+        const scopeStatus = classifyRawDiscoveryScope(program, discovery);
+        if (scopeStatus !== 'in-scope') {
+          if (scopeStatus === 'out-of-scope') skippedOutOfScope += 1;
+          else skippedUnknownScope += 1;
+          continue;
+        }
+        const up = upsertNode(worldModel, {
+          kind: discovery.kind,
+          label: discovery.label,
+          source: discovery.source,
+          confidence: discovery.confidence,
+          attributes: discovery.attributes,
+          scopeStatus,
+        });
+        worldModel = up.model;
+        appliedActive += 1;
       }
-      const up = upsertNode(worldModel, {
-        kind: discovery.kind,
-        label: discovery.label,
-        source: discovery.source,
-        confidence: discovery.confidence,
-        attributes: discovery.attributes,
-        scopeStatus,
-      });
-      worldModel = up.model;
-    }
+    });
     log.push(
-      `enumerate (active, in-scope targets only): ${activeDiscoveries.length - skippedOutOfScope - skippedUnknownScope} discoveries applied, ${skippedOutOfScope} skipped as out-of-scope, ${skippedUnknownScope} skipped as unknown-scope`,
+      `enumerate (active, in-scope targets only): ${appliedActive} discoveries applied from ${activeSourcesReported}/${input.activeSources.length} source(s) (streamed), ${skippedOutOfScope} skipped as out-of-scope, ${skippedUnknownScope} skipped as unknown-scope`,
     );
 
     // === UNDERSTAND (JavaScript intelligence) ===

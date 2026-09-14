@@ -54,8 +54,14 @@ target, and is resumable — see "Resumability" below.
 
 | Requirement | Module |
 |---|---|
+| Program discovery abstraction + providers (local synthetic dataset, h1-brain snapshot) | `src/discovery/types.ts` (`ProgramDiscoveryProvider`), `src/discovery/fixture-provider.ts`, `src/discovery/h1-brain-provider.ts` |
+| Program Opportunity Model (transparent, inspectable scoring/ranking/explanation) | `src/discovery/scoring.ts` |
+| HackerOne-shaped discovery data -> Hunter's `ProgramScope` (never bypasses the real validator; discovery never implies authorization) | `src/discovery/normalize.ts` |
+| ROE (`disallowedTechniques`) enforcement, before every recon/Shannon action actually runs | `src/discovery/roe.ts` |
+| Live hunt lifecycle orchestrator (discover -> rank -> select -> authorize -> run, one entry point, no hand-written TypeScript required) | `src/orchestration/lifecycle.ts` |
+| Bootstrap recon sourced from real CLI adapters, not just fixtures | `src/recon/live-bootstrap-sources.ts` |
 | Scope schema + deterministic validator (tiers, bounty eligibility, auth requirements, rate limit) | `src/types.ts`, `src/scope/validator.ts`, `src/scope/matching.ts` |
-| HackerOne intake abstraction | `src/intake/hackerone.ts` (`ProgramIntake`; `LocalFileIntake` implemented, `HackerOneApiIntake` a disabled stub) |
+| HackerOne intake abstraction (single, already-selected program) | `src/intake/hackerone.ts` (`ProgramIntake`; `LocalFileIntake` implemented, `HackerOneApiIntake` a disabled stub) |
 | Engagement/state persistence | `src/state/engagement-store.ts` |
 | World model (program → asset → host → application → endpoint → parameter → js-artifact → source-location → auth-state → role → resource → workflow → integration) | `src/worldmodel/graph.ts` |
 | Passive/active recon source abstraction + capability detection + tool-identity verification | `src/recon/sources.ts` (`ReconSource`, `LocalFixtureReconSource`, `isToolInstalled`, `verifyToolIdentity`) |
@@ -84,7 +90,7 @@ target, and is resumable — see "Resumability" below.
 | HackerOne report draft generator | `src/report/draft.ts` |
 | Local test HTTP application (used only by tests) | `src/testing/local-app-server.ts` |
 | Local autonomous simulation | `fixtures/simulation/**`, `src/pipeline/simulation-loader.ts` |
-| CLI | `src/cli.ts` |
+| CLI (incl. `discover`/`rank`/`lifecycle`) | `src/cli.ts` |
 | `/hunt` slash command | `../../.claude/commands/hunt.md` |
 | Tests | `src/**/*.test.ts` (Node's built-in `node:test`, no new test framework dependency) |
 
@@ -105,6 +111,22 @@ Zero third-party dependencies. Only Node/platform built-ins (`node:fs`,
   `recon/scope-tagging.ts:filterInScopeObservations` is a hard firewall: no
   observation against an out-of-scope host can ever reach hypothesis
   generation or the action queue, no matter which recon layer produced it.
+  This now holds one layer earlier too: `orchestration/lifecycle.ts` can
+  *discover* and *rank* any number of candidate programs freely (always
+  read-only, always offline), but the resulting selection is never itself
+  treated as authorization — `runHuntLifecycle` hard-stops at
+  `AWAITING_AUTHORIZATION` until the caller supplies an explicit,
+  human-authored `AuthorizationRecord` (`confirmed: true` *and*
+  `scopeReviewed: true`), and that record — never a raw discovery record —
+  is the only thing allowed to write `authorizationConfirmed: true` into
+  the normalized scope file the hunt actually runs against.
+- **ROE is enforced, not just recorded.** `ProgramScope.disallowedTechniques`
+  used to be validated on intake and never read again. `discovery/roe.ts:isTechniqueAllowed`
+  is now checked in `pipeline/tool-bridge.ts` (before every recon adapter
+  runs, both at the action-kind level and again per candidate tool name) and
+  in `pipeline/shannon-action.ts` (before Shannon eligibility is even
+  checked) — a disallowed technique is reported as `BLOCKED_BY_POLICY` with
+  the matched rule, never silently skipped or silently allowed through.
 - **A model can only propose; a deterministic layer decides.**
   `reasoning/policy.ts:evaluateProposal` accepts a `ReasoningProvider`'s
   action proposal only if it matches, field for field, a real entry already
@@ -118,8 +140,11 @@ Zero third-party dependencies. Only Node/platform built-ins (`node:fs`,
   <NAME>]`) — no invented flags. The adaptive loop always just *plans* a
   Shannon action unless the caller passes `liveShannon: { confirmed: true }`
   to `runAdaptiveHunt()` — nothing sets that automatically, regardless of
-  which reasoning provider selected the action, and there is no CLI flag
-  for it (see "Live Shannon execution" below). `shannon/eligibility.ts`
+  which reasoning provider selected the action, and `hunter hunt` still has
+  no CLI flag for it. `hunter lifecycle` does have `--live-shannon`, but it
+  is inert unless `--authorize <file>` has already supplied a real,
+  human-authored authorization record — the flag alone can never reach a
+  live target (see "Live Shannon execution" below). `shannon/eligibility.ts`
   additionally refuses to even plan Shannon against a black-box target with
   no real local repository — it never pretends source-aware mode applies.
 - **A hypothesis is never a finding, and a finding is never claimed beyond
@@ -133,13 +158,18 @@ Zero third-party dependencies. Only Node/platform built-ins (`node:fs`,
   named `httpx` on PATH is Python's HTTPX HTTP client, not ProjectDiscovery's
   recon tool, and capability detection correctly reports it unavailable
   rather than trying to drive the wrong program.
-- **HackerOne intake and submission are both stubs by design.**
+- **A live HackerOne *API* call — intake, discovery, or submission — is
+  still a stub or absent by design; report submission always is.**
   `HackerOneApiIntake` throws "not implemented"; `report/draft.ts` only
-  ever writes a local file, banner-marked `DRAFT — NOT SUBMITTED`.
-  `dedup/local-dedup.ts`'s `DisclosedReportProvider` reports one of
-  `NO_PROVIDER` / `PROVIDER_DISABLED` / `PROVIDER_ERROR` — never a
-  fabricated `NO_MATCH` — when live HackerOne duplicate search is not
-  actually available.
+  ever writes a local file, banner-marked `DRAFT — NOT SUBMITTED`, and
+  nothing anywhere in this package can submit one. Program *discovery*
+  (`discovery/h1-brain-provider.ts`) is real, but reads a pre-fetched local
+  snapshot file rather than calling the HackerOne API itself — see that
+  module's docstring for exactly why the honest integration point is a file,
+  not an HTTP client. `dedup/local-dedup.ts`'s `DisclosedReportProvider`
+  reports one of `NO_PROVIDER` / `PROVIDER_DISABLED` / `PROVIDER_ERROR` —
+  never a fabricated `NO_MATCH` — when live HackerOne duplicate search is
+  not actually available.
 - **No destructive testing, no unnecessary data access.** JS-intelligence
   secret detection never retains a full matched value — only a truncated
   fingerprint (`abcd…(41 chars, redacted)`) — and evidence headers
@@ -332,21 +362,55 @@ node apps/hunter/dist/cli.js hunt --simulate \
 node apps/hunter/dist/cli.js world-model --workspace-dir ./.hunter-workspace --engagement-id my-hunt
 node apps/hunter/dist/cli.js hypotheses  --workspace-dir ./.hunter-workspace --engagement-id my-hunt
 node apps/hunter/dist/cli.js checkpoint  --workspace-dir ./.hunter-workspace --engagement-id my-hunt
+
+# Program discovery -> ranking -> authorized live hunt, no hand-written
+# TypeScript required — see "Live/authorized execution" below
+node apps/hunter/dist/cli.js discover --programs <programs.json> [--provider fixture|h1-brain]
+node apps/hunter/dist/cli.js rank     --programs <programs.json> [--provider fixture|h1-brain]
+node apps/hunter/dist/cli.js lifecycle \
+  --programs <programs.json> [--provider fixture|h1-brain] \
+  --workspace-dir ./.hunter-workspace --engagement-id my-hunt --max-rounds 6 \
+  [--authorize <authorization.json>] \
+  [--repo <local-repo-path>] \
+  [--live-recon [--wordlist <path>] [--nuclei-severity <sev>] [--amass-output-dir <dir>]] \
+  [--live-shannon]
 ```
 
 Or via the `/hunt` slash command, which wraps the same CLI with a
-confirmation step.
+confirmation step for either mode.
 
-### Live/authorized execution — deliberately not a CLI flag
+### Live/authorized execution
 
-There is no `--live` flag: `hunter hunt` only runs `--simulate`. Wiring a
-real engagement's recon sources, JS/behavioral targets, and Shannon output
-capture is a programmatic `runAdaptiveHunt()` call, and live Shannon
-execution additionally requires `liveShannon: { confirmed: true }` on that
-call — both are deliberate integration decisions, not something a
-command-line flag should make easy to trigger by accident. For running
-Shannon itself for real right now, independent of Hunter, use `/shannon`,
-which already has its own confirmation flow:
+`hunter hunt` still has no `--live` flag: it only ever runs `--simulate`.
+`hunter lifecycle` is the live entry point, and it is deliberate rather than
+a casual flag in a different way than "absent entirely": every live
+capability requires an explicit, separately-supplied artifact, not just a
+boolean.
+
+- **Program selection is never itself authorization.** `discover`/`rank`
+  (and `lifecycle` without `--authorize`) only ever read a local dataset or
+  snapshot file and stop at `AWAITING_AUTHORIZATION`, printing the selected
+  program's scope/ROE/rationale.
+- **`--authorize <file>`** must point at a real, human-authored
+  `AuthorizationRecord` JSON file (`{confirmed:true, confirmedBy,
+  confirmedAt, scopeReviewed:true}`) — see `orchestration/lifecycle.ts`'s
+  docstring. Without it, `lifecycle` never writes a scope file with
+  `authorizationConfirmed: true`, and `--live-recon`/`--live-shannon` are
+  inert regardless of whether they were passed.
+- **`--live-recon`** (only meaningful alongside `--authorize`) wires real
+  recon adapters into *both* bootstrap discovery
+  (`recon/live-bootstrap-sources.ts`, wrapping `recon/cli-adapters.ts`'s
+  passive/active tools as bootstrap `ReconSource`s — previously only
+  possible programmatically) and round-loop investigation actions (the
+  existing `pipeline/tool-bridge.ts` gate chain). This makes real outbound
+  requests against the selected program's real assets.
+- **`--live-shannon`** (same explicit-confirmation contract as
+  `liveShannon: { confirmed: true }` always had) additionally allows a
+  "shannon" action to spawn the real Shannon CLI instead of only
+  planning/ingesting a captured output.
+
+For running Shannon itself for real right now, independent of Hunter, use
+`/shannon`, which already has its own confirmation flow:
 
 ```bash
 npx @keygraph/shannon@1.9.0 start --url <AUTHORIZED_URL> --repo <REPO_PATH>
@@ -786,6 +850,127 @@ reported as a finding.
   authorization matrix) produced the hypothesis — without misrepresenting
   which vulnClasses those generators actually produce today.
 
+## Program discovery, ranking, and the live hunt lifecycle
+
+Before this section's modules existed, Hunter could only ever run against
+one already-chosen program, supplied as a local scope file — there was no
+concept of discovering or comparing candidates, and no path from the CLI to
+a live engagement that did not require calling `runAdaptiveHunt()`
+programmatically. `discovery/` and `orchestration/lifecycle.ts` close that
+front half without touching the (already real, already well-tested) engine
+behind it — `runHuntLifecycle` calls `runAdaptiveHunt` exactly as any other
+caller would, once a program has been discovered, ranked, normalized, and
+explicitly authorized.
+
+**Program discovery** (`discovery/types.ts:ProgramDiscoveryProvider`) is a
+provider interface, not a single implementation — this package ships two,
+and both are offline/local, consistent with every other intake path here:
+
+- **`discovery/fixture-provider.ts:FixtureDiscoveryProvider`** reads a local
+  JSON array of `DiscoveredProgram` records —
+  `fixtures/discovery/programs.json` is a synthetic 8-program dataset
+  deliberately covering the review-relevant spread (high-bounty/
+  high-competition, medium-bounty/low-competition/rich-app, huge-surface/
+  low-bounty, a restrictive-ROE program, a no-bounty-but-interesting-API
+  program, a stale/inactive program, and more) — used by every
+  discovery/ranking test and by `orchestration/lifecycle.test.ts`'s
+  end-to-end proof.
+- **`discovery/h1-brain-provider.ts:H1BrainSnapshotProvider`** reads a
+  pre-fetched HackerOne snapshot file. This package has zero third-party
+  dependencies and makes no network calls of its own anywhere — `h1-brain`
+  (the `mcp__h1-brain__*` MCP tools: `search_programs`,
+  `fetch_program_scopes`, `hack`, `search_disclosed_reports`, …) is only
+  reachable by the orchestrating Claude Code session, never by this Node
+  package, so the honest integration point is a file: the operator or
+  agent calls the real tools and writes what they returned into the
+  documented `H1BrainSnapshot` shape, and `normalizeSnapshotProgram` derives
+  a `ProgramSignal` only from a field that snapshot record actually
+  contains — a program with no bounty range in its snapshot gets no
+  `bountyAttractiveness` signal at all, never an invented one.
+
+**The Program Opportunity Model** (`discovery/scoring.ts`) turns each
+candidate's `signals` into one inspectable `ProgramOpportunityScore`: a
+confidence- and freshness-weighted deviation from a neutral 0.5 prior, not
+a black-box number. A signal a program doesn't carry is excluded from that
+program's own denominator (named in `missingSignals`), never defaulted —
+and a signal's trust (`confidence * freshnessFactor`) governs *how far*
+its value is allowed to pull the score from neutral, so a stale or
+low-confidence figure regresses toward "no strong opinion" rather than
+being asserted at face value or silently cancelling out of the score
+entirely (the latter was a real bug caught by
+`scoring.test.ts`'s staleness test: with only one signal present, a naive
+weighted-average formula lets confidence/freshness cancel out of the
+ratio's numerator and denominator identically). `rankPrograms` sorts
+descending by `totalScore` (ties broken by `evidenceWeight`, then
+`programId`, for full determinism), and `explainSelection` turns the top
+two candidates' component deltas into a plain-language
+`"Program X ranked above Program Y because…"` sentence —
+`fixture-provider.test.ts`'s `'the bundled dataset produces a rational,
+inspectable ranking'` test proves the shipped 8-program dataset resolves to
+a specific, reproducible winner, and `scoring.test.ts` proves changing the
+dataset changes it.
+
+**Normalization** (`discovery/normalize.ts:normalizeDiscoveredProgram`)
+converts a selected `DiscoveredProgram` into a real `ProgramScope` by
+constructing a raw object and running it through the exact same
+`intake/hackerone.ts:parseProgramScope` validator every other scope path
+uses — never a bespoke, less-strict conversion. An asset whose
+`instruction` is `'unclear'` or whose `type` is `'unsupported'` is dropped,
+never guessed into `'in-scope'`, and `authorizationConfirmed` is always
+written `false` here; only `orchestration/lifecycle.ts`, acting on an
+explicit human-supplied record, may ever flip it.
+
+**ROE enforcement** (`discovery/roe.ts:isTechniqueAllowed`) is what makes
+`ProgramScope.disallowedTechniques` — previously validated on intake and
+never read again anywhere in the pipeline — an actual pre-execution
+decision: `pipeline/tool-bridge.ts` checks it once per action kind and
+again per candidate tool name (so a rule naming one specific tool blocks
+only that adapter, not the whole action kind), and
+`pipeline/shannon-action.ts` checks it before Shannon eligibility is even
+evaluated. Matching is deliberately conservative: exact match against the
+action kind/a short alias table/the tool name, or substring containment
+once both sides are at least 4 characters (so a short rule can never
+accidentally swallow an unrelated candidate).
+
+**The live hunt lifecycle** (`orchestration/lifecycle.ts:runHuntLifecycle`)
+sequences all of the above into one function with explicit states
+(`DISCOVERY -> RANKING -> AWAITING_AUTHORIZATION -> READY -> RUNNING ->
+COMPLETED`/`PAUSED`/`BLOCKED`/`FAILED`) and is what `cli.ts`'s `lifecycle`
+command wraps — see "Live/authorized execution" above for the CLI contract,
+and `orchestration/lifecycle.test.ts` for the full discover-rank-select-
+authorize-run proof (including a live-timing-free version of the same
+end-to-end assertions `pipeline/adaptive-loop.test.ts`'s "full bundled
+simulation" test makes, reached this time through the lifecycle entry
+point rather than a direct `runAdaptiveHunt()` call).
+
+**Bootstrap recon can now be genuinely live, not just fixture-driven.**
+`recon/live-bootstrap-sources.ts:buildLiveBootstrapSources` wraps the real
+passive/active `ToolAdapter`s (`recon/cli-adapters.ts`) as bootstrap
+`ReconSource`s — before this module, the only shipped `ReconSource`
+implementation was `recon/sources.ts:LocalFixtureReconSource`, so a live
+engagement could investigate a target once the round loop selected an
+action, but could never seed its *initial* hypotheses from anything but a
+fixture. Only tools whose bootstrap value is pure discovery
+(certificate-transparency/subfinder/chaos/gau/waybackurls/amass for
+passive; httpx/katana/naabu for active) are wrapped — ffuf/nuclei stay
+investigation-only, reachable solely through the round loop's own
+tool-bridge gate chain, so their `Observation`s (a bootstrap `ReconSource`
+can only return `RawDiscovery[]`) are never silently dropped.
+
+**Bootstrap recon streams into the world model, source by source.**
+`recon/sources.ts:runReconSourcesStreaming` fires its callback the instant
+each individual source's own promise settles, not after every source in
+the batch does — `pipeline/adaptive-loop.ts`'s bootstrap phase uses this to
+fold a fast source's discoveries into the world model (and so make them
+eligible for correlation) while a slower sibling source is still running,
+rather than waiting for the whole batch. `sources.test.ts`'s
+`'runReconSourcesStreaming fires a fast source's callback while a slow
+sibling source is still running'` test proves this with real timestamps,
+not just code inspection — the property this closes is specifically
+"Recon A completes → its result is usable → Recon B is still running,"
+distinct from (and in addition to) the concurrency `runReconSources`
+already had.
+
 ## What's still not wired up (read before assuming more than is implemented)
 
 - **Local, signature-based deduplication only.** `LocalSignatureDeduplicator`
@@ -793,10 +978,22 @@ reported as a finding.
   `DisabledDisclosedReportProvider` reports `PROVIDER_DISABLED` by default,
   and the API-backed provider variant reports `PROVIDER_ERROR` even with
   credentials present — no live HackerOne API call is implemented
-  (deliberately, per this phase's scope).
+  (deliberately, per this phase's scope). Disclosed-report data is
+  reachable for *discovery/ranking* purposes via
+  `discovery/h1-brain-provider.ts`'s snapshot (`disclosedReportDensity`/
+  `vulnClassHistory` signals), but that is a separate thing from live
+  duplicate-report search at finding time, which remains unimplemented.
 - **`shannonOutputsByAsset` is a flat map.** A real integration needs to
   handle re-scanning the same asset across rounds, or route to
   `executeShannonAction` every time instead.
+- **No genuine multi-program economics data (payout history, real
+  researcher-activity counts) is fetched automatically.** The Program
+  Opportunity Model is real and inspectable, but every signal still has to
+  be supplied by a provider — the fixture dataset supplies realistic
+  illustrative values by hand, and the h1-brain snapshot provider derives
+  what it can from whatever fields the snapshot file actually contains. A
+  provider that computes these from a live payout/report history API is a
+  natural next addition, not a redesign.
 
 ## Next phase
 
@@ -806,3 +1003,7 @@ reported as a finding.
    `MATCH_FOUND`/`NO_MATCH`).
 2. Extend `executeShannonAction`'s report discovery to handle multiple
    Shannon runs against the same asset across rounds.
+3. A `ProgramDiscoveryProvider` backed by a live HackerOne API call
+   (credentials/auth flow permitting), producing `ProgramSignal`s the same
+   shape `discovery/h1-brain-provider.ts` already derives from a snapshot —
+   the scoring/ranking/lifecycle layers need no changes to consume it.

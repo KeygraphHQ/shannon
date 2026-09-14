@@ -438,6 +438,7 @@ export async function runResearchTrack(input: ResearchTrackInput): Promise<Resea
       // Shannon itself, and never sets `confirmed: true` on its own; that
       // can only come from the caller's explicit `live.shannon`.
       const shannonResult = await executeShannonHuntAction(action, {
+        program: input.program,
         repoPath: input.repoPath,
         engagementId: input.engagementId,
         workspaceDir: input.workspaceDir,

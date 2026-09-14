@@ -100,6 +100,65 @@ test('full bundled simulation: recon builds a correlated world model, hypotheses
   });
 });
 
+test('bootstrap recon streams each source into the world model independently, not as one batched step after every source settles', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    // A genuinely slow source and a genuinely fast one, given in an order
+    // ([slow, fast]) that a sequential (non-streaming) implementation would
+    // process slow-first, delaying the fast source's own discovery by the
+    // slow source's full duration. `recon/sources.test.ts` proves the
+    // underlying primitive folds the fast source in while the slow one is
+    // still in flight, with real timestamps; this test proves the wiring
+    // into `runAdaptiveHunt` actually uses that primitive end to end — both
+    // discoveries reach the world model, correctly attributed, and the
+    // bootstrap log line reports the new streamed-source-count format
+    // rather than the old batched one.
+    const slow = {
+      name: 'slow-passive',
+      isAvailable: async () => true,
+      discover: async () => {
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        return [
+          {
+            source: 'slow-passive',
+            kind: 'host' as const,
+            label: 'slow.example.com',
+            attributes: {},
+            confidence: 0.6,
+            discoveredAt: '',
+          },
+        ];
+      },
+    };
+    const fast = {
+      name: 'fast-passive',
+      isAvailable: async () => true,
+      discover: async () => [
+        {
+          source: 'fast-passive',
+          kind: 'host' as const,
+          label: 'fast.example.com',
+          attributes: {},
+          confidence: 0.6,
+          discoveredAt: '',
+        },
+      ],
+    };
+
+    const base = await buildBundledSimulationInput({ engagementId: 'streaming-sim', workspaceDir, maxRounds: 1 });
+    const input = { ...base, passiveSources: [slow, fast], activeSources: [] };
+    const result = await runAdaptiveHunt(input);
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+
+    assert.ok(findNode(result.value.worldModel, 'host', 'slow.example.com'));
+    assert.ok(findNode(result.value.worldModel, 'host', 'fast.example.com'));
+    assert.match(
+      result.value.log.join('\n'),
+      /discover \(passive\): 2 raw discoveries from 2\/2 source\(s\) \(streamed into the world model as each source completed\)/,
+    );
+  });
+});
+
 test('resuming a hunt reloads world model and hypotheses instead of re-running recon', async () => {
   await withTempWorkspace(async (workspaceDir) => {
     const firstInput = await buildBundledSimulationInput({ engagementId: 'sim-resume', workspaceDir, maxRounds: 1 });

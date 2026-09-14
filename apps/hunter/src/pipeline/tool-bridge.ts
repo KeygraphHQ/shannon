@@ -16,13 +16,14 @@
  *
  * `executeActionViaRegistry` is the full gate chain `pipeline/adaptive-loop.ts`
  * calls when live recon is explicitly enabled (`AdaptiveHuntInput.liveRecon`
- * — see that module): scope -> authorization -> policy (risk) ->
- * buildInputFromAction -> tool capability -> rate limit -> `adapter.run()`.
- * Every outcome is reported as one `ExecutionStatus` (types.ts) so a caller
- * can never mistake a blocked/unavailable/mocked action for a genuine
- * execution.
+ * — see that module): scope -> authorization -> ROE (disallowed techniques)
+ * -> policy (risk) -> buildInputFromAction -> tool capability -> rate limit
+ * -> `adapter.run()`. Every outcome is reported as one `ExecutionStatus`
+ * (types.ts) so a caller can never mistake a blocked/unavailable/mocked
+ * action for a genuine execution.
  */
 
+import { isTechniqueAllowed } from '../discovery/roe.js';
 import { ToolRateLimiter } from '../reasoning/policy.js';
 import type { AuthStateHeaders } from '../recon/behavioral-live.js';
 import { classifyDiscoveryScope } from '../recon/scope-tagging.js';
@@ -194,6 +195,11 @@ export async function executeActionViaRegistry(
     );
   }
 
+  const roeDecision = isTechniqueAllowed(program, action.kind);
+  if (!roeDecision.allowed) {
+    return blocked('BLOCKED_BY_POLICY', `ROE: ${roeDecision.reason}`, scopeDecision);
+  }
+
   // Per-kind override, not wholesale replacement: a caller overriding one action kind's preference
   // (e.g. to pin "active-recon" to a single fast tool in a test) must not silently lose the defaults
   // for every other kind it did not mention.
@@ -211,6 +217,12 @@ export async function executeActionViaRegistry(
 
     if (adapter.risk === 'high' && !options.allowHighRisk) {
       rejections.push(`${name}: risk "high" is not allowed without allowHighRisk`);
+      continue;
+    }
+
+    const toolRoeDecision = isTechniqueAllowed(program, action.kind, name);
+    if (!toolRoeDecision.allowed) {
+      rejections.push(`${name}: ROE: ${toolRoeDecision.reason}`);
       continue;
     }
 

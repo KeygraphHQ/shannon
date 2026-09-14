@@ -16,15 +16,23 @@
  * threaded through from an explicit, top-level operator decision
  * (`AdaptiveHuntInput.liveShannon` for the primary loop,
  * `AdaptiveHuntInput.researchTrack.live.shannon` for the research track).
+ *
+ * ROE is checked here too, before eligibility: a program that declares
+ * "shannon"/"exploitation"/"automated exploitation" (or any alias
+ * `discovery/roe.ts` recognizes) as a disallowed technique blocks a
+ * "shannon" action outright — dry-run planning included, since even
+ * *planning* a Shannon invocation is meaningless when the program has said
+ * it must never run.
  */
 
 import { readFile } from 'node:fs/promises';
+import { isTechniqueAllowed } from '../discovery/roe.js';
 import { ingestShannonOutput, parseShannonReport } from '../ingestion/shannon-output.js';
 import { buildShannonInvocation } from '../shannon/config.js';
 import { checkShannonEligibility } from '../shannon/eligibility.js';
 import { executeShannonAction, type SpawnFn } from '../shannon/execution-adapter.js';
 import { planInvocation } from '../shannon/invoke.js';
-import type { ExecutionStatus, HuntAction, Observation, RawDiscovery } from '../types.js';
+import type { ExecutionStatus, HuntAction, Observation, ProgramScope, RawDiscovery } from '../types.js';
 
 export interface LiveShannonOptions {
   readonly confirmed: boolean;
@@ -33,6 +41,7 @@ export interface LiveShannonOptions {
 }
 
 export interface ShannonActionContext {
+  readonly program: ProgramScope;
   readonly repoPath: string | undefined;
   readonly engagementId: string;
   readonly workspaceDir: string;
@@ -71,6 +80,19 @@ export async function executeShannonHuntAction(
   action: HuntAction,
   ctx: ShannonActionContext,
 ): Promise<ShannonActionResult> {
+  const roeDecision = isTechniqueAllowed(ctx.program, 'shannon');
+  if (!roeDecision.allowed) {
+    return {
+      discoveries: [],
+      observations: [],
+      resultSummary: `Shannon skipped: ROE: ${roeDecision.reason}`,
+      skipped: true,
+      failed: false,
+      executionStatus: 'BLOCKED_BY_POLICY',
+      toolName: 'shannon',
+    };
+  }
+
   const eligibility = await checkShannonEligibility(ctx.repoPath);
   if (!eligibility.eligible) {
     return {

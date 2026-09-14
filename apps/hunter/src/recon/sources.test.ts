@@ -3,7 +3,13 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isToolInstalled, LocalFixtureReconSource, runReconSources, verifyToolIdentity } from './sources.js';
+import {
+  isToolInstalled,
+  LocalFixtureReconSource,
+  runReconSources,
+  runReconSourcesStreaming,
+  verifyToolIdentity,
+} from './sources.js';
 
 async function withTempFixture<T>(content: unknown, fn: (path: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'hunter-recon-source-test-'));
@@ -131,6 +137,117 @@ test("runReconSources preserves every other source's results when one source thr
   const discoveries = await runReconSources([throwing, healthy]);
   assert.equal(discoveries.length, 1);
   assert.equal(discoveries[0]?.source, 'healthy-source');
+});
+
+test("runReconSourcesStreaming fires a fast source's callback while a slow sibling source is still running", async () => {
+  let slowStartedAt = 0;
+  let slowStillRunningWhenFastCallbackFired = false;
+  let slowCompleted = false;
+  const slow = {
+    name: 'slow-source',
+    isAvailable: async () => true,
+    discover: async () => {
+      slowStartedAt = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      slowCompleted = true;
+      return [];
+    },
+  };
+  const fast = {
+    name: 'fast-source',
+    isAvailable: async () => true,
+    discover: async () => [
+      {
+        source: 'fast-source',
+        kind: 'host' as const,
+        label: 'fast.example.com',
+        attributes: {},
+        confidence: 0.5,
+        discoveredAt: '',
+      },
+    ],
+  };
+
+  const callbackOrder: string[] = [];
+  await runReconSourcesStreaming([slow, fast], (event) => {
+    callbackOrder.push(event.source);
+    if (event.source === 'fast-source') {
+      slowStillRunningWhenFastCallbackFired = slowStartedAt > 0 && !slowCompleted;
+    }
+  });
+
+  assert.deepEqual(
+    callbackOrder,
+    ['fast-source', 'slow-source'],
+    "the fast source's callback must fire before the slow one's, not after both settle",
+  );
+  assert.ok(
+    slowStillRunningWhenFastCallbackFired,
+    'the slow source must genuinely still be in flight when the fast callback fires — this is the "stream while siblings still run" property',
+  );
+});
+
+test('runReconSourcesStreaming still returns the full concatenated discovery list once every source has settled', async () => {
+  const a = {
+    name: 'a',
+    isAvailable: async () => true,
+    discover: async () => [
+      { source: 'a', kind: 'host' as const, label: 'a.example.com', attributes: {}, confidence: 0.5, discoveredAt: '' },
+    ],
+  };
+  const b = {
+    name: 'b',
+    isAvailable: async () => true,
+    discover: async () => [
+      { source: 'b', kind: 'host' as const, label: 'b.example.com', attributes: {}, confidence: 0.5, discoveredAt: '' },
+    ],
+  };
+  const events: string[] = [];
+  const discoveries = await runReconSourcesStreaming([a, b], (event) => {
+    events.push(`${event.source}:${event.discoveries.length}`);
+  });
+  assert.equal(discoveries.length, 2);
+  assert.equal(events.length, 2);
+});
+
+test('runReconSourcesStreaming calls back for an unavailable source too, with an empty discoveries array', async () => {
+  const unavailable = { name: 'gone', isAvailable: async () => false, discover: async () => [] };
+  const events: string[] = [];
+  await runReconSourcesStreaming([unavailable], (event) => {
+    events.push(event.source);
+    assert.equal(event.discoveries.length, 0);
+  });
+  assert.deepEqual(events, ['gone']);
+});
+
+test('runReconSourcesStreaming calls back for a throwing source with an empty result, and does not lose the other source', async () => {
+  const throwing = {
+    name: 'broken',
+    isAvailable: async () => true,
+    discover: async () => {
+      throw new Error('simulated crash');
+    },
+  };
+  const healthy = {
+    name: 'healthy',
+    isAvailable: async () => true,
+    discover: async () => [
+      {
+        source: 'healthy',
+        kind: 'host' as const,
+        label: 'ok.example.com',
+        attributes: {},
+        confidence: 0.5,
+        discoveredAt: '',
+      },
+    ],
+  };
+  const seen = new Set<string>();
+  const discoveries = await runReconSourcesStreaming([throwing, healthy], (event) => {
+    seen.add(event.source);
+  });
+  assert.deepEqual(seen, new Set(['broken', 'healthy']));
+  assert.equal(discoveries.length, 1);
 });
 
 test('verifyToolIdentity reports unavailable for a binary name that does not exist, without throwing', async () => {
