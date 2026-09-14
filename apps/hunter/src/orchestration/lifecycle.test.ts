@@ -37,12 +37,25 @@ class FailingProvider implements ProgramDiscoveryProvider {
   }
 }
 
+/**
+ * `WEB_PROGRAM` (below) deliberately carries only one thin signal, so its
+ * opportunity-engine `decision` is never `HUNT_NOW` — a real operator using
+ * a program this thin would need `acknowledgesLowConfidence: true` to
+ * proceed past `AWAITING_AUTHORIZATION` (see the low-confidence gate in
+ * `lifecycle.ts`). Every test using this default helper is exercising
+ * something else entirely (ROE persistence, resume, PAUSED/COMPLETED
+ * states, bootstrap sources, the e2e finding path) — not the gate itself —
+ * so it defaults to acknowledged here, exactly like a real fully-authorized
+ * operator would for this fixture. The gate's own behavior (unacknowledged
+ * low confidence actually blocking) is covered separately below.
+ */
 function authorization(overrides: Partial<AuthorizationRecord> = {}): AuthorizationRecord {
   return {
     confirmed: true,
     confirmedBy: 'test-operator',
     confirmedAt: new Date().toISOString(),
     scopeReviewed: true,
+    acknowledgesLowConfidence: true,
     ...overrides,
   };
 }
@@ -132,6 +145,102 @@ test(
     });
   },
 );
+
+// === Fix #3: the low-confidence gate itself ===
+
+const THIN_PROGRAM: DiscoveredProgram = {
+  ...WEB_PROGRAM,
+  programId: 'thin-gate',
+  programName: 'Thin Gate Co',
+  signals: {
+    assetSurfaceBreadth: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+    researchCost: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+  },
+};
+
+test('regression: confirmed:true + scopeReviewed:true ALONE is no longer sufficient for a non-HUNT_NOW decision — stays AWAITING_AUTHORIZATION with authorizationBlockedReason set', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const result = await runHuntLifecycle({
+      providers: [new StaticProvider([THIN_PROGRAM])],
+      workspaceDir,
+      engagementId: 'e1',
+      maxRounds: 1,
+      // Deliberately the OLD "fully authorized" shape, no acknowledgesLowConfidence.
+      authorization: {
+        confirmed: true,
+        confirmedBy: 'test-operator',
+        confirmedAt: new Date().toISOString(),
+        scopeReviewed: true,
+      },
+    });
+    assert.ok(result.ok);
+    assert.equal(result.value.finalState, 'AWAITING_AUTHORIZATION');
+    assert.equal(result.value.huntResult, undefined);
+    assert.equal(
+      result.value.normalizedScopePath,
+      undefined,
+      'no scope file may be written while the gate is unsatisfied',
+    );
+    assert.notEqual(result.value.decision, 'HUNT_NOW');
+    assert.ok(result.value.authorizationBlockedReason);
+    assert.match(result.value.authorizationBlockedReason as string, /acknowledgesLowConfidence/);
+  });
+});
+
+test('regression: setting acknowledgesLowConfidence:true unblocks the exact same low-confidence program', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const sim = await buildBundledSimulationInput({ engagementId: 'e1', workspaceDir, maxRounds: 1 });
+    const result = await runHuntLifecycle({
+      providers: [new StaticProvider([THIN_PROGRAM])],
+      workspaceDir,
+      engagementId: 'e1',
+      maxRounds: 1,
+      authorization: {
+        confirmed: true,
+        confirmedBy: 'test-operator',
+        confirmedAt: new Date().toISOString(),
+        scopeReviewed: true,
+        acknowledgesLowConfidence: true,
+      },
+      ...(sim.repoPath !== undefined ? { repoPath: sim.repoPath } : {}),
+      passiveSources: sim.passiveSources,
+      activeSources: sim.activeSources,
+      jsArtifacts: sim.jsArtifacts,
+      behavioralFixtures: sim.behavioralFixtures,
+      investigationFixtures: sim.investigationFixtures,
+      shannonOutputsByAsset: sim.shannonOutputsByAsset,
+    });
+    assert.ok(result.ok);
+    assert.notEqual(result.value.finalState, 'AWAITING_AUTHORIZATION');
+    assert.ok(result.value.normalizedScopePath, 'the scope file must be written once the gate is satisfied');
+    assert.equal(result.value.authorizationBlockedReason, undefined);
+  });
+});
+
+test('the low-confidence gate has no effect when decision is HUNT_NOW: authorizationBlockedReason stays undefined even without acknowledgesLowConfidence', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const provider = new FixtureDiscoveryProvider(BUNDLED_DATASET);
+    const discovered = (await provider.discoverPrograms()) as { ok: true; value: DiscoveredProgram[] };
+    const result = await runHuntLifecycle({
+      providers: [new StaticProvider(discovered.value)],
+      workspaceDir,
+      engagementId: 'e1',
+      maxRounds: 1,
+      authorization: {
+        confirmed: true,
+        confirmedBy: 'test-operator',
+        confirmedAt: new Date().toISOString(),
+        scopeReviewed: true,
+        // no acknowledgesLowConfidence -- must not matter, "initech-midrich" is the robust HUNT_NOW winner
+      },
+    });
+    assert.ok(result.ok);
+    assert.equal(result.value.selected?.program.programId, 'initech-midrich');
+    assert.equal(result.value.decision, 'HUNT_NOW');
+    assert.equal(result.value.authorizationBlockedReason, undefined);
+    assert.notEqual(result.value.finalState, 'AWAITING_AUTHORIZATION');
+  });
+});
 
 test('BLOCKED when every discovery provider fails or returns nothing', async () => {
   await withTempWorkspace(async (workspaceDir) => {

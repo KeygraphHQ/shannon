@@ -33,6 +33,27 @@
  * <file>` — which is a deliberate artifact the operator writes after
  * reading the printed scope/ROE/rationale, not a flag that skips the
  * decision.
+ *
+ * ## The low-confidence gate
+ *
+ * `confirmed`/`scopeReviewed` alone are sufficient only when the opportunity
+ * engine's (`discovery/decision.ts`) own `decision` for the selected program
+ * is `HUNT_NOW`. For any other decision (`INVESTIGATE_MORE`/`WATCH`/`SKIP`,
+ * or a fragile/non-robust `HUNT_NOW` the engine downgraded), the caller must
+ * *additionally* set `AuthorizationRecord.acknowledgesLowConfidence: true` —
+ * a second, distinctly-named affirmative fact, not implied by having already
+ * set `confirmed`/`scopeReviewed` for unrelated reasons. Without it, the
+ * lifecycle stays at `AWAITING_AUTHORIZATION` with
+ * `HuntLifecycleOutput.authorizationBlockedReason` explaining exactly why.
+ * This closed a real gap: a read-only architecture audit found that a
+ * low-confidence, non-robust "winner" (Uber/X-shaped — almost no real
+ * evidence, so nothing pulled its raw score down) could previously reach
+ * `READY`/`RUNNING` with only a printable warning standing in the way. The
+ * gate is deliberately overridable (an operator who has genuinely reviewed
+ * the low-confidence evidence and still wants to proceed can), never a
+ * permanent block — see `discovery/opportunity.ts` for why "unknown" must
+ * never be treated as a reason to refuse action outright, only a reason to
+ * require an explicit, informed decision.
  */
 
 import { mkdir, writeFile } from 'node:fs/promises';
@@ -73,12 +94,27 @@ export interface LifecycleTransition {
  * into an active engagement. `scopeReviewed` is deliberately a separate
  * flag from `confirmed` — a caller must affirmatively say they reviewed the
  * printed scope/ROE, not merely that they clicked "yes."
+ *
+ * `acknowledgesLowConfidence` is a second, separate affirmative flag, required
+ * in addition to `confirmed`/`scopeReviewed` whenever the opportunity engine's
+ * `decision` for the selected program is anything other than `HUNT_NOW` (see
+ * `runHuntLifecycle`'s low-confidence gate, below). This closes the gap a
+ * read-only architecture audit found: `confirmed`/`scopeReviewed` alone used
+ * to be sufficient to authorize *any* selected program, including one the
+ * opportunity engine itself flagged as low-confidence/non-robust (an
+ * Uber/X-shaped "winner"), with nothing but a printable warning standing in
+ * the way. An operator can still choose to proceed past a non-`HUNT_NOW`
+ * decision — this is advisory-overridable, not a permanent block — but must
+ * now do so by setting a second, distinctly-named flag, not merely by having
+ * already set `confirmed`/`scopeReviewed` for reasons unrelated to
+ * confidence. Ignored (has no effect) when `decision === 'HUNT_NOW'`.
  */
 export interface AuthorizationRecord {
   readonly confirmed: boolean;
   readonly confirmedBy: string;
   readonly confirmedAt: string;
   readonly scopeReviewed: boolean;
+  readonly acknowledgesLowConfidence?: boolean;
   readonly note?: string;
 }
 
@@ -164,6 +200,17 @@ export interface HuntLifecycleOutput {
    */
   readonly decision: RecommendedAction | undefined;
   readonly decisionReason: string | undefined;
+  /**
+   * Set only when a valid `confirmed`/`scopeReviewed` `AuthorizationRecord`
+   * was supplied but the low-confidence gate still blocked progress to
+   * `READY` (i.e. `decision` is not `HUNT_NOW` and
+   * `authorization.acknowledgesLowConfidence` was not `true`) — the precise,
+   * actionable reason `cli.ts` surfaces to the operator. `undefined` in
+   * every other case, including "no `AuthorizationRecord` supplied yet"
+   * (that case needs no special explanation beyond the existing
+   * `AWAITING_AUTHORIZATION` transition).
+   */
+  readonly authorizationBlockedReason: string | undefined;
   readonly droppedAssets: readonly string[];
   readonly normalizedScopePath: string | undefined;
   readonly targetUrl: string | undefined;
@@ -223,6 +270,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       opportunityReport: undefined,
       decision: undefined,
       decisionReason: undefined,
+      authorizationBlockedReason: undefined,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -259,6 +307,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       opportunityReport,
       decision,
       decisionReason,
+      authorizationBlockedReason: undefined,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -279,8 +328,22 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
     return err(normalized.error);
   }
 
-  const authorized = input.authorization?.confirmed === true && input.authorization.scopeReviewed === true;
+  const baseAuthorized = input.authorization?.confirmed === true && input.authorization.scopeReviewed === true;
+  // Low-confidence gate: a `confirmed`/`scopeReviewed` record alone is no longer sufficient once
+  // the opportunity engine's own decision for `selected` is anything but HUNT_NOW — see
+  // `AuthorizationRecord.acknowledgesLowConfidence`'s docstring for why this exists. Never
+  // triggered when `decision` is `HUNT_NOW` or `undefined` (no signal data to have an opinion).
+  const lowConfidenceGateRequired = decision !== undefined && decision !== 'HUNT_NOW';
+  const lowConfidenceAcknowledged = input.authorization?.acknowledgesLowConfidence === true;
+  const authorized = baseAuthorized && (!lowConfidenceGateRequired || lowConfidenceAcknowledged);
+  const authorizationBlockedReason =
+    baseAuthorized && !authorized
+      ? `opportunity engine's decision for "${selected.program.programId}" is ${decision}, not HUNT_NOW (${decisionReason ?? 'no reason recorded'}) — set acknowledgesLowConfidence:true on the AuthorizationRecord to proceed anyway`
+      : undefined;
   if (!authorized) {
+    if (authorizationBlockedReason) {
+      transitions.push(transition('AWAITING_AUTHORIZATION', authorizationBlockedReason));
+    }
     return ok({
       transitions,
       finalState: 'AWAITING_AUTHORIZATION',
@@ -291,6 +354,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       opportunityReport,
       decision,
       decisionReason,
+      authorizationBlockedReason,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: deriveTargetUrl(normalized.value.scope),
@@ -314,6 +378,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       opportunityReport,
       decision,
       decisionReason,
+      authorizationBlockedReason: undefined,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -381,6 +446,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       opportunityReport,
       decision,
       decisionReason,
+      authorizationBlockedReason: undefined,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath,
       targetUrl,
@@ -411,6 +477,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
     opportunityReport,
     decision,
     decisionReason,
+    authorizationBlockedReason: undefined,
     droppedAssets: normalized.value.droppedAssets,
     normalizedScopePath,
     targetUrl,

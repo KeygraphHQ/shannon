@@ -464,15 +464,16 @@ async function runLifecycle(flags: Map<string, string>): Promise<number> {
     // The confidence-gated recommendation for `selected` specifically, plus the aggregate
     // robustness verdict for the whole candidate set — closes the gap a read-only audit found:
     // this command used to authorize/hunt `selected` (raw top score) while never printing
-    // whether the opportunity engine actually endorsed it. `decision`/`decisionReason` are
-    // advisory, not a hard gate (see orchestration/lifecycle.ts's module docstring) — the only
-    // hard gate is still a human-supplied AuthorizationRecord — but a human reviewing this output
-    // before writing one can no longer miss a low-confidence or non-robust pick. The full
-    // per-candidate breakdown (all evaluated programs) is available via `rank`/`sensitivity`,
-    // deliberately not repeated here to keep this command's output focused on the one engagement
-    // it is actually running.
+    // whether the opportunity engine actually endorsed it. `decision !== 'HUNT_NOW'` is now a
+    // real, overridable hard gate — see `authorizationBlockedReason` and
+    // orchestration/lifecycle.ts's "## The low-confidence gate" docstring —
+    // `AuthorizationRecord.acknowledgesLowConfidence: true` is required in that case, not merely
+    // advisory reading. The full per-candidate breakdown (all evaluated programs) is available
+    // via `rank`/`sensitivity`, deliberately not repeated here to keep this command's output
+    // focused on the one engagement it is actually running.
     decision: output.decision,
     decisionReason: output.decisionReason,
+    authorizationBlockedReason: output.authorizationBlockedReason,
     opportunity: output.opportunityReport
       ? {
           evaluatedCount: output.opportunityReport.evaluatedCount,
@@ -502,9 +503,13 @@ async function runLifecycle(flags: Map<string, string>): Promise<number> {
     process.stderr.write(
       'AWAITING_AUTHORIZATION: review the printed scope/ROE/rationale, then write an AuthorizationRecord JSON file and re-run with --authorize <file> to proceed.\n',
     );
-    if (output.decision && output.decision !== 'HUNT_NOW') {
+    if (output.authorizationBlockedReason) {
+      // A valid confirmed/scopeReviewed record was supplied but the low-confidence gate still
+      // blocked progress — this is now a REQUIRED, not advisory, follow-up action.
+      process.stderr.write(`BLOCKED BY LOW-CONFIDENCE GATE: ${output.authorizationBlockedReason}\n`);
+    } else if (output.decision && output.decision !== 'HUNT_NOW') {
       process.stderr.write(
-        `WARNING: the opportunity engine's recommendation for the selected program is ${output.decision}, not HUNT_NOW (${output.decisionReason ?? 'no reason recorded'}). Authorizing anyway is your call to make, but read "opportunity"/"decisionReason" above first.\n`,
+        `NOTE: the opportunity engine's recommendation for the selected program is ${output.decision}, not HUNT_NOW (${output.decisionReason ?? 'no reason recorded'}). Authorizing it will additionally require "acknowledgesLowConfidence": true on the AuthorizationRecord — read "opportunity"/"decisionReason" above first.\n`,
       );
     }
   }

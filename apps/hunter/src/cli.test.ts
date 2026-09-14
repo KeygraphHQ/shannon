@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -145,6 +145,77 @@ test('lifecycle (no --authorize) prints decision/decisionReason and the opportun
     assert.equal(typeof parsed.decisionReason, 'string');
     assert.ok(parsed.opportunity);
     assert.equal(parsed.opportunity.robustWinnerProgramId, 'initech-midrich');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('lifecycle --authorize without acknowledgesLowConfidence stays AWAITING_AUTHORIZATION for a low-confidence program; adding it unblocks the same program', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hunter-cli-gate-'));
+  try {
+    const thinProgram = [
+      {
+        programId: 'thin-cli',
+        programName: 'Thin CLI Co',
+        platform: 'hackerone',
+        offersBounty: true,
+        assets: [{ identifier: 'app.thin-cli.example.com', type: 'domain', instruction: 'in-scope' }],
+        rulesOfEngagement: [],
+        disallowedTechniques: [],
+        signals: {
+          assetSurfaceBreadth: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          researchCost: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+        },
+        sourceProvider: 'test',
+        discoveredAt: new Date().toISOString(),
+      },
+    ];
+    const programsPath = join(dir, 'thin-program.json');
+    await writeFile(programsPath, JSON.stringify(thinProgram), 'utf8');
+
+    const withoutAck = {
+      confirmed: true,
+      confirmedBy: 'op',
+      confirmedAt: new Date().toISOString(),
+      scopeReviewed: true,
+    };
+    const withoutAckPath = join(dir, 'auth-no-ack.json');
+    await writeFile(withoutAckPath, JSON.stringify(withoutAck), 'utf8');
+
+    const blockedResult = await run([
+      'lifecycle',
+      '--programs',
+      programsPath,
+      '--workspace-dir',
+      dir,
+      '--engagement-id',
+      'e1',
+      '--authorize',
+      withoutAckPath,
+    ]);
+    const blocked = JSON.parse(blockedResult.stdout);
+    assert.equal(blocked.finalState, 'AWAITING_AUTHORIZATION');
+    assert.ok(blocked.authorizationBlockedReason);
+    assert.match(blocked.authorizationBlockedReason, /acknowledgesLowConfidence/);
+
+    const withAck = { ...withoutAck, acknowledgesLowConfidence: true };
+    const withAckPath = join(dir, 'auth-with-ack.json');
+    await writeFile(withAckPath, JSON.stringify(withAck), 'utf8');
+
+    const unblockedResult = await run([
+      'lifecycle',
+      '--programs',
+      programsPath,
+      '--workspace-dir',
+      dir,
+      '--engagement-id',
+      'e2',
+      '--authorize',
+      withAckPath,
+    ]);
+    const unblocked = JSON.parse(unblockedResult.stdout);
+    assert.notEqual(unblocked.finalState, 'AWAITING_AUTHORIZATION');
+    assert.equal(unblocked.authorizationBlockedReason, undefined);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
