@@ -155,6 +155,117 @@ test('explainSelection handles zero scorable candidates without throwing', () =>
   assert.equal(explainSelection(ranked), 'no program had enough signal data to be selected');
 });
 
+test('confidenceScore penalizes missing signals directly, unlike evidenceWeight alone', () => {
+  const sparse = program('sparse', { signals: { bountyAttractiveness: signal(0.9, 0.95) } });
+  const rich = program('rich', {
+    signals: {
+      bountyAttractiveness: signal(0.9, 0.95),
+      competitionPressure: signal(0.9, 0.95),
+      assetSurfaceBreadth: signal(0.9, 0.95),
+      capabilityFit: signal(0.9, 0.95),
+    },
+  });
+  const sparseScore = scoreProgram(sparse, {}, NOW);
+  const richScore = scoreProgram(rich, {}, NOW);
+  assert.ok(
+    richScore.confidenceScore > sparseScore.confidenceScore,
+    `expected richer evidence to raise confidenceScore: ${richScore.confidenceScore} vs ${sparseScore.confidenceScore}`,
+  );
+  assert.ok(sparseScore.confidenceScore >= 0 && sparseScore.confidenceScore <= 1);
+});
+
+test('completenessScore is the plain fraction of the eight signals present', () => {
+  const two = program('two', { signals: { bountyAttractiveness: signal(0.5), capabilityFit: signal(0.5) } });
+  const score = scoreProgram(two, {}, NOW);
+  assert.equal(score.completenessScore, 2 / 8);
+});
+
+test(
+  'regression: a program missing correlated disclosure-history signals cannot beat a program with real ' +
+    '(even middling) disclosure evidence purely because it has nothing pulling it toward neutral — the ' +
+    'Uber/X pathology from the live 222-program run',
+  () => {
+    // "thin": only capabilityFit + assetSurfaceBreadth + researchCost present (exactly the
+    // Uber/X shape: everything from the disclosureHistory/competition/bounty families missing).
+    const thin = program('thin', {
+      signals: {
+        capabilityFit: signal(1, 0.9),
+        assetSurfaceBreadth: signal(0.3, 0.9),
+        researchCost: signal(0.3, 0.5),
+      },
+    });
+    // "documented": same capabilityFit/assetSurfaceBreadth/researchCost, PLUS real (middling,
+    // not glowing) disclosure-history evidence — strictly more real information about the
+    // program, some of it lukewarm rather than purely positive.
+    const documented = program('documented', {
+      signals: {
+        capabilityFit: signal(1, 0.9),
+        assetSurfaceBreadth: signal(0.3, 0.9),
+        researchCost: signal(0.3, 0.5),
+        competitionPressure: signal(0.6, 0.6),
+        disclosedReportDensity: signal(0.4, 0.6),
+        vulnClassHistory: signal(0.5, 0.55),
+      },
+    });
+    const thinScore = scoreProgram(thin, {}, NOW);
+    const documentedScore = scoreProgram(documented, {}, NOW);
+    // The raw totalScore may still favor either program on the merits (that's legitimate) —
+    // what must hold is confidence: real evidence, even middling evidence, must never leave a
+    // program *less* confidently assessed than a program with almost no data about it at all.
+    assert.ok(
+      documentedScore.confidenceScore > thinScore.confidenceScore,
+      `documented program must have higher confidence than a thin one: ${documentedScore.confidenceScore} vs ${thinScore.confidenceScore}`,
+    );
+  },
+);
+
+// === Phase 14/24 adversarial (D): determinism ===
+
+test('same input + same explicit now = bit-identical score across repeated calls', () => {
+  const p = program('deterministic', {
+    signals: { bountyAttractiveness: signal(0.7), competitionPressure: signal(0.4), capabilityFit: signal(0.9) },
+  });
+  const first = scoreProgram(p, {}, NOW);
+  const second = scoreProgram(p, {}, NOW);
+  assert.deepEqual(first, second);
+});
+
+test('scoreProgram never reads the system clock itself — passing two different explicit `now` values a few ms apart can only move the score through freshness decay, and does so identically both times it is repeated', () => {
+  const p = program('clock-test', {
+    signals: { bountyAttractiveness: signal(0.7, 0.9, 'x', new Date(NOW).toISOString()) },
+  });
+  const atNow = scoreProgram(p, {}, NOW).totalScore;
+  const oneMsLater = scoreProgram(p, {}, NOW + 1).totalScore;
+  const oneMsLaterAgain = scoreProgram(p, {}, NOW + 1).totalScore;
+  assert.equal(oneMsLater, oneMsLaterAgain, 'the same now must always produce the same score');
+  assert.ok(atNow !== undefined && oneMsLater !== undefined);
+});
+
+// === Phase 24 adversarial (E): input order never affects ranking ===
+
+test("reversing input program order never changes rankPrograms' output ranks", () => {
+  const programs = [
+    program('a', { signals: { bountyAttractiveness: signal(0.9) } }),
+    program('b', { signals: { bountyAttractiveness: signal(0.5) } }),
+    program('c', { signals: { bountyAttractiveness: signal(0.1) } }),
+  ];
+  const forward = rankPrograms(programs, {}, NOW).map((r) => [r.program.programId, r.rank] as const);
+  const reversed = rankPrograms([...programs].reverse(), {}, NOW).map((r) => [r.program.programId, r.rank] as const);
+  assert.deepEqual(new Map(forward), new Map(reversed));
+});
+
+// === Phase 24 adversarial (F): an unrelated/unknown signal cannot influence scoring ===
+
+test('a signal key outside the closed eight-key set is silently ignored, never improving the score', () => {
+  const clean = program('clean', { signals: { bountyAttractiveness: signal(0.6) } });
+  const withExtra = program('with-extra', {
+    // biome-ignore lint/suspicious/noExplicitAny: deliberately injecting a structurally-invalid signal to prove scoreProgram ignores it
+    signals: { bountyAttractiveness: signal(0.6), somethingUnrelated: signal(1) } as any,
+  });
+  assert.equal(scoreProgram(clean, {}, NOW).totalScore, scoreProgram(withExtra, {}, NOW).totalScore);
+  assert.equal(scoreProgram(withExtra, {}, NOW).components.length, 1);
+});
+
 test('custom weights change the ranking', () => {
   const bountyHeavy = program('bounty-heavy', {
     signals: { bountyAttractiveness: signal(0.9), capabilityFit: signal(0.1) },

@@ -73,6 +73,34 @@ export interface DiscoveredProgram {
   readonly signals: ProgramSignals;
   readonly sourceProvider: string;
   readonly discoveredAt: string;
+  /**
+   * The structured weakness-type labels a disclosure-history provider found
+   * for this program (e.g. `["Cross-site Scripting (XSS) - Stored", "SSRF"]`)
+   * — kept as data, not just folded into `vulnClassHistory.detail`'s prose,
+   * so `discovery/opportunity.ts`'s capability-fit model can match it against
+   * `hunt-memory` without re-parsing a human-readable sentence. Absent (not
+   * empty) when no disclosure-history data is available at all — see
+   * `discovery/data-quality.ts`.
+   */
+  readonly disclosedWeaknessTypes?: readonly string[];
+  /**
+   * A real, provider-published bounty range in US dollars — present only
+   * when a discovery provider actually returned one (see
+   * `discovery/h1-brain-provider.ts`'s `bounty_min`/`bounty_max`). This is
+   * kept as raw dollars *in addition to* the normalized 0..1
+   * `bountyAttractiveness` signal so `discovery/opportunity.ts`'s economics
+   * model can report a real figure instead of only a normalized score —
+   * never derived, never estimated; absent whenever the provider did not
+   * supply one.
+   */
+  readonly bountyRangeUsd?: { readonly min: number | undefined; readonly max: number };
+  /**
+   * Provider-reported data-quality caveats that apply to this program as a
+   * whole (e.g. "disclosed-report data quarantined: provider returned
+   * another program's results") — surfaced verbatim to the opportunity
+   * layer and to a human reviewer, never silently absorbed into a signal.
+   */
+  readonly dataQualityNotes?: readonly string[];
 }
 
 /**

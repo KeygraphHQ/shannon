@@ -37,6 +37,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+import { buildOpportunityReport, type OpportunityReport } from '../discovery/decision.js';
 import { deriveTargetUrl, normalizeDiscoveredProgram } from '../discovery/normalize.js';
 import {
   explainSelection,
@@ -135,6 +136,19 @@ export interface HuntLifecycleOutput {
   readonly ranked: readonly RankedProgram[];
   readonly selected: RankedProgram | undefined;
   readonly selectionRationale: string | undefined;
+  /**
+   * The full uncertainty-aware assessment (confidence, completeness,
+   * economics, research cost, capability fit, and cross-scenario
+   * robustness) for every scored candidate — see `discovery/decision.ts`.
+   * `selected` above is still always `selectBestProgram(ranked)` (the raw
+   * top `totalScore`, unchanged from before this field existed) — this
+   * report is additive, surfaced so a human reviewing the printed
+   * scope/ROE/rationale before writing an `AuthorizationRecord` can also
+   * see whether that top score is a *robust* winner or a fragile one/part
+   * of a statistical tie. Ranking is never itself authorization; this only
+   * makes what the ranking actually knows (and does not know) visible.
+   */
+  readonly opportunityReport: OpportunityReport | undefined;
   readonly droppedAssets: readonly string[];
   readonly normalizedScopePath: string | undefined;
   readonly targetUrl: string | undefined;
@@ -181,6 +195,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       ranked: [],
       selected: undefined,
       selectionRationale: undefined,
+      opportunityReport: undefined,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -192,7 +207,12 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
   transitions.push(transition('RANKING', `scoring ${discovered.length} candidate program(s)`));
   const ranked = rankPrograms(discovered, input.weights ?? {});
   const selected = selectBestProgram(ranked);
-  const selectionRationale = explainSelection(ranked);
+  // The uncertainty-aware assessment is additive: `selected` above is still always the raw
+  // top-`totalScore` candidate (unchanged behavior). This report is what lets a human reviewing
+  // the printed rationale before authorizing see whether that top score is a robust winner, a
+  // fragile one, or part of a statistical tie — see this file's `HuntLifecycleOutput` docstring.
+  const opportunityReport = buildOpportunityReport(discovered, { weights: input.weights ?? {} });
+  const selectionRationale = `${explainSelection(ranked)} Robustness: ${opportunityReport.robustnessReason}`;
 
   if (!selected) {
     transitions.push(transition('BLOCKED', 'no candidate program had enough signal data to be scored/selected'));
@@ -203,6 +223,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       ranked,
       selected: undefined,
       selectionRationale,
+      opportunityReport,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -232,6 +253,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       ranked,
       selected,
       selectionRationale,
+      opportunityReport,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: deriveTargetUrl(normalized.value.scope),
@@ -252,6 +274,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       ranked,
       selected,
       selectionRationale,
+      opportunityReport,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -316,6 +339,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       ranked,
       selected,
       selectionRationale,
+      opportunityReport,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath,
       targetUrl,
@@ -343,6 +367,7 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
     ranked,
     selected,
     selectionRationale,
+    opportunityReport,
     droppedAssets: normalized.value.droppedAssets,
     normalizedScopePath,
     targetUrl,

@@ -28,6 +28,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { err, ok, type Result } from '../types.js';
+import { isUsableForScoring, type ProviderStatus } from './data-quality.js';
 import type {
   DiscoveredAssetInstruction,
   DiscoveredAssetType,
@@ -58,9 +59,40 @@ export interface H1BrainProgramRecord {
   readonly bounty_min?: number;
   /** Highest documented bounty for the program, if published. */
   readonly bounty_max?: number;
-  /** Count of disclosed reports found via `search_disclosed_reports(program: handle)` — a real, if partial, competition/activity proxy. */
+  /**
+   * Same gating as `disclosed_report_provider_status`, applied to the
+   * bounty figures: defaults to `'ok'` for backward compatibility when
+   * `bounty_max` is present. Set to `'contaminated'` to quarantine a bounty
+   * figure known/suspected to be wrong (e.g. attributed to the wrong
+   * program) — when set, `bounty_min`/`bounty_max` are ignored outright, no
+   * bountyAttractiveness signal or `bountyRangeUsd` is produced, and a
+   * `dataQualityNotes` entry is attached instead. Adversarial regression:
+   * fabricated/invalid-source bounty data must never silently score.
+   */
+  readonly bounty_provider_status?: 'ok' | 'contaminated' | 'provider_error';
+  /** Count of disclosed reports found via `search_disclosed_reports(program: handle)` — a real, if partial, competition/activity proxy. Ignored entirely (never scored) unless `disclosed_report_provider_status` is a usable status — see this module's docstring. */
   readonly disclosed_report_count?: number;
-  /** Distinct weakness types seen across those disclosed reports. */
+  /**
+   * `true` when `disclosed_report_count` is a lower bound because the
+   * provider call hit its result cap (e.g. `limit=15` and the count returned
+   * is exactly 15) rather than an exact total. Never silently treated as
+   * exact — `normalizeSnapshotProgram` marks the resulting signal's detail
+   * as "≥N" and discounts its confidence accordingly.
+   */
+  readonly disclosed_report_count_capped?: boolean;
+  /**
+   * How the disclosure-history provider call actually went. Defaults to
+   * `'ok'` (or `'no_match'` when `disclosed_report_count` is `0`) for
+   * backward compatibility with snapshots written before this field
+   * existed — an operator/agent assembling a *new* snapshot should set this
+   * explicitly whenever a call did not cleanly succeed.
+   * `'contaminated'` is the permanent, structural fix for the Uber/X
+   * pathology (see this module's docstring): when set, `disclosed_report_count`
+   * and `disclosed_weakness_types` are ignored outright, no matter what they
+   * contain, and a `dataQualityNotes` entry is attached instead.
+   */
+  readonly disclosed_report_provider_status?: 'ok' | 'no_match' | 'provider_error' | 'contaminated' | 'unavailable';
+  /** Distinct weakness types seen across those disclosed reports. Same usability gating as `disclosed_report_count`. */
   readonly disclosed_weakness_types?: readonly string[];
   /** ISO timestamp of the program's most recent scope/policy update, if known. */
   readonly last_updated_at?: string;
@@ -137,8 +169,54 @@ export function normalizeSnapshotProgram(record: H1BrainProgramRecord): Discover
 
   const signals: ProgramSignals = {};
   const freshnessAt = record.snapshot_at;
+  const dataQualityNotes: string[] = [];
 
-  if (record.bounty_max !== undefined) {
+  // Resolve the actual provider status for this call, defaulting for
+  // backward compatibility with snapshots that predate this field: a
+  // present, non-zero count with no explicit status is assumed 'ok', a
+  // present zero is assumed 'no_match' (a genuine confirmed zero) — either
+  // way, `record` never *invents* a status; it can only be missing from an
+  // older snapshot, never wrong.
+  const declaredStatus = record.disclosed_report_provider_status;
+  const disclosureStatus: ProviderStatus =
+    declaredStatus === 'contaminated'
+      ? 'CONTAMINATED_DATA'
+      : declaredStatus === 'provider_error'
+        ? 'PROVIDER_ERROR'
+        : declaredStatus === 'unavailable'
+          ? 'NO_DATA'
+          : record.disclosed_report_count === undefined
+            ? 'NO_DATA'
+            : record.disclosed_report_count === 0
+              ? 'NO_MATCH'
+              : record.disclosed_report_count_capped
+                ? 'PARTIAL_DATA'
+                : 'OK';
+  const disclosureUsable = isUsableForScoring(disclosureStatus);
+
+  if (!disclosureUsable && declaredStatus !== undefined) {
+    dataQualityNotes.push(
+      `disclosed-report data quarantined (${disclosureStatus}): ${
+        disclosureStatus === 'CONTAMINATED_DATA'
+          ? 'provider returned results attributable to a different program (substring/attribution collision) — never scored, never treated as a confirmed zero'
+          : disclosureStatus === 'PROVIDER_ERROR'
+            ? 'provider call failed'
+            : 'no disclosure data available'
+      }`,
+    );
+  }
+
+  const disclosedWeaknessTypes: string[] = [];
+
+  const bountyStatus = record.bounty_provider_status ?? 'ok';
+  const bountyUsable = bountyStatus === 'ok';
+  if (!bountyUsable && record.bounty_max !== undefined) {
+    dataQualityNotes.push(
+      `bounty data quarantined (${bountyStatus}) — never scored, never surfaced as bountyRangeUsd, regardless of the figures present in the source record.`,
+    );
+  }
+
+  if (bountyUsable && record.bounty_max !== undefined) {
     const value: ProgramSignal = {
       value: boundedRatio(record.bounty_max, BOUNTY_ATTRACTIVENESS_CEILING_USD),
       confidence: record.bounty_min !== undefined ? 0.8 : 0.55,
@@ -148,31 +226,50 @@ export function normalizeSnapshotProgram(record: H1BrainProgramRecord): Discover
     (signals as { bountyAttractiveness?: ProgramSignal }).bountyAttractiveness = value;
   }
 
-  if (record.disclosed_report_count !== undefined) {
+  if (disclosureUsable && record.disclosed_report_count !== undefined) {
+    const capped = record.disclosed_report_count_capped === true;
+    // A capped count is a lower bound, not an exact figure — both the label
+    // ("≥N" rather than "N") and the confidence (discounted) must say so;
+    // silently treating "≥15" as "=15" would be exactly the kind of
+    // unearned precision this system is built to refuse.
+    const countLabel = capped ? `≥${record.disclosed_report_count}` : `${record.disclosed_report_count}`;
+    const countConfidence = capped ? 0.45 : 0.6;
     // Higher disclosed volume => more researcher attention => less
     // attractive on a pure competition basis, so this is inverted before
     // storage (scoring.ts always expects 1.0 = attractive).
     (signals as { competitionPressure?: ProgramSignal }).competitionPressure = {
       value: 1 - boundedRatio(record.disclosed_report_count, HIGH_COMPETITION_REPORT_COUNT),
-      confidence: 0.6,
+      confidence: countConfidence,
       freshnessAt,
-      detail: `${record.disclosed_report_count} disclosed report(s) found via search_disclosed_reports`,
+      detail: `${countLabel} disclosed report(s) found via search_disclosed_reports${capped ? ' (capped by provider limit — true count may be higher)' : ''}`,
     };
     (signals as { disclosedReportDensity?: ProgramSignal }).disclosedReportDensity = {
       value: boundedRatio(record.disclosed_report_count, HIGH_COMPETITION_REPORT_COUNT),
-      confidence: 0.6,
+      confidence: countConfidence,
       freshnessAt,
-      detail: `${record.disclosed_report_count} disclosed report(s) — a real, if partial, activity signal (not proof of a current vulnerability)`,
+      detail: `${countLabel} disclosed report(s) — a real, if partial, activity signal (not proof of a current vulnerability)${capped ? ' (capped, true count may be higher)' : ''}`,
     };
+    if (capped) {
+      dataQualityNotes.push(
+        `disclosed-report count is a lower bound (≥${record.disclosed_report_count}, provider result limit reached) — never treated as exact`,
+      );
+    }
   }
+  // A quarantined/errored/unavailable provider result (disclosureUsable ===
+  // false) intentionally produces no competitionPressure/disclosedReportDensity
+  // signal at all — that absence is what feeds UNKNOWN through
+  // discovery/opportunity.ts. It must never be synthesized as a confirmed
+  // zero, which is exactly the bug this gate exists to prevent.
 
-  if (record.disclosed_weakness_types && record.disclosed_weakness_types.length > 0) {
+  if (disclosureUsable && record.disclosed_weakness_types && record.disclosed_weakness_types.length > 0) {
+    const capped = record.disclosed_report_count_capped === true;
     (signals as { vulnClassHistory?: ProgramSignal }).vulnClassHistory = {
       value: boundedRatio(record.disclosed_weakness_types.length, RICH_HISTORY_WEAKNESS_TYPES),
-      confidence: 0.55,
+      confidence: capped ? 0.4 : 0.55,
       freshnessAt,
-      detail: `${record.disclosed_weakness_types.length} distinct disclosed weakness type(s): ${record.disclosed_weakness_types.join(', ')}`,
+      detail: `${record.disclosed_weakness_types.length} distinct disclosed weakness type(s) seen${capped ? ' among a capped (lower-bound) sample' : ''}: ${record.disclosed_weakness_types.join(', ')}`,
     };
+    disclosedWeaknessTypes.push(...record.disclosed_weakness_types);
   }
 
   if (assets.length > 0) {
@@ -230,6 +327,11 @@ export function normalizeSnapshotProgram(record: H1BrainProgramRecord): Discover
     signals,
     sourceProvider: 'h1-brain-snapshot',
     discoveredAt: record.snapshot_at,
+    ...(disclosedWeaknessTypes.length > 0 ? { disclosedWeaknessTypes } : {}),
+    ...(dataQualityNotes.length > 0 ? { dataQualityNotes } : {}),
+    ...(bountyUsable && record.bounty_max !== undefined
+      ? { bountyRangeUsd: { min: record.bounty_min, max: record.bounty_max } }
+      : {}),
   };
 }
 

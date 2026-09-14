@@ -89,6 +89,114 @@ test('normalizeSnapshotProgram credits capabilityFit only when a web-shaped asse
   assert.ok((repoOnly.signals.capabilityFit?.value ?? 1) < 1);
 });
 
+test(
+  'regression (Uber/X): a disclosed-report result explicitly marked contaminated is never scored and never ' +
+    'treated as a confirmed zero, no matter what count/weakness data accompanies it',
+  () => {
+    const uberShaped = normalizeSnapshotProgram({
+      handle: 'uber',
+      name: 'Uber',
+      disclosed_report_provider_status: 'contaminated',
+      // Even if a count/weakness list is present (e.g. because it was captured before the
+      // contamination was noticed), a 'contaminated' status must override it completely.
+      disclosed_report_count: 15,
+      disclosed_weakness_types: ['Code Injection'],
+      snapshot_at: '2026-09-14T00:00:00.000Z',
+    });
+    assert.equal(uberShaped.signals.competitionPressure, undefined);
+    assert.equal(uberShaped.signals.disclosedReportDensity, undefined);
+    assert.equal(uberShaped.signals.vulnClassHistory, undefined);
+    assert.equal(uberShaped.disclosedWeaknessTypes, undefined);
+    assert.ok(uberShaped.dataQualityNotes && uberShaped.dataQualityNotes.length > 0);
+    assert.match(uberShaped.dataQualityNotes?.[0] ?? '', /CONTAMINATED_DATA|quarantined/);
+  },
+);
+
+test('a provider_error status also withholds disclosure-derived signals rather than defaulting to zero competition', () => {
+  const errored = normalizeSnapshotProgram({
+    handle: 'flaky',
+    name: 'Flaky Co',
+    disclosed_report_provider_status: 'provider_error',
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.equal(errored.signals.competitionPressure, undefined);
+  assert.equal(errored.signals.disclosedReportDensity, undefined);
+  assert.ok(errored.dataQualityNotes?.some((n) => n.includes('PROVIDER_ERROR')));
+});
+
+test('an explicit no_match status (a real, confirmed zero) still produces a usable competitionPressure signal', () => {
+  const confirmedZero = normalizeSnapshotProgram({
+    handle: 'quiet',
+    name: 'Quiet Co',
+    disclosed_report_provider_status: 'no_match',
+    disclosed_report_count: 0,
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.ok(confirmedZero.signals.competitionPressure);
+  assert.equal(confirmedZero.dataQualityNotes, undefined);
+});
+
+test('a capped disclosed-report count is represented as a lower bound ("≥N"), never as an exact figure', () => {
+  const capped = normalizeSnapshotProgram({
+    handle: 'popular',
+    name: 'Popular Co',
+    disclosed_report_count: 15,
+    disclosed_report_count_capped: true,
+    disclosed_weakness_types: ['XSS', 'IDOR'],
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.match(capped.signals.competitionPressure?.detail ?? '', /≥15/);
+  assert.match(capped.signals.disclosedReportDensity?.detail ?? '', /≥15/);
+  assert.ok(capped.dataQualityNotes?.some((n) => n.includes('lower bound')));
+  const uncapped = normalizeSnapshotProgram({
+    handle: 'exact',
+    name: 'Exact Co',
+    disclosed_report_count: 15,
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.ok(
+    (capped.signals.competitionPressure?.confidence ?? 1) < (uncapped.signals.competitionPressure?.confidence ?? 0),
+    'a capped/lower-bound count must carry strictly less confidence than an exact count of the same value',
+  );
+});
+
+test('disclosedWeaknessTypes is exposed structurally, not just embedded in a signal detail string', () => {
+  const program = normalizeSnapshotProgram({
+    handle: 'acme',
+    name: 'Acme Corp',
+    disclosed_report_count: 5,
+    disclosed_weakness_types: ['Cross-site Scripting (XSS) - Stored', 'SSRF'],
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.deepEqual(program.disclosedWeaknessTypes, ['Cross-site Scripting (XSS) - Stored', 'SSRF']);
+});
+
+test('adversarial (C): fabricated/quarantined bounty data is rejected outright, never scored, regardless of the figures present', () => {
+  const fabricated = normalizeSnapshotProgram({
+    handle: 'acme',
+    name: 'Acme Corp',
+    bounty_min: 1000,
+    bounty_max: 50000,
+    bounty_provider_status: 'contaminated',
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.equal(fabricated.signals.bountyAttractiveness, undefined);
+  assert.equal(fabricated.bountyRangeUsd, undefined);
+  assert.ok(fabricated.dataQualityNotes?.some((n) => n.includes('bounty data quarantined')));
+});
+
+test('a legitimate bounty figure (status "ok", the default) is scored and surfaced as real dollars', () => {
+  const legit = normalizeSnapshotProgram({
+    handle: 'acme',
+    name: 'Acme Corp',
+    bounty_min: 100,
+    bounty_max: 5000,
+    snapshot_at: '2026-09-14T00:00:00.000Z',
+  });
+  assert.ok(legit.signals.bountyAttractiveness);
+  assert.deepEqual(legit.bountyRangeUsd, { min: 100, max: 5000 });
+});
+
 test('H1BrainSnapshotProvider reads and normalizes a real snapshot file', async () => {
   await withTempSnapshot(
     {

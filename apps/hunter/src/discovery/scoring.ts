@@ -16,6 +16,7 @@
  * sentence the review asks for.
  */
 
+import { boundFamilyContributions } from './signal-families.js';
 import type { DiscoveredProgram, ProgramSignal, ProgramSignals } from './types.js';
 
 export type SignalKey = keyof ProgramSignals;
@@ -32,7 +33,7 @@ export const DEFAULT_SIGNAL_WEIGHTS: Readonly<Record<SignalKey, number>> = {
   capabilityFit: 1.1,
 };
 
-const SIGNAL_KEYS = Object.keys(DEFAULT_SIGNAL_WEIGHTS) as readonly SignalKey[];
+export const SIGNAL_KEYS = Object.keys(DEFAULT_SIGNAL_WEIGHTS) as readonly SignalKey[];
 
 /** Below this confidence, a signal still counts but at sharply reduced weight — a low-confidence guess should never carry as much as a verified figure. */
 const MIN_EFFECTIVE_CONFIDENCE = 0.05;
@@ -84,6 +85,21 @@ export interface ProgramOpportunityScore {
   readonly missingSignals: readonly SignalKey[];
   /** Sum of weight*confidence*freshnessFactor across present components — how much real evidence this score rests on, independent of the score's direction. */
   readonly evidenceWeight: number;
+  /**
+   * `evidenceWeight / (sum of weight across ALL eight signal keys, present or
+   * not)` — unlike `evidenceWeight` alone, this is bounded to [0, 1] and
+   * penalizes missing signals directly: two programs with identical
+   * per-signal confidence/freshness but different completeness get
+   * different `confidenceScore`s. This is the number
+   * `discovery/opportunity.ts` gates ranking decisions on — `totalScore`
+   * alone was how the live 222-program run let a program missing 5 of 8
+   * signals (so nothing could pull its score down) outrank programs with
+   * real, mixed evidence. Never fed back into `totalScore` itself — see
+   * this file's module docstring on why score and confidence stay separate.
+   */
+  readonly confidenceScore: number;
+  /** `components.length / 8` — the plain fraction of signals present at all, with no quality/confidence weighting. Diagnostic only; `confidenceScore` is what should drive decisions. */
+  readonly completenessScore: number;
 }
 
 function freshnessFactor(freshnessAt: string, now: number): number {
@@ -110,26 +126,28 @@ export function scoreProgram(
   weights: Readonly<Partial<Record<SignalKey, number>>> = {},
   now: number = Date.now(),
 ): ProgramOpportunityScore {
-  const components: ScoreComponent[] = [];
+  const rawComponents: ScoreComponent[] = [];
   const missingSignals: SignalKey[] = [];
-  let weightedDeviationSum = 0;
   let weightSum = 0;
   let evidenceWeight = 0;
+  let totalPossibleWeight = 0;
 
   for (const key of SIGNAL_KEYS) {
+    const weight = weights[key] ?? DEFAULT_SIGNAL_WEIGHTS[key];
+    totalPossibleWeight += weight;
+
     const signal: ProgramSignal | undefined = program.signals[key];
     if (!signal) {
       missingSignals.push(key);
       continue;
     }
-    const weight = weights[key] ?? DEFAULT_SIGNAL_WEIGHTS[key];
     const confidence = Math.max(MIN_EFFECTIVE_CONFIDENCE, clamp01(signal.confidence));
     const ff = freshnessFactor(signal.freshnessAt, now);
     const rawValue = clamp01(signal.value);
     const trust = confidence * ff;
     const contribution = weight * trust * (rawValue - NEUTRAL);
 
-    components.push({
+    rawComponents.push({
       key,
       source: program.sourceProvider,
       rawValue,
@@ -140,12 +158,21 @@ export function scoreProgram(
       contribution,
       detail: signal.detail,
     });
-    weightedDeviationSum += contribution;
     weightSum += weight;
     evidenceWeight += weight * trust;
   }
 
+  // Correlated signals (currently: disclosedReportDensity + vulnClassHistory,
+  // both derived from the same disclosure-history provider call) must not
+  // out-vote genuinely independent evidence — see signal-families.ts. This
+  // only ever scales contributions down, never up, so it cannot introduce a
+  // new source of positive bias.
+  const components = boundFamilyContributions(rawComponents);
+  const weightedDeviationSum = components.reduce((sum, c) => sum + c.contribution, 0);
+
   const totalScore = weightSum > 0 ? clamp01(NEUTRAL + weightedDeviationSum / weightSum) : undefined;
+  const confidenceScore = totalPossibleWeight > 0 ? clamp01(evidenceWeight / totalPossibleWeight) : 0;
+  const completenessScore = SIGNAL_KEYS.length > 0 ? components.length / SIGNAL_KEYS.length : 0;
 
   return {
     programId: program.programId,
@@ -154,6 +181,8 @@ export function scoreProgram(
     components,
     missingSignals,
     evidenceWeight,
+    confidenceScore,
+    completenessScore,
   };
 }
 

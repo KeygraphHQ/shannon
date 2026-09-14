@@ -24,12 +24,18 @@
  */
 
 import { readFile } from 'node:fs/promises';
+import { buildOpportunityReport } from './discovery/decision.js';
 import { FixtureDiscoveryProvider } from './discovery/fixture-provider.js';
 import { H1BrainSnapshotProvider } from './discovery/h1-brain-provider.js';
+import { assessProgram, assessPrograms } from './discovery/opportunity.js';
 import { explainSelection, rankPrograms, selectBestProgram } from './discovery/scoring.js';
+import { runSensitivityAnalysis } from './discovery/sensitivity.js';
 import type { ProgramDiscoveryProvider } from './discovery/types.js';
+import { prioritizeRefresh } from './discovery/value-of-information.js';
 import { ingestShannonOutput, parseShannonReport } from './ingestion/shannon-output.js';
 import { LocalFileIntake } from './intake/hackerone.js';
+import type { HuntMemoryEntry } from './memory/hunt-memory.js';
+import { loadMemory } from './memory/hunt-memory.js';
 import type { AuthorizationRecord } from './orchestration/lifecycle.js';
 import { runHuntLifecycle } from './orchestration/lifecycle.js';
 import { runAdaptiveHunt } from './pipeline/adaptive-loop.js';
@@ -39,6 +45,13 @@ import { validateTarget } from './scope/validator.js';
 import { buildShannonInvocation } from './shannon/config.js';
 import { planInvocation } from './shannon/invoke.js';
 import { loadCheckpoint } from './state/checkpoint.js';
+import {
+  DEFAULT_REFRESH_POLICY,
+  loadProgramIntel,
+  needsRefresh,
+  saveProgramIntel,
+  upsertProgramIntel,
+} from './state/program-intelligence.js';
 import { buildDefaultToolRegistry } from './tools/default-registry.js';
 import { loadWorldModel } from './worldmodel/graph.js';
 
@@ -70,6 +83,32 @@ function requireFlag(flags: Map<string, string>, name: string): string {
 
 function printJson(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+/**
+ * `--now` is the CLI's answer to Phase 14 determinism: every scoring/
+ * sensitivity call in one invocation shares this single timestamp (accepts
+ * either epoch-ms or an ISO string), so two invocations of `rank`/
+ * `sensitivity`/`explain` with `--now` pinned to the same value are
+ * bit-identical — see `discovery/scoring.test.ts`'s "same input + same
+ * explicit now" regression. Omitting `--now` falls back to one fresh
+ * `Date.now()` read per invocation, exactly as before this flag existed.
+ */
+function resolveNow(flags: Map<string, string>): number {
+  const raw = flags.get('now');
+  if (raw === undefined) return Date.now();
+  const asNumber = Number(raw);
+  if (Number.isFinite(asNumber) && raw.trim() !== '') return asNumber;
+  const parsed = Date.parse(raw);
+  if (Number.isFinite(parsed)) return parsed;
+  throw new Error(`--now "${raw}" is not a valid epoch-ms number or ISO timestamp`);
+}
+
+async function loadMemoryForWorkspace(flags: Map<string, string>): Promise<readonly HuntMemoryEntry[]> {
+  const workspaceDir = flags.get('workspace-dir');
+  if (!workspaceDir) return [];
+  const result = await loadMemory(workspaceDir);
+  return result.ok ? result.value : [];
 }
 
 async function runScopeValidate(flags: Map<string, string>): Promise<number> {
@@ -149,8 +188,11 @@ async function runRank(flags: Map<string, string>): Promise<number> {
     printJson({ ok: false, error: result.error });
     return 1;
   }
-  const ranked = rankPrograms(result.value);
+  const now = resolveNow(flags);
+  const ranked = rankPrograms(result.value, {}, now);
   const winner = selectBestProgram(ranked);
+  const memory = await loadMemoryForWorkspace(flags);
+  const report = buildOpportunityReport(result.value, { now, memory, topN: Number(flags.get('top') ?? '20') });
   printJson({
     ok: true,
     ranked: ranked.map((r) => ({
@@ -158,12 +200,186 @@ async function runRank(flags: Map<string, string>): Promise<number> {
       programId: r.program.programId,
       programName: r.program.programName,
       totalScore: r.score.totalScore,
+      confidenceScore: r.score.confidenceScore,
+      completenessScore: r.score.completenessScore,
       evidenceWeight: r.score.evidenceWeight,
       missingSignals: r.score.missingSignals,
       components: r.score.components,
     })),
     selected: winner?.program.programId,
     rationale: explainSelection(ranked),
+    // Uncertainty-aware layer (discovery/decision.ts) -- see that module's docstring for why
+    // `selected` above (raw top totalScore) is never silently replaced by this report's opinion.
+    opportunity: {
+      evaluatedCount: report.evaluatedCount,
+      scoredCount: report.scoredCount,
+      robustWinnerProgramId: report.robustWinnerProgramId,
+      topTier: report.topTier,
+      excludedFromShortlist: report.excludedFromShortlist,
+      robustnessReason: report.robustnessReason,
+      top: report.top.map((entry) => ({
+        programId: entry.assessment.programId,
+        programName: entry.assessment.programName,
+        opportunityScore: entry.assessment.opportunityScore,
+        confidenceScore: entry.assessment.confidenceScore,
+        completenessScore: entry.assessment.completenessScore,
+        uncertaintyScore: entry.assessment.uncertaintyScore,
+        estimatedRange: entry.assessment.estimatedRange,
+        evidenceTier: entry.assessment.evidenceTier,
+        bountyEconomics: entry.assessment.bountyEconomics,
+        researchCost: entry.assessment.researchCost,
+        capabilityFit: entry.assessment.capabilityFit,
+        expectedValue: entry.assessment.expectedValue,
+        recommendedAction: entry.finalAction,
+        recommendationReason: entry.assessment.recommendationReason,
+        fragileWinner: entry.fragileWinner,
+        isRobustWinner: entry.isRobustWinner,
+        rankRange: entry.robustness.rankRange,
+        rankMedian: entry.robustness.rankMedian,
+        winnerCount: entry.robustness.winnerCount,
+        positiveFactors: entry.assessment.positiveFactors,
+        negativeFactors: entry.assessment.negativeFactors,
+        unknownFactors: entry.assessment.unknownFactors,
+        riskFactors: entry.assessment.riskFactors,
+      })),
+    },
+  });
+  return 0;
+}
+
+/** `explain --programs <file> --program <slug> [--provider ...] [--now ...] [--workspace-dir <dir>]` — the full per-program assessment (Phase 19: every factor traced back to an actual signal, never invented). */
+async function runExplain(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const programId = requireFlag(flags, 'program');
+  const result = await provider.discoverPrograms();
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  const program = result.value.find((p) => p.programId === programId);
+  if (!program) {
+    printJson({ ok: false, error: `no program "${programId}" in this dataset` });
+    return 1;
+  }
+  const now = resolveNow(flags);
+  const memory = await loadMemoryForWorkspace(flags);
+  const assessment = assessProgram(program, { now, memory });
+  printJson({ ok: true, program, assessment });
+  return 0;
+}
+
+/** `sensitivity --programs <file> [--provider ...] [--now ...] [--top N]` — the full robustness battery (Phase 7/18). */
+async function runSensitivity(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const result = await provider.discoverPrograms();
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  const now = resolveNow(flags);
+  const memory = await loadMemoryForWorkspace(flags);
+  const sensitivity = runSensitivityAnalysis(result.value, now);
+  const topN = Number(flags.get('top') ?? '20');
+  const sortedByMedian = [...sensitivity.perProgram].sort(
+    (a, b) => (a.rankMedian ?? Number.POSITIVE_INFINITY) - (b.rankMedian ?? Number.POSITIVE_INFINITY),
+  );
+  // This command reports the *raw* sensitivity sweep (which program(s) actually won #1 under
+  // each weighting) — useful diagnostic detail `discovery/decision.ts`'s confidence-gated
+  // `topTier`/`robustWinnerProgramId` intentionally discards. `confidenceById` is included so a
+  // reader of this raw view is never left thinking an unfiltered "won #1" is automatically
+  // trustworthy — cross-check against `rank`'s `opportunity` section (or `explain`) for the
+  // confidence-aware verdict before acting on anything reported here.
+  const assessmentConfidence = new Map(
+    assessPrograms(result.value, { now, memory }).map((a) => [a.programId, a.confidenceScore] as const),
+  );
+  printJson({
+    ok: true,
+    note: 'this is the RAW, unfiltered sensitivity sweep — cross-check confidenceById (or `rank`\'s opportunity section) before treating any "won #1" as a genuine recommendation.',
+    scenarios: sensitivity.scenarios.map((s) => ({ name: s.name, description: s.description })),
+    robustWinnerProgramId: sensitivity.robustWinnerProgramId,
+    topTier: sensitivity.topTier,
+    confidenceById: Object.fromEntries(sensitivity.topTier.map((id) => [id, assessmentConfidence.get(id)])),
+    reason: sensitivity.reason,
+    perProgram: sortedByMedian.slice(0, topN),
+  });
+  return 0;
+}
+
+/**
+ * `refresh --programs <file> [--provider ...] [--now ...] [--top N] [--workspace-dir <dir>]`
+ * — value-of-information ranking (Phase 11): which programs would most
+ * benefit from a targeted re-query, and what to re-query. Never performs a
+ * live fetch itself — this package makes no network calls (see
+ * `discovery/h1-brain-provider.ts`'s docstring) — it only prioritizes what
+ * an operator/agent should ask h1-brain for next. When `--workspace-dir` is
+ * given, also folds every discovered program into that workspace's
+ * persistent `program-intelligence.json` (Phase 12/13) and reports each
+ * program's TTL-based refresh needs there.
+ */
+async function runRefresh(flags: Map<string, string>): Promise<number> {
+  const provider = buildDiscoveryProvider(flags);
+  const result = await provider.discoverPrograms();
+  if (!result.ok) {
+    printJson({ ok: false, error: result.error });
+    return 1;
+  }
+  const now = resolveNow(flags);
+  const memory = await loadMemoryForWorkspace(flags);
+  const report = buildOpportunityReport(result.value, { now, memory, topN: Number(flags.get('top') ?? '30') });
+  const priorities = prioritizeRefresh(report.top, Number(flags.get('top') ?? '30'));
+
+  const workspaceDir = flags.get('workspace-dir');
+  let intelSummary: unknown;
+  if (workspaceDir) {
+    const loaded = await loadProgramIntel(workspaceDir);
+    if (!loaded.ok) {
+      printJson({ ok: false, error: loaded.error });
+      return 1;
+    }
+    let store = loaded.value;
+    for (const program of result.value) {
+      store = upsertProgramIntel(store, program, now, 'cli-refresh');
+    }
+    await saveProgramIntel(workspaceDir, store);
+    intelSummary = priorities.map((p) => ({
+      programId: p.programId,
+      lifecycleStatus: store[p.programId]?.lifecycleStatus,
+      needsRefresh: needsRefresh(store[p.programId], DEFAULT_REFRESH_POLICY, now),
+    }));
+  }
+
+  printJson({ ok: true, evaluatedCount: report.evaluatedCount, priorities, intelSummary });
+  return 0;
+}
+
+/** `status [--program <slug>] --workspace-dir <dir>` — read-only view of persistent program intelligence (Phase 12/13); never touches any provider. */
+async function runStatus(flags: Map<string, string>): Promise<number> {
+  const workspaceDir = requireFlag(flags, 'workspace-dir');
+  const loaded = await loadProgramIntel(workspaceDir);
+  if (!loaded.ok) {
+    printJson({ ok: false, error: loaded.error });
+    return 1;
+  }
+  const now = resolveNow(flags);
+  const programId = flags.get('program');
+  if (programId) {
+    const record = loaded.value[programId];
+    if (!record) {
+      printJson({ ok: false, error: `no program-intelligence record for "${programId}" in "${workspaceDir}"` });
+      return 1;
+    }
+    printJson({ ok: true, record, needsRefresh: needsRefresh(record, DEFAULT_REFRESH_POLICY, now) });
+    return 0;
+  }
+  printJson({
+    ok: true,
+    programCount: Object.keys(loaded.value).length,
+    programs: Object.values(loaded.value).map((record) => ({
+      programId: record.programId,
+      lifecycleStatus: record.lifecycleStatus,
+      lastSeenAt: record.lastSeenAt,
+      needsRefresh: needsRefresh(record, DEFAULT_REFRESH_POLICY, now),
+    })),
   });
   return 0;
 }
@@ -400,6 +616,10 @@ const COMMANDS: Readonly<Record<string, (flags: Map<string, string>) => Promise<
   hunt: runHunt,
   discover: runDiscover,
   rank: runRank,
+  explain: runExplain,
+  sensitivity: runSensitivity,
+  refresh: runRefresh,
+  status: runStatus,
   lifecycle: runLifecycle,
   'world-model': runWorldModel,
   hypotheses: runHypotheses,
