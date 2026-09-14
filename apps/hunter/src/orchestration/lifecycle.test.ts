@@ -62,6 +62,77 @@ const WEB_PROGRAM: DiscoveredProgram = {
   discoveredAt: new Date().toISOString(),
 };
 
+// === Regression: the opportunity engine must be visible to, and computed for, the actual selected program ===
+
+test('AWAITING_AUTHORIZATION surfaces the full opportunityReport, and decision/decisionReason for the selected program', async () => {
+  await withTempWorkspace(async (workspaceDir) => {
+    const result = await runHuntLifecycle({
+      providers: [new StaticProvider([WEB_PROGRAM])],
+      workspaceDir,
+      engagementId: 'e1',
+      maxRounds: 1,
+    });
+    assert.ok(result.ok);
+    assert.equal(result.value.finalState, 'AWAITING_AUTHORIZATION');
+    assert.ok(
+      result.value.opportunityReport,
+      'the full report must be attached to the output, not just folded into one rationale sentence',
+    );
+    assert.equal(result.value.opportunityReport?.evaluatedCount, 1);
+    assert.ok(result.value.decision, 'decision must be computed for the selected program');
+    assert.equal(typeof result.value.decisionReason, 'string');
+    // With a single, fully-scored candidate, it is trivially the only entry in `top`.
+    assert.equal(result.value.opportunityReport?.top[0]?.assessment.programId, 'webtarget');
+    assert.equal(result.value.opportunityReport?.top[0]?.finalAction, result.value.decision);
+  });
+});
+
+test(
+  'regression (Uber/X): the raw `selected` program is unchanged (thin evidence still wins the raw score), ' +
+    "but `decision` reflects the opportunity engine's real, non-HUNT_NOW verdict for it — the audit finding this fixes",
+  async () => {
+    await withTempWorkspace(async (workspaceDir) => {
+      const thin: DiscoveredProgram = {
+        ...WEB_PROGRAM,
+        programId: 'thin',
+        programName: 'Thin Co',
+        signals: {
+          assetSurfaceBreadth: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          researchCost: { value: 0.95, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+        },
+      };
+      const documented: DiscoveredProgram = {
+        ...WEB_PROGRAM,
+        programId: 'documented',
+        programName: 'Documented Co',
+        signals: {
+          bountyAttractiveness: { value: 0.55, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          competitionPressure: { value: 0.55, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          disclosedReportDensity: { value: 0.5, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          vulnClassHistory: { value: 0.5, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          assetSurfaceBreadth: { value: 0.5, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          researchCost: { value: 0.5, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          programFreshness: { value: 0.5, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+          capabilityFit: { value: 0.55, confidence: 0.9, freshnessAt: new Date().toISOString(), detail: 'x' },
+        },
+      };
+      const result = await runHuntLifecycle({
+        providers: [new StaticProvider([thin, documented])],
+        workspaceDir,
+        engagementId: 'e1',
+        maxRounds: 1,
+      });
+      assert.ok(result.ok);
+      // Pinning current (pre-hard-gate) behavior: the raw top score still selects "thin" — this
+      // is documented, expected, and unchanged by the surfacing fix. What must be true now is
+      // that `decision` honestly reflects that this is not a confident recommendation.
+      assert.equal(result.value.selected?.program.programId, 'thin');
+      assert.notEqual(result.value.decision, 'HUNT_NOW');
+      assert.ok(result.value.decisionReason);
+    });
+  },
+);
+
 test('BLOCKED when every discovery provider fails or returns nothing', async () => {
   await withTempWorkspace(async (workspaceDir) => {
     const result = await runHuntLifecycle({

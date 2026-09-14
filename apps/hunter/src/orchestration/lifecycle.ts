@@ -39,6 +39,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { buildOpportunityReport, type OpportunityReport } from '../discovery/decision.js';
 import { deriveTargetUrl, normalizeDiscoveredProgram } from '../discovery/normalize.js';
+import type { RecommendedAction } from '../discovery/opportunity.js';
 import {
   explainSelection,
   type RankedProgram,
@@ -149,6 +150,20 @@ export interface HuntLifecycleOutput {
    * makes what the ranking actually knows (and does not know) visible.
    */
   readonly opportunityReport: OpportunityReport | undefined;
+  /**
+   * `opportunityReport`'s own verdict for `selected` specifically — the
+   * confidence-gated recommendation (`HUNT_NOW`/`INVESTIGATE_MORE`/`WATCH`/
+   * `SKIP`) and its reason, looked up by `selected.program.programId`.
+   * Named distinctly from `selected` (never a `rawSelected` rename, per the
+   * read-only audit that preceded this fix) so a caller has an unambiguous,
+   * structured signal to consult before authorizing — `selected` remains
+   * exactly the raw top-`totalScore` candidate it always was, for backward
+   * compatibility with existing consumers/tests. Consulting `decision` is
+   * still advisory, not a hard gate: see this file's module docstring — the
+   * only hard gate remains a human-supplied `AuthorizationRecord`.
+   */
+  readonly decision: RecommendedAction | undefined;
+  readonly decisionReason: string | undefined;
   readonly droppedAssets: readonly string[];
   readonly normalizedScopePath: string | undefined;
   readonly targetUrl: string | undefined;
@@ -161,6 +176,16 @@ function transition(state: LifecycleState, reason: string): LifecycleTransition 
 
 function normalizedScopeFilePath(workspaceDir: string, engagementId: string): string {
   return join(workspaceDir, 'engagements', engagementId, 'selected-program.json');
+}
+
+/** Looks up one program's entry in an `OpportunityReport.top` by id — `undefined` when the program was never scored (e.g. no signal data at all) or no program was selected. */
+function decisionFor(
+  report: OpportunityReport,
+  programId: string | undefined,
+): { readonly decision: RecommendedAction | undefined; readonly decisionReason: string | undefined } {
+  if (!programId) return { decision: undefined, decisionReason: undefined };
+  const entry = report.top.find((e) => e.assessment.programId === programId);
+  return { decision: entry?.finalAction, decisionReason: entry?.assessment.recommendationReason };
 }
 
 export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Result<HuntLifecycleOutput, string>> {
@@ -196,6 +221,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       selected: undefined,
       selectionRationale: undefined,
       opportunityReport: undefined,
+      decision: undefined,
+      decisionReason: undefined,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -211,8 +238,14 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
   // top-`totalScore` candidate (unchanged behavior). This report is what lets a human reviewing
   // the printed rationale before authorizing see whether that top score is a robust winner, a
   // fragile one, or part of a statistical tie — see this file's `HuntLifecycleOutput` docstring.
-  const opportunityReport = buildOpportunityReport(discovered, { weights: input.weights ?? {} });
+  // `topN` is set to the full candidate count (never the default 20) so `decisionFor` below can
+  // always find `selected` regardless of how many programs were discovered.
+  const opportunityReport = buildOpportunityReport(discovered, {
+    weights: input.weights ?? {},
+    topN: discovered.length,
+  });
   const selectionRationale = `${explainSelection(ranked)} Robustness: ${opportunityReport.robustnessReason}`;
+  const { decision, decisionReason } = decisionFor(opportunityReport, selected?.program.programId);
 
   if (!selected) {
     transitions.push(transition('BLOCKED', 'no candidate program had enough signal data to be scored/selected'));
@@ -224,6 +257,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       selected: undefined,
       selectionRationale,
       opportunityReport,
+      decision,
+      decisionReason,
       droppedAssets: [],
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -254,6 +289,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       selected,
       selectionRationale,
       opportunityReport,
+      decision,
+      decisionReason,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: deriveTargetUrl(normalized.value.scope),
@@ -275,6 +312,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       selected,
       selectionRationale,
       opportunityReport,
+      decision,
+      decisionReason,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath: undefined,
       targetUrl: undefined,
@@ -340,6 +379,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
       selected,
       selectionRationale,
       opportunityReport,
+      decision,
+      decisionReason,
       droppedAssets: normalized.value.droppedAssets,
       normalizedScopePath,
       targetUrl,
@@ -368,6 +409,8 @@ export async function runHuntLifecycle(input: HuntLifecycleInput): Promise<Resul
     selected,
     selectionRationale,
     opportunityReport,
+    decision,
+    decisionReason,
     droppedAssets: normalized.value.droppedAssets,
     normalizedScopePath,
     targetUrl,

@@ -461,6 +461,28 @@ async function runLifecycle(flags: Map<string, string>): Promise<number> {
         }
       : undefined,
     selectionRationale: output.selectionRationale,
+    // The confidence-gated recommendation for `selected` specifically, plus the aggregate
+    // robustness verdict for the whole candidate set — closes the gap a read-only audit found:
+    // this command used to authorize/hunt `selected` (raw top score) while never printing
+    // whether the opportunity engine actually endorsed it. `decision`/`decisionReason` are
+    // advisory, not a hard gate (see orchestration/lifecycle.ts's module docstring) — the only
+    // hard gate is still a human-supplied AuthorizationRecord — but a human reviewing this output
+    // before writing one can no longer miss a low-confidence or non-robust pick. The full
+    // per-candidate breakdown (all evaluated programs) is available via `rank`/`sensitivity`,
+    // deliberately not repeated here to keep this command's output focused on the one engagement
+    // it is actually running.
+    decision: output.decision,
+    decisionReason: output.decisionReason,
+    opportunity: output.opportunityReport
+      ? {
+          evaluatedCount: output.opportunityReport.evaluatedCount,
+          scoredCount: output.opportunityReport.scoredCount,
+          robustWinnerProgramId: output.opportunityReport.robustWinnerProgramId,
+          topTier: output.opportunityReport.topTier,
+          excludedFromShortlist: output.opportunityReport.excludedFromShortlist,
+          robustnessReason: output.opportunityReport.robustnessReason,
+        }
+      : undefined,
     droppedAssets: output.droppedAssets,
     normalizedScopePath: output.normalizedScopePath,
     targetUrl: output.targetUrl,
@@ -480,6 +502,11 @@ async function runLifecycle(flags: Map<string, string>): Promise<number> {
     process.stderr.write(
       'AWAITING_AUTHORIZATION: review the printed scope/ROE/rationale, then write an AuthorizationRecord JSON file and re-run with --authorize <file> to proceed.\n',
     );
+    if (output.decision && output.decision !== 'HUNT_NOW') {
+      process.stderr.write(
+        `WARNING: the opportunity engine's recommendation for the selected program is ${output.decision}, not HUNT_NOW (${output.decisionReason ?? 'no reason recorded'}). Authorizing anyway is your call to make, but read "opportunity"/"decisionReason" above first.\n`,
+      );
+    }
   }
   return output.finalState === 'BLOCKED' || output.finalState === 'FAILED' ? 1 : 0;
 }

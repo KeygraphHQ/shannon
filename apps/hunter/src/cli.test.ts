@@ -123,6 +123,33 @@ test('refresh + status round-trip persistent program intelligence through a real
   }
 });
 
+// === Regression: lifecycle surfaces the opportunity engine's verdict for the selected program (closes the gap a read-only audit found: this command used to authorize/hunt the raw top score without ever printing whether the opportunity engine endorsed it) ===
+
+test('lifecycle (no --authorize) prints decision/decisionReason and the opportunity summary for the selected program', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hunter-cli-lifecycle-'));
+  try {
+    const result = await run([
+      'lifecycle',
+      '--programs',
+      BUNDLED_DATASET,
+      '--workspace-dir',
+      dir,
+      '--engagement-id',
+      'e1',
+    ]);
+    assert.equal(result.code, 0);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.finalState, 'AWAITING_AUTHORIZATION');
+    assert.equal(parsed.selected.programId, 'initech-midrich');
+    assert.equal(parsed.decision, 'HUNT_NOW');
+    assert.equal(typeof parsed.decisionReason, 'string');
+    assert.ok(parsed.opportunity);
+    assert.equal(parsed.opportunity.robustWinnerProgramId, 'initech-midrich');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
 // === Regression #28/#29: ranking/reporting commands can never trigger a live hunt or authorization ===
 
 test('rank/explain/sensitivity/refresh/status never write an AuthorizationRecord or invoke a live hunt — no such flag exists on these commands', async () => {
