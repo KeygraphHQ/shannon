@@ -21,6 +21,8 @@ import {
   PROVIDER_EXTRA_ENV,
   resolveModelSpec,
 } from './model-spec.js';
+import { ORCA_ORIGIN_ENV_VARS, ORCAROUTER_AUTH_METHOD_ENV } from './orcarouter/credentials.js';
+import { ORCAROUTER_PROVIDER_ID } from './orcarouter/provider-id.js';
 
 /**
  * Variables forwarded to every worker container regardless of provider. Each is
@@ -35,6 +37,13 @@ const COMMON_FORWARD_VARS = [
   // durable state unless an operator deliberately enables it for a diagnosis.
   'SHANNON_DEBUG_PROVIDER_ERRORS',
   GENERIC_API_KEY_ENV,
+  // Which OrcaRouter entry point produced the stored key. Not a secret — it only lets
+  // status and error messages name the path the user took — but it must travel with the
+  // credential so the worker's credential seam reports it correctly.
+  ORCAROUTER_AUTH_METHOD_ENV,
+  // Self-hosted deployments put the auth and inference origins somewhere else. An explicit
+  // override is forwarded so the worker contacts the same origins the CLI just signed in to.
+  ...ORCA_ORIGIN_ENV_VARS,
 ] as const;
 
 /**
@@ -161,7 +170,13 @@ function describeMissingCredential(providerId: string): string {
       getMode() === 'local'
         ? `Set ${requirement} in .env or export it.`
         : `Export the variables or run 'npx @keygraph/shannon setup'.`;
-    return `No credentials found for provider "${providerId}". ${hint}`;
+    // OrcaRouter has a second, browser-based way in, and a user who has no key yet is more
+    // likely to want it than to go and mint one by hand.
+    const alternative =
+      providerId === ORCAROUTER_PROVIDER_ID && getMode() !== 'local'
+        ? ` Or run 'npx @keygraph/shannon connect' to sign in with an OrcaRouter account.`
+        : '';
+    return `No credentials found for provider "${providerId}". ${hint}${alternative}`;
   }
 
   const [provider] = configuredProviders();

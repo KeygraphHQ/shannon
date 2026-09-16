@@ -16,6 +16,7 @@ The provider half decides where the request goes, which credential is used, and 
 | OpenAI | `openai` | `SHANNON_AI_API_KEY` |
 | xAI | `xai` | `SHANNON_AI_API_KEY` |
 | AWS Bedrock | `amazon-bedrock` | `AWS_REGION` and `AWS_BEARER_TOKEN_BEDROCK` |
+| OrcaRouter | `orcarouter` | `ORCAROUTER_API_KEY`, or sign in with `npx @keygraph/shannon connect` |
 
 `SHANNON_AI_API_KEY` holds the key for whichever provider `SHANNON_AI_MODEL` names. Bedrock is the exception — it authenticates through its `AWS_` variables only. If `SHANNON_AI_MODEL` is unset, Shannon uses `anthropic:claude-sonnet-4-6`.
 
@@ -42,6 +43,69 @@ A model the catalogue does not yet carry, such as one released after Shannon's p
 > [!IMPORTANT]
 > Models are validated against the harness catalogue, but capability varies. A model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests. Evaluate the model you choose against your own targets before depending on its results.
 
+## OrcaRouter
+
+[OrcaRouter](https://www.orcarouter.ai) is an AI gateway for models and agents, reached at
+`https://api.orcarouter.ai/v1` with the OpenAI wire format. It appears as its own provider,
+named `orcarouter`, alongside the vendors above rather than as a generic base URL.
+
+```bash
+export ORCAROUTER_API_KEY=sk-orca-…            # a key belonging to your OrcaRouter account
+export SHANNON_AI_MODEL=orcarouter:openai/gpt-5.5
+```
+
+There are two ways to supply that key, and both end at the same ordinary OrcaRouter API key
+in the same place. `npx @keygraph/shannon connect` offers them side by side:
+
+| Choice | What it does | Credential |
+| --- | --- | --- |
+| **Sign in with OrcaRouter** | Opens your browser to approve the request; the key comes back on its own | `sk-orca-…`, stored where this mode keeps every other provider credential |
+| **OrcaRouter - API** | You paste a key you already have | `ORCAROUTER_API_KEY` (or `ORCA_API_KEY` / `ORCA_KEY`) |
+
+`connect` writes to `~/.shannon/config.toml` under npx, and to `./.env` when you run Shannon
+from a clone — the file each mode already reads credentials from. It adds its own lines and
+leaves the rest of the file alone.
+
+The sign-in is OAuth 2.0 with PKCE, so there is no client secret to configure and no redirect
+URI to pre-register. The verifier never leaves your machine, and the resulting key is durable:
+Shannon reuses it until you revoke it, and never re-authorizes on its own — OrcaRouter caps an
+account at ten app keys per 24 hours, so a client that signed in on every launch would lock
+itself out. Revoke access at
+[Authorized apps](https://www.orcarouter.ai/console/authorized-apps); a revoked key shows up as
+a failed scan that asks you to connect again, not as a crash.
+
+The sign-in listens on loopback (`127.0.0.1`) and hands the code back automatically, so a
+session with no terminal to be prompted at can still sign in: run `connect --pkce` and approve
+the printed URL, or paste the code the consent screen displays if you chose "show me a code"
+there. Either way `S256` is used — a code a person can read off a screen must be redeemable
+only by the process holding the verifier. `connect --api-key` goes straight to the paste
+prompt, and setting `ORCAROUTER_API_KEY` needs no command at all.
+
+### Models
+
+When you select OrcaRouter, the model list is read from `GET https://api.orcarouter.ai/v1/models`
+using your own key, so it contains the models your workspace can actually call, under their
+`vendor/model` names. There is no free-text model prompt on this path: pick from the list.
+
+The list is filtered per entry point. A text scan offers chat models that speak a dialect this
+client can call and excludes image-generation, video, and rerank models. An entry point that
+uploads an image additionally requires the model to declare `image` among its input
+modalities — a model that does not declare the capability is not offered it. If the catalogue
+cannot be read, Shannon shows a short verified fallback list and says so rather than presenting
+it as your full catalogue.
+
+Shannon runs one text agent loop, so `orcarouter` is selected for chat. The same catalogue
+reader and capability filter already resolve `embedding`, `image`, `video`, and `rerank`
+models; an entry point for one of those would call them, and none exists in Shannon today, so
+those models are simply never offered to the scan.
+
+Self-hosted OrcaRouter deployments can override the origins. `ORCA_BASE_URL` sets both, and
+`ORCA_AUTH_BASE_URL` / `ORCA_API_BASE_URL` override their own side; an explicit override wins.
+Remote origins must be HTTPS.
+
+For provider evidence — endpoints, terms, and revocation — see
+[Provider evidence](https://www.orcarouter.ai).
+
 ## Cyber safeguards (do this before your first scan)
 
 Anthropic and OpenAI both apply real-time safeguards to cyber-security workloads. Shannon is exactly such a workload. If a safeguard engages mid-run, the model can refuse, and the scan fails partway through rather than at the start.
@@ -63,6 +127,7 @@ These are the models `npx @keygraph/shannon setup` offers, best-first. They are 
 | `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
 | `xai` | `grok-4.6`, `grok-4.5` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
+| `orcarouter` | read live from your OrcaRouter catalogue — the wizard lists what your key can call |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
 

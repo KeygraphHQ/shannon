@@ -11,6 +11,15 @@ import path from 'node:path';
 import * as p from '@clack/prompts';
 import { type ShannonConfig, saveConfig } from '../config/writer.js';
 import { CURATED_PROVIDERS, type CuratedProviderId, isCuratedProvider } from '../model-spec.js';
+import { loadOrcaCatalog } from '../orcarouter/catalog.js';
+import {
+  ORCAROUTER_API_KEY_ENV,
+  ORCAROUTER_AUTH_METHOD_ENV,
+  resolveOrcaCredential,
+} from '../orcarouter/credentials.js';
+import { resolveOrcaEndpoints } from '../orcarouter/endpoints.js';
+import { ORCAROUTER_PROVIDER_ID } from '../orcarouter/provider-id.js';
+import { buildModelChoices, describeCatalogSource, reconcileSelection } from '../orcarouter/selection.js';
 import { displaySplash } from '../splash.js';
 import { requireInteractive } from '../tty.js';
 import { getVersion } from '../version.js';
@@ -40,6 +49,7 @@ const MODEL_SUGGESTIONS: Readonly<Record<CuratedProviderId, readonly string[]>> 
   openai: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
   xai: ['grok-4.5'],
   'amazon-bedrock': ['us.anthropic.claude-sonnet-4-6', 'us.anthropic.claude-opus-4-8', 'us.anthropic.claude-opus-4-7'],
+  orcarouter: [],
 };
 
 /** Placeholder shown in the free-text model ID prompt, per curated provider. */
@@ -48,7 +58,10 @@ const MODEL_ID_PLACEHOLDER: Readonly<Record<CuratedProviderId, string>> = {
   openai: 'gpt-5.6-sol',
   xai: 'grok-4.5',
   'amazon-bedrock': 'us.anthropic.claude-opus-4-8',
+  orcarouter: 'orcarouter/auto',
 };
+
+const REFRESH_MODELS = '__refresh_models__';
 
 /** Model ID placeholder for a provider, absent when the provider is not curated. */
 function modelIdPlaceholder(provider: string): string | undefined {
@@ -70,6 +83,11 @@ export async function setup(): Promise<void> {
       { value: 'openai' as const, label: 'OpenAI', hint: 'GPT models' },
       { value: 'xai' as const, label: 'xAI', hint: 'Grok models' },
       { value: 'amazon-bedrock' as const, label: 'AWS Bedrock', hint: 'Claude models via AWS' },
+      {
+        value: 'orcarouter' as const,
+        label: 'OrcaRouter',
+        hint: 'gateway for models and agents; API key or account sign-in',
+      },
       {
         value: CUSTOM_BASE_URL as typeof CUSTOM_BASE_URL,
         label: 'Custom Base URL',
@@ -135,6 +153,8 @@ async function setupProvider(provider: CuratedProviderId): Promise<ShannonConfig
       return { openai: { api_key: await promptSecret('Enter your OpenAI API key') } };
     case 'xai':
       return { xai: { api_key: await promptSecret('Enter your xAI API key') } };
+    case 'orcarouter':
+      return setupOrcaRouter();
   }
 }
 
@@ -186,6 +206,37 @@ async function setupAnthropic(): Promise<ShannonConfig> {
 
   const apiKey = await promptSecret('Enter your Anthropic API key');
   return { anthropic: { api_key: apiKey } };
+}
+
+/**
+ * OrcaRouter's two entry points. Pasting an `sk-orca-…` key and signing in through the
+ * browser both end at the same credential, so the choice is about the user's situation,
+ * not about which key they get: someone who already has a key never needs a browser, and
+ * someone without one never has to go and create it first.
+ */
+async function setupOrcaRouter(): Promise<ShannonConfig> {
+  const method = await p.select({
+    message: 'How do you want to connect to OrcaRouter?',
+    options: [
+      { value: 'api_key' as const, label: 'API key', hint: 'paste an existing sk-orca-… key' },
+      { value: 'oauth' as const, label: 'Sign in with OrcaRouter', hint: 'opens your browser; issues a key' },
+    ],
+  });
+  if (p.isCancel(method)) return cancelAndExit();
+
+  if (method === 'oauth') {
+    // The connect flow owns the loopback listener and stores the issued key.
+    const { runConnectFlow } = await import('./connect.js');
+    const result = await runConnectFlow();
+    process.env[ORCAROUTER_AUTH_METHOD_ENV] = 'pkce';
+    process.env[ORCAROUTER_API_KEY_ENV] = result.apiKey;
+    return { provider: { api_key: result.apiKey } };
+  }
+
+  const apiKey = await promptSecret('Enter your OrcaRouter API key');
+  process.env[ORCAROUTER_AUTH_METHOD_ENV] = 'api-key';
+  process.env[ORCAROUTER_API_KEY_ENV] = apiKey;
+  return { provider: { api_key: apiKey } };
 }
 
 async function setupBedrock(): Promise<ShannonConfig> {
@@ -252,6 +303,10 @@ async function setupGateway(): Promise<GatewaySetup> {
  * pick list with a free-text escape hatch; the rest go straight to free text.
  */
 async function promptModel(provider: string): Promise<string> {
+  // OrcaRouter's list comes from the provider's own API, so it is a real selector rather
+  // than a suggestion list with a free-text escape hatch.
+  if (provider === ORCAROUTER_PROVIDER_ID) return promptOrcaRouterModel();
+
   const suggestions = isCuratedProvider(provider) ? MODEL_SUGGESTIONS[provider] : [];
 
   if (suggestions.length === 0) {
@@ -271,6 +326,59 @@ async function promptModel(provider: string): Promise<string> {
     return promptModelId(provider, modelIdPlaceholder(provider));
   }
   return choice as string;
+}
+
+/**
+ * Choose the OrcaRouter model from the live catalogue.
+ *
+ * The list is read with the key that was just configured, so it is the set of models this
+ * workspace can actually call. When the catalogue cannot be read the verified seed is
+ * shown with the reason, and that degraded state is stated rather than passed off as the
+ * real list. Free-text entry is deliberately absent: guessing a model id the workspace
+ * cannot call is exactly what this selector exists to prevent.
+ */
+async function promptOrcaRouterModel(): Promise<string> {
+  const endpoints = resolveOrcaEndpoints();
+  const credential = resolveOrcaCredential();
+
+  if (!credential) {
+    p.log.warn('No OrcaRouter credential is available, so the model list cannot be read.');
+    cancelAndExit();
+  }
+
+  const result = await loadOrcaCatalog({ endpoints, apiKey: credential.apiKey, capability: 'chat' });
+  const note = describeCatalogSource(result);
+  if (note) p.log.warn(note);
+
+  const choices = buildModelChoices(result.models, { capability: 'chat' });
+  if (choices.length === 0) {
+    p.log.error('OrcaRouter returned no models this client can use. Check the key and try again.');
+    cancelAndExit();
+  }
+
+  // A model already chosen for a previous scan is re-checked here: one that is no longer in
+  // the compatible list is dropped and said so, rather than silently carried forward.
+  const current = process.env.SHANNON_AI_MODEL;
+  const reconciliation = reconcileSelection(
+    current?.startsWith(`${ORCAROUTER_PROVIDER_ID}:`) ? current : undefined,
+    choices,
+  );
+  if (reconciliation.cleared) {
+    p.log.warn(`${current} is no longer offered by OrcaRouter. Choose a replacement.`);
+  }
+
+  const choice = await p.select({
+    message: `Model (${choices.length} available${result.source === 'seed' ? ', verified fallback list' : ''})`,
+    options: [
+      ...choices.map((model) => ({ value: model.value, label: model.label, hint: model.hint })),
+      { value: REFRESH_MODELS, label: 'Refresh model list', hint: 're-read the catalogue from OrcaRouter' },
+    ],
+    ...(reconciliation.selected ? { initialValue: reconciliation.selected } : {}),
+  });
+  if (p.isCancel(choice)) return cancelAndExit();
+  if (choice === REFRESH_MODELS) return promptOrcaRouterModel();
+
+  return (choice as string).slice(ORCAROUTER_PROVIDER_ID.length + 1);
 }
 
 /**

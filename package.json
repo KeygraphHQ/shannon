@@ -9,6 +9,8 @@
     "check": "turbo run check",
     "biome": "biome check .",
     "biome:fix": "biome check --write .",
+    "test": "vitest run",
+    "check:orcarouter": "node scripts/check-orcarouter.mjs",
     "clean": "turbo run clean",
     "temporal:worker": "node apps/worker/dist/temporal/worker.js",
     "temporal:start": "node apps/worker/dist/temporal/worker.js"
@@ -17,7 +19,8 @@
     "@biomejs/biome": "^2.0.0",
     "@types/node": "^25.0.3",
     "turbo": "^2.5.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [

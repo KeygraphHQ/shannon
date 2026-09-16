@@ -86,6 +86,16 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
     usage: ['setup'],
     description: 'Configure provider credentials interactively (npx mode only).',
   },
+  connect: {
+    usage: ['connect [--api-key | --pkce]'],
+    description:
+      'Connect an OrcaRouter account. Prompts for the two ways in: sign in with OrcaRouter over OAuth 2.0 + PKCE (opens your browser and issues a key), or paste an existing sk-orca-… API key. Both store the same kind of key, in the same place as your other provider credentials.',
+    options: [
+      ['--api-key', 'Skip the choice and go straight to the API-key prompt'],
+      ['--pkce', 'Skip the choice and sign in; works without an interactive terminal'],
+    ],
+    examples: ['connect', 'connect --api-key', 'connect --pkce'],
+  },
   version: {
     usage: ['version [--json]'],
     description: 'Show the version. With --json, prints the version and mode as a machine-readable object.',

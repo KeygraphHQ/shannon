@@ -288,6 +288,7 @@ const PROVIDER_CREDENTIAL_HINT: Readonly<Record<CuratedProviderId, string>> = {
   openai: 'OPENAI_API_KEY',
   xai: 'XAI_API_KEY',
   'amazon-bedrock': 'AWS_BEARER_TOKEN_BEDROCK and AWS_REGION',
+  orcarouter: 'ORCAROUTER_API_KEY (or run `npx @keygraph/shannon connect`)',
 };
 
 /** Which variable to set when a provider's credential is missing. */

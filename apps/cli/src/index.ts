@@ -11,6 +11,7 @@
 
 import { ArgError, parseArgs, YES_FLAGS } from './args.js';
 import { build } from './commands/build.js';
+import { connect } from './commands/connect.js';
 import { logs } from './commands/logs.js';
 import { reset } from './commands/reset.js';
 import { scans } from './commands/scans.js';
@@ -90,6 +91,7 @@ function renderStartOptions(): string {
  */
 function renderUsage(prefix: string, mode: Mode): string {
   const rows: ReadonlyArray<readonly [string, string]> = [
+    [`${prefix} connect`, 'Connect an OrcaRouter account (API key or browser sign-in)'],
     ...(mode === 'local' ? [] : [[`${prefix} setup`, 'Configure credentials'] as const]),
     [`${prefix} start --url <url> --repo <path> [options]`, 'Start a pentest scan'],
     [`${prefix} stop [<workspace>] [--yes]`, 'Stop one scan (default: the single running scan)'],
@@ -369,6 +371,11 @@ async function main(): Promise<void> {
       parseArgs(rest, {});
       await setup();
       break;
+    case 'connect': {
+      const { flags } = parseArgs(rest, { booleans: { apiKey: ['--api-key'], pkce: ['--pkce'] } });
+      await connect({ apiKeyOnly: !!flags.apiKey, pkceOnly: !!flags.pkce });
+      break;
+    }
     case 'build': {
       const { flags } = parseArgs(rest, { booleans: { noCache: ['--no-cache'] } });
       build(!!flags.noCache, getVersion());
