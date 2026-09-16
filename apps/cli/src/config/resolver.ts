@@ -54,8 +54,14 @@ const CONFIG_MAP: readonly ConfigMapping[] = [
   { env: GENERIC_API_KEY_ENV, toml: 'provider.api_key', type: 'string' },
 ] as const;
 
-/** TOML section holding each curated provider's credentials, keyed by provider id. */
-const PROVIDER_SECTIONS: Readonly<Record<CuratedProviderId, string>> = {
+/**
+ * TOML section holding a curated provider's credentials, keyed by provider id.
+ *
+ * OrcaRouter is absent on purpose: it is curated (its own env vars, catalog, and connect
+ * flow) but has no section of its own, because both of its entry points store the issued
+ * key in the generic [provider] slot. `validateProviderFields` routes it there.
+ */
+const PROVIDER_SECTIONS: Readonly<Record<Exclude<CuratedProviderId, 'orcarouter'>, string>> = {
   anthropic: 'anthropic',
   openai: 'openai',
   xai: 'xai',
@@ -64,6 +70,9 @@ const PROVIDER_SECTIONS: Readonly<Record<CuratedProviderId, string>> = {
 
 /** TOML section holding the generic credential for uncurated providers. */
 const GENERIC_PROVIDER_SECTION = 'provider';
+
+/** Provider id whose credential lives in the generic section despite being curated. */
+const ORCAROUTER_PROVIDER_ID = 'orcarouter';
 
 // === TOML Parsing ===
 
@@ -142,7 +151,9 @@ function buildSchema(): Map<string, Map<string, TOMLType>> {
  * provider draws its credential from the generic [provider] section.
  */
 function validateProviderFields(config: TOMLConfig, providerId: string, errors: string[]): void {
-  if (!isCuratedProvider(providerId)) {
+  // OrcaRouter is curated for its own sake — catalog, connect flow, credential vars — but
+  // it stores its key in the generic [provider] slot, so it validates through that path.
+  if (!isCuratedProvider(providerId) || providerId === ORCAROUTER_PROVIDER_ID) {
     const section = config[GENERIC_PROVIDER_SECTION] as Record<string, unknown> | undefined;
     if (!section || !Object.keys(section).includes('api_key')) {
       errors.push(`[${GENERIC_PROVIDER_SECTION}] requires api_key for provider "${providerId}"`);
@@ -150,7 +161,7 @@ function validateProviderFields(config: TOMLConfig, providerId: string, errors: 
     return;
   }
 
-  const sectionName = PROVIDER_SECTIONS[providerId];
+  const sectionName = PROVIDER_SECTIONS[providerId as Exclude<CuratedProviderId, 'orcarouter'>];
   const section = config[sectionName] as Record<string, unknown> | undefined;
   const keys = section ? Object.keys(section) : [];
 

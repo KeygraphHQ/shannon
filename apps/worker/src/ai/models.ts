@@ -38,6 +38,8 @@ import path from 'node:path';
 import type { Api, Credential, CredentialInfo, CredentialStore, Model } from '@earendil-works/pi-ai';
 import { getAgentDir, ModelRuntime } from '@earendil-works/pi-coding-agent';
 import { MODELS_CONFIG_PATH } from '../paths.js';
+import { ORCAROUTER_API_KEY_ENV_ALIASES, orcaAccountState } from './orcarouter/credentials.js';
+import { registerOrcaRouter } from './orcarouter/register.js';
 
 /**
  * Providers Shannon curates with their own credential variables, config sections,
@@ -49,7 +51,7 @@ import { MODELS_CONFIG_PATH } from '../paths.js';
  * gate its "Other provider" setup option. A curated provider missing from one
  * copy is silently treated as generic on that side.
  */
-export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock'] as const;
+export const CURATED_PROVIDERS = ['anthropic', 'openai', 'xai', 'amazon-bedrock', 'orcarouter'] as const;
 
 export type CuratedProviderId = (typeof CURATED_PROVIDERS)[number];
 
@@ -76,6 +78,10 @@ export const PROVIDER_API_KEY_ENV: Readonly<Record<CuratedProviderId, readonly s
   openai: ['OPENAI_API_KEY'],
   xai: ['XAI_API_KEY'],
   'amazon-bedrock': ['AWS_BEARER_TOKEN_BEDROCK'],
+  // OrcaRouter is curated because it is a first-class provider with its own model
+  // catalogue and connect flow, not because it needs a bespoke credential shape. Its
+  // own variable name wins; the aliases are the shorthand forms OrcaRouter's tooling uses.
+  orcarouter: [...ORCAROUTER_API_KEY_ENV_ALIASES],
 };
 
 /** Model used when SHANNON_AI_MODEL is unset. */
@@ -248,6 +254,14 @@ export interface ModelSelection {
   readonly providerId: string;
   readonly credentialSource: 'api-key' | 'pi-auth' | 'ambient';
 }
+/**
+ * Note a relay rejection against the account and credential generation that made the
+ * request. Exported so the request boundary can report a 401 without reaching into the
+ * provider internals; the generation guard lives in `OrcaAccountState`.
+ */
+export function markOrcaRejected(accountId: string, generation: number): boolean {
+  return orcaAccountState.markRejected(accountId, generation);
+}
 
 /**
  * Resolve a model against a runtime, returning undefined when the id is unknown.
@@ -280,6 +294,7 @@ export async function resolveModelSelection(): Promise<ModelSelection> {
 
   const mountedPiAuth = piAuthPresent();
   const modelRuntime = await createModelRuntime(providerId, credentials.apiKey);
+  await registerOrcaRouter(modelRuntime, providerId);
 
   const model = resolveModel(modelRuntime, providerId, modelId, credentials.baseUrl);
   if (!model) {

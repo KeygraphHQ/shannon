@@ -36,6 +36,12 @@ import { Timer } from '../../utils/metrics.js';
 import { createAuditLogger } from '../audit-logger.js';
 import { resolveModelSelection } from '../models.js';
 import {
+  currentOrcaGeneration,
+  orcaReauthenticationMessage,
+  recordOrcaRelayRejection,
+} from '../orcarouter/credentials.js';
+import { ORCAROUTER_PROVIDER_ID } from '../orcarouter/provider.js';
+import {
   detectExecutionContext,
   formatAssistantOutput,
   formatCompletionMessage,
@@ -227,6 +233,31 @@ function extractAssistantText(message: AgentMessage): string {
     .join('\n');
 }
 
+/**
+ * Whether a failed turn is the relay refusing the credential rather than the request.
+ *
+ * The verdict comes from structured evidence only — a thrown error's status code, or the
+ * category the shared classifier already derived from one. The provider's prose is never
+ * read, because a 401 and a 429 phrased similarly would otherwise be indistinguishable.
+ * `safeProviderTurnDetails` carries the category for a flattened turn, where the original
+ * status has already been replaced by a sanitized message.
+ */
+function rejectedCredential(error: unknown, details: SafeProviderTurnDetails | undefined): boolean {
+  if (details?.providerCategory === 'authentication') return true;
+
+  const record = typeof error === 'object' && error !== null ? (error as Record<string, unknown>) : undefined;
+  if (!record) return false;
+  const response =
+    typeof record.response === 'object' && record.response !== null
+      ? (record.response as Record<string, unknown>)
+      : undefined;
+
+  for (const candidate of [record.status, record.statusCode, response?.status, response?.statusCode]) {
+    if (candidate === 401) return true;
+  }
+  return false;
+}
+
 // Low-level pi execution. Drives one agent session to completion with progress and
 // audit logging. Exported for Temporal activities to call single-attempt execution.
 export async function runPiPrompt(
@@ -315,6 +346,11 @@ export async function runPiPrompt(
   // Bounded, non-sensitive facts about the failed turn, captured alongside pendingError so the
   // error log can distinguish a safeguard/refusal from a transport or tool-call lifecycle fault.
   let pendingProviderDetails: SafeProviderTurnDetails | null = null;
+  // The OrcaRouter credential generation every request this agent makes will carry. Read
+  // before the first request so a 401 can be attributed to the credential that actually
+  // made it — a re-login during the agent's run produces a newer generation, and the late
+  // failure must not be applied to it.
+  const orcaGeneration = currentOrcaGeneration();
   // Declared out here so the catch can bill spend accrued before a failure.
   let session: AgentSession | undefined;
 
@@ -439,6 +475,22 @@ export async function runPiPrompt(
     const err = error as Error & { code?: string; status?: number };
     const safeError = safeErrorFromUnknown(err);
     const retryable = isRetryableFailure(err);
+
+    // 9a. A relay rejection is terminal, not transient. An OrcaRouter key is durable and has
+    //     no refresh grant, so there is nothing to retry and nothing to refresh: record the
+    //     exact account and generation that was rejected, and say so in the run log. A late
+    //     failure from a request made before a re-login names a generation that is no longer
+    //     current, so it is ignored and the new credential is left alone.
+    if (
+      selection.providerId === ORCAROUTER_PROVIDER_ID &&
+      rejectedCredential(err, pendingProviderDetails ?? undefined)
+    ) {
+      const rejection = recordOrcaRelayRejection(orcaGeneration);
+      if (rejection.applied) {
+        logger.error(orcaReauthenticationMessage());
+      }
+    }
+
     await auditLogger.logError(safeError, duration, turnCount);
     await auditLogger.flush();
     await traceEmitter?.flush();
