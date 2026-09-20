@@ -374,7 +374,7 @@ async function validateCredentials(logger: ActivityLogger): Promise<Result<void,
   if (!baseModel) {
     return err(
       new PentestError(
-        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}. A model too new for this pi release can be defined in a model config passed with --models-config.`,
+        `Model not found in pi registry: provider="${spec.providerId}" model="${spec.modelId}". Check SHANNON_AI_MODEL — browse valid providers and models at ${PI_CATALOG_URL}. A model the catalogue does not carry can be defined in a model config passed with --models-config.`,
         'config',
         false,
         { providerId: spec.providerId, modelId: spec.modelId },

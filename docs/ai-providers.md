@@ -35,7 +35,7 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com # optional: route thr
 
 This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
 
-A model the catalogue does not yet carry, such as one released after Shannon's pinned Pi version, is reachable by describing it yourself. See [Custom model configuration](#custom-model-configuration).
+A model the catalogue does not carry is reachable by describing it yourself. See [Custom model configuration](#custom-model-configuration).
 
 `npx @keygraph/shannon setup` exposes this as the **Other provider** option.
 
@@ -138,7 +138,7 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 
 ## Custom model configuration
 
-A model released after Shannon's pinned Pi version is not in the harness catalogue yet, so `SHANNON_AI_MODEL` alone cannot reach it. Rather than wait for a Shannon release, describe the model yourself and pass the file with `--models-config`:
+A custom model configuration is a Pi `models.json` file that describes a model the harness catalogue does not carry: one a router or gateway serves under its own ID, or a local server (see [Local and self-hosted models](#local-and-self-hosted-models)). You pass it with `--models-config`, and Shannon merges its definitions over the catalogue so `SHANNON_AI_MODEL` can then name the model like any other:
 
 ```bash
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --models-config ./models.json

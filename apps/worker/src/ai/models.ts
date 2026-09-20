@@ -20,7 +20,9 @@
  * Resolution returns a pi `Model` plus the `ModelRuntime` that owns its auth,
  * built over an in-memory credential store primed from the environment.
  *
- * A model too new for the pinned pi release is reachable by passing its descriptor in a
+ * The catalogue is refreshed over the network at scan start, so a newly released model
+ * on a catalogue provider resolves on its own. A model the catalogue does not carry, such
+ * as a router model under its own id, or a self-hosted server, is described in a
  * pi `models.json` (the CLI's `--models-config`), which merges over the catalogue. The
  * credential store below outranks any `apiKey` that file carries, so it describes the
  * model while the environment still supplies the secret.
@@ -216,13 +218,18 @@ function modelsStorePath(): string {
 }
 
 /**
- * Build a ModelRuntime whose only credential is the one supplied. Model catalogs
- * stay offline (`allowModelNetwork` defaults to false) so a scan never blocks on
- * a catalog refresh.
+ * Build a ModelRuntime whose only credential is the one supplied. `allowModelNetwork`
+ * refreshes the model catalogue over the network at scan start, so the registry reflects
+ * models the pinned pi build predates. The fetch is bounded and falls back to the static
+ * catalogue on timeout, so an unreachable endpoint cannot hang the scan. A mounted
+ * `--models-config` overlays the catalogue and is reloaded on every refresh, so its
+ * definitions take precedence.
  *
  * `modelsPath` is always explicit, never pi's default of `<agent dir>/models.json`: with no
  * `--models-config` it is null, which switches models.json off outright, so a stray file in
  * that shared dir cannot feed model definitions to a run that did not ask for them.
+ * `modelsStorePath` is pinned to the writable agent dir, replacing pi's default
+ * `dirname(modelsPath)` (a read-only mount) as the fetched catalogue's store.
  *
  * When the host's pi auth.json is present, the runtime reads it instead: pi's
  * disk-backed store resolves the credential. The mount is writable so OAuth
@@ -233,6 +240,8 @@ export async function createModelRuntime(providerId: string, apiKey: string | un
   const modelSources = {
     modelsPath: modelsPath ?? null,
     ...(modelsPath ? { modelsStorePath: modelsStorePath() } : {}),
+    allowModelNetwork: true,
+    modelRefreshTimeoutMs: 10_000,
   };
 
   if (piAuthPresent()) {
@@ -254,9 +263,8 @@ export interface ModelSelection {
  *
  * The model must exist in the runtime's registry, whether or not an endpoint override
  * is in play — a base URL changes the address and nothing else. A gateway serving a
- * model under its own name, or one newer than the pinned pi release, is described in a
- * `--models-config` file, which puts a real descriptor in the registry rather than
- * guessing one from an unrelated model.
+ * model under its own name is described in a `--models-config` file, which puts a real
+ * descriptor in the registry rather than guessing one from an unrelated model.
  */
 export function resolveModel(
   modelRuntime: ModelRuntime,
