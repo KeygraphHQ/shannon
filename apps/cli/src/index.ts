@@ -61,6 +61,18 @@ function blockSudo(): void {
   );
 }
 
+/** Refuse to run on native Windows. WSL2 reports `linux`, so it is unaffected. */
+function blockNativeWindows(): void {
+  if (process.platform !== 'win32') return;
+
+  failWith(
+    'CLI_PRECONDITION_FAILED',
+    'Shannon does not run on native Windows.',
+    'Run Shannon inside WSL2. Setup instructions:',
+    'https://github.com/KeygraphHQ/shannon/blob/main/docs/platforms.md',
+  );
+}
+
 /** Commands whose `--json` output contract extends to failures. */
 const JSON_CAPABLE_COMMANDS = new Set(['status', 'scans', 'version', '--version', '-v']);
 
@@ -262,6 +274,7 @@ async function main(): Promise<void> {
     enableJsonErrors();
   }
 
+  blockNativeWindows();
   blockSudo();
 
   const args = process.argv.slice(2);
