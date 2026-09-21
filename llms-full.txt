@@ -139,7 +139,7 @@ These reports are from Shannon Open Source scans of Photoview 2.4.0, one of the 
 
 - **Docker**: required for the worker container.
 - **Node.js 18+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](docs/ai-providers.md#custom-base-url), and a model the catalogue does not yet carry can be described with a [custom model configuration](docs/ai-providers.md#custom-model-configuration). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](docs/ai-providers.md#suggested-models) for suggested model IDs.
+- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](docs/ai-providers.md#custom-base-url), and a model the catalogue does not carry can be described with a [custom model configuration](docs/ai-providers.md#custom-model-configuration). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](docs/ai-providers.md#suggested-models) for suggested model IDs.
 - **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan).
 
 
@@ -383,7 +383,7 @@ Yes. Shannon emits SARIF 2.1.0, the OASIS standard format for static analysis re
 
 ### Which AI providers does Shannon support?
 
-Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. A model the catalogue does not yet carry, such as one released after Shannon's pinned harness version, runs without waiting for a Shannon release. Describe it in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file and pass it with `--models-config`. Shannon uses a single unified model setting throughout a pentest.
+Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. A model the catalogue does not carry, such as one a router or gateway serves under its own ID, or a self-hosted model, is described in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file and passed with `--models-config`. Shannon uses a single unified model setting throughout a pentest.
 
 ### Can I run Shannon on a local or self-hosted model?
 
@@ -792,7 +792,7 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com # optional: route thr
 
 This path covers providers whose credential is a single API key. Providers that need more than that are not currently supported.
 
-A model the catalogue does not yet carry, such as one released after Shannon's pinned Pi version, is reachable by describing it yourself. See [Custom model configuration](#custom-model-configuration).
+A model the catalogue does not carry is reachable by describing it yourself. See [Custom model configuration](#custom-model-configuration).
 
 `npx @keygraph/shannon setup` exposes this as the **Other provider** option.
 
@@ -895,7 +895,7 @@ export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 
 ## Custom model configuration
 
-A model released after Shannon's pinned Pi version is not in the harness catalogue yet, so `SHANNON_AI_MODEL` alone cannot reach it. Rather than wait for a Shannon release, describe the model yourself and pass the file with `--models-config`:
+A custom model configuration is a Pi `models.json` file that describes a model the harness catalogue does not carry: one a router or gateway serves under its own ID, or a local server (see [Local and self-hosted models](#local-and-self-hosted-models)). You pass it with `--models-config`, and Shannon merges its definitions over the catalogue so `SHANNON_AI_MODEL` can then name the model like any other:
 
 ```bash
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --models-config ./models.json
