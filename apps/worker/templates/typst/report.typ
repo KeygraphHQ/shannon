@@ -128,6 +128,9 @@
   text(fill: white, weight: "bold", size: 7.5pt, tracking: 0.3pt, upper(label)),
 )
 
+#let finding-anchor(id) = label("finding-" + id)
+#let finding-link(id) = link(finding-anchor(id), text(weight: "semibold")[#id])
+
 #let categories-in-order = if mode == "exploits" {
   data.exploitedByType.map(entry => entry.category)
 } else {
@@ -338,7 +341,7 @@
   #if "bullets" in entry and entry.bullets != none [
     #list(
       ..entry.bullets.map(b => [
-        #text(weight: "semibold")[#b.id] — #inline-code(b.description)
+        #finding-link(b.id) — #inline-code(b.description)
       ])
     )
   ]
@@ -474,7 +477,7 @@
     ..(if show-confidence-col { (text(size: 9.5pt, weight: "semibold")[Confidence],) } else { () }),
   ),
   ..data.findings.map(f => (
-    text(weight: "semibold")[#f.id],
+    finding-link(f.id),
     inline-code(f.title),
     text(size: 9.5pt)[#f.category],
     sev-chip(f.severity),
@@ -531,7 +534,7 @@
 
 #let render-exploit(f) = {
   block(breakable: false)[
-    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #heading(level: 2)[#f.id: #inline-code(f.title)]#finding-anchor(f.id)
     #sev-chip(f.severity)
     #v(8pt)
     #render-finding-owasp(f)
@@ -553,7 +556,7 @@
 
 #let render-analysis(f) = {
   block(breakable: false)[
-    #heading(level: 2)[#f.id: #inline-code(f.title)]
+    #heading(level: 2)[#f.id: #inline-code(f.title)]#finding-anchor(f.id)
     #sev-chip(f.severity)
     #h(4pt)
     #confidence-chip(f.confidence)
