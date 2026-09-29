@@ -32,6 +32,7 @@ import type {
   CapellaTool,
 } from './capella-agent-types.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
+import { PI_THINKING_LEVEL } from './thinking-level.js';
 
 const MAX_ERROR_LENGTH = 2_000;
 const MAX_TOOLS_PER_SESSION = 32;
@@ -393,6 +394,7 @@ class StandaloneCapellaAgentExecutor implements CapellaAgentExecutor {
         cwd: request.cwd,
         agentDir,
         model: selection.model,
+        thinkingLevel: PI_THINKING_LEVEL,
         modelRuntime: selection.modelRuntime,
         noTools: 'all',
         tools: toolNames,

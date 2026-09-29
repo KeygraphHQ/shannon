@@ -48,6 +48,7 @@ import { permissionSystemConfigExists, permissionSystemPackageDir } from './perm
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
 import { createGlobTool, createTodoWriteTool } from './session-tools.js';
 import { createTaskTool } from './task-tool.js';
+import { PI_THINKING_LEVEL } from './thinking-level.js';
 import { TraceEmitter } from './trace-emitter.js';
 import { providerTurnError, type SafeProviderTurnDetails, safeProviderTurnDetails } from './turn-error.js';
 
@@ -332,6 +333,7 @@ export async function runPiPrompt(
     ({ session } = await createAgentSession({
       cwd: sourceDir,
       model: selection.model,
+      thinkingLevel: PI_THINKING_LEVEL,
       tools,
       customTools,
       modelRuntime: selection.modelRuntime,
