@@ -36,6 +36,8 @@ const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
   ReportSarifRenderError: ErrorCode.OUTPUT_VALIDATION_FAILED,
   IncompatibleWorkspaceError: ErrorCode.CONFIG_VALIDATION_FAILED,
   WorkspaceNotFoundError: ErrorCode.CONFIG_NOT_FOUND,
+  OpenAiCyberAccessError: ErrorCode.PROVIDER_CYBER_ACCESS_REQUIRED,
+  AnthropicCyberAccessError: ErrorCode.PROVIDER_CYBER_ACCESS_REQUIRED,
 };
 
 export function classifyErrorCode(error: unknown): ErrorCode | undefined {
@@ -64,6 +66,10 @@ const REMEDIATION_HINTS: Record<string, string> = {
   IncompatibleWorkspaceError: 'start a new scan with a different -w name.',
   WorkspaceNotFoundError: 'check the -w name against: shannon scans',
   PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
+  OpenAiCyberAccessError:
+    'Your OpenAI organization must be approved for cyber use. Apply for Daybreak access at https://openai.com/daybreak, then retry.',
+  AnthropicCyberAccessError:
+    'Your Anthropic organization must complete cyber verification. See https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet, then retry.',
 };
 
 /**
@@ -86,6 +92,8 @@ const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
   ReportSarifRenderError: 'The report SARIF output could not be rendered.',
   IncompatibleWorkspaceError: 'This workspace cannot be resumed.',
   WorkspaceNotFoundError: 'The requested workspace was not found.',
+  OpenAiCyberAccessError: 'OpenAI declined the security workload behind its cyber-access program.',
+  AnthropicCyberAccessError: 'Anthropic declined the security workload behind its cyber-access program.',
 };
 
 const WORKFLOW_PHASE_SET = new Set<string>(WORKFLOW_PHASES);

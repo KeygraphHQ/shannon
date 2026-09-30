@@ -100,6 +100,8 @@ const PRODUCTION_RETRY = {
     'InvalidTargetError',
     'AuthLoginFailedError',
     'PermanentError',
+    'OpenAiCyberAccessError',
+    'AnthropicCyberAccessError',
   ],
 };
 
@@ -1338,6 +1340,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.currentPhase = 'preflight';
     state.currentAgent = null;
     await preflightActs.runPreflightValidation(activityInput);
+    await preflightActs.runExploitReadinessProbe(activityInput);
     await preflightActs.syncPlaywrightStealthConfig(activityInput);
 
     state.currentPhase = 'auth-validation';

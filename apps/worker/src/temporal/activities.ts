@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
+import { resolveModelSelection } from '../ai/models.js';
 import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
@@ -41,6 +42,12 @@ import { compactReportFindings as compactReportFindingsService } from '../servic
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { RenumberError } from '../services/exact-output-commit.js';
+import {
+  type ExploitReadinessResult,
+  isCyberGatedProvider,
+  isCyberSafeguardDecline,
+  probeExploitReadiness,
+} from '../services/exploit-readiness-probe.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
@@ -860,6 +867,77 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
   } finally {
     clearInterval(heartbeatInterval);
   }
+}
+
+/** The provider-specific cyber-access failure type (see workflow-errors.ts); provider is OpenAI or Anthropic. */
+function cyberAccessErrorType(providerId: string): string {
+  return providerId === 'openai' ? 'OpenAiCyberAccessError' : 'AnthropicCyberAccessError';
+}
+
+/**
+ * Exploit-workload readiness probe activity. For OpenAI/Anthropic, hands the model a slice of the
+ * exploit agent's workload and gates on a decline (`stopReason: error`), failing the scan with the
+ * provider's own message. A setup/transport fault is not a decline and never gates.
+ */
+export async function runExploitReadinessProbe(_input: ActivityInput): Promise<void> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({ phase: 'exploit-readiness', elapsedSeconds: elapsed, attempt: attemptNumber });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  const logger = createActivityLogger();
+
+  let result: ExploitReadinessResult;
+  try {
+    const selection = await resolveModelSelection();
+
+    // Only OpenAI and Anthropic gate security workloads — never probe any other provider.
+    if (!isCyberGatedProvider(selection.providerId)) {
+      logger.info(`Exploit-workload readiness: skipped (provider ${selection.providerId})`);
+      return;
+    }
+
+    logger.info('Checking exploit-workload readiness via pi...');
+    result = await probeExploitReadiness(selection.model, selection.modelRuntime, selection.providerId);
+  } catch (error) {
+    // Setup/transport fault, not a decline — never gates the scan.
+    const message = error instanceof Error ? error.message : String(error);
+    logger.info(`Exploit-workload readiness: probe skipped (${message.slice(0, 200)})`);
+    return;
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
+
+  if (result.error !== undefined) {
+    logger.info(`Exploit-workload readiness: ${result.providerId} inconclusive (${result.error.slice(0, 200)})`);
+    return;
+  }
+
+  if (result.response?.stopReason === 'error') {
+    logger.info(
+      `Exploit-workload readiness: declined by ${result.providerId}: ${(result.response.errorMessage ?? '').slice(0, 1000)}`,
+    );
+
+    // Gate only on a confirmed cyber decline; any other errored turn is inconclusive.
+    if (!isCyberSafeguardDecline(result.providerId, result.response)) {
+      logger.info(`Exploit-workload readiness: ${result.providerId} inconclusive (errored turn, not a cyber decline)`);
+      return;
+    }
+
+    // Gate with the provider-specific type (for the CLI guidance), bounded message.
+    const message = truncateErrorMessage(`${result.providerId} declined the exploit workload`);
+    const failure = ApplicationFailure.nonRetryable(message, cyberAccessErrorType(result.providerId), [
+      { phase: 'exploit-readiness', attemptNumber, elapsed: Date.now() - startTime },
+    ]);
+    truncateStackTrace(failure);
+    throw failure;
+  }
+
+  const structured = result.structuredOutput !== undefined ? result.structuredValid : 'none';
+  logger.info(`Exploit-workload readiness: ${result.providerId} OK (structured=${structured})`);
 }
 
 /**

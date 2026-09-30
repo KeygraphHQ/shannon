@@ -137,6 +137,7 @@ const AGENTIC_SAST_PARENT_KEY = 'agentic-sast';
 // apps/worker/src/ai/sast/capella/temporal/activity-types.ts.
 const OPERATION_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>> = {
   runPreflightValidation: { key: 'preflight', label: 'Preflight validation', kind: 'operation' },
+  runExploitReadinessProbe: { key: 'preflight', label: 'Exploit-workload readiness', kind: 'operation' },
   syncPlaywrightStealthConfig: { key: 'preflight', label: 'Browser setup', kind: 'operation' },
   initDeliverableGit: { key: 'scan-initialization', label: 'Initialize deliverables', kind: 'operation' },
   syncCodePathDenyRules: { key: 'scan-initialization', label: 'Apply source rules', kind: 'operation' },
