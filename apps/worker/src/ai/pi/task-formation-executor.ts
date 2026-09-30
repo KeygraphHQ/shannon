@@ -29,6 +29,7 @@ import type { ValidatingSubmitTool } from '../reconciliation/submit-validation.j
 import { ConfinementError, compileRepositoryGlob, RepositoryConfinement } from '../sast/capella/tools/confinement.js';
 import { createCapellaRepositoryTools } from '../sast/capella/tools/repository-tools.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
+import { PI_THINKING_LEVEL } from './thinking-level.js';
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1_000;
 const DEFAULT_MAX_TURNS = 64;
@@ -527,6 +528,7 @@ class StandaloneTaskFormationExecutor implements TaskFormationExecutor {
         cwd: request.cwd,
         agentDir,
         model: selection.model,
+        thinkingLevel: PI_THINKING_LEVEL,
         modelRuntime: selection.modelRuntime,
         noTools: 'all',
         tools: toolNames,

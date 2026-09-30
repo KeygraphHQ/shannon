@@ -19,6 +19,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import { type LoggableAgentName, normalizeSemanticLabel } from '../../audit/safe-fields.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
+import { PI_THINKING_LEVEL } from './thinking-level.js';
 import { TraceEmitter } from './trace-emitter.js';
 
 export interface TaskToolContext {
@@ -135,6 +136,7 @@ export function createTaskTool(config: TaskToolContext): ToolDefinition {
           agentDir,
           resourceLoader,
           model: config.model,
+          thinkingLevel: PI_THINKING_LEVEL,
           tools: CHILD_TOOLS,
           modelRuntime: config.modelRuntime,
           sessionManager: SessionManager.inMemory(config.cwd),
