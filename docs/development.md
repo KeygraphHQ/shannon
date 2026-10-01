@@ -123,7 +123,7 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
 
 # Validate the configured login only, then stop (no pentest or report).
-npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml --validate-auth --follow
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml --validate-auth
 
 # List running and completed scans.
 npx @keygraph/shannon scans

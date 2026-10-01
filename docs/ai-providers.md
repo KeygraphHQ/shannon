@@ -59,9 +59,9 @@ These are the models `npx @keygraph/shannon setup` offers, best-first. They are 
 
 | Provider | Suggested model IDs |
 | --- | --- |
-| `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
-| `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
-| `xai` | `grok-4.6`, `grok-4.5` |
+| `anthropic` | `claude-sonnet-5`, `claude-opus-5`, `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
+| `openai` | `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
+| `xai` | `grok-4.7` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
@@ -81,14 +81,14 @@ OpenAI:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
-export SHANNON_AI_MODEL=openai:gpt-5.6-sol
+export SHANNON_AI_MODEL=openai:gpt-6-sol
 ```
 
 xAI:
 
 ```bash
 export SHANNON_AI_API_KEY=xai-...
-export SHANNON_AI_MODEL=xai:grok-4.5
+export SHANNON_AI_MODEL=xai:grok-4.7
 ```
 
 Source-build mode reads the same variables from a `.env` file.
@@ -130,7 +130,7 @@ OpenAI Responses LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
-export SHANNON_AI_MODEL=openai:gpt-5.6-sol
+export SHANNON_AI_MODEL=openai:gpt-6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
@@ -282,12 +282,12 @@ An xAI subscription can run Shannon. Shannon reuses a login created by Pi.
 
    ```bash
    export SHANNON_USE_PI_AUTH=1
-   export SHANNON_AI_MODEL=xai:grok-4.6
+   export SHANNON_AI_MODEL=xai:grok-4.7
    ```
 
 4. In npx mode, run `npx @keygraph/shannon start ...` from the same shell. In source-build mode, add the two variables to `.env` and run `./shannon start ...`.
 
-Suggested Grok models are `grok-4.6` and `grok-4.5`.
+The suggested Grok model is `grok-4.7`.
 
 ## Claude Code subscription
 

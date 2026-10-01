@@ -36,17 +36,24 @@ const GATEWAY_DIALECTS: readonly {
 
 /** Suggested models per curated provider, best-first. Free-text entry accepts any model in the provider's catalogue. */
 const MODEL_SUGGESTIONS: Readonly<Record<CuratedProviderId, readonly string[]>> = {
-  anthropic: ['claude-sonnet-4-6', 'claude-opus-4-8', 'claude-opus-4-7', 'claude-haiku-4-5-20251001'],
-  openai: ['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
-  xai: ['grok-4.5'],
+  anthropic: [
+    'claude-sonnet-5',
+    'claude-opus-5',
+    'claude-sonnet-4-6',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-haiku-4-5-20251001',
+  ],
+  openai: ['gpt-6-sol', 'gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4'],
+  xai: ['grok-4.7'],
   'amazon-bedrock': ['us.anthropic.claude-sonnet-4-6', 'us.anthropic.claude-opus-4-8', 'us.anthropic.claude-opus-4-7'],
 };
 
 /** Placeholder shown in the free-text model ID prompt, per curated provider. */
 const MODEL_ID_PLACEHOLDER: Readonly<Record<CuratedProviderId, string>> = {
   anthropic: 'claude-sonnet-4-6',
-  openai: 'gpt-5.6-sol',
-  xai: 'grok-4.5',
+  openai: 'gpt-6-sol',
+  xai: 'grok-4.7',
   'amazon-bedrock': 'us.anthropic.claude-opus-4-8',
 };
 
