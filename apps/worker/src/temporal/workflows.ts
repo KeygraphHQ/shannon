@@ -381,11 +381,13 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   const { workflowId } = workflowInfo();
   const a = input.pipelineTestingMode ? testActs : acts;
   const exploit = input.exploit ?? true;
+  const authOnly = input.authOnly ?? false;
   const sessionId = input.sessionId || input.resumeFromWorkspace || workflowId;
   const stateContext: 'fresh' | 'resume' = input.resumeFromWorkspace ? 'resume' : 'fresh';
 
   const state: PipelineState = {
     status: 'running',
+    authOnly,
     currentPhase: null,
     currentAgent: null,
     completedAgents: [],
@@ -1289,7 +1291,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     const durable = await deterministicReportActs.initializeDurableScanState(activityInput, exploit, stateContext);
     applyDurableSummary(durable);
 
-    if (input.resumeFromWorkspace) {
+    if (!authOnly && input.resumeFromWorkspace) {
       // The new workflow id lands in session.json before anything that can reject the resume, so a
       // validation or checkpoint-restore failure still leaves the CLI an attempt to follow.
       await deterministicReportActs.registerResumeAttempt(activityInput, input.terminatedWorkflows ?? []);
@@ -1340,7 +1342,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.currentPhase = 'preflight';
     state.currentAgent = null;
     await preflightActs.runPreflightValidation(activityInput);
-    await preflightActs.runExploitReadinessProbe(activityInput);
+    // The probe gates the exploitation workload, which an auth-only run never reaches.
+    if (!authOnly) await preflightActs.runExploitReadinessProbe(activityInput);
     await preflightActs.syncPlaywrightStealthConfig(activityInput);
 
     state.currentPhase = 'auth-validation';
@@ -1348,6 +1351,21 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     const authMetrics = await authValidationActs.runAuthenticationValidation(activityInput);
     if (authMetrics !== null) state.agentMetrics['validate-authentication'] = authMetrics;
     state.currentAgent = null;
+
+    // Auth-only runs stop here; a null result means no authentication block, which is a misconfig.
+    if (authOnly) {
+      if (authMetrics === null) {
+        throw ApplicationFailure.nonRetryable(
+          'An auth-validation run needs an authentication block in the config. Add one, or drop --validate-auth.',
+          'ConfigurationError',
+        );
+      }
+      state.status = 'completed';
+      state.currentPhase = null;
+      state.summary = computeSummary(state, usageAccountingComplete());
+      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+      return state;
+    }
 
     await a.initDeliverableGit(activityInput);
     await a.syncCodePathDenyRules(activityInput);

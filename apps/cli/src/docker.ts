@@ -412,6 +412,7 @@ export interface WorkerOptions {
   workspace: string;
   pipelineTesting?: boolean;
   keepContainer?: boolean;
+  authOnly?: boolean;
   piAuthHostPath?: string;
 }
 
@@ -510,6 +511,9 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   args.push('--workspace', opts.workspace);
   if (opts.pipelineTesting) {
     args.push('--pipeline-testing');
+  }
+  if (opts.authOnly) {
+    args.push('--validate-auth');
   }
 
   // Inherit stderr so `docker run` daemon errors surface to the user;

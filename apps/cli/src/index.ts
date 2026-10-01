@@ -189,6 +189,7 @@ interface ParsedStartArgs {
   pipelineTesting: boolean;
   keepContainer: boolean;
   follow: boolean;
+  authOnly: boolean;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
@@ -205,6 +206,7 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       pipelineTesting: ['--pipeline-testing'],
       keepContainer: ['--keep-container'],
       follow: ['-f', '--follow'],
+      authOnly: ['--validate-auth'],
     },
   });
 
@@ -220,12 +222,20 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     failUsage(`invalid --url: ${url}`);
   }
 
+  if (flags.authOnly && !values.config) {
+    failUsage(
+      '--validate-auth needs a config file with an authentication block',
+      `Usage: ${commandPrefix()} start -u <url> -r <path> -c <config.yaml> --validate-auth`,
+    );
+  }
+
   return {
     url,
     repo,
     pipelineTesting: !!flags.pipelineTesting,
     keepContainer: !!flags.keepContainer,
     follow: !!flags.follow,
+    authOnly: !!flags.authOnly,
     ...(values.config && { config: values.config }),
     ...(values.modelsConfig && { modelsConfig: values.modelsConfig }),
     ...(values.workspace && { workspace: values.workspace }),

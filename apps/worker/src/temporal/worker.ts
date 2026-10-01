@@ -250,6 +250,7 @@ interface CliArgs {
   configPath?: string;
   customerOutputPath?: string;
   pipelineTestingMode: boolean;
+  authOnly: boolean;
   resumeFromWorkspace?: string;
 }
 
@@ -264,7 +265,8 @@ function showUsage(): void {
   console.log('  --config <path>        Configuration file path');
   console.log('  --workspace <name>     Resume from existing workspace');
   console.log('  --output <path>        Stable mounted path for final customer report copies');
-  console.log('  --pipeline-testing     Use minimal prompts for fast testing\n');
+  console.log('  --pipeline-testing     Use minimal prompts for fast testing');
+  console.log('  --validate-auth        Validate authentication only, then stop\n');
 }
 
 function parseCliArgs(argv: string[]): CliArgs {
@@ -280,6 +282,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   let configPath: string | undefined;
   let customerOutputPath: string | undefined;
   let pipelineTestingMode = false;
+  let authOnly = false;
   let resumeFromWorkspace: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
@@ -316,6 +319,8 @@ function parseCliArgs(argv: string[]): CliArgs {
       }
     } else if (arg === '--pipeline-testing') {
       pipelineTestingMode = true;
+    } else if (arg === '--validate-auth') {
+      authOnly = true;
     } else if (arg && !arg.startsWith('-')) {
       if (!webUrl) {
         webUrl = arg;
@@ -343,6 +348,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     taskQueue,
     ...(workflowId && { workflowId }),
     pipelineTestingMode,
+    authOnly,
     ...(configPath && { configPath }),
     ...(customerOutputPath && { customerOutputPath }),
     ...(resumeFromWorkspace && { resumeFromWorkspace }),
@@ -591,6 +597,7 @@ function buildPipelineInput(
     ...(args.customerOutputPath !== undefined && { customerOutputPath: args.customerOutputPath }),
     ...(orchestration.agenticSast !== undefined && { agenticSast: orchestration.agenticSast }),
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
+    ...(args.authOnly && { authOnly: true }),
   };
 }
 
@@ -645,6 +652,8 @@ async function waitForWorkflowResult(
       }
     } else if (result.status === 'cancelled') {
       console.log('\nScan cancelled before it finished.');
+    } else if (result.authOnly) {
+      console.log('\nAuthentication validated. No pentest was run (--validate-auth).');
     } else {
       console.log('\nScan completed.');
     }
@@ -756,6 +765,10 @@ async function startScan(client: Client, connection: NativeConnection, args: Cli
 async function run(): Promise<void> {
   // 1. Parse CLI args
   const args = parseCliArgs(process.argv.slice(2));
+
+  // One scan per worker process, so an auth-only run is a process-wide fact. The log writers
+  // read it to frame the log as a validation rather than a pentest.
+  if (args.authOnly) process.env.SHANNON_AUTH_ONLY = '1';
 
   // 2. Connect to Temporal server
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';

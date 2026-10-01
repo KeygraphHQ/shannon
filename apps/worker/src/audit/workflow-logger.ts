@@ -115,6 +115,11 @@ function safeAgenticSastCode(code: string | undefined): string | undefined {
   return undefined;
 }
 
+/** One scan per worker process; the worker sets this flag for an auth-only run (see worker.ts). */
+function isAuthOnlyRun(): boolean {
+  return process.env.SHANNON_AUTH_ONLY === '1';
+}
+
 function safeAgenticSastStageLabel(label: string | undefined): string | undefined {
   return label !== undefined && isCapellaTerminalStageLabel(label) ? label : undefined;
 }
@@ -436,9 +441,10 @@ export class WorkflowLogger {
     try {
       this.logStream = await LogStream.acquire(this.logPath);
       const workflowId = safeWorkflowIdentifier(this.workflowId ?? this.sessionMetadata.id);
+      const title = isAuthOnlyRun() ? 'Shannon - Authentication Validation Log' : 'Shannon Pentest - Scan Log';
       const header = [
         '================================================================================',
-        'Shannon Pentest - Scan Log',
+        title,
         '================================================================================',
         `Workflow ID: ${workflowId}`,
         `Target URL:  ${safeTargetUrl(this.sessionMetadata.webUrl)}`,
@@ -447,7 +453,7 @@ export class WorkflowLogger {
         '',
       ].join('\n');
       await this.logStream.appendIfAbsent(header, {
-        marker: 'Shannon Pentest - Scan Log',
+        marker: title,
         scope: 'whole-file',
         match: 'exact-line',
       });
@@ -658,6 +664,8 @@ export class WorkflowLogger {
       failed: 'FAILED',
     };
     const status = statusHeaders[summary.status];
+    const authOnly = isAuthOnlyRun();
+    const runLabel = authOnly ? 'Validation' : 'Scan';
     const completedAgents = summary.completedAgents.filter(isLoggableAgentName);
     const skippedAgents = (summary.skippedAgents ?? []).filter(isLoggableAgentName);
     const operationalGroups = summarizeOperationalMetrics(summary.operationalMetrics, summary.operationalStages);
@@ -665,13 +673,13 @@ export class WorkflowLogger {
     const lines = [
       '',
       '================================================================================',
-      `Scan ${status}`,
+      `${runLabel} ${status}`,
       '────────────────────────────────────────',
       `Workflow ID: ${safeWorkflowIdentifier(this.workflowId ?? this.sessionMetadata.id)}`,
       `Status:      ${summary.status}`,
       `Duration:    ${formatDuration(Math.max(0, summary.totalDurationMs))}`,
       `Total Cost:  $${Math.max(0, summary.totalCostUsd).toFixed(4)}`,
-      `Agents:      ${completedAgents.length} ran, ${skippedAgents.length} skipped`,
+      ...(authOnly ? [] : [`Agents:      ${completedAgents.length} ran, ${skippedAgents.length} skipped`]),
     ];
     if (summary.usageAccountingComplete === false) {
       lines.push('Cost Note:   Cost is incomplete — some background work is not included in this total.');
@@ -741,7 +749,7 @@ export class WorkflowLogger {
     }
     lines.push('================================================================================');
 
-    const marker = `Scan ${status}`;
+    const marker = `${runLabel} ${status}`;
     await this.withStream((stream) =>
       stream.appendIfAbsent(`${lines.join('\n')}\n`, {
         marker,

@@ -108,6 +108,7 @@ const MISCELLANEOUS_EXPLOIT_AGENT: AgentSpec = {
  * available guess.
  */
 export function pipelineForState(state: PipelineState | null): readonly PhaseSpec[] {
+  if (state?.authOnly === true) return PIPELINE.filter((phase) => phase.key === 'auth-validation');
   if (state?.expectedAgents === undefined) return PIPELINE;
   const expected = new Set(state.expectedAgents);
   return PIPELINE.map((phase) => {
@@ -353,6 +354,7 @@ export type PipelineStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 
 
 export interface PipelineState {
   readonly status: PipelineStatus;
+  readonly authOnly?: boolean;
   readonly currentPhase: string | null;
   readonly currentAgent: string | null;
   readonly completedAgents: string[];

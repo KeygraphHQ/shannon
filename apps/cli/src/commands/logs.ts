@@ -21,7 +21,15 @@ import { resolveWorkflowId } from '../session.js';
 import { waitForWorkflowClose } from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
 
-const TERMINAL_HEADINGS = new Set(['Scan COMPLETED', 'Scan PARTIAL', 'Scan FAILED', 'Scan CANCELLED']);
+const TERMINAL_HEADINGS = new Set([
+  'Scan COMPLETED',
+  'Scan PARTIAL',
+  'Scan FAILED',
+  'Scan CANCELLED',
+  'Validation COMPLETED',
+  'Validation FAILED',
+  'Validation CANCELLED',
+]);
 
 // The combined log resets completion on the bare `RESUMED` heading; a per-agent file carries the
 // distinct `--- RESUMED (<workflow id>) ---` boundary that WorkflowLogger.logResumeBoundary writes
@@ -48,7 +56,7 @@ export class LogCompletionState {
         this.failureIsLastMarker = false;
       } else if (TERMINAL_HEADINGS.has(line)) {
         this.terminalIsLastMarker = true;
-        this.failureIsLastMarker = line === 'Scan FAILED';
+        this.failureIsLastMarker = line.endsWith('FAILED');
       }
     }
   }

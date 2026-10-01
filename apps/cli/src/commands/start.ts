@@ -45,6 +45,7 @@ export interface StartArgs {
   pipelineTesting: boolean;
   keepContainer: boolean;
   follow: boolean;
+  authOnly: boolean;
   version: string;
 }
 
@@ -225,6 +226,9 @@ export function createWorkflowId(workspace: string, isResume: boolean, timestamp
 }
 
 export async function start(args: StartArgs): Promise<void> {
+  // Auth-only runs are short and have no report to come back for, so they always stream to the end.
+  if (args.authOnly) args.follow = true;
+
   // 1. Resolve non-mutating inputs and classify the workspace before changing it.
   initHome();
   loadEnv();
@@ -242,6 +246,13 @@ export async function start(args: StartArgs): Promise<void> {
   const requestedOutputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
   const launchDecision = classifyWorkspaceLaunch(workspacePath, args.url, requestedOutputDir);
 
+  // Auth-only runs write no resumable state, so they always run fresh; reusing a workspace would resume it.
+  if (args.authOnly && launchDecision.isResume) {
+    fail(
+      'An auth-validation run needs a fresh workspace. Omit -w to auto-name one, or choose a -w name that is not in use.',
+    );
+  }
+
   // 2. Inputs are valid; identify the run before initializing shared infrastructure.
   const bannerVersion = isLocal() ? undefined : args.version;
   if (stdoutIsTerminal()) {
@@ -254,7 +265,7 @@ export async function start(args: StartArgs): Promise<void> {
   ensureDocker();
   ensureImage(args.version);
   const spinner = p.spinner();
-  spinner.start('Starting scan');
+  spinner.start(args.authOnly ? 'Starting authentication validation' : 'Starting scan');
   await ensureInfra(spinner);
 
   // 3. Generate the invocation identity.
@@ -336,6 +347,7 @@ export async function start(args: StartArgs): Promise<void> {
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
     ...(args.keepContainer && { keepContainer: true }),
+    ...(args.authOnly && { authOnly: true }),
     ...(shouldUsePiAuth() && { piAuthHostPath: resolveHostPiAuthPath() }),
   });
 
@@ -386,7 +398,7 @@ export async function start(args: StartArgs): Promise<void> {
   });
 
   // Poll for the workflow to register in session.json; the spinner resolves once it does.
-  spinner.message('Waiting for the scan to start');
+  spinner.message(args.authOnly ? 'Waiting for authentication validation to start' : 'Waiting for the scan to start');
   for (let attempts = 0; attempts < 60; attempts++) {
     // A pre-workflow failure leaves its reason here (nothing reached Temporal); surface it
     // rather than polling out to a generic timeout.
@@ -420,15 +432,15 @@ export async function start(args: StartArgs): Promise<void> {
         spinner.message('Running preflight checks');
         const outcome = await awaitPreflightOutcome(workflowId);
         if (outcome.kind === 'failed') {
-          spinner.error('The scan could not start');
+          spinner.error(args.authOnly ? 'Authentication validation could not start' : 'The scan could not start');
           printScanStartFailure(outcome.message);
           process.exit(1);
         }
 
-        spinner.stop(`Scan started — ${workspace}`);
+        spinner.stop(args.authOnly ? `Validating authentication — ${workspace}` : `Scan started — ${workspace}`);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
         if (args.follow) {
-          await followScan(workspace, workspacesDir);
+          await followScan(workspace, workspacesDir, args.authOnly);
         }
         return;
       }
@@ -576,7 +588,7 @@ function printUnconfirmedScanHint(workspace: string, taskQueue: string, containe
  * That tracks whether the pipeline ran, not whether vulnerabilities were found. On failure the
  * root-cause message is printed so a red CI build says why.
  */
-async function followScan(workspace: string, workspacesDir: string): Promise<never> {
+async function followScan(workspace: string, workspacesDir: string, authOnly = false): Promise<never> {
   const logFile = resolveRunFile(path.join(workspacesDir, workspace), 'workflow.log');
   const workflowId = resolveWorkflowId(workspace);
 
@@ -587,7 +599,8 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
   }
 
   if (stdoutIsTerminal()) {
-    console.error('\n  Following scan log (Ctrl-C to stop watching):\n');
+    const what = authOnly ? 'validation' : 'scan';
+    console.error(`\n  Following ${what} log (Ctrl-C to stop watching):\n`);
   }
 
   let temporalUnreachable = false;
@@ -675,10 +688,12 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
     console.log(`    Progress:   ${prefix} status ${workspace}`);
   }
 
-  console.log('');
-  console.log('  Report (when the scan finishes):');
-  console.log(`    ${reportDir}${path.sep}`);
-  console.log(`      ${FINAL_REPORT_PDF_FILENAME}`);
-  console.log(`      ${FINAL_REPORT_MD_FILENAME}`);
-  console.log('');
+  if (!args.authOnly) {
+    console.log('');
+    console.log('  Report (when the scan finishes):');
+    console.log(`    ${reportDir}${path.sep}`);
+    console.log(`      ${FINAL_REPORT_PDF_FILENAME}`);
+    console.log(`      ${FINAL_REPORT_MD_FILENAME}`);
+    console.log('');
+  }
 }
