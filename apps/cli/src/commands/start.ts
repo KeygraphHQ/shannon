@@ -61,6 +61,8 @@ const FIXED_CLASSES = ['injection', 'xss', 'auth', 'authz', 'ssrf'] as const;
 interface LaunchState {
   readonly schema_version: typeof LAUNCH_STATE_SCHEMA_VERSION;
   readonly customer_output_path?: string;
+  /** True when the workspace was created by an auth-validation run; such a workspace is not a scan. */
+  readonly auth_only?: boolean;
 }
 
 export interface WorkspaceLaunchDecision {
@@ -125,17 +127,22 @@ function readLaunchState(filePath: string): LaunchState {
   if (!isRecord(value)) fail(NEWER_RELEASE_MESSAGE);
   // Unknown keys mean a newer release wrote this workspace; refuse rather than half-read it.
   const keys = Object.keys(value).sort();
-  const keysAreValid = keys.every((key) => key === 'customer_output_path' || key === 'schema_version');
+  const keysAreValid = keys.every(
+    (key) => key === 'auth_only' || key === 'customer_output_path' || key === 'schema_version',
+  );
   const customerPath = value.customer_output_path;
   const pathIsValid =
     customerPath === undefined ||
     (typeof customerPath === 'string' && path.isAbsolute(customerPath) && path.resolve(customerPath) === customerPath);
-  if (value.schema_version !== LAUNCH_STATE_SCHEMA_VERSION || !keysAreValid || !pathIsValid) {
+  const authOnly = value.auth_only;
+  const authOnlyIsValid = authOnly === undefined || typeof authOnly === 'boolean';
+  if (value.schema_version !== LAUNCH_STATE_SCHEMA_VERSION || !keysAreValid || !pathIsValid || !authOnlyIsValid) {
     fail(NEWER_RELEASE_MESSAGE);
   }
   return {
     schema_version: LAUNCH_STATE_SCHEMA_VERSION,
     ...(typeof customerPath === 'string' && { customer_output_path: customerPath }),
+    ...(authOnly === true && { auth_only: true }),
   };
 }
 
@@ -150,6 +157,7 @@ export function classifyWorkspaceLaunch(
   workspacePath: string,
   expectedUrl: string,
   requestedOutputDir: string | undefined,
+  requestedAuthOnly: boolean,
 ): WorkspaceLaunchDecision {
   const sessionPath = resolveRunFile(workspacePath, 'session.json');
   const sessionExists = fs.existsSync(sessionPath);
@@ -164,6 +172,11 @@ export function classifyWorkspaceLaunch(
 
   const launchPath = path.join(workspacePath, INTERNAL_DIR, LAUNCH_STATE_FILENAME);
   const launch = readLaunchState(launchPath);
+  if (launch.auth_only && !requestedAuthOnly) {
+    fail(
+      'This workspace was created to validate authentication only, so it cannot be run as a scan. Start a new scan with a different -w name.',
+    );
+  }
   const session = readJsonFile(sessionPath);
   if (!isRecord(session) || !isRecord(session.session) || session.session.webUrl !== expectedUrl) {
     fail(
@@ -191,12 +204,17 @@ export function classifyWorkspaceLaunch(
  * host crash. Callers invoke this only for a fresh workspace; an existing launch.json is
  * the resume contract and must never be replaced.
  */
-export function writeLaunchStateAtomically(internalPath: string, outputDir: string | undefined): void {
+export function writeLaunchStateAtomically(
+  internalPath: string,
+  outputDir: string | undefined,
+  authOnly: boolean,
+): void {
   const finalPath = path.join(internalPath, LAUNCH_STATE_FILENAME);
   const temporaryPath = path.join(internalPath, `${LAUNCH_STATE_FILENAME}.tmp-${process.pid}-${randomSuffix()}`);
   const launchState: LaunchState = {
     schema_version: LAUNCH_STATE_SCHEMA_VERSION,
     ...(outputDir !== undefined && { customer_output_path: outputDir }),
+    ...(authOnly && { auth_only: true }),
   };
   const descriptor = fs.openSync(temporaryPath, 'wx', 0o600);
   try {
@@ -244,7 +262,7 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
   const workspacePath = path.join(workspacesDir, workspace);
   const requestedOutputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
-  const launchDecision = classifyWorkspaceLaunch(workspacePath, args.url, requestedOutputDir);
+  const launchDecision = classifyWorkspaceLaunch(workspacePath, args.url, requestedOutputDir, args.authOnly);
 
   // Auth-only runs write no resumable state, so they always run fresh; reusing a workspace would resume it.
   if (args.authOnly && launchDecision.isResume) {
@@ -288,7 +306,7 @@ export async function start(args: StartArgs): Promise<void> {
     fs.chmodSync(dirPath, 0o777);
   }
   if (!launchDecision.isResume) {
-    writeLaunchStateAtomically(internalPath, launchDecision.outputDir);
+    writeLaunchStateAtomically(internalPath, launchDecision.outputDir, args.authOnly);
   }
 
   // 5. Pre-create overlay mount points (:ro mounts cannot create them).
