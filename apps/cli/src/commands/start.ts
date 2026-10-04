@@ -500,9 +500,12 @@ export async function start(args: StartArgs): Promise<void> {
         spinner.message(PREFLIGHT_LABEL);
         const spec = resolveModelSpec();
         const providerId = typeof spec === 'string' ? '' : spec.providerId;
-        // The cyber-access probe only runs for OpenAI/Anthropic, so only name it there.
+        // Cyber-access probe only runs for OpenAI/Anthropic; when following, the tailed log shows the login.
         const showCyberAccess = providerId === 'anthropic' || providerId === 'openai';
-        const outcome = await awaitStartupOutcome(workflowId, (label) => spinner.message(label), showCyberAccess);
+        const outcome = await awaitStartupOutcome(workflowId, (label) => spinner.message(label), {
+          showCyberAccess,
+          showAppLogin: !args.follow,
+        });
         if (outcome.kind === 'failed') {
           spinner.error(couldNotStartLabel);
           printScanStartFailure(outcome.message);
@@ -581,7 +584,7 @@ function readStartupError(startupErrorPath: string): StartupError | undefined {
 /** Outcome of waiting for in-workflow startup (preflight + auth validation) to clear. */
 type PreflightOutcome = { kind: 'passed' } | { kind: 'failed'; message: string } | { kind: 'unconfirmed' };
 
-const PREFLIGHT_LABEL = 'Running preflight checks';
+const PREFLIGHT_LABEL = 'Running preflight checks (LLM credentials, target URL)';
 const CYBER_ACCESS_LABEL = 'Checking cyber access';
 const APP_LOGIN_LABEL = 'Verifying app login with provided credentials';
 
@@ -594,8 +597,10 @@ const APP_LOGIN_LABEL = 'Verifying app login with provided credentials';
 async function awaitStartupOutcome(
   workflowId: string,
   onLabel: (label: string) => void,
-  showCyberAccess: boolean,
+  opts: { showCyberAccess: boolean; showAppLogin: boolean },
 ): Promise<PreflightOutcome> {
+  // Wait through auth-validation only when naming the login step; otherwise stop once it begins.
+  const startupPhases = opts.showAppLogin ? new Set(['preflight', 'auth-validation']) : new Set(['preflight']);
   let rank = 0;
   let label = PREFLIGHT_LABEL;
   for (let attempts = 0; attempts < 80; attempts++) {
@@ -607,24 +612,18 @@ async function awaitStartupOutcome(
       }
 
       const running = await runningActivityTypes(workflowId);
-      if (showCyberAccess && rank < 1 && running.includes('runExploitReadinessProbe')) {
+      if (opts.showCyberAccess && rank < 1 && running.includes('runExploitReadinessProbe')) {
         rank = 1;
         label = CYBER_ACCESS_LABEL;
       }
-      if (rank < 2 && running.includes('runAuthenticationValidation')) {
+      if (opts.showAppLogin && rank < 2 && running.includes('runAuthenticationValidation')) {
         rank = 2;
         label = APP_LOGIN_LABEL;
       }
       onLabel(label);
 
-      // Any phase past preflight/auth-validation means the pentest has begun.
       const progress = await queryProgress(workflowId);
-      if (
-        progress &&
-        progress.currentPhase !== null &&
-        progress.currentPhase !== 'preflight' &&
-        progress.currentPhase !== 'auth-validation'
-      ) {
+      if (progress && progress.currentPhase !== null && !startupPhases.has(progress.currentPhase)) {
         return { kind: 'passed' };
       }
     } catch {
