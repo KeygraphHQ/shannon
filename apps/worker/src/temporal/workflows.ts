@@ -382,12 +382,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   const a = input.pipelineTestingMode ? testActs : acts;
   const exploit = input.exploit ?? true;
   const authOnly = input.authOnly ?? false;
+  const validateModel = input.validateModel ?? false;
   const sessionId = input.sessionId || input.resumeFromWorkspace || workflowId;
   const stateContext: 'fresh' | 'resume' = input.resumeFromWorkspace ? 'resume' : 'fresh';
 
   const state: PipelineState = {
     status: 'running',
     authOnly,
+    validateModel,
     currentPhase: null,
     currentAgent: null,
     completedAgents: [],
@@ -1344,6 +1346,15 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     await preflightActs.runPreflightValidation(activityInput);
     // The probe gates the exploitation workload, which an auth-only run never reaches.
     if (!authOnly) await preflightActs.runExploitReadinessProbe(activityInput);
+
+    if (validateModel) {
+      state.status = 'completed';
+      state.currentPhase = null;
+      state.summary = computeSummary(state, usageAccountingComplete());
+      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+      return state;
+    }
+
     await preflightActs.syncPlaywrightStealthConfig(activityInput);
 
     state.currentPhase = 'auth-validation';

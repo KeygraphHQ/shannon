@@ -120,6 +120,23 @@ function isAuthOnlyRun(): boolean {
   return process.env.SHANNON_AUTH_ONLY === '1';
 }
 
+/** One scan per worker process; the worker sets this flag for a model-validation run (see worker.ts). */
+function isModelOnlyRun(): boolean {
+  return process.env.SHANNON_VALIDATE_MODEL === '1';
+}
+
+/** Both validation-only modes share the terminal heading and drop the pentest-only lines. */
+function isValidationOnlyRun(): boolean {
+  return isAuthOnlyRun() || isModelOnlyRun();
+}
+
+/** The log header title, framing a validation-only run by what it validated. */
+function validationLogTitle(): string {
+  if (isAuthOnlyRun()) return 'Shannon - Authentication Validation Log';
+  if (isModelOnlyRun()) return 'Shannon - Model Validation Log';
+  return 'Shannon Pentest - Scan Log';
+}
+
 function safeAgenticSastStageLabel(label: string | undefined): string | undefined {
   return label !== undefined && isCapellaTerminalStageLabel(label) ? label : undefined;
 }
@@ -441,7 +458,7 @@ export class WorkflowLogger {
     try {
       this.logStream = await LogStream.acquire(this.logPath);
       const workflowId = safeWorkflowIdentifier(this.workflowId ?? this.sessionMetadata.id);
-      const title = isAuthOnlyRun() ? 'Shannon - Authentication Validation Log' : 'Shannon Pentest - Scan Log';
+      const title = validationLogTitle();
       const header = [
         '================================================================================',
         title,
@@ -664,8 +681,8 @@ export class WorkflowLogger {
       failed: 'FAILED',
     };
     const status = statusHeaders[summary.status];
-    const authOnly = isAuthOnlyRun();
-    const runLabel = authOnly ? 'Validation' : 'Scan';
+    const validationOnly = isValidationOnlyRun();
+    const runLabel = validationOnly ? 'Validation' : 'Scan';
     const completedAgents = summary.completedAgents.filter(isLoggableAgentName);
     const skippedAgents = (summary.skippedAgents ?? []).filter(isLoggableAgentName);
     const operationalGroups = summarizeOperationalMetrics(summary.operationalMetrics, summary.operationalStages);
@@ -679,7 +696,7 @@ export class WorkflowLogger {
       `Status:      ${summary.status}`,
       `Duration:    ${formatDuration(Math.max(0, summary.totalDurationMs))}`,
       `Total Cost:  $${Math.max(0, summary.totalCostUsd).toFixed(4)}`,
-      ...(authOnly ? [] : [`Agents:      ${completedAgents.length} ran, ${skippedAgents.length} skipped`]),
+      ...(validationOnly ? [] : [`Agents:      ${completedAgents.length} ran, ${skippedAgents.length} skipped`]),
     ];
     if (summary.usageAccountingComplete === false) {
       lines.push('Cost Note:   Cost is incomplete — some background work is not included in this total.');

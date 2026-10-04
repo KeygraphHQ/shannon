@@ -251,6 +251,7 @@ interface CliArgs {
   customerOutputPath?: string;
   pipelineTestingMode: boolean;
   authOnly: boolean;
+  validateModel: boolean;
   resumeFromWorkspace?: string;
 }
 
@@ -266,7 +267,8 @@ function showUsage(): void {
   console.log('  --workspace <name>     Resume from existing workspace');
   console.log('  --output <path>        Stable mounted path for final customer report copies');
   console.log('  --pipeline-testing     Use minimal prompts for fast testing');
-  console.log('  --validate-auth        Validate authentication only, then stop\n');
+  console.log('  --validate-auth        Validate authentication only, then stop');
+  console.log('  --validate-model       Validate the AI model only, then stop\n');
 }
 
 function parseCliArgs(argv: string[]): CliArgs {
@@ -283,6 +285,7 @@ function parseCliArgs(argv: string[]): CliArgs {
   let customerOutputPath: string | undefined;
   let pipelineTestingMode = false;
   let authOnly = false;
+  let validateModel = false;
   let resumeFromWorkspace: string | undefined;
 
   for (let i = 0; i < argv.length; i++) {
@@ -321,6 +324,8 @@ function parseCliArgs(argv: string[]): CliArgs {
       pipelineTestingMode = true;
     } else if (arg === '--validate-auth') {
       authOnly = true;
+    } else if (arg === '--validate-model') {
+      validateModel = true;
     } else if (arg && !arg.startsWith('-')) {
       if (!webUrl) {
         webUrl = arg;
@@ -349,6 +354,7 @@ function parseCliArgs(argv: string[]): CliArgs {
     ...(workflowId && { workflowId }),
     pipelineTestingMode,
     authOnly,
+    validateModel,
     ...(configPath && { configPath }),
     ...(customerOutputPath && { customerOutputPath }),
     ...(resumeFromWorkspace && { resumeFromWorkspace }),
@@ -598,6 +604,7 @@ function buildPipelineInput(
     ...(orchestration.agenticSast !== undefined && { agenticSast: orchestration.agenticSast }),
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
     ...(args.authOnly && { authOnly: true }),
+    ...(args.validateModel && { validateModel: true }),
   };
 }
 
@@ -654,6 +661,8 @@ async function waitForWorkflowResult(
       console.log('\nScan cancelled before it finished.');
     } else if (result.authOnly) {
       console.log('\nAuthentication validated. No pentest was run (--validate-auth).');
+    } else if (result.validateModel) {
+      console.log('\nModel validated. No pentest was run (--validate-model).');
     } else {
       console.log('\nScan completed.');
     }
@@ -766,9 +775,10 @@ async function run(): Promise<void> {
   // 1. Parse CLI args
   const args = parseCliArgs(process.argv.slice(2));
 
-  // One scan per worker process, so an auth-only run is a process-wide fact. The log writers
-  // read it to frame the log as a validation rather than a pentest.
+  // One scan per worker process, so an auth-only or model-validation run is a process-wide fact.
+  // The log writers read these to frame the log as a validation rather than a pentest.
   if (args.authOnly) process.env.SHANNON_AUTH_ONLY = '1';
+  if (args.validateModel) process.env.SHANNON_VALIDATE_MODEL = '1';
 
   // 2. Connect to Temporal server
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
