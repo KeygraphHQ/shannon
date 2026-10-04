@@ -1343,9 +1343,21 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
 
     state.currentPhase = 'preflight';
     state.currentAgent = null;
-    await preflightActs.runPreflightValidation(activityInput);
-    // The probe gates the exploitation workload, which an auth-only run never reaches.
-    if (!authOnly) await preflightActs.runExploitReadinessProbe(activityInput);
+    await runOperation('preflight', 'Preflight', () => preflightActs.runPreflightValidation(activityInput));
+    if (!authOnly) {
+      const startedAt = startOperation('cyber-access', 'Cyber access verification');
+      try {
+        const probe = await preflightActs.runExploitReadinessProbe(activityInput);
+        if (probe.gated) {
+          completeOperation('cyber-access', 'Cyber access verification', startedAt);
+        } else {
+          delete state.operationalStages['cyber-access'];
+        }
+      } catch (error) {
+        failOperation('cyber-access', 'Cyber access verification', startedAt);
+        throw error;
+      }
+    }
 
     if (validateModel) {
       state.status = 'completed';

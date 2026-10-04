@@ -878,8 +878,11 @@ function cyberAccessErrorType(providerId: string): string {
  * Exploit-workload readiness probe activity. For OpenAI/Anthropic, hands the model a slice of the
  * exploit agent's workload and gates on a decline (`stopReason: error`), failing the scan with the
  * provider's own message. A setup/transport fault is not a decline and never gates.
+ *
+ * Returns `{ gated }` — true only for a provider that actually gates security workloads, so the
+ * caller records the cyber-access stage for those alone (a non-gated provider ran a no-op probe).
  */
-export async function runExploitReadinessProbe(_input: ActivityInput): Promise<void> {
+export async function runExploitReadinessProbe(_input: ActivityInput): Promise<{ gated: boolean }> {
   const startTime = Date.now();
   const attemptNumber = Context.current().info.attempt;
 
@@ -897,7 +900,7 @@ export async function runExploitReadinessProbe(_input: ActivityInput): Promise<v
     // Only OpenAI and Anthropic gate security workloads — never probe any other provider.
     if (!isCyberGatedProvider(selection.providerId)) {
       logger.info(`Exploit-workload readiness: skipped (provider ${selection.providerId})`);
-      return;
+      return { gated: false };
     }
 
     logger.info('Checking exploit-workload readiness via pi...');
@@ -906,14 +909,14 @@ export async function runExploitReadinessProbe(_input: ActivityInput): Promise<v
     // Setup/transport fault, not a decline — never gates the scan.
     const message = error instanceof Error ? error.message : String(error);
     logger.info(`Exploit-workload readiness: probe skipped (${message.slice(0, 200)})`);
-    return;
+    return { gated: false };
   } finally {
     clearInterval(heartbeatInterval);
   }
 
   if (result.error !== undefined) {
     logger.info(`Exploit-workload readiness: ${result.providerId} inconclusive (${result.error.slice(0, 200)})`);
-    return;
+    return { gated: true };
   }
 
   if (result.response?.stopReason === 'error') {
@@ -924,7 +927,7 @@ export async function runExploitReadinessProbe(_input: ActivityInput): Promise<v
     // Gate only on a confirmed cyber decline; any other errored turn is inconclusive.
     if (!isCyberSafeguardDecline(result.providerId, result.response)) {
       logger.info(`Exploit-workload readiness: ${result.providerId} inconclusive (errored turn, not a cyber decline)`);
-      return;
+      return { gated: true };
     }
 
     // Gate with the provider-specific type (for the CLI guidance), bounded message.
@@ -938,6 +941,7 @@ export async function runExploitReadinessProbe(_input: ActivityInput): Promise<v
 
   const structured = result.structuredOutput !== undefined ? result.structuredValid : 'none';
   logger.info(`Exploit-workload readiness: ${result.providerId} OK (structured=${structured})`);
+  return { gated: true };
 }
 
 /**
