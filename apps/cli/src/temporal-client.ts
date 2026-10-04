@@ -257,6 +257,25 @@ export async function describeScan(workflowId: string): Promise<ScanDescription 
   }
 }
 
+/**
+ * Activity-type names pending on a running scan; empty on any failure. Tolerant (it feeds the
+ * start spinner) unlike describeScan, which fails closed so the status tree is never incomplete.
+ */
+export async function runningActivityTypes(workflowId: string): Promise<readonly string[]> {
+  try {
+    const client = await getClient();
+    const desc = await client.workflow.getHandle(workflowId).describe();
+    const names: string[] = [];
+    for (const pending of desc.raw.pendingActivities ?? []) {
+      const name = pending.activityType?.name;
+      if (name) names.push(name);
+    }
+    return names;
+  } catch {
+    return [];
+  }
+}
+
 /** Live progress of a running scan via the getProgress query. Null if the query can't be served (no worker). */
 export async function queryProgress(workflowId: string): Promise<PipelineState | null> {
   const client = await getClient();
