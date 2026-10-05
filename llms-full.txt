@@ -1038,7 +1038,7 @@ A ChatGPT Plus or Pro Codex subscription can run Shannon. Shannon reuses a login
 Before running a pentest, review the [cyber safeguards requirements](#cyber-safeguards-do-this-before-your-first-scan).
 
 1. Install Pi by following the instructions at [pi.dev](https://pi.dev).
-2. Log in with your subscription using Pi's [subscription authentication guide](https://pi.dev/docs/latest/providers#subscriptions). This creates `~/.pi/agent/auth.json` with an `openai-codex` entry.
+2. Start Pi by running `pi` in your terminal, then run `/login`, choose **Sign in with an account**, then choose **OpenAI Codex (legacy)** and complete the browser sign-in. This creates `~/.pi/agent/auth.json` with an `openai-codex` entry.
 
 3. Select a Codex model and enable Pi authentication:
 
@@ -1056,7 +1056,7 @@ Supported Codex models are `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.4`.
 An xAI subscription can run Shannon. Shannon reuses a login created by Pi.
 
 1. Install Pi by following the instructions at [pi.dev](https://pi.dev).
-2. Log in with your subscription using Pi's [subscription authentication guide](https://pi.dev/docs/latest/providers#subscriptions). This creates `~/.pi/agent/auth.json` with an `xai` entry.
+2. Start Pi by running `pi` in your terminal, then run `/login`, choose **Sign in with an account**, then choose **xAI** and complete the browser sign-in. This creates `~/.pi/agent/auth.json` with an `xai` entry.
 
 3. Select an xAI model and enable Pi authentication:
 
