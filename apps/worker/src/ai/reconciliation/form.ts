@@ -6,12 +6,10 @@
 
 /** Pass 1 task formation over current observations only. */
 
-import path from 'node:path';
-import { DEFAULT_DELIVERABLES_SUBDIR, WORKSPACES_DIR } from '../../paths.js';
+import { WORKSPACES_DIR } from '../../paths.js';
 import { loadPrompt } from '../../services/prompt-manager.js';
 import type { ActivityLogger } from '../../types/activity-logger.js';
 import type { ReconciliationClass } from '../../types/reconciliation.js';
-import { materializeSourceJail } from '../pi/source-jail.js';
 import {
   isTaskFormationFallbackReason,
   type TaskFormationExecutionContext,
@@ -61,7 +59,6 @@ export interface FormClassExploitTasksInput {
   readonly repositoryPath: string;
   readonly producerRef: ArtifactRef<'producer-observations'>;
   readonly supplementalRef: ArtifactRef<'supplemental-observations'>;
-  readonly deliverablesSubdir?: string;
   readonly webUrl?: string;
 }
 
@@ -181,14 +178,14 @@ function taskFormationPromptName(vulnerabilityClass: ReconciliationClass): strin
 // prompt itself is missing or unreadable content, which Temporal should not spend retries on.
 async function loadClassPolicy(
   vulnerabilityClass: ReconciliationClass,
-  jailPath: string,
+  repoPath: string,
   webUrl: string,
   logger: ActivityLogger,
 ): Promise<string> {
   try {
     return await loadPrompt(
       taskFormationPromptName(vulnerabilityClass),
-      { webUrl, repoPath: jailPath, AUTH_STATE_FILE: '' },
+      { webUrl, repoPath, AUTH_STATE_FILE: '' },
       null,
       false,
       logger,
@@ -332,109 +329,69 @@ export function createFormClassExploitTasks(
     const submitTool = createValidatingSubmitTool(buildTaskFormationSchema([...labelSet]), (parameters) =>
       findTaskFormationProblems(parameters, labelSet),
     );
-    const deliverablesPath = path.resolve(
+    const classPolicy = await loadClassPolicy(
+      input.vulnerabilityClass,
       input.repositoryPath,
-      input.deliverablesSubdir ?? DEFAULT_DELIVERABLES_SUBDIR,
+      input.webUrl ?? 'https://not-applicable.invalid',
+      logger,
     );
-    const reconciliationWorkspacePath = path.resolve(workspacesDir, input.sessionId, '.shannon', 'reconciliation');
-    // Task formation runs against a disposable copy of the source tree rather than the live
-    // repository or the deliverables directory, so the model's tool calls during this stage cannot
-    // read or modify anything outside what it was actually given to reason about.
-    const jail = await materializeSourceJail({
-      sourceRoot: input.repositoryPath,
-      deliverablesPath,
-      reconciliationWorkspacePath,
-      ...(signal !== undefined && { signal }),
-    });
+    checkCancellation(signal);
 
-    let formation: FormClassExploitTasksResult;
+    let modelResult: TaskFormationExecutorResult;
     try {
-      const classPolicy = await loadClassPolicy(
-        input.vulnerabilityClass,
-        jail.dir,
-        input.webUrl ?? 'https://not-applicable.invalid',
-        logger,
-      );
-      checkCancellation(signal);
-
-      let modelResult: TaskFormationExecutorResult;
-      try {
-        const executorTimeoutMs = deps.executorTimeoutMsFor?.();
-        modelResult = await executor.run({
-          cwd: jail.dir,
-          systemPrompt: classPolicy,
-          modelContext: modelInput.serialized,
-          deniedPaths: jail.deniedPaths,
-          submitTool,
-          signal: signal ?? new AbortController().signal,
-          ...(executorTimeoutMs !== undefined && { timeoutMs: executorTimeoutMs }),
-          correlation: {
-            ...deps.executionContextFor?.(),
-            stage: 'task-formation',
-            vulnerabilityClass: input.vulnerabilityClass,
-          },
-        });
-      } catch (error) {
-        if (!(error instanceof TaskFormationExecutorError)) throw error;
-        if (error.failureKind === 'infrastructure') {
-          throw new ReconciliationIoError(
-            'Task-formation executor setup encountered a retryable infrastructure failure',
-          );
-        }
-        if (error.failureKind !== 'model') throw error;
-        const metrics = metricsFromUsage(error.usage, error.modelCalls);
-        deps.onMetrics?.(metrics);
-        throw new TaskFormationModelError({
-          message: error.message,
-          retryable: error.retryable,
-          ...(error.fallbackReason !== undefined && { fallbackReason: error.fallbackReason }),
-          metrics,
-        });
-      }
-
-      const metrics = metricsFromUsage(modelResult.usage, modelResult.modelCalls);
-      deps.onMetrics?.(metrics);
-      checkCancellation(signal);
-      const accepted = acceptTaskGroups(modelResult.output, labelSet);
-      const groups = accepted.groups.map((group) => ({
-        producer_ids: group.queue_labels.map((label) => {
-          const producerId = modelInput.labelToProducerId.get(label);
-          if (producerId === undefined) {
-            throw new ArtifactIntegrityError('An accepted task-formation label has no observation mapping');
-          }
-          return producerId;
-        }),
-        reasoning: group.reasoning,
-      }));
-      const body: TaskFormationBody = {
-        model_ran: true,
-        groups,
-        rejected_group_count: accepted.rejectedGroupCount,
-        dropped_unknown_label_count: accepted.droppedUnknownLabelCount,
-      };
-      const ref = await writeFormationArtifact(input, workspacesDir, body);
-      formation = { ref, metrics, model: `${modelResult.providerId}:${modelResult.modelId}` };
+      const executorTimeoutMs = deps.executorTimeoutMsFor?.();
+      modelResult = await executor.run({
+        cwd: input.repositoryPath,
+        systemPrompt: classPolicy,
+        modelContext: modelInput.serialized,
+        deniedPaths: [],
+        submitTool,
+        signal: signal ?? new AbortController().signal,
+        ...(executorTimeoutMs !== undefined && { timeoutMs: executorTimeoutMs }),
+        correlation: {
+          ...deps.executionContextFor?.(),
+          stage: 'task-formation',
+          vulnerabilityClass: input.vulnerabilityClass,
+        },
+      });
     } catch (error) {
-      // A primary error — including cancellation — already owns the outcome, so a cleanup failure
-      // is logged and swallowed rather than replacing that error's type or cause chain.
-      try {
-        await jail.cleanup();
-      } catch {
-        logger.error(
-          'A temporary copy of your source code could not be removed after analysis. It is inside the scan workspace and is safe to delete.',
-          {
-            stage: 'task-formation',
-            vulnerabilityClass: input.vulnerabilityClass,
-          },
-        );
+      if (!(error instanceof TaskFormationExecutorError)) throw error;
+      if (error.failureKind === 'infrastructure') {
+        throw new ReconciliationIoError('Task-formation executor setup encountered a retryable infrastructure failure');
       }
-      throw error;
+      if (error.failureKind !== 'model') throw error;
+      const metrics = metricsFromUsage(error.usage, error.modelCalls);
+      deps.onMetrics?.(metrics);
+      throw new TaskFormationModelError({
+        message: error.message,
+        retryable: error.retryable,
+        ...(error.fallbackReason !== undefined && { fallbackReason: error.fallbackReason }),
+        metrics,
+      });
     }
 
-    // Nothing else is in flight after a successful formation, so an unremoved or unverifiable jail
-    // is the stage's outcome: it leaves a full copy of the scanned tree on disk and fails here.
-    await jail.cleanup();
-    return formation;
+    const metrics = metricsFromUsage(modelResult.usage, modelResult.modelCalls);
+    deps.onMetrics?.(metrics);
+    checkCancellation(signal);
+    const accepted = acceptTaskGroups(modelResult.output, labelSet);
+    const groups = accepted.groups.map((group) => ({
+      producer_ids: group.queue_labels.map((label) => {
+        const producerId = modelInput.labelToProducerId.get(label);
+        if (producerId === undefined) {
+          throw new ArtifactIntegrityError('An accepted task-formation label has no observation mapping');
+        }
+        return producerId;
+      }),
+      reasoning: group.reasoning,
+    }));
+    const body: TaskFormationBody = {
+      model_ran: true,
+      groups,
+      rejected_group_count: accepted.rejectedGroupCount,
+      dropped_unknown_label_count: accepted.droppedUnknownLabelCount,
+    };
+    const ref = await writeFormationArtifact(input, workspacesDir, body);
+    return { ref, metrics, model: `${modelResult.providerId}:${modelResult.modelId}` };
   };
 }
 
