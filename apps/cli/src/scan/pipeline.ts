@@ -108,6 +108,8 @@ const MISCELLANEOUS_EXPLOIT_AGENT: AgentSpec = {
  * available guess.
  */
 export function pipelineForState(state: PipelineState | null): readonly PhaseSpec[] {
+  if (state?.validateModel === true) return [];
+  if (state?.authOnly === true) return PIPELINE.filter((phase) => phase.key === 'auth-validation');
   if (state?.expectedAgents === undefined) return PIPELINE;
   const expected = new Set(state.expectedAgents);
   return PIPELINE.map((phase) => {
@@ -136,7 +138,8 @@ const AGENTIC_SAST_PARENT_KEY = 'agentic-sast';
 // apps/worker/src/temporal/reconcile-activity-types.ts, and
 // apps/worker/src/ai/sast/capella/temporal/activity-types.ts.
 const OPERATION_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>> = {
-  runPreflightValidation: { key: 'preflight', label: 'Preflight validation', kind: 'operation' },
+  runPreflightValidation: { key: 'preflight', label: 'Preflight', kind: 'operation' },
+  runCyberAccessVerification: { key: 'cyber-access', label: 'Cyber access verification', kind: 'operation' },
   syncPlaywrightStealthConfig: { key: 'preflight', label: 'Browser setup', kind: 'operation' },
   initDeliverableGit: { key: 'scan-initialization', label: 'Initialize deliverables', kind: 'operation' },
   syncCodePathDenyRules: { key: 'scan-initialization', label: 'Apply source rules', kind: 'operation' },
@@ -352,6 +355,8 @@ export type PipelineStatus = 'running' | 'completed' | 'failed' | 'cancelled' | 
 
 export interface PipelineState {
   readonly status: PipelineStatus;
+  readonly authOnly?: boolean;
+  readonly validateModel?: boolean;
   readonly currentPhase: string | null;
   readonly currentAgent: string | null;
   readonly completedAgents: string[];

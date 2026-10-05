@@ -33,6 +33,8 @@ export const START_OPTIONS: readonly (readonly [string, string])[] = [
   ['-o, --output <path>', 'Copy deliverables to this directory after the run'],
   ['-w, --workspace <name>', 'Named workspace (auto-resumes if it exists)'],
   ['-f, --follow', 'Stream the scan log until it finishes'],
+  ['--validate-auth', 'Validate authentication only, then stop (no pentest)'],
+  ['--validate-model', 'Validate the AI model only, then stop (no pentest)'],
   ['--pipeline-testing', 'Use minimal prompts for fast testing'],
   ['--keep-container', 'Preserve the worker container after exit for log inspection'],
 ];
@@ -45,6 +47,8 @@ const COMMAND_HELP: Readonly<Record<string, CommandHelp>> = {
       'start -u https://example.com -r ./my-repo',
       'start -u https://example.com -r /path/to/repo -c config.yaml -w q1-audit',
       'start -u https://example.com -r ./my-repo --follow',
+      'start -u https://example.com -r ./my-repo -c config.yaml --validate-auth',
+      'start -u https://example.com -r ./my-repo --validate-model',
     ],
   },
   stop: {

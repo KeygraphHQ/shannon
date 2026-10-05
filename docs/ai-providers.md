@@ -53,15 +53,23 @@ Review each vendor's guidance and complete the verification or enrollment they a
 
 This applies to the Anthropic and OpenAI providers, including when either is reached through an LLM gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
 
+To confirm your model is ready before committing to a full scan, add `--validate-model` to `start`:
+
+```bash
+npx @keygraph/shannon start -u https://your-app.com -r /path/to/repo --validate-model
+```
+
+The run performs the preflight model checks only — credential and registry resolution for any provider, plus a single cyber-access verification against Anthropic and OpenAI that trips the cyber safeguard if your account is not approved — then stops. No pentest or report is produced, and it needs no config. A decline fails the run with the vendor's enrollment link.
+
 ## Suggested models
 
 These are the models `npx @keygraph/shannon setup` offers, best-first. They are suggestions: the wizard also takes a typed model ID, and `SHANNON_AI_MODEL` accepts any model in the provider's catalogue.
 
 | Provider | Suggested model IDs |
 | --- | --- |
-| `anthropic` | `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
-| `openai` | `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
-| `xai` | `grok-4.6`, `grok-4.5` |
+| `anthropic` | `claude-sonnet-5`, `claude-opus-5`, `claude-sonnet-4-6`, `claude-opus-4-8`, `claude-opus-4-7`, `claude-haiku-4-5-20251001` |
+| `openai` | `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.5`, `gpt-5.4` |
+| `xai` | `grok-4.7` |
 | `amazon-bedrock` | `us.anthropic.claude-sonnet-4-6`, `us.anthropic.claude-opus-4-8`, `us.anthropic.claude-opus-4-7` |
 
 Bedrock IDs are region-prefixed and must be enabled in your account, so the ID that works for you may differ from the one listed here.
@@ -81,14 +89,14 @@ OpenAI:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
-export SHANNON_AI_MODEL=openai:gpt-5.6-sol
+export SHANNON_AI_MODEL=openai:gpt-6-sol
 ```
 
 xAI:
 
 ```bash
 export SHANNON_AI_API_KEY=xai-...
-export SHANNON_AI_MODEL=xai:grok-4.5
+export SHANNON_AI_MODEL=xai:grok-4.7
 ```
 
 Source-build mode reads the same variables from a `.env` file.
@@ -130,7 +138,7 @@ OpenAI Responses LLM gateway:
 
 ```bash
 export SHANNON_AI_API_KEY=sk-...
-export SHANNON_AI_MODEL=openai:gpt-5.6-sol
+export SHANNON_AI_MODEL=openai:gpt-6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
@@ -258,7 +266,7 @@ A ChatGPT Plus or Pro Codex subscription can run Shannon. Shannon reuses a login
 Before running a pentest, review the [cyber safeguards requirements](#cyber-safeguards-do-this-before-your-first-scan).
 
 1. Install Pi by following the instructions at [pi.dev](https://pi.dev).
-2. Log in with your subscription using Pi's [subscription authentication guide](https://pi.dev/docs/latest/providers#subscriptions). This creates `~/.pi/agent/auth.json` with an `openai-codex` entry.
+2. Start Pi by running `pi` in your terminal, then run `/login`, choose **Sign in with an account**, then choose **OpenAI Codex (legacy)** and complete the browser sign-in. This creates `~/.pi/agent/auth.json` with an `openai-codex` entry.
 
 3. Select a Codex model and enable Pi authentication:
 
@@ -276,18 +284,18 @@ Supported Codex models are `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.4`.
 An xAI subscription can run Shannon. Shannon reuses a login created by Pi.
 
 1. Install Pi by following the instructions at [pi.dev](https://pi.dev).
-2. Log in with your subscription using Pi's [subscription authentication guide](https://pi.dev/docs/latest/providers#subscriptions). This creates `~/.pi/agent/auth.json` with an `xai` entry.
+2. Start Pi by running `pi` in your terminal, then run `/login`, choose **Sign in with an account**, then choose **xAI** and complete the browser sign-in. This creates `~/.pi/agent/auth.json` with an `xai` entry.
 
 3. Select an xAI model and enable Pi authentication:
 
    ```bash
    export SHANNON_USE_PI_AUTH=1
-   export SHANNON_AI_MODEL=xai:grok-4.6
+   export SHANNON_AI_MODEL=xai:grok-4.7
    ```
 
 4. In npx mode, run `npx @keygraph/shannon start ...` from the same shell. In source-build mode, add the two variables to `.env` and run `./shannon start ...`.
 
-Suggested Grok models are `grok-4.6` and `grok-4.5`.
+The suggested Grok model is `grok-4.7`.
 
 ## Claude Code subscription
 

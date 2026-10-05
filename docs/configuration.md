@@ -179,3 +179,14 @@ login_flow:
   - "If prompted for 2FA, type $totp in <exact code field label or placeholder>"
   - "Click <exact button text>"
 ```
+
+### Validating Authentication Only
+
+To confirm your login flow works before committing to a full scan, add `--validate-auth` to `start`:
+
+```bash
+npx @keygraph/shannon start -u https://your-app.com -r /path/to/repo -c config.yaml --validate-auth
+```
+
+The run performs preflight and the single real login, then stops. No pentest, reconciliation, or report
+is produced. It requires an `authentication` block in the config.

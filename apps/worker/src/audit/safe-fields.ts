@@ -37,6 +37,8 @@ const SAFE_ERROR_MESSAGES: Readonly<Record<ErrorCode, string>> = {
   [ErrorCode.MODEL_NOT_FOUND]:
     'The selected model was not found in the harness catalogue. Check SHANNON_AI_MODEL, or supply the model with --models-config.',
   [ErrorCode.MODEL_CONFIG_INVALID]: 'The model configuration file could not be used.',
+  [ErrorCode.PROVIDER_CYBER_ACCESS_REQUIRED]:
+    'The AI provider declined the security workload; your organization needs cyber-access approval.',
 };
 
 const ERROR_CATEGORIES = new Set<PentestErrorType>([

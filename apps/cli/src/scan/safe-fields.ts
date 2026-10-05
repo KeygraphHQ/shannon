@@ -75,6 +75,8 @@ function isProviderFailureCategory(value: unknown): value is string {
 }
 
 const OPERATION_LABELS = new Set([
+  'Preflight',
+  'Cyber access verification',
   'Agentic SAST',
   // Capella stage rows, signalled up from the SAST child workflow. Mirrors
   // CAPELLA_STAGE_LABELS in apps/worker/src/ai/sast/types.ts, minus the deterministic
@@ -228,7 +230,7 @@ export function safeOperationLabel(value: string): string {
 
 export function safeOperationKey(value: string): string {
   if (
-    /^(?:agentic-sast|miscellaneous-pipeline|report:(?:initialize|assemble|compact|checkpoint|finalize|finalize-degraded|terminal|surface))$/u.test(
+    /^(?:preflight|cyber-access|agentic-sast|miscellaneous-pipeline|report:(?:initialize|assemble|compact|checkpoint|finalize|finalize-degraded|terminal|surface))$/u.test(
       value,
     ) ||
     /^agentic-sast:(?:architecture|threat-model|plan|research|dedupe|review|critic|confirm|calibrate)$/u.test(value) ||

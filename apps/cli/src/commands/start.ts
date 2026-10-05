@@ -31,7 +31,12 @@ import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../p
 import { indentFailureSegments, parseFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
-import { describeWorkflowLifecycle, getTerminalOutcome, queryProgress } from '../temporal-client.js';
+import {
+  describeWorkflowLifecycle,
+  getTerminalOutcome,
+  queryProgress,
+  runningActivityTypes,
+} from '../temporal-client.js';
 import { stdoutIsTerminal } from '../tty.js';
 import { tailUntilComplete } from './logs.js';
 
@@ -45,6 +50,8 @@ export interface StartArgs {
   pipelineTesting: boolean;
   keepContainer: boolean;
   follow: boolean;
+  authOnly: boolean;
+  validateModel: boolean;
   version: string;
 }
 
@@ -60,6 +67,10 @@ const FIXED_CLASSES = ['injection', 'xss', 'auth', 'authz', 'ssrf'] as const;
 interface LaunchState {
   readonly schema_version: typeof LAUNCH_STATE_SCHEMA_VERSION;
   readonly customer_output_path?: string;
+  /** True when the workspace was created by an auth-validation run; such a workspace is not a scan. */
+  readonly auth_only?: boolean;
+  /** True when the workspace was created by a model-validation run; such a workspace is not a scan. */
+  readonly model_only?: boolean;
 }
 
 export interface WorkspaceLaunchDecision {
@@ -124,17 +135,31 @@ function readLaunchState(filePath: string): LaunchState {
   if (!isRecord(value)) fail(NEWER_RELEASE_MESSAGE);
   // Unknown keys mean a newer release wrote this workspace; refuse rather than half-read it.
   const keys = Object.keys(value).sort();
-  const keysAreValid = keys.every((key) => key === 'customer_output_path' || key === 'schema_version');
+  const keysAreValid = keys.every(
+    (key) => key === 'auth_only' || key === 'model_only' || key === 'customer_output_path' || key === 'schema_version',
+  );
   const customerPath = value.customer_output_path;
   const pathIsValid =
     customerPath === undefined ||
     (typeof customerPath === 'string' && path.isAbsolute(customerPath) && path.resolve(customerPath) === customerPath);
-  if (value.schema_version !== LAUNCH_STATE_SCHEMA_VERSION || !keysAreValid || !pathIsValid) {
+  const authOnly = value.auth_only;
+  const authOnlyIsValid = authOnly === undefined || typeof authOnly === 'boolean';
+  const modelOnly = value.model_only;
+  const modelOnlyIsValid = modelOnly === undefined || typeof modelOnly === 'boolean';
+  if (
+    value.schema_version !== LAUNCH_STATE_SCHEMA_VERSION ||
+    !keysAreValid ||
+    !pathIsValid ||
+    !authOnlyIsValid ||
+    !modelOnlyIsValid
+  ) {
     fail(NEWER_RELEASE_MESSAGE);
   }
   return {
     schema_version: LAUNCH_STATE_SCHEMA_VERSION,
     ...(typeof customerPath === 'string' && { customer_output_path: customerPath }),
+    ...(authOnly === true && { auth_only: true }),
+    ...(modelOnly === true && { model_only: true }),
   };
 }
 
@@ -149,6 +174,8 @@ export function classifyWorkspaceLaunch(
   workspacePath: string,
   expectedUrl: string,
   requestedOutputDir: string | undefined,
+  requestedAuthOnly: boolean,
+  requestedModelOnly: boolean,
 ): WorkspaceLaunchDecision {
   const sessionPath = resolveRunFile(workspacePath, 'session.json');
   const sessionExists = fs.existsSync(sessionPath);
@@ -163,6 +190,16 @@ export function classifyWorkspaceLaunch(
 
   const launchPath = path.join(workspacePath, INTERNAL_DIR, LAUNCH_STATE_FILENAME);
   const launch = readLaunchState(launchPath);
+  if (launch.auth_only && !requestedAuthOnly) {
+    fail(
+      'This workspace was created to validate authentication only, so it cannot be run as a scan. Start a new scan with a different -w name.',
+    );
+  }
+  if (launch.model_only && !requestedModelOnly) {
+    fail(
+      'This workspace was created to validate the AI model only, so it cannot be run as a scan. Start a new scan with a different -w name.',
+    );
+  }
   const session = readJsonFile(sessionPath);
   if (!isRecord(session) || !isRecord(session.session) || session.session.webUrl !== expectedUrl) {
     fail(
@@ -190,12 +227,19 @@ export function classifyWorkspaceLaunch(
  * host crash. Callers invoke this only for a fresh workspace; an existing launch.json is
  * the resume contract and must never be replaced.
  */
-export function writeLaunchStateAtomically(internalPath: string, outputDir: string | undefined): void {
+export function writeLaunchStateAtomically(
+  internalPath: string,
+  outputDir: string | undefined,
+  authOnly: boolean,
+  modelOnly: boolean,
+): void {
   const finalPath = path.join(internalPath, LAUNCH_STATE_FILENAME);
   const temporaryPath = path.join(internalPath, `${LAUNCH_STATE_FILENAME}.tmp-${process.pid}-${randomSuffix()}`);
   const launchState: LaunchState = {
     schema_version: LAUNCH_STATE_SCHEMA_VERSION,
     ...(outputDir !== undefined && { customer_output_path: outputDir }),
+    ...(authOnly && { auth_only: true }),
+    ...(modelOnly && { model_only: true }),
   };
   const descriptor = fs.openSync(temporaryPath, 'wx', 0o600);
   try {
@@ -225,6 +269,10 @@ export function createWorkflowId(workspace: string, isResume: boolean, timestamp
 }
 
 export async function start(args: StartArgs): Promise<void> {
+  // Validation-only runs are short and have no report to come back for, so they always stream to the end.
+  const validationOnly = args.authOnly || args.validateModel;
+  if (validationOnly) args.follow = true;
+
   // 1. Resolve non-mutating inputs and classify the workspace before changing it.
   initHome();
   loadEnv();
@@ -240,7 +288,38 @@ export async function start(args: StartArgs): Promise<void> {
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
   const workspacePath = path.join(workspacesDir, workspace);
   const requestedOutputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
-  const launchDecision = classifyWorkspaceLaunch(workspacePath, args.url, requestedOutputDir);
+  const launchDecision = classifyWorkspaceLaunch(
+    workspacePath,
+    args.url,
+    requestedOutputDir,
+    args.authOnly,
+    args.validateModel,
+  );
+
+  // Validation-only runs write no resumable state, so they always run fresh; reusing a workspace would resume it.
+  if (validationOnly && launchDecision.isResume) {
+    const what = args.authOnly ? 'An auth-validation run' : 'A model-validation run';
+    fail(`${what} needs a fresh workspace. Omit -w to auto-name one, or choose a -w name that is not in use.`);
+  }
+
+  // User-facing status wording. Auth-only and model-only are both "validation" runs, but each
+  // names what it validated. A validation run *is* the checks, so a failure means it ran and
+  // failed, not that it could not start. A plain scan keeps its original phrasing.
+  let startingLabel = 'Starting scan';
+  let waitingLabel = 'Waiting for the scan to start';
+  let couldNotStartLabel = 'The scan could not start';
+  let startedLabel = `Scan started — ${workspace}`;
+  if (args.authOnly) {
+    startingLabel = 'Starting authentication validation';
+    waitingLabel = 'Waiting for authentication validation to start';
+    couldNotStartLabel = 'Authentication validation failed';
+    startedLabel = `Validating authentication — ${workspace}`;
+  } else if (args.validateModel) {
+    startingLabel = 'Starting model validation';
+    waitingLabel = 'Waiting for model validation to start';
+    couldNotStartLabel = 'Model validation failed';
+    startedLabel = `Validating model — ${workspace}`;
+  }
 
   // 2. Inputs are valid; identify the run before initializing shared infrastructure.
   const bannerVersion = isLocal() ? undefined : args.version;
@@ -254,7 +333,7 @@ export async function start(args: StartArgs): Promise<void> {
   ensureDocker();
   ensureImage(args.version);
   const spinner = p.spinner();
-  spinner.start('Starting scan');
+  spinner.start(startingLabel);
   await ensureInfra(spinner);
 
   // 3. Generate the invocation identity.
@@ -277,7 +356,7 @@ export async function start(args: StartArgs): Promise<void> {
     fs.chmodSync(dirPath, 0o777);
   }
   if (!launchDecision.isResume) {
-    writeLaunchStateAtomically(internalPath, launchDecision.outputDir);
+    writeLaunchStateAtomically(internalPath, launchDecision.outputDir, args.authOnly, args.validateModel);
   }
 
   // 5. Pre-create overlay mount points (:ro mounts cannot create them).
@@ -336,6 +415,8 @@ export async function start(args: StartArgs): Promise<void> {
     workspace,
     ...(args.pipelineTesting && { pipelineTesting: true }),
     ...(args.keepContainer && { keepContainer: true }),
+    ...(args.authOnly && { authOnly: true }),
+    ...(args.validateModel && { validateModel: true }),
     ...(shouldUsePiAuth() && { piAuthHostPath: resolveHostPiAuthPath() }),
   });
 
@@ -386,7 +467,7 @@ export async function start(args: StartArgs): Promise<void> {
   });
 
   // Poll for the workflow to register in session.json; the spinner resolves once it does.
-  spinner.message('Waiting for the scan to start');
+  spinner.message(waitingLabel);
   for (let attempts = 0; attempts < 60; attempts++) {
     // A pre-workflow failure leaves its reason here (nothing reached Temporal); surface it
     // rather than polling out to a generic timeout.
@@ -415,20 +496,28 @@ export async function start(args: StartArgs): Promise<void> {
           warn(`Scan ${workspace} started, but its launch record could not be removed.`);
         }
 
-        // Hold until preflight clears, so an unreachable target or bad credential is reported here
+        // Hold until startup clears, so an unreachable target or bad credential is reported here
         // rather than after "Scan started".
-        spinner.message('Running preflight checks');
-        const outcome = await awaitPreflightOutcome(workflowId);
+        spinner.message(PREFLIGHT_LABEL);
+        const spec = resolveModelSpec();
+        const providerId = typeof spec === 'string' ? '' : spec.providerId;
+        // Cyber-access verification only runs for OpenAI/Anthropic; when following, the tailed log shows the login.
+        // Mirrors CYBER_GATED_PROVIDERS in the worker (apps/worker/src/services/cyber-access-verification.ts).
+        const showCyberAccess = providerId === 'anthropic' || providerId === 'openai' || providerId === 'openai-codex';
+        const outcome = await awaitStartupOutcome(workflowId, (label) => spinner.message(label), {
+          showCyberAccess,
+          showAppLogin: !args.follow,
+        });
         if (outcome.kind === 'failed') {
-          spinner.error('The scan could not start');
+          spinner.error(couldNotStartLabel);
           printScanStartFailure(outcome.message);
           process.exit(1);
         }
 
-        spinner.stop(`Scan started — ${workspace}`);
+        spinner.stop(startedLabel);
         printInfo(args, workspace, repo.hostPath, workspacesDir);
         if (args.follow) {
-          await followScan(workspace, workspacesDir);
+          await followScan(workspace, workspacesDir, validationOnly);
         }
         return;
       }
@@ -494,15 +583,28 @@ function readStartupError(startupErrorPath: string): StartupError | undefined {
   }
 }
 
-/** Outcome of waiting for the in-workflow preflight to clear. */
+/** Outcome of waiting for in-workflow startup (preflight + auth validation) to clear. */
 type PreflightOutcome = { kind: 'passed' } | { kind: 'failed'; message: string } | { kind: 'unconfirmed' };
 
+const PREFLIGHT_LABEL = 'Running preflight checks (LLM credentials, target URL)';
+const CYBER_ACCESS_LABEL = 'Checking cyber access';
+const APP_LOGIN_LABEL = 'Verifying app login with provided credentials';
+
 /**
- * Wait for the registered workflow's preflight to pass or fail: passed once `currentPhase` moves
- * beyond 'preflight' (or the scan already closed ok), failed when the workflow terminates with an
- * error. Bounded, so a Temporal query outage falls through as 'unconfirmed' rather than hanging.
+ * Drive the startup spinner until the pentest begins, naming the cyber-access verification and the app
+ * login while their activity runs. Labels only advance, so a gap between them holds the last step
+ * rather than reverting to the generic line. Passed once the phase moves past preflight/auth (or
+ * the scan closed ok), failed on a terminal error, unconfirmed if a query outage outlasts the bound.
  */
-async function awaitPreflightOutcome(workflowId: string): Promise<PreflightOutcome> {
+async function awaitStartupOutcome(
+  workflowId: string,
+  onLabel: (label: string) => void,
+  opts: { showCyberAccess: boolean; showAppLogin: boolean },
+): Promise<PreflightOutcome> {
+  // Wait through auth-validation only when naming the login step; otherwise stop once it begins.
+  const startupPhases = opts.showAppLogin ? new Set(['preflight', 'auth-validation']) : new Set(['preflight']);
+  let rank = 0;
+  let label = PREFLIGHT_LABEL;
   for (let attempts = 0; attempts < 80; attempts++) {
     try {
       const lifecycle = await describeWorkflowLifecycle(workflowId);
@@ -511,8 +613,19 @@ async function awaitPreflightOutcome(workflowId: string): Promise<PreflightOutco
         return outcome.kind === 'failed' ? { kind: 'failed', message: outcome.message } : { kind: 'passed' };
       }
 
+      const running = await runningActivityTypes(workflowId);
+      if (opts.showCyberAccess && rank < 1 && running.includes('runCyberAccessVerification')) {
+        rank = 1;
+        label = CYBER_ACCESS_LABEL;
+      }
+      if (opts.showAppLogin && rank < 2 && running.includes('runAuthenticationValidation')) {
+        rank = 2;
+        label = APP_LOGIN_LABEL;
+      }
+      onLabel(label);
+
       const progress = await queryProgress(workflowId);
-      if (progress && progress.currentPhase !== null && progress.currentPhase !== 'preflight') {
+      if (progress && progress.currentPhase !== null && !startupPhases.has(progress.currentPhase)) {
         return { kind: 'passed' };
       }
     } catch {
@@ -576,7 +689,7 @@ function printUnconfirmedScanHint(workspace: string, taskQueue: string, containe
  * That tracks whether the pipeline ran, not whether vulnerabilities were found. On failure the
  * root-cause message is printed so a red CI build says why.
  */
-async function followScan(workspace: string, workspacesDir: string): Promise<never> {
+async function followScan(workspace: string, workspacesDir: string, validationOnly = false): Promise<never> {
   const logFile = resolveRunFile(path.join(workspacesDir, workspace), 'workflow.log');
   const workflowId = resolveWorkflowId(workspace);
 
@@ -587,7 +700,8 @@ async function followScan(workspace: string, workspacesDir: string): Promise<nev
   }
 
   if (stdoutIsTerminal()) {
-    console.error('\n  Following scan log (Ctrl-C to stop watching):\n');
+    const what = validationOnly ? 'validation' : 'scan';
+    console.error(`\n  Following ${what} log (Ctrl-C to stop watching):\n`);
   }
 
   let temporalUnreachable = false;
@@ -675,10 +789,12 @@ function printInfo(args: StartArgs, workspace: string, repoPath: string, workspa
     console.log(`    Progress:   ${prefix} status ${workspace}`);
   }
 
-  console.log('');
-  console.log('  Report (when the scan finishes):');
-  console.log(`    ${reportDir}${path.sep}`);
-  console.log(`      ${FINAL_REPORT_PDF_FILENAME}`);
-  console.log(`      ${FINAL_REPORT_MD_FILENAME}`);
-  console.log('');
+  if (!args.authOnly && !args.validateModel) {
+    console.log('');
+    console.log('  Report (when the scan finishes):');
+    console.log(`    ${reportDir}${path.sep}`);
+    console.log(`      ${FINAL_REPORT_PDF_FILENAME}`);
+    console.log(`      ${FINAL_REPORT_MD_FILENAME}`);
+    console.log('');
+  }
 }

@@ -108,6 +108,8 @@ export interface PipelineInput {
   customerOutputPath?: string; // Stable mounted path for final customer copies only
   checkpointsEnabled?: boolean; // Enable checkpoint activities (default: false)
   exploit?: boolean; // false skips the exploitation phase
+  authOnly?: boolean; // true stops the run after auth validation (no pentest, no report)
+  validateModel?: boolean; // true stops the run after the preflight model checks (no pentest, no report)
 }
 
 /** What `loadResumeState` reconstructs from a prior workspace: independently verified, never assumed from session.json alone. */
@@ -184,6 +186,8 @@ export interface PipelineSummary {
  */
 export interface PipelineState {
   status: 'running' | 'completed' | 'failed' | 'cancelled' | 'partial';
+  authOnly: boolean;
+  validateModel: boolean;
   currentPhase: string | null;
   currentAgent: string | null;
   /** Agents that actually ran. Mutually exclusive from `skippedAgents`. */

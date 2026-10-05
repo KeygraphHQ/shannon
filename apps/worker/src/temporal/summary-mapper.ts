@@ -69,6 +69,7 @@ export function toWorkflowSummary(
       Object.entries(state.operationalStages).map(([key, stage]) => [
         key,
         {
+          status: stage.status,
           ...(stage.startedAt !== undefined && { startedAt: stage.startedAt }),
           ...(stage.durationMs !== undefined && { durationMs: stage.durationMs }),
         },

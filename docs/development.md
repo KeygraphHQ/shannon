@@ -122,6 +122,9 @@ npx @keygraph/shannon start -u https://example.com -r /path/to/repo -w q1-audit
 # Stream the log until the scan finishes, then exit on its outcome (useful in CI).
 npx @keygraph/shannon start -u https://example.com -r /path/to/repo --follow
 
+# Validate the configured login only, then stop (no pentest or report).
+npx @keygraph/shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml --validate-auth
+
 # List running and completed scans.
 npx @keygraph/shannon scans
 ```
@@ -134,6 +137,7 @@ Source-build examples:
 ./shannon start -u https://example.com -r /path/to/repo -o ./my-reports
 ./shannon start -u https://example.com -r /path/to/repo -w q1-audit
 ./shannon start -u https://example.com -r /path/to/repo --follow
+./shannon start -u https://example.com -r /path/to/repo -c /path/to/my-config.yaml --validate-auth
 ./shannon scans
 
 # Rebuild the worker image.

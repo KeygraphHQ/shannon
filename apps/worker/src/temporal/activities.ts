@@ -19,6 +19,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
+import { resolveModelSelection } from '../ai/models.js';
 import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
@@ -39,6 +40,12 @@ import {
 import { getAgentGitPaths } from '../services/agent-git-paths.js';
 import { compactReportFindings as compactReportFindingsService } from '../services/compaction-core.js';
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
+import {
+  type CyberAccessResult,
+  isCyberGatedProvider,
+  isCyberSafeguardDecline,
+  verifyCyberAccess,
+} from '../services/cyber-access-verification.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { RenumberError } from '../services/exact-output-commit.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
@@ -860,6 +867,81 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
   } finally {
     clearInterval(heartbeatInterval);
   }
+}
+
+/** The provider-specific cyber-access failure type (see workflow-errors.ts); `openai-codex` maps to the OpenAI error. */
+function cyberAccessErrorType(providerId: string): string {
+  return providerId === 'anthropic' ? 'AnthropicCyberAccessError' : 'OpenAiCyberAccessError';
+}
+
+/**
+ * Cyber access verification activity. For OpenAI/Anthropic, hands the model a slice of the
+ * exploit agent's workload and gates on a decline (`stopReason: error`), failing the scan with the
+ * provider's own message. A setup/transport fault is not a decline and never gates.
+ *
+ * Returns `{ gated }` — true only for a provider that actually gates security workloads, so the
+ * caller records the cyber-access stage for those alone (a non-gated provider ran a no-op check).
+ */
+export async function runCyberAccessVerification(_input: ActivityInput): Promise<{ gated: boolean }> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
+
+  const heartbeatInterval = setInterval(() => {
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    heartbeat({ phase: 'cyber-access', elapsedSeconds: elapsed, attempt: attemptNumber });
+  }, HEARTBEAT_INTERVAL_MS);
+
+  const logger = createActivityLogger();
+
+  let result: CyberAccessResult;
+  try {
+    const selection = await resolveModelSelection();
+
+    // Only OpenAI and Anthropic gate security workloads — never verify any other provider.
+    if (!isCyberGatedProvider(selection.providerId)) {
+      logger.info(`Cyber access verification: skipped (provider ${selection.providerId})`);
+      return { gated: false };
+    }
+
+    logger.info('Verifying cyber access via pi...');
+    result = await verifyCyberAccess(selection.model, selection.modelRuntime, selection.providerId);
+  } catch (error) {
+    // Setup/transport fault, not a decline — never gates the scan.
+    const message = error instanceof Error ? error.message : String(error);
+    logger.info(`Cyber access verification: skipped (${message.slice(0, 200)})`);
+    return { gated: false };
+  } finally {
+    clearInterval(heartbeatInterval);
+  }
+
+  if (result.error !== undefined) {
+    logger.info(`Cyber access verification: ${result.providerId} inconclusive (${result.error.slice(0, 200)})`);
+    return { gated: true };
+  }
+
+  if (result.response?.stopReason === 'error') {
+    logger.info(
+      `Cyber access verification: declined by ${result.providerId}: ${(result.response.errorMessage ?? '').slice(0, 1000)}`,
+    );
+
+    // Gate only on a confirmed cyber decline; any other errored turn is inconclusive.
+    if (!isCyberSafeguardDecline(result.providerId, result.response)) {
+      logger.info(`Cyber access verification: ${result.providerId} inconclusive (errored turn, not a cyber decline)`);
+      return { gated: true };
+    }
+
+    // Gate with the provider-specific type (for the CLI guidance), bounded message.
+    const message = truncateErrorMessage(`${result.providerId} declined the exploit workload`);
+    const failure = ApplicationFailure.nonRetryable(message, cyberAccessErrorType(result.providerId), [
+      { phase: 'cyber-access', attemptNumber, elapsed: Date.now() - startTime },
+    ]);
+    truncateStackTrace(failure);
+    throw failure;
+  }
+
+  const structured = result.structuredOutput !== undefined ? result.structuredValid : 'none';
+  logger.info(`Cyber access verification: ${result.providerId} OK (structured=${structured})`);
+  return { gated: true };
 }
 
 /**

@@ -42,6 +42,7 @@ export enum ErrorCode {
   AUTH_LOGIN_FAILED = 'AUTH_LOGIN_FAILED',
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
   MODEL_CONFIG_INVALID = 'MODEL_CONFIG_INVALID',
+  PROVIDER_CYBER_ACCESS_REQUIRED = 'PROVIDER_CYBER_ACCESS_REQUIRED',
 }
 
 export type PentestErrorType = 'config' | 'network' | 'prompt' | 'filesystem' | 'validation' | 'unknown';

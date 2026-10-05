@@ -363,6 +363,33 @@ function agenticSastPhase(operations: readonly DerivedAgent[]): DerivedPhase | u
   };
 }
 
+/** Preflight rows shown at the top of the tree, in run order. Each is its own single-line phase. */
+const PREFLIGHT_ROW_KEYS = ['preflight', 'cyber-access'] as const;
+
+/**
+ * The two preflight gates the worker persists — the preflight checks and the cyber-access verification —
+ * as top-of-tree rows. Each appears once its stage is recorded (running, then done or failed); a
+ * run that never reaches a gate simply omits its row.
+ */
+function preflightPhases(operations: readonly DerivedAgent[]): DerivedPhase[] {
+  const byKey = new Map(operations.map((operation) => [operation.name, operation]));
+  const phases: DerivedPhase[] = [];
+  for (const key of PREFLIGHT_ROW_KEYS) {
+    const operation = byKey.get(key);
+    if (operation === undefined) continue;
+    phases.push({
+      key: operation.name,
+      label: operation.label,
+      children: false,
+      meta: 'duration',
+      state: operation.state,
+      summary: operation,
+      agents: [operation],
+    });
+  }
+  return phases;
+}
+
 /**
  * Bookkeeping rows worth showing. A deterministic stage that has completed says nothing —
  * it can only ever read 0s — but one that is still running, or that failed, is exactly what
@@ -408,13 +435,14 @@ function assemblePhases(agentPhases: readonly DerivedPhase[], operations: readon
     return phase;
   });
 
+  const preflight = preflightPhases(operations);
   const sast = agenticSastPhase(operations);
-  if (sast === undefined) return phases;
+  if (sast === undefined) return [...preflight, ...phases];
 
   // Agentic SAST starts with the scan and runs alongside the pentest, so it reads after
   // the login check rather than appended past Reporting where it never ran.
   const afterAuth = phases.findIndex((phase) => phase.key === 'auth-validation') + 1;
-  return [...phases.slice(0, afterAuth), sast, ...phases.slice(afterAuth)];
+  return [...preflight, ...phases.slice(0, afterAuth), sast, ...phases.slice(afterAuth)];
 }
 
 export { agentError };
