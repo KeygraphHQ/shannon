@@ -279,7 +279,7 @@ export const CAPELLA_ACTIVITY_POLICIES = Object.freeze({
   capellaArchitecture: policy('architecture', 90 * MINUTE_MS, 90 * MINUTE_MS, 5 * MINUTE_MS, 3, 'large'),
   capellaThreatModel: policy('threat-model', 30 * MINUTE_MS, 30 * MINUTE_MS, 5 * MINUTE_MS, 2, 'medium'),
   capellaPlan: policy('plan', 30 * MINUTE_MS, 90 * MINUTE_MS, 5 * MINUTE_MS, 2, 'medium'),
-  capellaResearch: policy('research', 3 * HOUR_MS, 4.5 * HOUR_MS, 5 * MINUTE_MS, 2, 'small + medium'),
+  capellaResearch: policy('research', 4 * HOUR_MS, 5.5 * HOUR_MS, 5 * MINUTE_MS, 2, 'small + medium'),
   capellaDedupe: policy('dedupe', 30 * MINUTE_MS, 45 * MINUTE_MS, 5 * MINUTE_MS, 2, 'small'),
   capellaReview: policy('review', 2 * HOUR_MS, 2 * HOUR_MS, 5 * MINUTE_MS, 2, 'medium'),
   capellaCritic: policy('critic', 60 * MINUTE_MS, 60 * MINUTE_MS, 5 * MINUTE_MS, 2, 'medium'),
