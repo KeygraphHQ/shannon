@@ -303,7 +303,8 @@ export async function start(args: StartArgs): Promise<void> {
   }
 
   // User-facing status wording. Auth-only and model-only are both "validation" runs, but each
-  // names what it validated. A plain scan keeps its original phrasing.
+  // names what it validated. A validation run *is* the checks, so a failure means it ran and
+  // failed, not that it could not start. A plain scan keeps its original phrasing.
   let startingLabel = 'Starting scan';
   let waitingLabel = 'Waiting for the scan to start';
   let couldNotStartLabel = 'The scan could not start';
@@ -311,12 +312,12 @@ export async function start(args: StartArgs): Promise<void> {
   if (args.authOnly) {
     startingLabel = 'Starting authentication validation';
     waitingLabel = 'Waiting for authentication validation to start';
-    couldNotStartLabel = 'Authentication validation could not start';
+    couldNotStartLabel = 'Authentication validation failed';
     startedLabel = `Validating authentication — ${workspace}`;
   } else if (args.validateModel) {
     startingLabel = 'Starting model validation';
     waitingLabel = 'Waiting for model validation to start';
-    couldNotStartLabel = 'Model validation could not start';
+    couldNotStartLabel = 'Model validation failed';
     startedLabel = `Validating model — ${workspace}`;
   }
 
