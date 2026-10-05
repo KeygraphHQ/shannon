@@ -869,9 +869,9 @@ export async function runPreflightValidation(input: ActivityInput): Promise<void
   }
 }
 
-/** The provider-specific cyber-access failure type (see workflow-errors.ts); provider is OpenAI or Anthropic. */
+/** The provider-specific cyber-access failure type (see workflow-errors.ts); `openai-codex` maps to the OpenAI error. */
 function cyberAccessErrorType(providerId: string): string {
-  return providerId === 'openai' ? 'OpenAiCyberAccessError' : 'AnthropicCyberAccessError';
+  return providerId === 'anthropic' ? 'AnthropicCyberAccessError' : 'OpenAiCyberAccessError';
 }
 
 /**

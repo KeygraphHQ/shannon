@@ -108,8 +108,8 @@ const SUBMIT_TOOL = {
   constrainedSampling: { type: 'json_schema', strict: 'require' },
 } as const;
 
-/** Only OpenAI and Anthropic gate penetration-testing workloads behind a cyber-access program. */
-const CYBER_GATED_PROVIDERS: ReadonlySet<string> = new Set(['openai', 'anthropic']);
+/** Only OpenAI and Anthropic gate security workloads; `openai-codex` is the OpenAI subscription path. */
+const CYBER_GATED_PROVIDERS: ReadonlySet<string> = new Set(['openai', 'openai-codex', 'anthropic']);
 
 /** Whether a provider gates security workloads — the only providers this probe runs against. */
 export function isCyberGatedProvider(providerId: string): boolean {
@@ -119,6 +119,7 @@ export function isCyberGatedProvider(providerId: string): boolean {
 // One marker per provider, from its own decline wording.
 const CYBER_MESSAGE_MARKER: Readonly<Record<string, string>> = {
   openai: 'daybreak',
+  'openai-codex': 'daybreak',
   anthropic: 'violative cyber',
 };
 

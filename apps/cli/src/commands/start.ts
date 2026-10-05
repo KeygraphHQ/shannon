@@ -502,7 +502,8 @@ export async function start(args: StartArgs): Promise<void> {
         const spec = resolveModelSpec();
         const providerId = typeof spec === 'string' ? '' : spec.providerId;
         // Cyber-access verification only runs for OpenAI/Anthropic; when following, the tailed log shows the login.
-        const showCyberAccess = providerId === 'anthropic' || providerId === 'openai';
+        // Mirrors CYBER_GATED_PROVIDERS in the worker (apps/worker/src/services/cyber-access-verification.ts).
+        const showCyberAccess = providerId === 'anthropic' || providerId === 'openai' || providerId === 'openai-codex';
         const outcome = await awaitStartupOutcome(workflowId, (label) => spinner.message(label), {
           showCyberAccess,
           showAppLogin: !args.follow,
