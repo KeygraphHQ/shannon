@@ -38,10 +38,9 @@ const MAX_TURNS = 128;
 const MAX_LIST_RESULTS = 500;
 const DEFAULT_LIST_RESULTS = 200;
 const MAX_OUTPUT_BYTES = 64 * 1024;
-// The live-tool-side counterpart of the source jail's copy-time exclusion (source-jail.ts): even if
-// one of these somehow existed in the jailed tree, the read/grep/find/ls/glob tools built below must
-// still refuse to serve it. `.git` is deliverables history, `.shannon` is scan internals, `.pi` is
-// provider credentials.
+// Task formation reads the live repository, so these read-only tools are the sole barrier keeping the
+// model out of `.git` (source history), `.shannon` (scan internals, incl. the deliverables Git repo),
+// and `.pi` (credentials). Always denied, whatever extra denies a caller passes.
 const ALWAYS_DENIED_PATHS = Object.freeze(['.git', '.shannon', '.pi'] as const);
 const TRANSIENT_IO_CODES = new Set([
   'EAGAIN',
@@ -288,9 +287,9 @@ function createGlobTool(confinement: RepositoryConfinement): ToolDefinition {
   return defineTool({
     name: 'glob',
     label: 'Glob source files',
-    description: 'Match bounded file globs from the source-jail root without following symlinks.',
-    promptSnippet: 'glob: match source files from the jail root',
-    promptGuidelines: ['Patterns are always rooted in the source jail.'],
+    description: 'Match bounded file globs from the repository root without following symlinks.',
+    promptSnippet: 'glob: match source files from the repository root',
+    promptGuidelines: ['Patterns are always rooted in the repository.'],
     parameters: Type.Object(
       {
         pattern: Type.String({ minLength: 1, maxLength: 256 }),
@@ -322,7 +321,7 @@ function createGlobTool(confinement: RepositoryConfinement): ToolDefinition {
   });
 }
 
-/** Create the five code-owned source tools that share one canonical jail policy. */
+/** Create the five code-owned source tools that share one canonical deny policy. */
 export async function createTaskFormationSourceTools(options: ToolFactoryOptions): Promise<readonly ToolDefinition[]> {
   const deniedPaths = uniqueDeniedPaths(options.deniedPaths);
   const capellaTools = await createCapellaRepositoryTools({
