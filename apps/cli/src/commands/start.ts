@@ -500,7 +500,7 @@ export async function start(args: StartArgs): Promise<void> {
         spinner.message(PREFLIGHT_LABEL);
         const spec = resolveModelSpec();
         const providerId = typeof spec === 'string' ? '' : spec.providerId;
-        // Cyber-access probe only runs for OpenAI/Anthropic; when following, the tailed log shows the login.
+        // Cyber-access verification only runs for OpenAI/Anthropic; when following, the tailed log shows the login.
         const showCyberAccess = providerId === 'anthropic' || providerId === 'openai';
         const outcome = await awaitStartupOutcome(workflowId, (label) => spinner.message(label), {
           showCyberAccess,
@@ -589,7 +589,7 @@ const CYBER_ACCESS_LABEL = 'Checking cyber access';
 const APP_LOGIN_LABEL = 'Verifying app login with provided credentials';
 
 /**
- * Drive the startup spinner until the pentest begins, naming the cyber-access probe and the app
+ * Drive the startup spinner until the pentest begins, naming the cyber-access verification and the app
  * login while their activity runs. Labels only advance, so a gap between them holds the last step
  * rather than reverting to the generic line. Passed once the phase moves past preflight/auth (or
  * the scan closed ok), failed on a terminal error, unconfirmed if a query outage outlasts the bound.
@@ -612,7 +612,7 @@ async function awaitStartupOutcome(
       }
 
       const running = await runningActivityTypes(workflowId);
-      if (opts.showCyberAccess && rank < 1 && running.includes('runExploitReadinessProbe')) {
+      if (opts.showCyberAccess && rank < 1 && running.includes('runCyberAccessVerification')) {
         rank = 1;
         label = CYBER_ACCESS_LABEL;
       }

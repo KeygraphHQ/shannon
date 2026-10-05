@@ -1347,8 +1347,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     if (!authOnly) {
       const startedAt = startOperation('cyber-access', 'Cyber access verification');
       try {
-        const probe = await preflightActs.runExploitReadinessProbe(activityInput);
-        if (probe.gated) {
+        const verification = await preflightActs.runCyberAccessVerification(activityInput);
+        if (verification.gated) {
           completeOperation('cyber-access', 'Cyber access verification', startedAt);
         } else {
           delete state.operationalStages['cyber-access'];

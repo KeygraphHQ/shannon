@@ -367,7 +367,7 @@ function agenticSastPhase(operations: readonly DerivedAgent[]): DerivedPhase | u
 const PREFLIGHT_ROW_KEYS = ['preflight', 'cyber-access'] as const;
 
 /**
- * The two preflight gates the worker persists — the preflight checks and the cyber-access probe —
+ * The two preflight gates the worker persists — the preflight checks and the cyber-access verification —
  * as top-of-tree rows. Each appears once its stage is recorded (running, then done or failed); a
  * run that never reaches a gate simply omits its row.
  */

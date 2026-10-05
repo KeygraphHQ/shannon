@@ -5,13 +5,13 @@
 // as published by the Free Software Foundation.
 
 /**
- * Exploit-workload readiness probe.
+ * Cyber access verification.
  *
  * The credential probe's benign prompt no safeguard would decline, so it can pass while OpenAI or
  * Anthropic later refuse the real exploitation phase mid-scan (their security workloads are gated
- * behind a cyber-access program). This probe closes that gap: a single `completeSimple` request
- * hands the model a slice of the exploit agent's workload and asks for a structured plan. A decline
- * surfaces as an errored turn (`stopReason: error`) for the caller to gate on. OpenAI/Anthropic only.
+ * behind a cyber-access program). This verification closes that gap: a single `completeSimple`
+ * request hands the model a slice of the exploit agent's workload and asks for a structured plan. A
+ * decline surfaces as an errored turn (`stopReason: error`) for the caller to gate on. OpenAI/Anthropic only.
  *
  * Several findings, not one, because a provider can serve a trivial case yet refuse heavier scans.
  * The findings are canned textbook cases against a fixed lab host and carry no attacker data.
@@ -132,7 +132,7 @@ export function isCyberSafeguardDecline(providerId: string, response: AssistantM
   return (response.errorMessage?.toLowerCase() ?? '').includes(marker);
 }
 
-export interface ExploitReadinessResult {
+export interface CyberAccessResult {
   readonly providerId: string;
   /**
    * The provider's response, present unless the request threw. Read `response.stopReason`: `error`
@@ -157,15 +157,15 @@ function extractStructuredPlan(response: AssistantMessage): { output: unknown; v
 }
 
 /**
- * Probe whether the provider will serve the exploit agent's workload, via one `completeSimple`
+ * Verify whether the provider will serve the exploit agent's workload, via one `completeSimple`
  * request. Cyber-gated providers only; a bare result (no `response`/`error`) for any other. Never
  * throws — the caller acts on `response.stopReason` / `error`.
  */
-export async function probeExploitReadiness(
+export async function verifyCyberAccess(
   model: Model<Api>,
   modelRuntime: ModelRuntime,
   providerId: string,
-): Promise<ExploitReadinessResult> {
+): Promise<CyberAccessResult> {
   // Defensive: never send the exploit workload to a provider that does not gate security work.
   if (!isCyberGatedProvider(providerId)) {
     return { providerId };

@@ -59,7 +59,7 @@ To confirm your model is ready before committing to a full scan, add `--validate
 npx @keygraph/shannon start -u https://your-app.com -r /path/to/repo --validate-model
 ```
 
-The run performs the preflight model checks only — credential and registry resolution for any provider, plus a single exploit-readiness probe against Anthropic and OpenAI that trips the cyber safeguard if your account is not approved — then stops. No pentest or report is produced, and it needs no config. A decline fails the run with the vendor's enrollment link.
+The run performs the preflight model checks only — credential and registry resolution for any provider, plus a single cyber-access verification against Anthropic and OpenAI that trips the cyber safeguard if your account is not approved — then stops. No pentest or report is produced, and it needs no config. A decline fails the run with the vendor's enrollment link.
 
 ## Suggested models
 

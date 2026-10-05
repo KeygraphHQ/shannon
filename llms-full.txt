@@ -825,6 +825,14 @@ Review each vendor's guidance and complete the verification or enrollment they a
 
 This applies to the Anthropic and OpenAI providers, including when either is reached through an LLM gateway. Bedrock serves Claude models and is subject to Anthropic's safeguards as well.
 
+To confirm your model is ready before committing to a full scan, add `--validate-model` to `start`:
+
+```bash
+npx @keygraph/shannon start -u https://your-app.com -r /path/to/repo --validate-model
+```
+
+The run performs the preflight model checks only — credential and registry resolution for any provider, plus a single cyber-access verification against Anthropic and OpenAI that trips the cyber safeguard if your account is not approved — then stops. No pentest or report is produced, and it needs no config. A decline fails the run with the vendor's enrollment link.
+
 ## Suggested models
 
 These are the models `npx @keygraph/shannon setup` offers, best-first. They are suggestions: the wizard also takes a typed model ID, and `SHANNON_AI_MODEL` accepts any model in the provider's catalogue.
