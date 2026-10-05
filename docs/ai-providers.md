@@ -272,12 +272,12 @@ Before running a pentest, review the [cyber safeguards requirements](#cyber-safe
 
    ```bash
    export SHANNON_USE_PI_AUTH=1
-   export SHANNON_AI_MODEL=openai-codex:gpt-5.5
+   export SHANNON_AI_MODEL=openai-codex:gpt-6-sol
    ```
 
 4. In npx mode, run `npx @keygraph/shannon start ...` from the same shell. In source-build mode, add the two variables to `.env` and run `./shannon start ...`.
 
-Supported Codex models are `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.4`.
+Supported Codex models are `gpt-6-sol`, `gpt-5.6-sol`, `gpt-5.5`, and `gpt-5.4`.
 
 ## xAI (Grok subscription)
 
