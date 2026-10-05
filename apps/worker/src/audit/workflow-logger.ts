@@ -8,6 +8,7 @@
 
 import { promises as fsPromises } from 'node:fs';
 import path from 'node:path';
+import { DEFAULT_MODEL_SPEC } from '../ai/models.js';
 import { isCapellaSafeFailureMessage, isCapellaTerminalStageLabel } from '../ai/sast/capella/safe-failures.js';
 import { CAPELLA_STAGE_LABELS, type CapellaStage } from '../ai/sast/types.js';
 import { type ErrorCode, isProviderFailureCategory } from '../types/errors.js';
@@ -71,8 +72,8 @@ export interface WorkflowSummary {
   readonly skippedAgents?: readonly string[];
   readonly agentMetrics: Readonly<Record<string, AgentMetricsSummary>>;
   readonly operationalMetrics: Readonly<Record<string, OperationalMetricsSummary>>;
-  /** Per-stage wall-clock spans, keyed as `operationalStages` is; feeds each group's real duration. */
-  readonly operationalStages: Readonly<Record<string, OperationalStageTiming>>;
+  /** Per-stage wall-clock spans (feeds each group's real duration); `status` reports each gate's outcome. */
+  readonly operationalStages: Readonly<Record<string, OperationalStageTiming & { readonly status?: string }>>;
   readonly partialReasons?: readonly PartialReasonView[];
   readonly usageAccountingComplete?: boolean;
   /** Usage-accounting warnings from the Capella run; empty when the ledger reconciled. */
@@ -130,10 +131,9 @@ function isValidationOnlyRun(): boolean {
   return isAuthOnlyRun() || isModelOnlyRun();
 }
 
-/** The log header title, framing a validation-only run by what it validated. */
+/** The log header title. A model-validation run writes no header, so only auth-only is framed here. */
 function validationLogTitle(): string {
   if (isAuthOnlyRun()) return 'Shannon - Authentication Validation Log';
-  if (isModelOnlyRun()) return 'Shannon - Model Validation Log';
   return 'Shannon Pentest - Scan Log';
 }
 
@@ -144,6 +144,46 @@ function safeAgenticSastStageLabel(label: string | undefined): string | undefine
 /** Render a cost the same way the agent breakdown does: N/A when unknown, else a fixed 4-dp dollar value. */
 function formatCostUsd(costUsd: number | null): string {
   return costUsd === null ? 'N/A' : `$${Math.max(0, costUsd).toFixed(4)}`;
+}
+
+function renderStageOutcome(status: string | undefined, durationMs: number | undefined): string {
+  const duration = durationMs !== undefined ? ` (${formatDuration(Math.max(0, durationMs))})` : '';
+  if (status === 'completed') return `OK${duration}`;
+  if (status === 'failed') return `FAILED${duration}`;
+  if (status === 'skipped') return 'skipped';
+  // running/pending/absent: the run ended before this gate reached a terminal state.
+  return `incomplete${duration}`;
+}
+
+/**
+ * The gates a validation-only run performs, as a Checks section (empty for a normal scan). Preflight
+ * runs in both modes; cyber-access is model-validation only, and reads "not required" for a provider
+ * that does not gate security workloads, where no stage was recorded.
+ */
+function validationCheckLines(summary: WorkflowSummary): string[] {
+  if (!isValidationOnlyRun()) return [];
+  const lines: string[] = [];
+  const preflight = summary.operationalStages.preflight;
+  if (preflight !== undefined) {
+    lines.push(
+      `  - Preflight (LLM credentials, target URL) — ${renderStageOutcome(preflight.status, preflight.durationMs)}`,
+    );
+  }
+  if (isModelOnlyRun()) {
+    const cyber = summary.operationalStages['cyber-access'];
+    if (cyber !== undefined) {
+      lines.push(`  - Cyber access verification — ${renderStageOutcome(cyber.status, cyber.durationMs)}`);
+    } else {
+      lines.push('  - Cyber access verification — not required for this provider');
+    }
+  }
+  if (lines.length === 0) return [];
+  return ['', 'Checks:', ...lines];
+}
+
+/** The model under validation, resolved exactly as the worker resolves it (see worker.ts). */
+function validationModelSpec(): string {
+  return process.env.SHANNON_AI_MODEL?.trim() || DEFAULT_MODEL_SPEC;
 }
 
 /** Keep normal PI names readable and losslessly quote any unexpected name. */
@@ -457,6 +497,7 @@ export class WorkflowLogger {
   private async openAndWriteHeader(): Promise<void> {
     try {
       this.logStream = await LogStream.acquire(this.logPath);
+      if (isModelOnlyRun()) return;
       const workflowId = safeWorkflowIdentifier(this.workflowId ?? this.sessionMetadata.id);
       const title = validationLogTitle();
       const header = [
@@ -696,7 +737,9 @@ export class WorkflowLogger {
       `Status:      ${summary.status}`,
       `Duration:    ${formatDuration(Math.max(0, summary.totalDurationMs))}`,
       `Total Cost:  $${Math.max(0, summary.totalCostUsd).toFixed(4)}`,
+      ...(validationOnly ? [`Model:       ${validationModelSpec()}`] : []),
       ...(validationOnly ? [] : [`Agents:      ${completedAgents.length} ran, ${skippedAgents.length} skipped`]),
+      ...validationCheckLines(summary),
     ];
     if (summary.usageAccountingComplete === false) {
       lines.push('Cost Note:   Cost is incomplete — some background work is not included in this total.');
