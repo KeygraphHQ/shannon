@@ -218,13 +218,17 @@ export async function validateAuthentication(
 
 /**
  * API-flow preflight: persist the OAuth config for the get-oauth-token CLI and fetch one token
- * to prove the grant works. No browser, no LLM cost — returns ok(null) metrics on success.
+ * to prove the grant works. No browser, no LLM cost — returns zero-usage metrics on success.
+ *
+ * NOTE: Success must not return null. The workflow reads a null result as "no authentication
+ * block", which fails a --validate-auth run even though the token was acquired.
  */
 async function acquireApiToken(
   authentication: NonNullable<DistributedConfig['authentication']>,
   auditSession: AuditSession,
   logger: ActivityLogger,
-): Promise<Result<AgentMetrics | null, PentestError>> {
+): Promise<Result<AgentMetrics, PentestError>> {
+  const startTime = Date.now();
   const oauth = authentication.oauth;
   if (!oauth) {
     return err(
@@ -284,7 +288,15 @@ async function acquireApiToken(
     tokenUrl: oauth.token_url,
     grantType: oauth.grant_type,
   });
-  return ok(null);
+  return ok({
+    durationMs: Date.now() - startTime,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    costUsd: 0,
+    numTurns: 0,
+  });
 }
 
 async function verifySavedAuthState(stateFile: string, logger: ActivityLogger): Promise<Result<void, PentestError>> {
