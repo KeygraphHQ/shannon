@@ -244,7 +244,7 @@ See the [Shannon GitHub Action documentation](https://github.com/KeygraphHQ/shan
 
 See [keygraph.io/pricing](https://keygraph.io/pricing) for current prices and the full feature table.
 
-**Pro**, **Enterprise**, and the **Community Program** run an enterprise-hardened fork of Shannon, and all three add:
+**Pro**, **Enterprise**, and the **Community Program** are powered by an enhanced, enterprise-grade version of the Shannon engine, and all three add:
 
 - **Black-box pentesting**: tests the running application from the outside, with no source code needed.
 - **Dependency (SCA) and secret checks**: SCA with reachability, and secrets scanning that includes repository history.
