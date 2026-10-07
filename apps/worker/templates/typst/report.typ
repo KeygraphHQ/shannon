@@ -17,6 +17,7 @@
 
 #let tester-override = sys.inputs.at("tester", default: "Shannon")
 #let brand = sys.inputs.at("brand", default: "Shannon | AI Pentester by Keygraph")
+#let keygraph-url = "https://keygraph.io"
 
 // ---------- Palette ---------------------------------------------------------
 // Kept distinct so Critical / High are not confused under monitor gamma.
@@ -228,11 +229,13 @@
   #v(3.2cm)
 
   #let brand-parts = brand.split("|").map(p => p.trim())
+  // The logo is the Keygraph wordmark (about 5:1), so it is sized by height to
+  // sit level with the two-line brand text beside it.
   #grid(
     columns: (auto, 1fr),
-    column-gutter: 8pt,
+    column-gutter: 12pt,
     align: (horizon, horizon),
-    image("/assets/keygraph-logo.png", width: 1.6cm),
+    link(keygraph-url, image("/assets/keygraph-logo.png", height: 0.5cm)),
     {
       set par(leading: 0.6em)
       text(size: 11pt, fill: ink, weight: "semibold", tracking: 1.2pt)[
@@ -240,9 +243,9 @@
       ]
       if brand-parts.len() > 1 {
         linebreak()
-        text(size: 9pt, fill: muted, weight: "regular")[
+        link(keygraph-url, text(size: 9pt, fill: muted, weight: "regular")[
           #brand-parts.slice(1).join(" ")
-        ]
+        ])
       }
     }
   )
