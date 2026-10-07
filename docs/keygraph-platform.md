@@ -1,7 +1,5 @@
 # Keygraph Pro and Enterprise
 
-Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
-
 Shannon 3.0 is an open-source pentester. It reads your source, maps routes and data flows, runs real attacks against a live target, and writes PDF and SARIF reports. It runs locally, in CI, or air-gapped with your own model. Shannon is a complete pentester, not a trial edition.
 
 Pro and Enterprise are Keygraph's commercial editions. They run an enterprise-hardened fork of Shannon continuously across hundreds of repositories and add what a security team needs around it: black-box pentesting that needs no source code, audit-depth static analysis on a parsed code graph, SCA and secrets scanning, one deduplicated record per vulnerability across scans and scanners, fix pull requests, fix verification, two-way Jira sync, and SSO, RBAC, and audit logs. They are for security teams that own vulnerability management across many engineering teams and need one place to triage, assign, fix, and verify.

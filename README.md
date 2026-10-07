@@ -235,8 +235,6 @@ See the [Shannon GitHub Action documentation](https://github.com/KeygraphHQ/shan
 
 ## Editions
 
-Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
-
 | Edition | What it is | Price |
 | --- | --- | --- |
 | **Shannon** (open source) | This repository. A complete autonomous pentester you run yourself, locally or in CI/CD, against an application whose source code you have. Well suited to individual developers and small teams. | Open source under AGPL-3.0. You pay only your own model costs. |

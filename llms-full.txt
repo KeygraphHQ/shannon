@@ -2,6 +2,8 @@
 
 > Combined README and documentation for AI agents and LLMs, generated verbatim from the local files referenced in llms.txt. For the concise index, see [llms.txt](llms.txt).
 
+> Retired names: Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
+
 ---
 
 # File: README.md
@@ -242,8 +244,6 @@ Requirements:
 See the [Shannon GitHub Action documentation](https://github.com/KeygraphHQ/shannon-action) and [GitHub Marketplace listing](https://github.com/marketplace/actions/shannon-ai-pentester).
 
 ## Editions
-
-Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
 
 | Edition | What it is | Price |
 | --- | --- | --- |
@@ -1374,8 +1374,6 @@ For organizations that need broader static and organizational coverage now, see 
 # File: docs/keygraph-platform.md
 
 # Keygraph Pro and Enterprise
-
-Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
 
 Shannon 3.0 is an open-source pentester. It reads your source, maps routes and data flows, runs real attacks against a live target, and writes PDF and SARIF reports. It runs locally, in CI, or air-gapped with your own model. Shannon is a complete pentester, not a trial edition.
 
