@@ -161,6 +161,8 @@ interface PromptVariables {
   /** Explicit workflow-owned analysis scope for prompts that describe tested classes. */
   analysisClasses?: readonly VulnClass[];
   AUTH_STATE_FILE: string;
+  /** Path to the on-disk OAuth config for API-flow targets, read by the get-oauth-token CLI. */
+  OAUTH_CONFIG_FILE?: string;
   PLAYWRIGHT_SESSION?: string;
 }
 
@@ -320,11 +322,22 @@ function buildAuthContext(config: DistributedConfig | null): string {
   }
 
   const auth = config.authentication;
-  const lines = [
-    `- Login type: ${auth.login_type.toUpperCase()}`,
-    `- Username: ${auth.credentials.username}`,
-    `- Login URL: ${auth.login_url}`,
-  ];
+
+  // API flow: describe the token setup, not a browser login. Never echo the client secret.
+  if (auth.login_type === 'api' || auth.oauth) {
+    const oauth = auth.oauth;
+    const lines = ['- Login type: API (OAuth bearer token)'];
+    if (oauth) {
+      lines.push(`- Token endpoint: ${oauth.token_url}`);
+      lines.push(`- Grant type: ${oauth.grant_type}`);
+      if (oauth.scope) lines.push(`- Scope: ${oauth.scope}`);
+    }
+    return lines.join('\n');
+  }
+
+  const lines = [`- Login type: ${auth.login_type.toUpperCase()}`];
+  if (auth.credentials?.username) lines.push(`- Username: ${auth.credentials.username}`);
+  if (auth.login_url) lines.push(`- Login URL: ${auth.login_url}`);
 
   if (auth.credentials?.totp_secret) {
     lines.push('- MFA: TOTP enabled');
@@ -403,9 +416,22 @@ async function interpolateVariables(
       result = result.replace(/<rules_of_engagement>[\s\S]*?<\/rules_of_engagement>\s*/g, '');
     }
 
-    if (!config?.authentication) {
+    // Session-reuse guidance comes in two mutually exclusive flavors. Browser flows get the
+    // <shared_authenticated_session> block (restore a saved Playwright session); the API flow
+    // gets the <shared_api_token> block (mint a bearer token via get-oauth-token). Strip the
+    // one that does not apply, and strip both when there is no authentication at all.
+    const auth = config?.authentication;
+    const isApiAuth = !!auth && (auth.login_type === 'api' || !!auth.oauth);
+    if (!auth) {
       result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+      result = result.replace(/<shared_api_token>[\s\S]*?<\/shared_api_token>\s*/g, '');
+    } else if (isApiAuth) {
+      result = result.replace(/<shared_authenticated_session>[\s\S]*?<\/shared_authenticated_session>\s*/g, '');
+      result = replaceLiteral(result, /{{OAUTH_CONFIG_FILE}}/g, variables.OAUTH_CONFIG_FILE ?? '');
+      result = replaceLiteral(result, /{{TOKEN_HEADER}}/g, auth.oauth?.token_header ?? 'Authorization');
+      result = replaceLiteral(result, /{{TOKEN_PREFIX}}/g, auth.oauth?.token_prefix ?? 'Bearer ');
     } else {
+      result = result.replace(/<shared_api_token>[\s\S]*?<\/shared_api_token>\s*/g, '');
       result = replaceLiteral(result, /{{AUTH_STATE_FILE}}/g, variables.AUTH_STATE_FILE);
     }
 

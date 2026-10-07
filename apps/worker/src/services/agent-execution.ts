@@ -26,7 +26,7 @@ import { type PiPromptResult, runPiPrompt, validateAgentOutput } from '../ai/pi/
 import { createQueueSubmitTool, getQueueFilename } from '../ai/queue-schemas.js';
 import type { AuditSession } from '../audit/index.js';
 import { safeErrorFromCode } from '../audit/safe-fields.js';
-import { authStateFile } from '../audit/utils.js';
+import { authStateFile, oauthConfigFile } from '../audit/utils.js';
 import { AGENTS } from '../session-manager.js';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentName } from '../types/agents.js';
@@ -207,6 +207,7 @@ export class AgentExecutionService {
           repoPath,
           ...(assessmentDate !== undefined && { assessmentDate }),
           AUTH_STATE_FILE: authStateFile(auditSession.sessionMetadata),
+          OAUTH_CONFIG_FILE: oauthConfigFile(auditSession.sessionMetadata),
           analysisClasses,
           ...(failedClasses !== undefined && { failedClasses }),
         },

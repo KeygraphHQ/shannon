@@ -444,6 +444,36 @@ const performSecurityValidation = (config: Config): void => {
       }
     }
 
+    // OAuth non-secret fields are interpolated into prompt text (via {{OAUTH_CONFIG_FILE}} guidance)
+    // and used to build a token request, so screen them the same way login_url is. Secret material
+    // (client_secret, oauth.password, refresh_token) is deliberately excluded: it is written to a
+    // file read by the token client, never interpolated into a prompt, and a secret may legitimately
+    // contain characters these patterns flag.
+    if (auth.oauth) {
+      const oauthScreened: Array<[string, string | undefined]> = [
+        ['oauth.token_url', auth.oauth.token_url],
+        ['oauth.client_id', auth.oauth.client_id],
+        ['oauth.username', auth.oauth.username],
+        ['oauth.scope', auth.oauth.scope],
+        ['oauth.audience', auth.oauth.audience],
+        ['oauth.token_header', auth.oauth.token_header],
+      ];
+      for (const [field, value] of oauthScreened) {
+        if (value === undefined) continue;
+        for (const pattern of DANGEROUS_PATTERNS) {
+          if (pattern.test(value)) {
+            throw new PentestError(
+              `authentication.${field} contains potentially dangerous pattern: ${pattern.source}`,
+              'config',
+              false,
+              { field, pattern: pattern.source },
+              ErrorCode.CONFIG_VALIDATION_FAILED,
+            );
+          }
+        }
+      }
+    }
+
     if (auth.login_flow) {
       auth.login_flow.forEach((step, index) => {
         for (const pattern of DANGEROUS_PATTERNS) {
@@ -708,29 +738,63 @@ export const distributeConfig = (config: Config | null): DistributedConfig => {
 };
 
 const sanitizeAuthentication = (auth: Authentication): Authentication => {
+  // login_url / credentials / success_condition are present only for browser flows (form/sso);
+  // oauth is present only for the api flow. The JSON schema guarantees the right combination
+  // per login_type, so each block is sanitized conditionally rather than assumed present.
   return {
     login_type: auth.login_type.toLowerCase().trim() as Authentication['login_type'],
-    login_url: auth.login_url.trim(),
-    credentials: {
-      username: auth.credentials.username.trim(),
-      ...(auth.credentials.password && { password: auth.credentials.password }),
-      ...(auth.credentials.totp_secret && {
-        totp_secret: auth.credentials.totp_secret.replace(/\s/g, ''),
-      }),
-      ...(auth.credentials.email_login && {
-        email_login: {
-          address: auth.credentials.email_login.address.trim(),
-          password: auth.credentials.email_login.password,
-          ...(auth.credentials.email_login.totp_secret && {
-            totp_secret: auth.credentials.email_login.totp_secret.replace(/\s/g, ''),
-          }),
-        },
-      }),
-    },
+    ...(auth.login_url !== undefined && { login_url: auth.login_url.trim() }),
+    ...(auth.credentials && {
+      credentials: {
+        username: auth.credentials.username.trim(),
+        ...(auth.credentials.password && { password: auth.credentials.password }),
+        ...(auth.credentials.totp_secret && {
+          totp_secret: auth.credentials.totp_secret.replace(/\s/g, ''),
+        }),
+        ...(auth.credentials.email_login && {
+          email_login: {
+            address: auth.credentials.email_login.address.trim(),
+            password: auth.credentials.email_login.password,
+            ...(auth.credentials.email_login.totp_secret && {
+              totp_secret: auth.credentials.email_login.totp_secret.replace(/\s/g, ''),
+            }),
+          },
+        }),
+      },
+    }),
     ...(auth.login_flow && { login_flow: auth.login_flow.map((step) => step.trim()) }),
-    success_condition: {
-      type: auth.success_condition.type.toLowerCase().trim() as Authentication['success_condition']['type'],
-      value: auth.success_condition.value.trim(),
-    },
+    ...(auth.success_condition && {
+      success_condition: {
+        type: auth.success_condition.type.toLowerCase().trim() as NonNullable<
+          Authentication['success_condition']
+        >['type'],
+        value: auth.success_condition.value.trim(),
+      },
+    }),
+    ...(auth.oauth && { oauth: sanitizeOAuth(auth.oauth) }),
+  };
+};
+
+// Trims URL/identifier fields; secret material (client_secret, password, refresh_token) passes
+// through verbatim so a legitimate secret containing whitespace is not mangled.
+const sanitizeOAuth = (oauth: NonNullable<Authentication['oauth']>): NonNullable<Authentication['oauth']> => {
+  return {
+    token_url: oauth.token_url.trim(),
+    grant_type: oauth.grant_type.toLowerCase().trim() as NonNullable<Authentication['oauth']>['grant_type'],
+    ...(oauth.client_id !== undefined && { client_id: oauth.client_id.trim() }),
+    ...(oauth.client_secret !== undefined && { client_secret: oauth.client_secret }),
+    ...(oauth.username !== undefined && { username: oauth.username.trim() }),
+    ...(oauth.password !== undefined && { password: oauth.password }),
+    ...(oauth.scope !== undefined && { scope: oauth.scope.trim() }),
+    ...(oauth.audience !== undefined && { audience: oauth.audience.trim() }),
+    ...(oauth.refresh_token !== undefined && { refresh_token: oauth.refresh_token }),
+    ...(oauth.client_auth !== undefined && {
+      client_auth: oauth.client_auth.toLowerCase().trim() as NonNullable<
+        NonNullable<Authentication['oauth']>['client_auth']
+      >,
+    }),
+    ...(oauth.token_header !== undefined && { token_header: oauth.token_header.trim() }),
+    ...(oauth.token_prefix !== undefined && { token_prefix: oauth.token_prefix }),
+    ...(oauth.extra_params !== undefined && { extra_params: oauth.extra_params }),
   };
 };
