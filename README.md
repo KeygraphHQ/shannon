@@ -15,7 +15,7 @@
 
 It analyzes your source code, identifies attack paths, and executes real exploits to prove vulnerabilities before they reach production. **No exploit, no report.**
 
-**This repository is Shannon Open Source: the full agent, run locally from your command line.**
+**This repository is Shannon: the full open-source agent, run locally from your command line.**
 
 <p><strong>Launch Shannon</strong></p>
 
@@ -76,7 +76,7 @@ Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.i
 
 Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
 
-Shannon is the agent. This repository is Shannon Open Source, the standalone pentester you run yourself. The same Shannon also powers the [Keygraph platform](https://keygraph.io), Keygraph's commercial pentesting product. See [Editions](#editions) for how Shannon Open Source compares with the platform's Community Program, Pro, and Enterprise editions.
+Shannon is the agent. This repository is Shannon, the open-source pentester you run yourself. The same Shannon also powers Keygraph's commercial editions, [Pro and Enterprise](https://keygraph.io/pricing). See [Editions](#editions) for how Shannon compares with Pro, Enterprise, and the Community Program.
 
 <a id="why-shannon-exists"></a>
 <details>
@@ -114,7 +114,7 @@ Shannon shifts pentesting left into the software development lifecycle (SDLC). U
 
 ![Shannon running an autonomous pentest](assets/Shannon3GIF.gif)
 
-These reports are from Shannon Open Source scans of Photoview 2.4.0, one of the applications in Doyensec's comparison of Aikido and XBOW. We ran Shannon against the same application version and evaluated its results separately. Read the [Doyensec study](https://doyensec.com/resources/ComparingAIApplicationSecurityTestingPlatforms_Doyensec.pdf) and our [Shannon follow-up comparison](docs/shannon-xbow-aikido-benchmark.md) for the methodology, limitations, costs, and results.
+These reports are from Shannon OSS scans of Photoview 2.4.0, one of the applications in Doyensec's comparison of Aikido and XBOW. We ran Shannon against the same application version and evaluated its results separately. Read the [Doyensec study](https://doyensec.com/resources/ComparingAIApplicationSecurityTestingPlatforms_Doyensec.pdf) and our [Shannon follow-up comparison](docs/shannon-xbow-aikido-benchmark.md) for the methodology, limitations, costs, and results.
 
 
 | Model             | Report                                                                       | SARIF                                                            |
@@ -235,18 +235,18 @@ See the [Shannon GitHub Action documentation](https://github.com/KeygraphHQ/shan
 
 ## Editions
 
-Shannon Lite is now Shannon Open Source. Shannon Pro is now the Keygraph platform.
+Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
 
 | Edition | What it is | Price |
 | --- | --- | --- |
-| **Shannon Open Source** (Shannon OSS) | This repository. A complete autonomous pentester you run yourself, locally or in CI/CD, against an application whose source code you have. Well suited to individual developers and small teams. | Open source under AGPL-3.0. You pay only your own model costs. |
-| **Community Program** | The full Keygraph platform, cloud-hosted, for U.S.-based 501(c)(3) nonprofits and for seed or pre-Series-A startups with 20 or fewer active developers. | $0 in cloud service fees while you qualify. |
-| **Pro** | The full Keygraph platform, cloud-hosted and managed by Keygraph, with every module included. | $50 per active developer per month. |
+| **Shannon** (open source) | This repository. A complete autonomous pentester you run yourself, locally or in CI/CD, against an application whose source code you have. Well suited to individual developers and small teams. | Open source under AGPL-3.0. You pay only your own model costs. |
+| **Community Program** | Keygraph Pro at no cost, for U.S.-based 501(c)(3) nonprofits and for seed or pre-Series-A startups with 20 or fewer active developers. | $0 in cloud service fees while you qualify. |
+| **Pro** | Keygraph's cloud-hosted edition, managed by Keygraph, with every module included. | $50 per active developer per month. |
 | **Enterprise** | Everything in Pro, self-hosted in your own environment or fully air-gapped. | Custom. |
 
 See [keygraph.io/pricing](https://keygraph.io/pricing) for current prices and the full feature table.
 
-The **Keygraph platform** runs an enterprise-hardened fork of Shannon. The Community Program, Pro, and Enterprise all add:
+**Pro**, **Enterprise**, and the **Community Program** run an enterprise-hardened fork of Shannon, and all three add:
 
 - **Black-box pentesting**: tests the running application from the outside, with no source code needed.
 - **Dependency (SCA) and secret checks**: SCA with reachability, and secrets scanning that includes repository history.
@@ -256,7 +256,7 @@ The **Keygraph platform** runs an enterprise-hardened fork of Shannon. The Commu
 
 No source code? Use the [Blackbox Pentester](https://keygraph.io/agentic-blackbox-pentester).
 
-[Learn about the Keygraph platform and compare editions →](docs/keygraph-platform.md)
+[Compare Shannon, Pro, and Enterprise in detail →](docs/keygraph-platform.md)
 
 ## Architecture
 
@@ -308,7 +308,7 @@ Use these guides for operational detail:
 | [Workspaces and resuming](docs/workspaces.md)             | Naming workspaces, resuming interrupted scans, and workspace storage.                                                                                                     |
 | [Safety and limitations](docs/safety.md)                  | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats.                                                                          |
 | [Coverage and roadmap](docs/coverage-roadmap.md)          | Current vulnerability coverage and planned work.                                                                                                                          |
-| [Keygraph platform](docs/keygraph-platform.md)            | Shannon Open Source compared with the Community Program, Pro, and Enterprise editions: black-box pentesting, SCA and secrets, findings management, fix pull requests, retests, Jira, and deployment. |
+| [Pro and Enterprise](docs/keygraph-platform.md)           | Shannon compared with Pro, Enterprise, and the Community Program: black-box pentesting, SCA and secrets, findings management, fix pull requests, retests, Jira, and deployment. |
 
 
 
@@ -321,7 +321,7 @@ You are responsible for using Shannon legally and ethically. Do not point Shanno
 
 Important limitations:
 
-- Shannon Open Source is tuned for fast, code-informed pentesting in everyday development and CI/CD. Exhaustive agentic SAST, broader scanner coverage, centralized governance, and full-lifecycle vulnerability management are delivered through the Keygraph platform, in its Community Program, Pro, and Enterprise editions.
+- Shannon is tuned for fast, code-informed pentesting in everyday development and CI/CD. Exhaustive agentic SAST, broader scanner coverage, centralized governance, and full-lifecycle vulnerability management are delivered through Pro, Enterprise, and the Community Program.
 - Findings still require human review. LLM-generated reports can contain weakly supported or incorrect details.
 - Anthropic, OpenAI, xAI, and AWS Bedrock are built-in providers, and any other provider in the harness catalogue works too — each reachable through a custom base URL that points it at a proxy or LLM gateway. Model capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker results.
 - A full run can take roughly 1 to 1.5 hours and may incur LLM API costs depending on model pricing and application complexity.
@@ -331,9 +331,9 @@ Read the full [Safety and limitations](docs/safety.md) guide before running Shan
 
 ## License
 
-Shannon Open Source is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Shannon is licensed under the [GNU Affero General Public License v3.0](LICENSE).
 
-Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including the Keygraph platform.
+Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including Keygraph Pro and Enterprise.
 
 For commercial licensing, contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
 
@@ -347,7 +347,7 @@ See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licensing and attribu
 
 ## About Keygraph
 
-**Keygraph** is the company behind Shannon. It also builds the **Keygraph platform**, the commercial agentic pentesting product that closes the full AppSec lifecycle and runs an enhanced build of Shannon as its pentesting engine.
+**Keygraph** is the company behind Shannon. It also builds **Keygraph Pro** and **Keygraph Enterprise**, the commercial editions that close the full AppSec lifecycle and run an enhanced build of Shannon as their pentesting engine.
 
 ## Community and Support
 
@@ -378,7 +378,7 @@ Stay connected:
 
 ### Can I self-host Shannon?
 
-Yes. Shannon Open Source runs inside your infrastructure in an ephemeral worker container. It mounts the repository read-only and writes results to a local workspace.
+Yes. Shannon runs inside your infrastructure in an ephemeral worker container. It mounts the repository read-only and writes results to a local workspace.
 
 Keygraph never receives your source code and never proxies your model traffic. Your model requests go straight to the provider or endpoint you configure, and they carry source and application context with them. Point Shannon at a locally hosted endpoint and that traffic stays inside your environment too.
 
