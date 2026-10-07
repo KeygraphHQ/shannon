@@ -76,7 +76,7 @@ Shannon is an autonomous AI pentester developed by [Keygraph](https://keygraph.i
 
 Shannon analyzes your web application's source code to identify potential attack vectors, then uses browser automation and command-line tools to execute real exploits against the running application and its APIs. Only vulnerabilities with a working proof-of-concept are included in the final report.
 
-Shannon is the agent. This repository is Shannon Open Source, the standalone pentester you run yourself. The same Shannon also powers the [Keygraph platform](https://keygraph.io), Keygraph's commercial pentesting product. See [Editions](#editions) for how the two compare.
+Shannon is the agent. This repository is Shannon Open Source, the standalone pentester you run yourself. The same Shannon also powers the [Keygraph platform](https://keygraph.io), Keygraph's commercial pentesting product. See [Editions](#editions) for how Shannon Open Source compares with the platform's Community Program, Pro, and Enterprise editions.
 
 <a id="why-shannon-exists"></a>
 <details>
@@ -235,11 +235,28 @@ See the [Shannon GitHub Action documentation](https://github.com/KeygraphHQ/shan
 
 ## Editions
 
-**Shannon Open Source** is a complete autonomous pentester, especially well suited to individual developers and small teams running focused security tests locally or in CI/CD.
+Shannon Lite is now Shannon Open Source. Shannon Pro is now the Keygraph platform.
 
-**Keygraph Enterprise Platform** is for organizations that need a shared platform for continuous agentic pentesting/AppSec across many teams, repositories, and environments. It centralizes deeper analysis, vulnerability management, remediation, verification, governance, and reporting so teams do not have to assemble and maintain those workflows themselves.
+| Edition | What it is | Price |
+| --- | --- | --- |
+| **Shannon Open Source** (Shannon OSS) | This repository. A complete autonomous pentester you run yourself, locally or in CI/CD, against an application whose source code you have. Well suited to individual developers and small teams. | Open source under AGPL-3.0. You pay only your own model costs. |
+| **Community Program** | The full Keygraph platform, cloud-hosted, for U.S.-based 501(c)(3) nonprofits and for seed or pre-Series-A startups with 20 or fewer active developers. | $0 in cloud service fees while you qualify. |
+| **Pro** | The full Keygraph platform, cloud-hosted and managed by Keygraph, with every module included. | $50 per active developer per month. |
+| **Enterprise** | Everything in Pro, self-hosted in your own environment or fully air-gapped. | Custom. |
 
-[Learn about the Keygraph Enterprise Platform and compare editions →](docs/keygraph-platform.md)
+See [keygraph.io/pricing](https://keygraph.io/pricing) for current prices and the full feature table.
+
+The **Keygraph platform** runs an enterprise-hardened fork of Shannon. The Community Program, Pro, and Enterprise all add:
+
+- **Black-box pentesting**: tests the running application from the outside, with no source code needed.
+- **Dependency (SCA) and secret checks**: SCA with reachability, and secrets scanning that includes repository history.
+- **Findings management**: one record per vulnerability per repository across scans and scanners, with status history, owners, SLAs, and dashboards.
+- **Fix pull requests and retests**: reviewable fix pull requests, with each fix verified by re-analysis and exploit replay, without a full rescan.
+- **Jira and access control**: two-way Jira sync, SSO, RBAC, and audit logs.
+
+No source code? Use the [Blackbox Pentester](https://keygraph.io/agentic-blackbox-pentester).
+
+[Learn about the Keygraph platform and compare editions →](docs/keygraph-platform.md)
 
 ## Architecture
 
@@ -291,7 +308,7 @@ Use these guides for operational detail:
 | [Workspaces and resuming](docs/workspaces.md)             | Naming workspaces, resuming interrupted scans, and workspace storage.                                                                                                     |
 | [Safety and limitations](docs/safety.md)                  | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats.                                                                          |
 | [Coverage and roadmap](docs/coverage-roadmap.md)          | Current vulnerability coverage and planned work.                                                                                                                          |
-| [Keygraph Enterprise Platform](docs/keygraph-platform.md) | Exhaustive agentic SAST, continuous pentesting, full-lifecycle finding management, remediation, targeted verification, enterprise governance, and on-premises deployment. |
+| [Keygraph platform](docs/keygraph-platform.md)            | Shannon Open Source compared with the Community Program, Pro, and Enterprise editions: black-box pentesting, SCA and secrets, findings management, fix pull requests, retests, Jira, and deployment. |
 
 
 
@@ -304,7 +321,7 @@ You are responsible for using Shannon legally and ethically. Do not point Shanno
 
 Important limitations:
 
-- Shannon Open Source is tuned for fast, code-informed pentesting in everyday development and CI/CD. Exhaustive agentic SAST, broader scanner coverage, centralized governance, and full-lifecycle vulnerability management are delivered through the Keygraph Enterprise Platform.
+- Shannon Open Source is tuned for fast, code-informed pentesting in everyday development and CI/CD. Exhaustive agentic SAST, broader scanner coverage, centralized governance, and full-lifecycle vulnerability management are delivered through the Keygraph platform, in its Community Program, Pro, and Enterprise editions.
 - Findings still require human review. LLM-generated reports can contain weakly supported or incorrect details.
 - Anthropic, OpenAI, xAI, and AWS Bedrock are built-in providers, and any other provider in the harness catalogue works too — each reachable through a custom base URL that points it at a proxy or LLM gateway. Model capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker results.
 - A full run can take roughly 1 to 1.5 hours and may incur LLM API costs depending on model pricing and application complexity.
