@@ -6,7 +6,7 @@
 
 It analyzes your source code, identifies attack paths, and executes real exploits to prove vulnerabilities before they reach production.
 
-**This package is Shannon Open Source: the full agent, run locally from your command line.**
+**This package is Shannon: the full open-source agent, run locally from your command line.**
 
 ---
 
@@ -41,7 +41,7 @@ Shannon pulls the worker image from Docker Hub, starts the required local infras
 
 ## Editions
 
-Shannon ships in two ways. **Shannon Open Source** is this package: the standalone pentester you run yourself, on demand, and complete in that lane. The **Keygraph platform** is the commercial product that runs an enhanced build of Shannon continuously and closes the full AppSec lifecycle around it - code analysis, finding management, automated remediation, verification, and enterprise deployment.
+**Shannon** is this package: the open-source pentester you run yourself, on demand, and complete in that lane. **Keygraph Pro** and **Keygraph Enterprise** are the commercial editions. They run an enhanced build of Shannon continuously and close the full AppSec lifecycle around it: code analysis, finding management, automated remediation, verification, and enterprise deployment. The **Community Program** offers Pro at no cost to organizations that qualify. See [keygraph.io/pricing](https://keygraph.io/pricing).
 
 ## Documentation
 
@@ -49,9 +49,9 @@ Shannon ships in two ways. **Shannon Open Source** is this package: the standalo
 
 ## License
 
-Shannon Open Source is licensed under the [GNU Affero General Public License v3.0](https://github.com/KeygraphHQ/shannon/blob/main/LICENSE).
+Shannon is licensed under the [GNU Affero General Public License v3.0](https://github.com/KeygraphHQ/shannon/blob/main/LICENSE).
 
-Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including the Keygraph platform.
+Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including Keygraph Pro and Enterprise.
 
 For commercial licensing, contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
 

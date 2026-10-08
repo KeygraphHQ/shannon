@@ -1,6 +1,6 @@
 # Shannon
 
-> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon, the AGPL-3.0 open-source white-box pentesting CLI. The Keygraph platform is Keygraph's commercial continuous pentesting and AppSec platform.
+> Shannon is an autonomous AI pentesting project by Keygraph. This repository contains Shannon, the AGPL-3.0 open-source white-box pentesting CLI. Keygraph Pro and Keygraph Enterprise are Keygraph's commercial continuous pentesting and AppSec editions.
 
 Use this file as the concise entry point for AI agents and LLMs reading this repository. For a single combined context file, use [llms-full.txt](llms-full.txt).
 
@@ -18,12 +18,13 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.
 - [Coverage and Roadmap](docs/coverage-roadmap.md): Current Shannon coverage and roadmap direction.
 
-## Keygraph Platform
+## Keygraph Pro and Enterprise
 
-- [Keygraph platform](docs/keygraph-platform.md): Commercial continuous pentesting and AppSec platform, including black-box and white-box pentesting, parsed-code SAST, source-to-sink analysis, remediation workflows, CI/CD gating, SLA tracking, reporting, and enterprise deployment.
+- [Pro and Enterprise](docs/keygraph-platform.md): Keygraph's commercial continuous pentesting and AppSec editions, compared edition by edition with Shannon. The Community Program, Pro, and Enterprise all include black-box and white-box pentesting, parsed-code SAST, SCA and secrets scanning, findings management, fix pull requests and retests, Jira sync, and SSO, RBAC, and audit logs. Pro and the Community Program are cloud-hosted; Enterprise is self-hosted or air-gapped. Shannon Lite is now just Shannon. Shannon Pro is now Keygraph Pro.
 
 ## External Links
 
 - [Keygraph website](https://keygraph.io): Company and commercial product information.
-- [Keygraph demo](https://cal.com/team/keygraph/shannon-pro): Demo and trial contact path.
+- [Keygraph pricing](https://keygraph.io/pricing): Prices and the feature table for Shannon, the Community Program, Pro, and Enterprise.
+- [Keygraph demo](https://cal.com/team/keygraph/keygraph-technical-demo): Technical demo booking.
 - [Community Discord](https://discord.gg/cmctpMBXwE): Community support and discussion.

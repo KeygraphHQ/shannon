@@ -17,6 +17,7 @@
 
 #let tester-override = sys.inputs.at("tester", default: "Shannon")
 #let brand = sys.inputs.at("brand", default: "Shannon | AI Pentester by Keygraph")
+#let keygraph-url = "https://keygraph.io"
 
 // ---------- Palette ---------------------------------------------------------
 // Kept distinct so Critical / High are not confused under monitor gamma.
@@ -214,80 +215,65 @@
 // Render an array of strings as a bulleted list with inline-code support.
 #let code-list(items) = list(..items.map(inline-code))
 
-#let kv(label, value) = grid(
-  columns: (auto, 1fr),
-  column-gutter: 14pt,
-  row-gutter: 4pt,
-  text(fill: muted, size: 9.5pt)[#label],
-  value,
-)
-
 // ---------- COVER PAGE ------------------------------------------------------
+#let cover-label(s) = text(size: 6.5pt, fill: muted, weight: "semibold", tracking: 1.2pt)[#upper(s)]
+#let cover-field(label, value) = stack(spacing: 5pt, cover-label(label), value)
+
 #page(header: none, footer: none)[
   #set align(left)
-  #v(3.2cm)
-
   #let brand-parts = brand.split("|").map(p => p.trim())
-  #grid(
-    columns: (auto, 1fr),
-    column-gutter: 8pt,
-    align: (horizon, horizon),
-    image("/assets/keygraph-logo.png", width: 1.6cm),
-    {
-      set par(leading: 0.6em)
-      text(size: 11pt, fill: ink, weight: "semibold", tracking: 1.2pt)[
-        #upper(brand-parts.at(0))
-      ]
-      if brand-parts.len() > 1 {
-        linebreak()
-        text(size: 9pt, fill: muted, weight: "regular")[
-          #brand-parts.slice(1).join(" ")
-        ]
-      }
-    }
-  )
-  #set par(leading: 0.7em)
 
-  #v(1.6cm)
-  #set par(leading: 0.4em)
-  #text(size: 46pt, weight: "bold", fill: ink)[
-    Security\
-    Assessment\
-    Report
+  // Header: the Keygraph wordmark (about 5:1, sized by height) and the
+  // classification as an outlined tag, over a hair rule.
+  #grid(
+    columns: (1fr, auto),
+    align: (left + horizon, right + horizon),
+    link(keygraph-url, image("/assets/keygraph-logo.png", height: 0.45cm)),
+    box(
+      stroke: 0.8pt + ink,
+      radius: 1.5pt,
+      inset: (x: 5pt, y: 2.5pt),
+      text(size: 6.5pt, fill: ink, weight: "semibold", tracking: 1.4pt)[#upper(data.meta.classification)],
+    ),
+  )
+  #v(0.5cm)
+  #line(length: 100%, stroke: 0.3pt + rule)
+
+  // The title sits in a zero-spacing block so the gaps around it are exactly
+  // the v() values (paragraph spacing would otherwise scale with the 46pt text).
+  #v(4.3cm)
+  #block(spacing: 0pt, {
+    set par(leading: 0.4em)
+    text(size: 46pt, weight: "bold", fill: ink)[Security\ Assessment\ Report]
+  })
+  #v(1.35cm)
+  #cover-field("Target", text(size: 12pt, fill: ink)[#data.meta.target])
+  #if "application" in data.meta and data.meta.application != none [
+    #v(0.5cm)
+    #cover-field("Application", text(size: 12pt, fill: ink)[#data.meta.application])
   ]
-  #set par(leading: 0.7em)
 
   #v(1fr)
 
   #line(length: 100%, stroke: 0.3pt + rule)
-  #v(0.6cm)
+  #v(0.9cm)
 
   #grid(
-    columns: (1fr, 1fr),
-    column-gutter: 28pt,
-    row-gutter: 14pt,
-    grid(
-      columns: (auto, 1fr),
-      column-gutter: 18pt,
-      row-gutter: 14pt,
-      text(fill: muted, size: 9pt)[Target],      text(size: 10pt)[#inline-code(data.meta.target)],
-      text(fill: muted, size: 9pt)[Date],        text(size: 10pt)[#data.meta.assessmentDate],
-      ..(if "application" in data.meta and data.meta.application != none {
-        (text(fill: muted, size: 9pt)[Application], text(size: 10pt)[#inline-code(data.meta.application)])
+    columns: (1fr, 1fr, 1fr),
+    column-gutter: 18pt,
+    cover-field("Date", text(size: 9.5pt)[#data.meta.assessmentDate]),
+    cover-field("Status", text(size: 9.5pt)[#assessment-status]),
+    cover-field("Tester", stack(
+      spacing: 4pt,
+      text(size: 9.5pt)[#tester-override],
+      ..(if brand-parts.len() > 1 {
+        (link(keygraph-url, text(size: 8pt, fill: muted)[#brand-parts.slice(1).join(" ")]),)
       } else { () }),
-    ),
-    grid(
-      columns: (auto, 1fr),
-      column-gutter: 18pt,
-      row-gutter: 14pt,
-      text(fill: muted, size: 9pt)[Tester],         text(size: 10pt)[#tester-override],
-      text(fill: muted, size: 9pt)[Classification],
-        text(size: 10pt, weight: "semibold")[#data.meta.classification],
-    ),
+    )),
   )
 
-  #v(0.8cm)
-  #text(size: 8pt, fill: muted)[
+  #v(1cm)
+  #text(size: 7pt, fill: muted)[
     This document contains sensitive security findings.
     Handle in accordance with your organization's data classification policy.
   ]
