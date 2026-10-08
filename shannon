@@ -1,10 +1,30 @@
 #!/usr/bin/env node
+import { existsSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
+
 const npxFlagIndex = process.env.SHANNON_DEV === '1' ? process.argv.indexOf('--npx') : -1;
 
 if (npxFlagIndex === -1) {
   process.env.SHANNON_LOCAL = '1';
 } else {
   process.argv.splice(npxFlagIndex, 1);
+}
+
+const cliDistPath = fileURLToPath(new URL('./apps/cli/dist/index.mjs', import.meta.url));
+
+if (!existsSync(cliDistPath)) {
+  const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+  const buildCommand = process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm';
+  const buildResult = spawnSync(buildCommand, ['--dir', path.join(repoRoot, 'apps/cli'), 'run', 'build'], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+
+  if (buildResult.status !== 0) {
+    process.exit(buildResult.status ?? 1);
+  }
 }
 
 import('./apps/cli/dist/index.mjs');
