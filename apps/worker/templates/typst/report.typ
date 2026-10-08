@@ -239,16 +239,14 @@
   #v(0.5cm)
   #line(length: 100%, stroke: 0.3pt + rule)
 
-  #v(3.6cm)
-  #set par(leading: 0.4em)
-  #text(size: 46pt, weight: "bold", fill: ink)[
-    Security\
-    Assessment\
-    Report
-  ]
-  #set par(leading: 0.7em)
-
-  #v(0.9cm)
+  // The title sits in a zero-spacing block so the gaps around it are exactly
+  // the v() values (paragraph spacing would otherwise scale with the 46pt text).
+  #v(4.3cm)
+  #block(spacing: 0pt, {
+    set par(leading: 0.4em)
+    text(size: 46pt, weight: "bold", fill: ink)[Security\ Assessment\ Report]
+  })
+  #v(1.35cm)
   #cover-field("Target", text(size: 12pt, fill: ink)[#data.meta.target])
   #if "application" in data.meta and data.meta.application != none [
     #v(0.5cm)
