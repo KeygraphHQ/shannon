@@ -184,6 +184,9 @@ async function waitForWorkflowClosure(
 /**
  * Request cooperative cancellation, then make at most two termination attempts when the
  * workflow does not close during its grace period. Every success is backed by direct state.
+ *
+ * A grace of zero skips the cooperative phase and terminates directly: a workflow with no live
+ * worker can never honour a cooperative cancel, so callers pass `graceMs = 0` for those targets.
  */
 export async function stopWorkflowCancelFirst(
   workflowId: string,
@@ -192,14 +195,16 @@ export async function stopWorkflowCancelFirst(
   pollMs: number = CANCELLATION_POLL_MS,
   verifyMs: number = TERMINATION_VERIFY_MS,
 ): Promise<WorkflowStopOutcome> {
-  try {
-    if ((await lifecycle.cancel(workflowId)) === 'not-found') return { kind: 'already-closed' };
-  } catch {
-    // The request may have reached Temporal even when its acknowledgement was lost.
-  }
+  if (graceMs > 0) {
+    try {
+      if ((await lifecycle.cancel(workflowId)) === 'not-found') return { kind: 'already-closed' };
+    } catch {
+      // The request may have reached Temporal even when its acknowledgement was lost.
+    }
 
-  if (await waitForWorkflowClosure(workflowId, lifecycle, lifecycle.now() + graceMs, pollMs)) {
-    return { kind: 'graceful' };
+    if (await waitForWorkflowClosure(workflowId, lifecycle, lifecycle.now() + graceMs, pollMs)) {
+      return { kind: 'graceful' };
+    }
   }
 
   const verifyPerAttemptMs = Math.max(pollMs, Math.ceil(verifyMs / TERMINATION_ATTEMPTS));
@@ -225,16 +230,21 @@ export async function stopWorkflowCancelFirst(
   return { kind: 'unverified' };
 }
 
-/** Apply the same bounded lifecycle concurrently to a captured set of workflow IDs. */
+/**
+ * Apply the bounded lifecycle concurrently to a captured set of targets, preserving input order in
+ * the returned outcomes. A target with no live worker (`containerCandidate === false`) gets no grace.
+ */
 export async function stopWorkflowsCancelFirst(
-  workflowIds: readonly string[],
+  targets: readonly WorkflowStopTarget[],
   lifecycle: StopLifecycle = stopLifecycle,
   graceMs: number = CANCELLATION_GRACE_MS,
   pollMs: number = CANCELLATION_POLL_MS,
   verifyMs: number = TERMINATION_VERIFY_MS,
 ): Promise<readonly WorkflowStopOutcome[]> {
   const settlements = await Promise.allSettled(
-    workflowIds.map((workflowId) => stopWorkflowCancelFirst(workflowId, lifecycle, graceMs, pollMs, verifyMs)),
+    targets.map((target) =>
+      stopWorkflowCancelFirst(target.workflowId, lifecycle, target.containerCandidate ? graceMs : 0, pollMs, verifyMs),
+    ),
   );
   return settlements.map((settlement) =>
     settlement.status === 'fulfilled' ? settlement.value : { kind: 'unverified' },
@@ -378,13 +388,7 @@ export async function executeStopPlan(
   verifyMs: number = TERMINATION_VERIFY_MS,
   candidateSettleMs: number = CANDIDATE_REGISTRATION_SETTLE_MS,
 ): Promise<StopExecutionResult> {
-  const initialOutcomes = await stopWorkflowsCancelFirst(
-    targets.map((target) => target.workflowId),
-    lifecycle,
-    graceMs,
-    pollMs,
-    verifyMs,
-  );
+  const initialOutcomes = await stopWorkflowsCancelFirst(targets, lifecycle, graceMs, pollMs, verifyMs);
   const outcomes = new Map<string, WorkflowStopOutcome>();
   for (let index = 0; index < targets.length; index++) {
     const target = targets[index];
@@ -717,10 +721,7 @@ export async function stopVisibleWorkflowsUntilSettled(
           recheckedAlreadyClosed.add(target.workflowId);
         }
       }
-      const outcomes = await stopWorkflowsCancelFirst(
-        residualTargets.map((target) => target.workflowId),
-        lifecycle,
-      );
+      const outcomes = await stopWorkflowsCancelFirst(residualTargets, lifecycle);
       for (let index = 0; index < residualTargets.length; index++) {
         const target = residualTargets[index];
         const outcome = outcomes[index];
@@ -758,6 +759,12 @@ async function stopAllScans(yes: boolean): Promise<void> {
     }
     if (initialDiscovery.kind === 'unavailable') {
       fail('Could not verify whether scan workflows are running in Temporal.', `Retry: ${commandPrefix()} stop --all`);
+    }
+    // The settle loop below only catches a scan whose workflow is mid-launch and not yet visible,
+    // and such a launch always leaves a pending record. With none, nothing can appear — skip it.
+    if (pending.references.length === 0) {
+      console.log('No running scans to stop.');
+      return;
     }
     const emptySettleDeadline = stopLifecycle.now() + VISIBILITY_MAX_SETTLE_MS;
     while (targets.length === 0) {

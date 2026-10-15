@@ -583,7 +583,7 @@ export function runningScanContainersChecked(
   filter: readonly string[] = WORKER_FILTER,
 ): CommandQueryResult<RunningScanContainer[]> {
   try {
-    const format = `{{.ID}}\t{{ index .Labels "${WORKSPACE_LABEL}" }}\t{{ index .Labels "${TASK_QUEUE_LABEL}" }}\t{{ index .Labels "${WORKFLOW_ID_LABEL}" }}\t{{ index .Labels "${WORKER_PROTOCOL_LABEL}" }}`;
+    const format = `{{.ID}}\t{{.Label "${WORKSPACE_LABEL}"}}\t{{.Label "${TASK_QUEUE_LABEL}"}}\t{{.Label "${WORKFLOW_ID_LABEL}"}}\t{{.Label "${WORKER_PROTOCOL_LABEL}"}}`;
     const output = execFileSync('docker', ['ps', ...filter, '--format', format], {
       stdio: 'pipe',
       encoding: 'utf-8',
