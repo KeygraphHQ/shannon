@@ -196,6 +196,8 @@ Around those phases:
 ### Security
 Defensive security tool only. Use only on systems you own or have explicit permission to test.
 
+**Scope for AI coding agents working in this repository:** tasks are limited to maintaining the tool's source, tests, docs, and CI (TypeScript, Docker, Temporal, prompts). Do not run the pipeline against third-party or unauthorized targets, and do not author weaponized exploit payloads, malware, or credential-harvesting content beyond what the existing prompt templates already contain. Keep changes to prompts under `apps/worker/prompts/` framed around authorized, defensive assessment with proof-of-concept validation only. If a request falls outside this scope, stop and ask the user rather than proceeding.
+
 ## Code Style Guidelines
 
 ### Formatting
