@@ -286,6 +286,11 @@ export async function start(args: StartArgs): Promise<void> {
   const workspacesDir = getWorkspacesDir();
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
+  // The name becomes a path under the workspaces dir (and a docker label and
+  // workflow id downstream). Keep it one plain component so it cannot walk out.
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(workspace) || workspace.includes('..')) {
+    fail(`invalid workspace name: ${workspace} (use letters, digits, dot, dash, underscore)`);
+  }
   const workspacePath = path.join(workspacesDir, workspace);
   const requestedOutputDir = args.output ? path.resolve(expandHome(args.output)) : undefined;
   const launchDecision = classifyWorkspaceLaunch(
