@@ -218,10 +218,14 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     failUsage('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
+  let parsedUrl: URL;
   try {
-    new URL(url);
+    parsedUrl = new URL(url);
   } catch {
     failUsage(`invalid --url: ${url}`);
+  }
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
+    failUsage(`invalid --url: ${url} (only http and https targets are supported)`);
   }
 
   if (flags.authOnly && flags.validateModel) {
