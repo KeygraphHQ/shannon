@@ -1,5 +1,5 @@
 > [!NOTE]
-> **[Cyber verification for Anthropic and OpenAI models](https://github.com/KeygraphHQ/shannon/discussions/483):** complete your provider's cyber verification program to prevent model failures and refusals during cyber workloads.
+> **[php2shell upgrade verification](docs/exp-php2shell.md):** confirm your PHP apps are patched against the php2shell RCE chain with the experimental `--exp-php2shell` probe. See the [test results](docs/exp-php2shell-testing.md).
 
 <div align="center">
 

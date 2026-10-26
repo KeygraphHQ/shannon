@@ -13,6 +13,7 @@ import * as p from '@clack/prompts';
 import { ensureDocker, ensureImage, ensureInfra, randomSuffix, spawnWorker } from '../docker.js';
 import { buildEnvFlags, loadEnv, resolveHostPiAuthPath, shouldUsePiAuth, validateCredentials } from '../env.js';
 import { fail, warn } from '../errors.js';
+import { runExpPhp2shell } from '../exp-php2shell/run.js';
 import { getWorkspacesDir, initHome } from '../home.js';
 import { commandPrefix, isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
@@ -52,6 +53,8 @@ export interface StartArgs {
   follow: boolean;
   authOnly: boolean;
   validateModel: boolean;
+  php2shell: boolean;
+  yes: boolean;
   version: string;
 }
 
@@ -272,6 +275,17 @@ export async function start(args: StartArgs): Promise<void> {
   // Validation-only runs are short and have no report to come back for, so they always stream to the end.
   const validationOnly = args.authOnly || args.validateModel;
   if (validationOnly) args.follow = true;
+
+  // --exp-php2shell is an experimental probe that runs entirely in the CLI (no worker, Temporal, or
+  // Docker). It prints the verdict and returns before any scan infrastructure is touched.
+  if (args.php2shell) {
+    await runExpPhp2shell({
+      url: args.url,
+      yes: args.yes,
+      ...(args.output && { output: args.output }),
+    });
+    return;
+  }
 
   // 1. Resolve non-mutating inputs and classify the workspace before changing it.
   initHome();

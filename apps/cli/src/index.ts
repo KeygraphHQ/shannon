@@ -191,6 +191,8 @@ interface ParsedStartArgs {
   follow: boolean;
   authOnly: boolean;
   validateModel: boolean;
+  php2shell: boolean;
+  yes: boolean;
 }
 
 function parseStartArgs(argv: string[]): ParsedStartArgs {
@@ -209,13 +211,19 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
       follow: ['-f', '--follow'],
       authOnly: ['--validate-auth'],
       validateModel: ['--validate-model'],
+      php2shell: ['--exp-php2shell'],
+      yes: ['-y', '--yes'],
     },
   });
 
   const url = values.url ?? '';
   const repo = values.repo ?? '';
-  if (!url || !repo) {
-    failUsage('--url and --repo are required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
+  if (!url) {
+    failUsage('--url is required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
+  }
+  // --exp-php2shell is a network probe and does not read a repository, so -r is optional for it.
+  if (!repo && !flags.php2shell) {
+    failUsage('--repo is required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
   try {
@@ -226,6 +234,10 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
 
   if (flags.authOnly && flags.validateModel) {
     failUsage('--validate-auth and --validate-model cannot be combined; run one validation at a time');
+  }
+
+  if (flags.php2shell && (flags.authOnly || flags.validateModel)) {
+    failUsage('--exp-php2shell cannot be combined with --validate-auth or --validate-model');
   }
 
   if (flags.authOnly && !values.config) {
@@ -243,6 +255,8 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     follow: !!flags.follow,
     authOnly: !!flags.authOnly,
     validateModel: !!flags.validateModel,
+    php2shell: !!flags.php2shell,
+    yes: !!flags.yes,
     ...(values.config && { config: values.config }),
     ...(values.modelsConfig && { modelsConfig: values.modelsConfig }),
     ...(values.workspace && { workspace: values.workspace }),
