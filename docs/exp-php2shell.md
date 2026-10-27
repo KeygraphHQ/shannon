@@ -13,7 +13,7 @@ The `--exp-php2shell` flag tests CVE-2026-109618, the first php2shell CVE: a PHP
 Upgrade PHP first, then run the probe against a staging or local deployment to confirm the fix landed:
 
 ```
-shannon start --exp-php2shell -u https://staging.example.com
+npx @keygraph/shannon start --exp-php2shell -u https://staging.example.com
 ```
 
 Before sending anything, the probe shows a confirmation prompt, because it will crash one PHP worker on the target.
