@@ -23,6 +23,9 @@
     "onlyBuiltDependencies": [
       "@swc/core",
       "protobufjs"
-    ]
+    ],
+    "overrides": {
+      "proxy-addr": "2.0.8"
+    }
   }
 }
