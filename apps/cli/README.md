@@ -10,7 +10,7 @@ It analyzes your source code, identifies attack paths, and executes real exploit
 
 ---
 
-<a href="https://discord.gg/9ZqQPuhJB7"><img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/discord_button_light.png" height="40" alt="Join Discord"></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://keygraph.io/"><img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/keygraph_button_light.png" height="40" alt="Visit Keygraph.io"></a>
+<a href="https://discord.gg/9ZqQPuhJB7"><img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/discord_button_light.png" height="40" alt="Join Discord"></a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<a href="https://keygraph.io/?utm_source=npm&amp;utm_medium=referral&amp;utm_campaign=shannon_oss_2026q4&amp;utm_content=readme_header_button"><img src="https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/keygraph_button_light.png" height="40" alt="Visit Keygraph.io"></a>
 
 ---
 
@@ -41,7 +41,7 @@ Shannon pulls the worker image from Docker Hub, starts the required local infras
 
 ## Editions
 
-**Shannon** is this package: the open-source pentester you run yourself, on demand, and complete in that lane. **Keygraph Pro** and **Keygraph Enterprise** are the commercial editions. They run an enhanced build of Shannon continuously and close the full AppSec lifecycle around it: code analysis, finding management, automated remediation, verification, and enterprise deployment. The **Community Program** offers Pro at no cost to organizations that qualify. See [keygraph.io/pricing](https://keygraph.io/pricing).
+**Shannon** is this package: the open-source pentester you run yourself, on demand, and complete in that lane. **Keygraph Pro** and **Keygraph Enterprise** are the commercial editions. They run an enhanced build of Shannon continuously and close the full AppSec lifecycle around it: code analysis, finding management, automated remediation, verification, and enterprise deployment. The **Community Program** offers Pro at no cost to organizations that qualify. See [keygraph.io/pricing](https://keygraph.io/pricing?utm_source=npm&utm_medium=referral&utm_campaign=shannon_oss_2026q4&utm_content=readme_editions_pricing).
 
 ## Documentation
 
@@ -56,5 +56,5 @@ Commercial and enterprise licensing is available for organizations that need dif
 For commercial licensing, contact [shannon@keygraph.io](mailto:shannon@keygraph.io).
 
 <p align="center">
-  <b>Built by <a href="https://keygraph.io">Keygraph</a></b>
+  <b>Built by <a href="https://keygraph.io/?utm_source=npm&amp;utm_medium=referral&amp;utm_campaign=shannon_oss_2026q4&amp;utm_content=readme_footer">Keygraph</a></b>
 </p>
