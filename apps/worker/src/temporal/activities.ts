@@ -25,7 +25,7 @@ import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js'
 import { AuditSession } from '../audit/index.js';
 import type { ResumeAttempt } from '../audit/metrics-tracker.js';
 import type { WorkflowPhase } from '../audit/safe-fields.js';
-import { authStateFile, generateAuditPath, type SessionMetadata } from '../audit/utils.js';
+import { authStateFile, generateAuditPath, oauthConfigFile, type SessionMetadata } from '../audit/utils.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { CheckpointContext } from '../interfaces/checkpoint-provider.js';
 import {
@@ -2020,6 +2020,23 @@ export async function logWorkflowComplete(input: ActivityInput, summary: Workflo
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.warn(`Failed to clean up auth-state.json: ${detail}`);
+  }
+
+  // 7b. Drop the API-flow OAuth config and any cached bearer tokens for the same reason: the
+  // client secret and issued tokens must not outlive the scan. Also best-effort.
+  try {
+    const oauthConfig = oauthConfigFile(sessionMetadata);
+    await fs.rm(oauthConfig, { force: true });
+    const dir = path.dirname(oauthConfig);
+    const entries = await fs.readdir(dir).catch(() => [] as string[]);
+    await Promise.all(
+      entries
+        .filter((name) => name.startsWith('.oauth-token-') && name.endsWith('.json'))
+        .map((name) => fs.rm(path.join(dir, name), { force: true })),
+    );
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    console.warn(`Failed to clean up oauth-config.json / token cache: ${detail}`);
   }
 
   // 8. Clean up container
