@@ -27,4 +27,7 @@ export function saveConfig(config: ShannonConfig): void {
 
   const content = stringify(config);
   fs.writeFileSync(configPath, content, { mode: 0o600 });
+  // Node applies `mode` only when creating the file. A rewrite of an existing
+  // config with looser permissions keeps them, so enforce 0o600 every time.
+  fs.chmodSync(configPath, 0o600);
 }
