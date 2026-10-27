@@ -33,7 +33,7 @@ Each PHP image was run at its default configuration with no php.ini overrides un
 
 Two test passes were run against every target:
 
-1. **CLI binary.** The shipped `shannon start --exp-php2shell` command, using all available signals (crash detection and version headers).
+1. **CLI binary.** The shipped `npx @keygraph/shannon start --exp-php2shell` command, using all available signals (crash detection and version headers).
 2. **Crash-only harness.** A direct module harness that strips `X-Powered-By` and `Server` headers from the control response before classification, forcing the classifier to rely solely on the crash signal.
 
 ### CLI Binary Results
