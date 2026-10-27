@@ -102,7 +102,7 @@ These layers provide real protection and are good practice regardless. But they 
 ## Caveats
 
 - If `expose_php` and `display_errors` are both off, the tool has no observable signal. The crash still occurs server-side but produces no externally visible evidence. The tool reports "not detected" with a note that the version could not be independently confirmed. Checking `php -v` on the server directly is the only way to verify in this configuration.
-- Distro-backported patches (common on Debian, Ubuntu, RHEL) may fix the vulnerability under the original version number. The version-based check would report "detected" for a server that is actually patched. The crash-based check remains accurate: if the crash is not observed, the fix is in place regardless of the version string.
+- Distro-backported patches (common on Debian, Ubuntu, RHEL) may fix the vulnerability under the original version number. The version-based check would report "detected" for a server that is actually patched. A missing crash signal does not by itself confirm that a backported fix is installed. Verify the package's patch status against the distribution's security advisory.
 - PHP 8.1 and earlier are end-of-life and receive no official patch. The tool can confirm the crash is reachable, but the only remediation is upgrading to a supported branch (8.2+).
 - Behind nginx or Apache, a request body-size limit at or below the full probe size blocks the probe before it reaches PHP. On PHP-FPM behind nginx at the default `client_max_body_size` of 1 MiB, the probe is rejected with a 413 and the result is inconclusive. Raising the limit for a controlled test, or probing PHP directly, lets the full probe through.
 
