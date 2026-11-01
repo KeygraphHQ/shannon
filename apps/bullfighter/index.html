@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#090b0e" />
+    <meta name="description" content="Explore Kenya's bull market, championship events, and your Bull Coin wallet." />
+    <link rel="manifest" href="./manifest.webmanifest" />
+    <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="./styles.css" />
+    <title>Bullfighter — Kenya Livestock Investment</title>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <button class="icon-button menu-button" type="button" aria-label="Open menu" data-view-link="market">☰</button>
+        <a class="brand" href="#market" aria-label="Bullfighter Market" data-view-link="market">
+          <span class="brand-mark" aria-hidden="true"><img src="./bull-mark.svg" alt="" /></span>
+          <span class="brand-copy"><strong>BULLFIGHTER</strong><small>KENYA LIVESTOCK INVESTMENT</small></span>
+        </a>
+        <div class="topbar-actions">
+          <button class="icon-button notification-button" type="button" aria-label="View notifications" data-view-link="wallet">♧<i></i></button>
+          <button class="avatar-button" type="button" aria-label="Open profile" data-view-link="profile">M</button>
+        </div>
+      </header>
+
+      <main>
+        <section class="view active" id="view-market" aria-labelledby="market-title">
+          <div class="page-title-row">
+            <div><p class="eyebrow">KENYA LIVESTOCK INVESTMENT</p><h1 id="market-title">Bull Market</h1></div>
+            <span class="verified-market"><span aria-hidden="true">♢</span> VERIFIED FIGHTERS</span>
+          </div>
+          <div class="market-banner"><span class="banner-icon"><img src="./bull-mark.svg" alt="" /></span><div><strong>Invest in the arena.</strong><span>Own a share in Kenya's finest bulls.</span></div><span class="banner-arrow">↗</span></div>
+          <div class="filter-row" role="group" aria-label="Filter bulls">
+            <button class="filter-chip selected" type="button" data-bull-filter="all">All fighters</button>
+            <button class="filter-chip" type="button" data-bull-filter="champion">Champions</button>
+            <button class="filter-chip" type="button" data-bull-filter="rising">Rising stars</button>
+          </div>
+          <div class="bull-list" data-bull-list></div>
+          <p class="demo-disclaimer">Demo marketplace for illustration only. Bull profiles, prices, share availability, and records are sample data—not an offer to invest. No real investment or payment is processed.</p>
+        </section>
+
+        <section class="view" id="view-portfolio" aria-labelledby="portfolio-title" hidden>
+          <div class="page-title-row portfolio-heading">
+            <div><p class="eyebrow">YOUR INVESTMENTS</p><h1 id="portfolio-title">My Portfolio</h1><p class="page-subtitle">Bullfighter Portfolio <span>· Kenya Bull Fighting Market</span></p></div>
+            <span class="verified-market"><span aria-hidden="true">♢</span> VERIFIED MARKET</span>
+          </div>
+          <div class="holdings-list" data-holdings></div>
+          <article class="portfolio-summary">
+            <div class="summary-top"><span class="summary-icon">↗</span><div><span class="muted">Total Current Value</span><strong data-total-value>KES 0</strong></div><div class="summary-gain"><strong>↑ <span data-total-gain>0.00%</span></strong><span class="muted">Overall Gain</span></div></div>
+            <button class="outline-button" type="button" data-view-link="market"><span class="market-button-icon"><img src="./bull-mark.svg" alt="" /></span> VIEW MARKET <b>›</b></button>
+          </article>
+          <p class="demo-disclaimer">Portfolio values and returns are simulated examples and are not financial advice or real investment performance.</p>
+        </section>
+
+        <section class="view" id="view-events" aria-labelledby="events-title" hidden>
+          <div class="page-title-row">
+            <div><p class="eyebrow">LIVE FROM THE ARENA</p><h1 id="events-title">Events &amp; Tickets</h1></div>
+            <button class="outline-button tickets-button" type="button" data-view-link="wallet"><span>▤</span> My Tickets</button>
+          </div>
+          <div class="filter-row" role="group" aria-label="Filter event listings">
+            <button class="filter-chip selected" type="button" data-event-filter="all">All events</button>
+            <button class="filter-chip" type="button" data-event-filter="championship">Championship</button>
+            <button class="filter-chip" type="button" data-event-filter="underground">Underground</button>
+          </div>
+          <div class="event-list" data-event-list></div>
+          <p class="demo-disclaimer">Illustrative fixture dates and ticket prices. Check with event organizers for confirmed schedules. Checkout is a demo; no tickets are issued or payments collected.</p>
+        </section>
+
+        <section class="view" id="view-wallet" aria-labelledby="wallet-title" hidden>
+          <div class="page-title-row wallet-heading"><div><p class="eyebrow">YOUR BULLFIGHTER WALLET</p><h1 id="wallet-title">Bull Coin</h1></div><span class="wallet-country">🇰🇪 <span>Kenya</span></span></div>
+          <article class="coin-card">
+            <div class="coin-card-head"><span class="coin-emblem"><img src="./bull-mark.svg" alt="" /></span><div><strong>Bull Coin Balance</strong><span>BC Balance</span></div></div>
+            <strong class="big-balance"><span data-wallet-balance>12,500</span> BC</strong>
+            <p class="kes-equivalent">≈ KES <strong data-wallet-kes>12,500</strong></p>
+            <img class="coin-watermark" src="./bull-mark.svg" alt="" />
+            <span class="coin-flag">Kenya&nbsp; 🇰🇪</span>
+          </article>
+          <div class="wallet-actions">
+            <button class="outline-button" type="button" data-wallet-action="topup"><span class="mpesa-mark">M</span> Buy with M-Pesa</button>
+            <button class="secondary-button" type="button" data-wallet-action="pay"><span>➜</span> Pay Seller</button>
+          </div>
+          <div class="section-heading"><h2>Recent Activity</h2><button class="text-button" type="button" data-view-link="portfolio">View All <span>›</span></button></div>
+          <div class="activity-list" data-activity-list></div>
+          <p class="demo-disclaimer">Demo wallet only. Bull Coin has no cash value here. M-Pesa, seller payments, and conversions are not connected and cannot be performed.</p>
+        </section>
+
+        <section class="view" id="view-detail" aria-labelledby="detail-title" hidden>
+          <button class="back-link" type="button" data-view-link="market">‹ <span>Back to Market</span></button>
+          <article class="bull-detail" data-bull-detail></article>
+        </section>
+
+        <section class="view" id="view-profile" aria-labelledby="profile-title" hidden>
+          <div class="page-title-row"><div><p class="eyebrow">ACCOUNT</p><h1 id="profile-title">Your Profile</h1></div></div>
+          <article class="profile-card"><span class="profile-avatar">M</span><div><h2>Market Member</h2><p>Demo Bullfighter account</p></div><span class="verified-badge">✓ VERIFIED</span></article>
+          <div class="profile-links">
+            <button class="profile-link" type="button" data-view-link="wallet"><span>◈</span> Bull Coin wallet <b>›</b></button>
+            <button class="profile-link" type="button" data-view-link="portfolio"><span>▥</span> My portfolio <b>›</b></button>
+            <button class="profile-link" type="button" data-view-link="events"><span>▣</span> Events &amp; tickets <b>›</b></button>
+          </div>
+          <p class="demo-disclaimer">This prototype does not create accounts or store personal or payment information.</p>
+        </section>
+      </main>
+    </div>
+
+    <nav class="bottom-nav" aria-label="Main navigation">
+      <button class="nav-item active" type="button" data-view-link="market"><span class="nav-icon">▥</span><span>Market</span></button>
+      <button class="nav-item" type="button" data-view-link="portfolio"><span class="nav-icon">◕</span><span>Portfolio</span></button>
+      <button class="nav-item" type="button" data-view-link="events"><span class="nav-icon">▣</span><span>Events</span></button>
+      <button class="nav-item" type="button" data-view-link="wallet"><span class="nav-icon">▰</span><span>Wallet</span></button>
+      <button class="nav-item" type="button" data-view-link="profile"><span class="nav-icon">♙</span><span>Profile</span></button>
+    </nav>
+
+    <div class="toast" role="status" aria-live="polite" data-toast></div>
+    <dialog class="checkout-dialog" data-checkout>
+      <form method="dialog" class="dialog-close-form"><button class="dialog-close" aria-label="Close dialog">×</button></form>
+      <div class="dialog-content" data-dialog-content></div>
+    </dialog>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

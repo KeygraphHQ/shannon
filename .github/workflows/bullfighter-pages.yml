@@ -1,0 +1,48 @@
+name: Deploy Bullfighter to GitHub Pages
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'apps/bullfighter/**'
+      - '.github/workflows/bullfighter-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: bullfighter-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+      - name: Assemble Bullfighter site
+        run: |
+          mkdir -p _site/images
+          cp apps/bullfighter/index.html apps/bullfighter/app.js apps/bullfighter/styles.css \
+            apps/bullfighter/manifest.webmanifest apps/bullfighter/service-worker.js \
+            apps/bullfighter/icon.svg apps/bullfighter/bull-mark.svg _site/
+          cp 'apps/bullfighter/images/images (2).jpg' \
+            'apps/bullfighter/images/images (3).jpg' \
+            apps/bullfighter/images/10.jpg \
+            apps/bullfighter/images/bull-fighting-mbale.jpg \
+            apps/bullfighter/images/Bulls_Ishikawa,_Okinawa_2007.jpg \
+            _site/images/
+      - name: Upload Bullfighter site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
