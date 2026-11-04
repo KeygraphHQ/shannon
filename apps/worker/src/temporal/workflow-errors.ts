@@ -67,7 +67,7 @@ const REMEDIATION_HINTS: Record<string, string> = {
   WorkspaceNotFoundError: 'check the -w name against: shannon scans',
   PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
   OpenAiCyberAccessError:
-    'Your OpenAI organization must be approved for cyber use. Apply for Daybreak access at https://openai.com/daybreak, then retry. Or use the gpt-5.4 model instead.',
+    'Your OpenAI organization must be approved for cyber use. Apply for cyber access at https://chatgpt.com/cyber, then retry. Or use the gpt-5.4 model instead.',
   AnthropicCyberAccessError:
     'Your Anthropic organization must complete cyber verification. See https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet, then retry. Or use the claude-sonnet-4-6 model instead.',
 };
