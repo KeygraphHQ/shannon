@@ -5,7 +5,7 @@ This guide covers the source-build workflow, common CLI commands, repository pat
 ## Prerequisites
 
 - Docker
-- Node.js 18+
+- Node.js 22+
 - pnpm
 - AI provider credentials
 

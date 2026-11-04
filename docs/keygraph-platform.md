@@ -1,12 +1,12 @@
 # Keygraph Pro and Enterprise
 
-Shannon 3.0 is an open-source pentester. It reads your source, maps routes and data flows, runs real attacks against a live target, and writes PDF and SARIF reports. It runs locally, in CI, or air-gapped with your own model. Shannon is a complete pentester, not a trial edition.
+Shannon is an open-source pentester. It reads your source, maps routes and data flows, runs real attacks against a live target, and writes PDF and SARIF reports. It runs locally, in CI, or air-gapped with your own model. Shannon is a complete pentester, not a trial edition.
 
 Pro and Enterprise are Keygraph's commercial editions. They are built on an enhanced, enterprise-grade version of the Shannon engine, run continuously across hundreds of repositories, and add what a security team needs around it: black-box pentesting that needs no source code, audit-depth static analysis on a parsed code graph, SCA and secrets scanning, one deduplicated record per vulnerability across scans and scanners, fix pull requests, fix verification, two-way Jira sync, and SSO, RBAC, and audit logs. They are for security teams that own vulnerability management across many engineering teams and need one place to triage, assign, fix, and verify.
 
 The Community Program is Pro at no cost for organizations that qualify. Every module is included in Pro, Enterprise, and the Community Program. They differ in price, eligibility, hosting, and support. Current prices and the full feature table are at [keygraph.io/pricing](https://keygraph.io/pricing).
 
-Every edition is BYOK: you bring your own model key and pay your provider directly. Shannon runs from your machine or CI runner, and Keygraph never receives your source or proxies your model traffic. The Community Program and Pro are cloud-hosted and managed by Keygraph. Enterprise deploys inside your cloud or data center, including fully air-gapped.
+Every edition is BYOK: you bring your own model key and pay your provider directly. Shannon runs from your machine or CI runner, so with Shannon, Keygraph never receives your source or your model traffic. The Community Program and Pro are cloud-hosted and managed by Keygraph, in a US or EU region. Enterprise deploys inside your cloud or data center, including fully air-gapped.
 
 No source code? Use the [Blackbox Pentester](https://keygraph.io/agentic-blackbox-pentester).
 
