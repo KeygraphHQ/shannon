@@ -17,3 +17,24 @@ config) to confirm the restored session is still valid:
   the full login flow below and perform it on your own browser session.
   Do NOT overwrite {{AUTH_STATE_FILE}}.
 </shared_authenticated_session>
+
+<shared_api_token>
+This is an API-only target authenticated with an OAuth bearer token. There is NO browser
+session to restore. Instead, mint a fresh token on demand and attach it to every request.
+
+Get a currently-valid access token by running this via the `bash` tool:
+
+  get-oauth-token --config {{OAUTH_CONFIG_FILE}}
+
+It prints a valid token to stdout and refreshes automatically when the previous one expires,
+so call it again (do not cache the value in your own notes) whenever you make a request. The
+client secret lives only in that config file — never print the file, and never echo the token
+into deliverables or findings.
+
+Attach it as a header on every authenticated request, e.g. with curl:
+
+  curl -H "{{TOKEN_HEADER}}: {{TOKEN_PREFIX}}$(get-oauth-token --config {{OAUTH_CONFIG_FILE}})" <url>
+
+If a request returns 401/403, run get-oauth-token again to force a refreshed token before
+concluding that access is denied.
+</shared_api_token>
