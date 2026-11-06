@@ -226,10 +226,15 @@ function parseStartArgs(argv: string[]): ParsedStartArgs {
     failUsage('--repo is required', `Usage: ${commandPrefix()} start -u <url> -r <path>`);
   }
 
+  const invalidUrlMessage = `Invalid --url ${JSON.stringify(url)}. Expected an HTTP or HTTPS URL.`;
+  let protocol: string;
   try {
-    new URL(url);
+    protocol = new URL(url).protocol;
   } catch {
-    failUsage(`invalid --url: ${url}`);
+    failUsage(invalidUrlMessage);
+  }
+  if (protocol !== 'http:' && protocol !== 'https:') {
+    failUsage(invalidUrlMessage);
   }
 
   if (flags.authOnly && flags.validateModel) {
