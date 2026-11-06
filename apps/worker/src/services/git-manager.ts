@@ -5,7 +5,9 @@
 // as published by the Free Software Foundation.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { promisify } from 'node:util';
 import { $ } from 'zx';
 import type { ActivityLogger } from '../types/activity-logger.js';
 import { ErrorCode } from '../types/errors.js';
@@ -545,10 +547,49 @@ export async function isAncestor(ancestor: string, descendant: string, sourceDir
   });
 }
 
+const execFileAsync = promisify(execFile);
+
+/** Outcome of one `git show <revision>:<path>`, with stdout decoded only once the stream has ended. */
+export interface GitShowResult {
+  readonly exitCode: number;
+  readonly stdout: string;
+  readonly stderr: string;
+}
+
+/**
+ * Run `git show <spec>` in `dir` and return its committed bytes as one UTF-8 string.
+ *
+ * IMPORTANT: Committed file contents must not be read through zx. zx decodes each stdout chunk
+ * on its own, so a multi-byte character that straddles a pipe chunk boundary comes back as two
+ * U+FFFD replacement characters. Byte-exact checks against a large report then fail at random.
+ * A failed command is reported rather than thrown, so callers classify it from stderr.
+ */
+export async function gitShow(dir: string, spec: string): Promise<GitShowResult> {
+  try {
+    const { stdout, stderr } = await execFileAsync('git', ['show', spec], {
+      cwd: dir,
+      encoding: 'buffer',
+      maxBuffer: Number.POSITIVE_INFINITY,
+    });
+    return { exitCode: 0, stdout: stdout.toString('utf8'), stderr: stderr.toString('utf8') };
+  } catch (error) {
+    return failedGitShow(error);
+  }
+}
+
+/** Map an execFile rejection (non-zero exit or spawn failure) onto a failed result. */
+function failedGitShow(error: unknown): GitShowResult {
+  const failure = error as { code?: unknown; stderr?: unknown; message?: unknown };
+  const exitCode = typeof failure.code === 'number' ? failure.code : 1;
+  const hasStderr = Buffer.isBuffer(failure.stderr) && failure.stderr.length > 0;
+  const stderr = hasStderr ? (failure.stderr as Buffer).toString('utf8') : String(failure.message ?? '');
+  return { exitCode, stdout: '', stderr };
+}
+
 /** Read a file from `HEAD`, returning null only when the Git command cannot supply it. */
 export async function readFileFromHead(sourceDir: string, relPath: string): Promise<string | null> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
+    const result = await gitShow(sourceDir, `HEAD:${relPath}`);
     return result.exitCode === 0 ? result.stdout : null;
   });
 }
@@ -610,7 +651,7 @@ function transientHeadReadError(operation: string): PentestError {
  */
 export async function readCommittedFile(sourceDir: string, relPath: string): Promise<CommittedReadResult> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
+    const result = await gitShow(sourceDir, `HEAD:${relPath}`);
     if (result.exitCode === 0) {
       return { state: 'present', contents: result.stdout };
     }
