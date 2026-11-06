@@ -13,7 +13,7 @@ services:
     volumes:
       - temporal-data:/home/temporal
     healthcheck:
-      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "localhost:7233"]
+      test: ["CMD", "temporal", "operator", "cluster", "health", "--address", "127.0.0.1:7233"]
       interval: 10s
       timeout: 5s
       retries: 10

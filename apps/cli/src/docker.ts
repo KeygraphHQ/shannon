@@ -92,7 +92,7 @@ function spawnQuiet(cmd: string, args: string[]): Promise<boolean> {
 }
 
 const TEMPORAL_CONTAINER = 'shannon-temporal';
-const TEMPORAL_ADDRESS = 'localhost:7233';
+const TEMPORAL_ADDRESS = '127.0.0.1:7233';
 
 /** Build `docker exec` args for a `temporal` CLI command run inside the Temporal container. */
 function temporalCmd(...args: string[]): string[] {
