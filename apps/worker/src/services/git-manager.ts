@@ -5,6 +5,7 @@
 // as published by the Free Software Foundation.
 
 import { AsyncLocalStorage } from 'node:async_hooks';
+import { spawn } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { $ } from 'zx';
 import type { ActivityLogger } from '../types/activity-logger.js';
@@ -545,11 +546,66 @@ export async function isAncestor(ancestor: string, descendant: string, sourceDir
   });
 }
 
+interface GitBytesResult {
+  readonly exitCode: number | null;
+  readonly stdout: Buffer;
+  readonly stderr: string;
+}
+
+// NOTE: Decode only the concatenated stdout; decoding per chunk corrupts multi-byte characters split across chunks.
+function runGitForBytes(cwd: string, args: readonly string[]): Promise<GitBytesResult> {
+  return new Promise((resolve) => {
+    const stdoutChunks: Buffer[] = [];
+    const stderrChunks: Buffer[] = [];
+    let settled = false;
+
+    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
+    child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
+
+    // A spawn failure resolves as a failed read so callers classify it like any git error.
+    child.on('error', (error) => {
+      if (settled) return;
+      settled = true;
+      resolve({ exitCode: null, stdout: Buffer.alloc(0), stderr: error.message });
+    });
+    child.on('close', (exitCode) => {
+      if (settled) return;
+      settled = true;
+      resolve({
+        exitCode,
+        stdout: Buffer.concat(stdoutChunks),
+        stderr: Buffer.concat(stderrChunks).toString('utf8'),
+      });
+    });
+  });
+}
+
+export type GitBlobRead =
+  | { readonly state: 'present'; readonly contents: string }
+  | { readonly state: 'corrupt' }
+  | { readonly state: 'failed'; readonly stderr: string };
+
+/** Read a committed blob byte-for-byte. Invalid UTF-8 is reported as corrupt. Caller holds the repo lock. */
+export async function readGitBlob(repoDir: string, revision: string, relPath: string): Promise<GitBlobRead> {
+  const result = await runGitForBytes(repoDir, ['cat-file', 'blob', `${revision}:${relPath}`]);
+  if (result.exitCode !== 0) {
+    return { state: 'failed', stderr: result.stderr };
+  }
+
+  try {
+    const contents = new TextDecoder('utf-8', { fatal: true }).decode(result.stdout);
+    return { state: 'present', contents };
+  } catch {
+    return { state: 'corrupt' };
+  }
+}
+
 /** Read a file from `HEAD`, returning null only when the Git command cannot supply it. */
 export async function readFileFromHead(sourceDir: string, relPath: string): Promise<string | null> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
-    return result.exitCode === 0 ? result.stdout : null;
+    const read = await readGitBlob(sourceDir, 'HEAD', relPath);
+    return read.state === 'present' ? read.contents : null;
   });
 }
 
@@ -610,12 +666,12 @@ function transientHeadReadError(operation: string): PentestError {
  */
 export async function readCommittedFile(sourceDir: string, relPath: string): Promise<CommittedReadResult> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${sourceDir} && git show ${`HEAD:${relPath}`}`.nothrow().quiet();
-    if (result.exitCode === 0) {
-      return { state: 'present', contents: result.stdout };
+    const read = await readGitBlob(sourceDir, 'HEAD', relPath);
+    if (read.state !== 'failed') {
+      return read;
     }
 
-    const failure = classifyHeadReadFailure(result.stderr);
+    const failure = classifyHeadReadFailure(read.stderr);
     if (failure === 'absent') {
       return { state: 'absent' };
     }

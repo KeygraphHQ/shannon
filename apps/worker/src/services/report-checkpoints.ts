@@ -20,7 +20,7 @@ import type { ReconciliationClass } from '../types/reconciliation.js';
 import type { ReportProgress } from '../types/run-state.js';
 import { fileExists } from '../utils/file-io.js';
 import { PentestError } from './error-handling.js';
-import { classifyHeadReadFailure, withGitRepoLock } from './git-manager.js';
+import { classifyHeadReadFailure, readGitBlob, withGitRepoLock } from './git-manager.js';
 import { isReportFinalizationManifest } from './report-finalization.js';
 import type { ReportData } from './report-renderer.js';
 
@@ -59,11 +59,9 @@ export async function readFileAtCheckpoint(
   relPath: string,
 ): Promise<CheckpointReadResult> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${deliverablesPath} && git show ${`${checkpoint}:${relPath}`}`.nothrow().quiet();
-    if (result.exitCode === 0) {
-      return { state: 'present', contents: result.stdout };
-    }
-    const failure = classifyHeadReadFailure(result.stderr);
+    const read = await readGitBlob(deliverablesPath, checkpoint, relPath);
+    if (read.state !== 'failed') return read;
+    const failure = classifyHeadReadFailure(read.stderr);
     if (failure === 'absent') return { state: 'absent' };
     if (failure === 'corrupt') return { state: 'corrupt' };
     throw transientCheckpointReadError('read-report-checkpoint-file');
