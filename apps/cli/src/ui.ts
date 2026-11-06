@@ -23,11 +23,14 @@ export function spawnCaptured(cmd: string, args: string[]): Promise<StepResult> 
   return new Promise((resolve) => {
     let output = '';
     const child = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
-    child.stdout?.on('data', (chunk) => {
-      output += chunk.toString();
+    // Stream decoding keeps a multi-byte character intact when it spans two chunks.
+    child.stdout?.setEncoding('utf8');
+    child.stderr?.setEncoding('utf8');
+    child.stdout?.on('data', (chunk: string) => {
+      output += chunk;
     });
-    child.stderr?.on('data', (chunk) => {
-      output += chunk.toString();
+    child.stderr?.on('data', (chunk: string) => {
+      output += chunk;
     });
     child.on('close', (code) => resolve({ ok: code === 0, output }));
     child.on('error', () => resolve({ ok: false, output }));

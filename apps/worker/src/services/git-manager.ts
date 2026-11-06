@@ -207,27 +207,33 @@ export async function executeGitCommandWithRetry(
     return withGitRepoLock(() => executeGitCommandWithRetry(commandArgs, sourceDir, description, maxRetries));
   }
 
+  const [cmd, ...args] = commandArgs;
+  if (!cmd) {
+    throw new Error(`No command supplied for ${description}`);
+  }
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      const [cmd, ...args] = commandArgs;
-      const result = await $`cd ${sourceDir} && ${cmd} ${args}`;
-      return result;
-    } catch (error) {
-      const errMsg = error instanceof Error ? error.message : String(error);
-
-      if (isGitLockError(errMsg) && attempt < maxRetries) {
-        const delay = 2 ** (attempt - 1) * 1000;
-        // executeGitCommandWithRetry is also called outside activity context
-        // (e.g., from resume logic), so we use console.warn as a fallback here
-        console.warn(
-          `Git lock conflict during ${description} (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`,
-        );
-        await new Promise((resolve) => setTimeout(resolve, delay));
-        continue;
-      }
-
-      throw error;
+    const result = await runCommandForBytes(sourceDir, cmd, args);
+    if (result.stderr.length > 0) {
+      process.stderr.write(result.stderr.endsWith('\n') ? result.stderr : `${result.stderr}\n`);
     }
+    if (result.exitCode === 0) {
+      return { stdout: result.stdout.toString('utf8'), stderr: result.stderr };
+    }
+
+    const errMsg = `${cmd} ${args[0] ?? ''} failed (exit ${result.exitCode}): ${result.stderr.trim()}`;
+    if (isGitLockError(errMsg) && attempt < maxRetries) {
+      const delay = 2 ** (attempt - 1) * 1000;
+      // executeGitCommandWithRetry is also called outside activity context
+      // (e.g., from resume logic), so we use console.warn as a fallback here
+      console.warn(
+        `Git lock conflict during ${description} (attempt ${attempt}/${maxRetries}). Retrying in ${delay}ms...`,
+      );
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      continue;
+    }
+
+    throw new Error(errMsg);
   }
   throw new PentestError(
     `Git command failed after ${maxRetries} retries`,
@@ -546,20 +552,20 @@ export async function isAncestor(ancestor: string, descendant: string, sourceDir
   });
 }
 
-interface GitBytesResult {
+interface CommandBytesResult {
   readonly exitCode: number | null;
   readonly stdout: Buffer;
   readonly stderr: string;
 }
 
 // NOTE: Decode only the concatenated stdout; decoding per chunk corrupts multi-byte characters split across chunks.
-function runGitForBytes(cwd: string, args: readonly string[]): Promise<GitBytesResult> {
+function runCommandForBytes(cwd: string, cmd: string, args: readonly string[]): Promise<CommandBytesResult> {
   return new Promise((resolve) => {
     const stdoutChunks: Buffer[] = [];
     const stderrChunks: Buffer[] = [];
     let settled = false;
 
-    const child = spawn('git', args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(cmd, args, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
     child.stdout.on('data', (chunk: Buffer) => stdoutChunks.push(chunk));
     child.stderr.on('data', (chunk: Buffer) => stderrChunks.push(chunk));
 
@@ -588,7 +594,7 @@ export type GitBlobRead =
 
 /** Read a committed blob byte-for-byte. Invalid UTF-8 is reported as corrupt. Caller holds the repo lock. */
 export async function readGitBlob(repoDir: string, revision: string, relPath: string): Promise<GitBlobRead> {
-  const result = await runGitForBytes(repoDir, ['cat-file', 'blob', `${revision}:${relPath}`]);
+  const result = await runCommandForBytes(repoDir, 'git', ['cat-file', 'blob', `${revision}:${relPath}`]);
   if (result.exitCode !== 0) {
     return { state: 'failed', stderr: result.stderr };
   }
