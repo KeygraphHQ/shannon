@@ -298,6 +298,9 @@ export async function start(args: StartArgs): Promise<void> {
   const config = args.config ? resolveConfig(args.config) : undefined;
   const modelsConfig = args.modelsConfig ? resolveModelsConfig(args.modelsConfig) : undefined;
   const workspacesDir = getWorkspacesDir();
+  if (args.workspace !== undefined && !/^(?=.{1,100}$)[a-z0-9]+(?:[_-][a-z0-9]+)*$/.test(args.workspace)) {
+    fail(`Invalid workspace name ${JSON.stringify(args.workspace)} (e.g. my-scan).`);
+  }
   const workspace =
     args.workspace ?? `${new URL(args.url).hostname.replace(/[^a-zA-Z0-9-]/g, '-')}_shannon-${Date.now()}`;
   const workspacePath = path.join(workspacesDir, workspace);
