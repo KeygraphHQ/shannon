@@ -496,6 +496,11 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // the worker included — not just the browser automation that motivates it.
   args.push('--shm-size', '2gb', '--security-opt', 'seccomp=unconfined');
 
+  // AppArmor unconfined opt-in for hosts where AppArmor blocks Chromium sandbox
+  if (envBool('SHANNON_APPARMOR_UNCONFINED', false)) {
+    args.push('--security-opt', 'apparmor=unconfined');
+  }
+
   // Image
   args.push(getWorkerImage(opts.version));
 

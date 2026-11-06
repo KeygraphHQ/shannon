@@ -34,6 +34,9 @@ const COMMON_FORWARD_VARS = [
   // provider turn's raw error message to error.log. Off by default; provider prose stays out of
   // durable state unless an operator deliberately enables it for a diagnosis.
   'SHANNON_DEBUG_PROVIDER_ERRORS',
+  // Sandbox opt-outs for Linux hosts with restrictive AppArmor or unprivileged user namespace profiles
+  'SHANNON_CHROMIUM_NO_SANDBOX',
+  'SHANNON_APPARMOR_UNCONFINED',
   GENERIC_API_KEY_ENV,
 ] as const;
 

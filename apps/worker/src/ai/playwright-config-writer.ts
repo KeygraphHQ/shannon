@@ -51,13 +51,23 @@ window.chrome.runtime = window.chrome.runtime || {
 };
 `;
 
+function isChromiumNoSandbox(): boolean {
+  const val = process.env.SHANNON_CHROMIUM_NO_SANDBOX?.trim().toLowerCase();
+  return val === '1' || val === 'true';
+}
+
 function buildStealthConfig(initScriptPath: string) {
+  const args = ['--disable-blink-features=AutomationControlled'];
+  if (isChromiumNoSandbox()) {
+    args.push('--no-sandbox', '--disable-setuid-sandbox');
+  }
+
   return {
     browser: {
       browserName: 'chromium',
       launchOptions: {
         headless: true,
-        args: ['--disable-blink-features=AutomationControlled'],
+        args,
         ignoreDefaultArgs: ['--enable-automation'],
       },
       contextOptions: {
