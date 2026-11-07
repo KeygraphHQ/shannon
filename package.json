@@ -23,6 +23,9 @@
     "onlyBuiltDependencies": [
       "@swc/core",
       "protobufjs"
-    ]
+    ],
+    "overrides": {
+      "handlebars": "4.7.10"
+    }
   }
 }
