@@ -1,0 +1,13 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/mcp.schema.json",
+  "mcpServers": {
+    "shannon": {
+      "type": "stdio",
+      "command": "/bin/sh",
+      "args": [
+        "${CURSOR_PLUGIN_ROOT}/mcp/launch.sh",
+        "${CURSOR_PLUGIN_ROOT}/mcp/shannon-mcp.mjs"
+      ]
+    }
+  }
+}
