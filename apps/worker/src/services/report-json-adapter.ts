@@ -8,7 +8,7 @@
  * Programmatic adapter: report.json → Typst ReportData JSON.
  *
  * Converts the renderer-neutral structured report output (produced by the
- * finding-collector + set-report-meta CLI) into the Typst-specific schema that
+ * finding collector's native tools) into the Typst-specific schema that
  * report.typ consumes.
  *
  * All Typst-specific concepts (PascalCase enums, computed aggregations,

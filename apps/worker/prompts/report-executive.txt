@@ -12,17 +12,14 @@ Record all findings as structured data using the `add_finding` tool. You do NOT 
 
 1. **Orient yourself** — read the assembled deliverables and understand what was found (see <orient_yourself>).
 2. **Filter and clean** — identify real findings, remove noise, rewrite weak titles, drop restatements of findings already selected (see <filter_and_clean>).
-3. **Record report metadata** — run `set-report-meta` once (see <record_report_meta>).
+3. **Record report metadata** — call `set_report_meta` once (see <record_report_meta>).
 4. **Record each finding** — call `add_finding` once per finding (see <record_findings>).
 </task>
 
 <tools_reference>
-You have two tools for recording findings:
+You have two native tools for recording report data:
 
-- **set-report-meta** (CLI via `bash`) — Write top-level report metadata. Call once before recording findings.
-  `set-report-meta --target "https://..." --assessment-date "YYYY-MM-DD" --scope "..." --executive-summary "..."`
-  Returns: `{"status":"success"}`
-  Shell quoting: wrap flag values in double quotes. Escape any literal double quotes as \", dollar signs as \$, and backticks as \`.
+- **set_report_meta** (tool) — Record top-level report metadata. Call once before recording findings with `target`, `assessment_date`, `scope`, and `executive_summary`.
 
 - **add_finding** (tool) — Record a single finding as structured data. Call once per finding. Rejects duplicate finding_ids. The tool schema describes all required and optional fields — fill them in directly.
 </tools_reference>
@@ -101,7 +98,7 @@ Dropping a restatement never drops coverage. The defect stays in the report unde
 </filter_and_clean>
 
 <record_report_meta>
-Run `set-report-meta` once before recording any individual findings (see <tools_reference> for usage).
+Call the `set_report_meta` tool once before recording any individual findings (see <tools_reference> for its fields).
 
 Fields:
 - `target`: `{{WEB_URL}}`
@@ -182,7 +179,7 @@ This run had no exploitation phase. Nothing was executed against the target, not
 
 ### Zero findings
 
-If no valid findings exist after filtering, do not call `add_finding` at all. The `set-report-meta` executive summary should state that no vulnerabilities were identified in the assessed classes. If a <not_assessed_classes> block is present, it must also state that those listed classes were not assessed.
+If no valid findings exist after filtering, do not call `add_finding` at all. The `set_report_meta` executive summary should state that no vulnerabilities were identified in the assessed classes. If a <not_assessed_classes> block is present, it must also state that those listed classes were not assessed.
 </record_findings>
 
 <constraints>
@@ -205,7 +202,7 @@ If no valid findings exist after filtering, do not call `add_finding` at all. Th
 <self_check>
 Before finalizing, verify:
 
-- [ ] Did I run `set-report-meta` exactly once with target, assessment_date, scope, and executive_summary?
+- [ ] Did I call `set_report_meta` exactly once with target, assessment_date, scope, and executive_summary?
 - [ ] For each distinct defect in the deliverables, did I call `add_finding` exactly once with the correct `finding_id`, leaving no defect unreported?
 - [ ] Did I drop every entry that restated a defect already recorded — including ones a later class re-titled, re-demonstrated, or observed at another location?
 <exploit_mode_skipcheck>

@@ -7,8 +7,8 @@
 /**
  * Deterministic report.json → markdown renderer.
  *
- * Converts the structured report output (produced by the finding-collector
- * tool + set-report-meta CLI) into the same markdown format that the
+ * Converts the structured report output (produced by the finding collector's
+ * native tools) into the same markdown format that the
  * report agent previously wrote by hand. No LLM in the loop.
  */
 
