@@ -11,7 +11,7 @@ with the safety rules from `docs/safety.md` built in.
 ```
 plugins/shannon/
 ├── .cursor-plugin/plugin.json   # plugin manifest
-├── assets/logo.svg              # listing logo (placeholder — replace with the brand asset)
+├── assets/logo.png              # listing logo (Keygraph brand mark, 1200×1200)
 ├── skills/shannon/SKILL.md      # the skill the agent loads
 ├── llms-full.txt, llms.txt      # full Shannon docs, bundled for offline detail
 ├── mcp.json, mcp/               # optional MCP server exposing Shannon as typed tools

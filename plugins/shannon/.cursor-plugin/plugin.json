@@ -10,7 +10,7 @@
   "homepage": "https://github.com/KeygraphHQ/shannon/tree/main/plugins/shannon",
   "repository": "https://github.com/KeygraphHQ/shannon",
   "license": "AGPL-3.0",
-  "logo": "assets/logo.svg",
+  "logo": "assets/logo.png",
   "category": "security",
   "keywords": [
     "security",
