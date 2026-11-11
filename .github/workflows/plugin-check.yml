@@ -5,12 +5,14 @@ on:
     paths:
       - plugins/shannon/**
       - .cursor-plugin/marketplace.json
+      - .claude-plugin/marketplace.json
       - docs/safety.md
   push:
     branches: [main]
     paths:
       - plugins/shannon/**
       - .cursor-plugin/marketplace.json
+      - .claude-plugin/marketplace.json
       - docs/safety.md
 
 jobs:

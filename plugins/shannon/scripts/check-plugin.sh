@@ -74,4 +74,37 @@ node -e '
   if (p.source !== "plugins/shannon") throw new Error("the shannon plugin source must be plugins/shannon");
 ' "$mkt" || fail ".cursor-plugin/marketplace.json is invalid"
 
+# Claude Code support lives beside the Cursor files so the same skill, MCP
+# server, and docs are consumable by Claude Code as well: a .claude-plugin
+# manifest, a plugin-provided .mcp.json, and the repo-root marketplace manifest.
+[ -f .claude-plugin/plugin.json ] || fail ".claude-plugin/plugin.json is missing (Claude Code manifest)"
+node -e '
+  const c = JSON.parse(require("fs").readFileSync(".claude-plugin/plugin.json", "utf8"));
+  if (c.name !== "shannon") throw new Error(".claude-plugin/plugin.json name must be shannon");
+  const cur = JSON.parse(require("fs").readFileSync(".cursor-plugin/plugin.json", "utf8"));
+  if (c.name !== cur.name) throw new Error("the Cursor and Claude Code manifests must share the same name");
+' || fail ".claude-plugin/plugin.json is invalid"
+
+[ -f .mcp.json ] || fail ".mcp.json is missing (Claude Code MCP server declaration)"
+node -e '
+  const m = JSON.parse(require("fs").readFileSync(".mcp.json", "utf8"));
+  const s = m.mcpServers && m.mcpServers.shannon;
+  if (!s) throw new Error(".mcp.json must define mcpServers.shannon");
+  if (!s.command) throw new Error("the shannon server needs a command");
+  if (!Array.isArray(s.args)) throw new Error("the shannon server needs an args array");
+  if (!s.args.some((a) => a.includes("launch.sh"))) throw new Error("the shannon server args must run launch.sh");
+  if (!s.args.some((a) => a.includes("shannon-mcp.mjs"))) throw new Error("the shannon server args must pass shannon-mcp.mjs");
+  if (!s.args.some((a) => a.includes("${CLAUDE_PLUGIN_ROOT}"))) throw new Error("the shannon server args must reference ${CLAUDE_PLUGIN_ROOT}");
+' || fail ".mcp.json is invalid"
+
+cc_mkt="$repo_root/.claude-plugin/marketplace.json"
+[ -f "$cc_mkt" ] || fail ".claude-plugin/marketplace.json is missing at the repo root"
+node -e '
+  const m = JSON.parse(require("fs").readFileSync(process.argv[1], "utf8"));
+  if (!m.owner || !m.owner.name) throw new Error("marketplace.json needs owner.name");
+  const p = (m.plugins || []).find((x) => x.name === "shannon");
+  if (!p) throw new Error("marketplace.json must list a plugin named shannon");
+  if (p.source !== "./plugins/shannon") throw new Error("the shannon plugin source must be ./plugins/shannon");
+' "$cc_mkt" || fail ".claude-plugin/marketplace.json is invalid"
+
 echo "check-plugin: ok"
