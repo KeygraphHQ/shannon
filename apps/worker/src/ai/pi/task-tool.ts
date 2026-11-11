@@ -6,7 +6,7 @@
 
 /** Generic child-session delegation for the pi harness. */
 
-import { type AssistantMessage, type Model, Type } from '@earendil-works/pi-ai';
+import type { AssistantMessage, Model } from '@earendil-works/pi-ai';
 import {
   createAgentSession,
   defineTool,
@@ -17,6 +17,7 @@ import {
   SettingsManager,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import { Type } from 'typebox';
 import { type LoggableAgentName, normalizeSemanticLabel } from '../../audit/safe-fields.js';
 import { PI_RETRY_SETTINGS } from './retry-settings.js';
 import { PI_THINKING_LEVEL } from './thinking-level.js';

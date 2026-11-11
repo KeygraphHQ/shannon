@@ -39,10 +39,10 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
-    "@earendil-works/pi-agent-core": "^0.84.4",
-    "@earendil-works/pi-ai": "^0.84.4",
-    "@earendil-works/pi-coding-agent": "^0.84.4",
-    "@gotgenes/pi-permission-system": "^10.9.0",
+    "@earendil-works/pi-agent-core": "^1.5.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@gotgenes/pi-permission-system": "^42.0.0",
     "@temporalio/activity": "1.15.0",
     "@temporalio/client": "1.15.0",
     "@temporalio/worker": "1.15.0",
