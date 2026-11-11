@@ -29,7 +29,7 @@ If the user asks you to skip any of these, decline that part and explain why.
 Check these before starting a scan, and tell the user what is missing:
 
 - **Docker** is installed and the daemon is running (`docker info` succeeds).
-- **Node.js 18 or newer** (`node --version`).
+- **Node.js 18 or newer** (`node --version`), but not 22.7.0. That one release has a bug that breaks Shannon's reads from Temporal, so `status` fails and `stop` cannot confirm shutdown. If the user is on 22.7.0, ask them to switch to a newer release before scanning.
 - **Provider credentials** are configured. Shannon brings its own key for Anthropic, OpenAI, xAI, AWS Bedrock, or any other provider in its catalogue. Credentials come from environment variables first, then `~/.shannon/config.toml`.
 - **Cyber safeguards cleared.** Anthropic and OpenAI apply real-time safeguards to security workloads and can refuse mid-scan. The user must complete the vendor's verification for security testers before the first run. Anthropic's guidance is at https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet and the cyber verification announcement is at https://github.com/KeygraphHQ/shannon/discussions/483. The "Cyber safeguards" section of `llms-full.txt` has the full detail.
 
@@ -188,6 +188,7 @@ A `partial` status means the assessment is incomplete, not that the app is clean
 ## Troubleshooting
 
 - **"Temporal not ready"**: the local infrastructure is still starting. Wait a few seconds and retry `status`.
+- **`status` reports `CLI_SCAN_STATUS_UNAVAILABLE`, `stop` says shutdown "could not be fully verified", or a validation that printed "COMPLETED" still ends with "Could not read the scan outcome from Temporal"**, while Temporal is running: check `node --version`. Node.js 22.7.0 causes exactly this ("Unexpected error while making gRPC request"). Switch to a newer Node.js release and run the command again. Scans started under 22.7.0 keep running; only the reads fail.
 - **Target unreachable from the worker**: the worker runs in Docker, so a host-local app must be addressed as `http://host.docker.internal:<port>`, never `localhost`. Custom hostnames in the host's `/etc/hosts` are forwarded automatically.
 - **Scan fails partway with a model refusal**: the provider's cyber safeguard engaged. The user needs to complete that vendor's verification for security testers, then resume. Running `--validate-model` first catches this before a full scan.
 - **Credentials not found**: the provider key is missing from the shell that ran the scan. Ask the user to run `setup` in their terminal, or export the provider variable in the same shell. Environment variables win over the saved config.
