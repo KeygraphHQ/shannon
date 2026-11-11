@@ -15,7 +15,7 @@
  */
 
 import { spawn } from "node:child_process";
-import { readFile } from "node:fs/promises";
+import { open, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -23,6 +23,9 @@ const SERVER_NAME = "shannon";
 const SERVER_VERSION = "1.0.0";
 const PROTOCOL_VERSION = "2024-11-05";
 const REPORT_FILE = "Security-Assessment-Report.md";
+const WORKFLOW_LOG_FILE = "workflow.log";
+const LOG_TAIL_BYTES = 512 * 1024;
+const LOG_LINE_MAX_CHARS = 2000;
 
 // === Shannon CLI invocation ===
 
@@ -108,10 +111,15 @@ function cleanLines(text) {
   const lines = normalized
     .split("\n")
     .map((l) => l.replace(/^[\s─-◿]+/, "").replace(/\s+$/, ""));
+  // A spinner animates by cycling its trailing dots, so frames of one message
+  // differ only there. Compare without them and keep the first frame.
   const out = [];
+  let previousKey = null;
   for (const line of lines) {
     if (!line) continue;
-    if (out.length > 0 && out[out.length - 1] === line) continue;
+    const key = line.replace(/\.+$/, "");
+    if (key === previousKey) continue;
+    previousKey = key;
     out.push(line);
   }
   return out;
@@ -127,8 +135,63 @@ function combinedOutput(result) {
   return parts.join("\n\n") || "(no output)";
 }
 
+// A CLI run as a tool result. The CLI exits non-zero when a command fails, so
+// the result is flagged as an error instead of leaving the caller to infer the
+// failure from the text.
+function cliResult(result) {
+  return { text: combinedOutput(result), isError: result.code !== 0 || result.timedOut };
+}
+
+// === Workspace files ===
+
+// A workspace name becomes a path segment, so it must not be able to leave the
+// workspaces directory.
+function requireWorkspace(args) {
+  const workspace = requireString(args, "workspace");
+  if (workspace === "." || workspace === ".." || /[\\/]/.test(workspace)) {
+    throw new Error("workspace must be a workspace name, not a path");
+  }
+  return workspace;
+}
+
+function workspaceDir(workspace) {
+  return join(homedir(), ".shannon", "workspaces", workspace);
+}
+
 function workspaceReportPath(workspace) {
-  return join(homedir(), ".shannon", "workspaces", workspace, REPORT_FILE);
+  return join(workspaceDir(workspace), REPORT_FILE);
+}
+
+// The workflow log sits under the workspace's hidden internals directory;
+// workspaces from older releases keep it at the workspace root.
+function workflowLogPaths(workspace) {
+  const dir = workspaceDir(workspace);
+  return [join(dir, ".shannon", WORKFLOW_LOG_FILE), join(dir, WORKFLOW_LOG_FILE)];
+}
+
+// Read the last lines of a file without loading all of it: a scan log runs to
+// megabytes. Returns null when the file cannot be read.
+async function readTailLines(path, count) {
+  let handle;
+  try {
+    handle = await open(path, "r");
+    const { size } = await handle.stat();
+    const length = Math.min(size, LOG_TAIL_BYTES);
+    const buffer = Buffer.alloc(length);
+    await handle.read(buffer, 0, length, size - length);
+    const lines = buffer.toString("utf8").split("\n");
+    // A read that starts mid-file starts mid-line; drop that partial line.
+    if (length < size) lines.shift();
+    return lines
+      .map((l) => l.replace(/\s+$/, ""))
+      .filter((l) => l)
+      .slice(-count)
+      .map((l) => (l.length > LOG_LINE_MAX_CHARS ? `${l.slice(0, LOG_LINE_MAX_CHARS)} [line truncated]` : l));
+  } catch {
+    return null;
+  } finally {
+    await handle?.close();
+  }
 }
 
 // === Tool definitions ===
@@ -263,7 +326,7 @@ async function callTool(name, args) {
         ["start", "-u", url, "-r", repo, "--validate-model"],
         { timeoutMs: 300000, extraEnv: runEnv(args) },
       );
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_validate_auth": {
@@ -282,7 +345,7 @@ async function callTool(name, args) {
         ["start", "-u", url, "-r", repo, "-w", workspace, "-c", config, "--validate-auth"],
         { timeoutMs: 600000, extraEnv: runEnv(args) },
       );
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_start": {
@@ -301,37 +364,44 @@ async function callTool(name, args) {
         cliArgs.push("-c", args.config.trim());
       }
       const result = await runCli(cliArgs, { timeoutMs: 600000, extraEnv: runEnv(args) });
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_status": {
       const workspace = requireString(args, "workspace");
       const result = await runCli(["status", workspace, "--json"], { timeoutMs: 60000 });
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_logs": {
-      const workspace = requireString(args, "workspace");
+      const workspace = requireWorkspace(args);
       const lines = Number.isFinite(args.lines) && args.lines > 0 ? Math.floor(args.lines) : 50;
+      // Read the log file itself: the CLI's `logs` output is cut short when it
+      // is piped, which would return the start of a long log instead of its end.
+      for (const path of workflowLogPaths(workspace)) {
+        const tail = await readTailLines(path, lines);
+        if (tail && tail.length > 0) return tail.join("\n");
+      }
+      // No log under ~/.shannon (a source-build install keeps workspaces
+      // elsewhere), so ask the CLI. It follows a running scan, hence the timeout.
       const result = await runCli(["logs", workspace], { timeoutMs: 6000 });
-      const all = cleanLines(result.stdout);
-      const tail = all.slice(-lines).join("\n");
-      return tail || combinedOutput(result);
+      const fromCli = cleanLines(result.stdout).slice(-lines).join("\n");
+      return fromCli || { text: combinedOutput(result), isError: true };
     }
 
     case "shannon_scans": {
       const result = await runCli(["scans", "--json"], { timeoutMs: 60000 });
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_stop": {
       const workspace = requireString(args, "workspace");
       const result = await runCli(["stop", workspace, "--yes"], { timeoutMs: 60000 });
-      return combinedOutput(result);
+      return cliResult(result);
     }
 
     case "shannon_read_report": {
-      const workspace = requireString(args, "workspace");
+      const workspace = requireWorkspace(args);
       const path = workspaceReportPath(workspace);
       try {
         const md = await readFile(path, "utf8");
