@@ -1,65 +1,107 @@
-# Shannon plugin
+# Shannon skill plugin
 
-Run [Shannon](https://github.com/KeygraphHQ/shannon), Keygraph's autonomous AI
-pentester, from your coding agent (Grok, Cursor, Claude Code). The plugin ships a
-single skill that drives the Shannon CLI (`npx @keygraph/shannon`) to start,
-monitor, and stop white-box pentests of web apps and APIs you are authorized to
-test, with the safety rules from `docs/safety.md` built in.
+A skill-only plugin for running Shannon from Claude Code, Grok Build, or Cursor.
+The skill points the agent to the bundled overview and full documentation. The
+agent uses those docs to run the Shannon CLI through its shell tool.
 
-## Multi-tool
+## Requirements
 
-One plugin, two manifests over the same skill, MCP server, and docs:
+- A client that permits shell execution. Otherwise, the agent can provide commands
+  for the user to run in a terminal.
+- Node.js **22 or newer**, with npm/npx available. Avoid Node 22.7.0 because it
+  breaks Temporal status reads.
+- Docker installed and running.
+- Provider credentials configured through `npx @keygraph/shannon@latest setup`
+  in the user's terminal, or available in the shell that runs Shannon.
 
-- **Cursor / Grok** read `.cursor-plugin/plugin.json` + `mcp.json`, indexed by the
-  repo-root `.cursor-plugin/marketplace.json`.
-- **Claude Code** reads `.claude-plugin/plugin.json` + `.mcp.json`, indexed by the
-  repo-root `.claude-plugin/marketplace.json`.
+Installing the skill does not install these prerequisites or configure credentials.
+Commands use the published `@keygraph/shannon@latest` CLI; no plugin build or
+package installation is needed.
 
-Each tool ignores the other's files. Adding a further tool is additive — another
-manifest pointing at the same `skills/`, `mcp/`, and docs — not a rewrite.
+## Install
+
+### Claude Code
+
+```sh
+claude plugin marketplace add KeygraphHQ/shannon
+claude plugin install shannon@keygraph-shannon
+```
+
+For a local checkout:
+
+```sh
+claude plugin validate ./plugins/shannon
+claude --plugin-dir ./plugins/shannon
+```
+
+### Grok Build
+
+Grok documents support for Claude-compatible marketplace indexes and skill
+components. This plugin uses that route, separately from Cursor's manifest.
+
+```sh
+grok plugin marketplace add KeygraphHQ/shannon
+grok plugin install shannon --trust
+```
+
+Confirm the plugin is enabled and trusted in `/plugins` and the skill appears in
+`/skills`. A local checkout can be validated with
+`grok plugin validate ./plugins/shannon`.
+
+### Cursor
+
+For local development, copy `plugins/shannon/` into
+`~/.cursor/plugins/local/shannon/`, reload Cursor, and confirm the skill appears
+in Customize. Cursor uses `.cursor-plugin/plugin.json`.
+
+The remote marketplace commands apply once this plugin is on the repository's
+default branch. Before merge, use local plugin or marketplace loading.
 
 ## Layout
 
-```
+```text
 plugins/shannon/
-├── .cursor-plugin/plugin.json   # Cursor/Grok manifest
-├── .claude-plugin/plugin.json   # Claude Code manifest
-├── mcp.json                     # Cursor/Grok MCP declaration (${CURSOR_PLUGIN_ROOT})
-├── .mcp.json                    # Claude Code MCP declaration (${CLAUDE_PLUGIN_ROOT})
-├── assets/logo.png              # listing logo (Keygraph brand mark, 1200×1200)
-├── skills/shannon/SKILL.md      # the skill the agent loads (shared)
-├── llms-full.txt, llms.txt      # full Shannon docs, bundled for offline detail (shared)
-├── mcp/                         # the stdio MCP server + node launcher (shared)
-└── scripts/
-    ├── check-plugin.sh          # structure/validation check (both tools)
-    └── sync-docs.sh             # refresh bundled docs from the repo-root originals
+  .claude-plugin/plugin.json   Claude-compatible plugin metadata
+  .cursor-plugin/plugin.json  Cursor plugin metadata
+  skills/shannon/SKILL.md      entry point to the bundled documentation
+  llms-full.txt               bundled detailed documentation
+  llms.txt                    documentation index
+  assets/logo.png             marketplace logo
 ```
 
-The repo root also carries `.cursor-plugin/marketplace.json` and
-`.claude-plugin/marketplace.json`, each listing this plugin at `plugins/shannon`.
+The repository root contains the Claude-compatible and Cursor marketplace indexes.
+The skill and documentation are shared across clients.
 
-## Keeping the bundled docs in sync
-
-`llms-full.txt` and `llms.txt` are bundled under the plugin so the installed
-plugin is self-contained, and must stay byte-identical to the repository-root
-`llms-full.txt` / `llms.txt`, which are their source of truth. When those
-change, refresh the bundled copies:
+## Validation and maintenance
 
 ```sh
-plugins/shannon/scripts/sync-docs.sh
+claude plugin validate ./plugins/shannon
+claude plugin validate ./.claude-plugin/marketplace.json
 ```
 
-`check-plugin.sh` fails if they drift, so CI catches a stale copy.
+Before release, manually verify the manifests, skill name, logo, marketplace
+entries, and bundled documentation. Confirm that each advertised client discovers
+the skill and can run the CLI through its shell. Manifest validation alone does not establish
+client compatibility or successful scan execution.
+
+`llms.txt` and `llms-full.txt` are byte-identical copies of the root originals.
+When the originals change, copy both files from the repository root into
+`plugins/shannon/`. Keep both plugin manifest versions aligned when releasing updates.
+
+Runtime verification can use temporary synthetic fixtures outside the repository;
+no plugin test suite is included.
 
 ## Safety
 
-Shannon is a defensive security tool. Only run it against systems you own or
-are explicitly authorized to test, never production. The skill enforces these
-rules and asks for confirmation before the first scan. See the "Safety and
-Limitations" section of `llms-full.txt` (source: `docs/safety.md`).
+Only test systems the user owns or is authorized to assess, and never production.
+Consult the bundled safety documentation before starting a scan. Documentation
+is not independent authorization enforcement. Findings require
+human review, and an empty report does not prove an application is secure.
 
-## Install (local development)
+The full safety guide is included in `llms-full.txt` from `docs/safety.md`.
 
-Copy `plugins/shannon/` to `~/.cursor/plugins/local/shannon/`, then run
-**Developer: Reload Window** in Cursor and confirm Shannon appears under
-Customize.
+## References
+
+- [Claude plugin authoring](https://code.claude.com/docs/en/plugins/create)
+- [Grok plugins and marketplaces](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/09-plugins.md)
+- [Cursor plugin reference](https://cursor.com/docs/reference/plugins)
