@@ -1,0 +1,17 @@
+{
+  "name": "keygraph-shannon",
+  "owner": {
+    "name": "Keygraph",
+    "email": "shannon@keygraph.io"
+  },
+  "metadata": {
+    "description": "Keygraph's Shannon autonomous AI pentester, packaged as a plugin for Grok and Cursor."
+  },
+  "plugins": [
+    {
+      "name": "shannon",
+      "source": "plugins/shannon",
+      "description": "Run Shannon white-box pentests of web apps and APIs you are authorized to test, from your coding agent, with safety rules built in."
+    }
+  ]
+}

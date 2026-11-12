@@ -1,0 +1,32 @@
+{
+  "name": "shannon",
+  "displayName": "Shannon",
+  "version": "1.0.0",
+  "description": "Run Shannon, Keygraph's autonomous AI pentester, from your coding agent. Starts, monitors, and stops white-box pentests of web apps and APIs you are authorized to test, with safety rules built in.",
+  "author": {
+    "name": "Keygraph",
+    "email": "shannon@keygraph.io"
+  },
+  "homepage": "https://github.com/KeygraphHQ/shannon/tree/main/plugins/shannon",
+  "repository": "https://github.com/KeygraphHQ/shannon",
+  "license": "AGPL-3.0",
+  "logo": "assets/logo.png",
+  "category": "security",
+  "keywords": [
+    "security",
+    "pentest",
+    "penetration-testing",
+    "vulnerability-assessment",
+    "appsec",
+    "owasp",
+    "grok",
+    "keygraph"
+  ],
+  "tags": [
+    "security",
+    "pentest",
+    "appsec",
+    "grok"
+  ],
+  "skills": "./skills/"
+}
