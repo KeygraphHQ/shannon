@@ -55,6 +55,7 @@ import {
 } from '../types/run-state.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
+import { DEFAULT_MAX_CONCURRENT_PIPELINES } from './pipeline-concurrency.js';
 import {
   isAcceptedTaskFormationFallbackReason,
   RECONCILIATION_ACTIVITY_PROFILES,
@@ -183,7 +184,6 @@ const seedMiscellaneousActs = proxyActivities<Pick<ReconciliationActivityRegistr
   cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
 });
 
-const MAX_CONCURRENT_PIPELINES = 5;
 const MAX_NON_FATAL_FAILURES = 32;
 
 const CAPELLA_OPERATION_KEY = 'agentic-sast';
@@ -377,12 +377,22 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       'ConfigurationError',
     );
   }
+  if (
+    input.maxConcurrentPipelines !== undefined &&
+    (!Number.isInteger(input.maxConcurrentPipelines) || input.maxConcurrentPipelines < 1)
+  ) {
+    throw ApplicationFailure.nonRetryable(
+      `maxConcurrentPipelines must be a positive integer (default ${DEFAULT_MAX_CONCURRENT_PIPELINES}).`,
+      'ConfigurationError',
+    );
+  }
 
   const { workflowId } = workflowInfo();
   const a = input.pipelineTestingMode ? testActs : acts;
   const exploit = input.exploit ?? true;
   const authOnly = input.authOnly ?? false;
   const validateModel = input.validateModel ?? false;
+  const maxConcurrentPipelines = input.maxConcurrentPipelines ?? DEFAULT_MAX_CONCURRENT_PIPELINES;
   const sessionId = input.sessionId || input.resumeFromWorkspace || workflowId;
   const stateContext: 'fresh' | 'resume' = input.resumeFromWorkspace ? 'resume' : 'fresh';
 
@@ -1417,7 +1427,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       // Launch the Miscellaneous lane concurrently with the five fixed classes; it shares the same
       // settled SARIF and joins the common barrier below.
       const miscellaneousLane = runMiscellaneousExploitLane(settlement);
-      const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
+      const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, maxConcurrentPipelines);
       // Join the sixth lane before aggregation so its outcome is always observed (never a
       // dropped rejection in the workflow VM) and a cancellation from either path propagates.
       await miscellaneousLane;

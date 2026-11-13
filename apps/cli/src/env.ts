@@ -34,6 +34,9 @@ const COMMON_FORWARD_VARS = [
   // provider turn's raw error message to error.log. Off by default; provider prose stays out of
   // durable state unless an operator deliberately enables it for a diagnosis.
   'SHANNON_DEBUG_PROVIDER_ERRORS',
+  // Vulnerability-class pipeline fan-out (worker default 5). 1 runs the classes sequentially,
+  // which small local models need; anything but a positive integer falls back to the default.
+  'SHANNON_MAX_CONCURRENT_PIPELINES',
   GENERIC_API_KEY_ENV,
 ] as const;
 

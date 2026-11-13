@@ -110,6 +110,7 @@ export interface PipelineInput {
   exploit?: boolean; // false skips the exploitation phase
   authOnly?: boolean; // true stops the run after auth validation (no pentest, no report)
   validateModel?: boolean; // true stops the run after the preflight model checks (no pentest, no report)
+  maxConcurrentPipelines?: number; // Vulnerability-class pipelines in flight at once (default 5; 1 runs sequentially)
 }
 
 /** What `loadResumeState` reconstructs from a prior workspace: independently verified, never assumed from session.json alone. */

@@ -26,6 +26,7 @@
  *
  * Environment:
  *   TEMPORAL_ADDRESS - Temporal server address (default: localhost:7233)
+ *   SHANNON_MAX_CONCURRENT_PIPELINES - Vulnerability-class pipelines in flight (positive integer, default 5)
  */
 
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -92,6 +93,11 @@ import {
   syncCodePathDenyRules,
   syncPlaywrightStealthConfig,
 } from './activities.js';
+import {
+  isDirectMaxConcurrentPipelines,
+  MAX_CONCURRENT_PIPELINES_ENV,
+  parseMaxConcurrentPipelines,
+} from './pipeline-concurrency.js';
 import { createReconciliationActivityRegistry } from './reconcile-activities.js';
 import type { AgenticSastInput, PipelineInput, PipelineProgress, PipelineState } from './shared.js';
 
@@ -591,6 +597,15 @@ function buildPipelineInput(
   workspace: WorkspaceResolution,
   orchestration: OrchestrationConfig,
 ): PipelineInput {
+  // The workflow cannot read the environment (deterministic code), so the fan-out knob is
+  // resolved here and carried into the workflow input. A value that is not a positive
+  // integer is warned about and falls back to the default rather than failing the scan.
+  const rawConcurrency = process.env[MAX_CONCURRENT_PIPELINES_ENV];
+  if (rawConcurrency !== undefined && rawConcurrency.trim() !== '' && !isDirectMaxConcurrentPipelines(rawConcurrency)) {
+    console.warn(
+      `Ignoring ${MAX_CONCURRENT_PIPELINES_ENV}=${JSON.stringify(rawConcurrency.trim())}: expected a positive integer.`,
+    );
+  }
   return {
     webUrl: args.webUrl,
     repoPath: args.repoPath,
@@ -605,6 +620,7 @@ function buildPipelineInput(
     ...(orchestration.exploit !== undefined && { exploit: orchestration.exploit }),
     ...(args.authOnly && { authOnly: true }),
     ...(args.validateModel && { validateModel: true }),
+    maxConcurrentPipelines: parseMaxConcurrentPipelines(rawConcurrency),
   };
 }
 
