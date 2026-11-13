@@ -126,7 +126,7 @@ finishes as "partial".
 
 ## Pipeline Concurrency
 
-The five vulnerability-analysis classes run in parallel by default. To run them sequentially — for example, when a
+The five vulnerability-analysis classes run in parallel by default. To run them one at a time — for example, when a
 small local model cannot keep up with five concurrent agents — set:
 
 ```bash
@@ -134,6 +134,9 @@ export SHANNON_MAX_CONCURRENT_PIPELINES=1
 ```
 
 Any positive integer works; the default is 5, and anything else falls back to it.
+
+The limit covers the five class pipelines only. The Miscellaneous exploit lane, and agentic SAST when it is enabled or a
+SARIF file is supplied, run alongside them, so a setting of `1` can still have up to three agents active at once.
 
 ## Report Options
 
