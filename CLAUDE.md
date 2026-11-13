@@ -138,7 +138,7 @@ Infra (Temporal) runs via `docker-compose.yml`. Workers are ephemeral `docker ru
 - `apps/worker/src/utils/` — Shared utilities (file I/O, formatting, concurrency)
 
 ### Temporal Orchestration
-Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (5 concurrent agents in vuln/exploit phases).
+Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (up to 5 concurrent agents in vuln/exploit phases; configurable via `SHANNON_MAX_CONCURRENT_PIPELINES`, worker default in `apps/worker/src/temporal/pipeline-concurrency.ts`).
 
 - `apps/worker/src/temporal/workflows.ts` — Main workflow (`pentestPipelineWorkflow`)
 - `apps/worker/src/temporal/activities.ts` — Thin wrappers — heartbeat loop, error classification, container lifecycle. Business logic delegated to `apps/worker/src/services/`

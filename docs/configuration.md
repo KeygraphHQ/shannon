@@ -124,6 +124,17 @@ Agentic static analysis reads the repository for vulnerabilities before the pent
 exploitation phase. It adds model time and cost. If it fails, the pentest continues without its findings and the scan
 finishes as "partial".
 
+## Pipeline Concurrency
+
+The five vulnerability-analysis classes run in parallel by default. To run them sequentially — for example, when a
+small local model cannot keep up with five concurrent agents — set:
+
+```bash
+export SHANNON_MAX_CONCURRENT_PIPELINES=1
+```
+
+Any positive integer works; the default is 5, and anything else falls back to it.
+
 ## Report Options
 
 | Key | Effect |
