@@ -17,7 +17,7 @@
 
 #let tester-override = sys.inputs.at("tester", default: "Shannon")
 #let brand = sys.inputs.at("brand", default: "Shannon | AI Pentester by Keygraph")
-#let keygraph-url = "https://keygraph.io"
+#let keygraph-url = "https://keygraph.io/?utm_source=shannon&utm_medium=product&utm_campaign=shannon_oss_2026q4&utm_content=pdf_report"
 
 // ---------- Palette ---------------------------------------------------------
 // Kept distinct so Critical / High are not confused under monitor gamma.
