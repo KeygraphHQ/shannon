@@ -36,13 +36,17 @@ claude --plugin-dir ./plugins/shannon
 
 ### Grok Build
 
-Grok documents support for Claude-compatible marketplace indexes and skill
-components. This plugin uses that route, separately from Cursor's manifest.
+Grok reads the Claude-compatible plugin manifest and skill components. Install
+the plugin directly from its folder in the repository:
 
 ```sh
-grok plugin marketplace add KeygraphHQ/shannon
-grok plugin install shannon --trust
+grok plugin install 'KeygraphHQ/shannon#plugins/shannon' --trust
 ```
+
+Use this direct install instead of `grok plugin marketplace add KeygraphHQ/shannon`.
+Grok clones a marketplace source with a 15-second limit, and this repository
+does not clone in that time, so the marketplace is left unscanned and
+`grok plugin install shannon` cannot find the plugin.
 
 Confirm the plugin is enabled and trusted in `/plugins` and the skill appears in
 `/skills`. A local checkout can be validated with
