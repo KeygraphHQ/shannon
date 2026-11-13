@@ -74,6 +74,7 @@ import {
   ReportFinalizationIntegrityError,
   ReportSarifRenderError,
 } from '../services/report-finalization.js';
+import { createCanonicalReportMeta } from '../services/report-meta.js';
 import { surfaceReportOutputs as surfaceReportOutputsService } from '../services/report-output-surface.js';
 import type { ReportData, ReportMeta } from '../services/report-renderer.js';
 import { assembleFinalReportWithEvidence } from '../services/reporting.js';
@@ -746,47 +747,17 @@ export async function runReportAgent(input: ActivityInput, exploit: boolean): Pr
       durableState.participating_classes,
     );
 
-    // report_meta is written by the set-report-meta CLI while the agent runs; read it back so
-    // the two halves of report.json end up in one document.
     const reportJsonPath = path.join(deliverablesPath, REPORT_JSON_FILENAME);
-    let reportMeta: ReportMeta = {
+    const reportMeta: ReportMeta = createCanonicalReportMeta(collector.getReportMeta(), {
       target: input.webUrl,
-      assessment_date: assessmentDate,
-      scope: '',
-      executive_summary: '',
+      assessmentDate,
+      scope: formatVulnClassScope(resolveAnalysisClasses(input)),
       exploit,
-    };
-    if (await fileExists(reportJsonPath)) {
-      try {
-        const existing = await readJson<{ report_meta?: Record<string, unknown> }>(reportJsonPath);
-        if (existing.report_meta) {
-          reportMeta = {
-            target: String(existing.report_meta.target ?? input.webUrl),
-            assessment_date: String(existing.report_meta.assessment_date ?? reportMeta.assessment_date),
-            scope: String(existing.report_meta.scope ?? ''),
-            executive_summary: String(existing.report_meta.executive_summary ?? ''),
-            exploit,
-            ...(execution.model !== undefined && { model: execution.model }),
-          };
-        }
-      } catch {
-        logger.warn('Failed to read report_meta from report.json, using defaults');
-      }
-    }
-    if (execution.model !== undefined) {
-      reportMeta = { ...reportMeta, model: execution.model };
-    } else {
+      ...(execution.model !== undefined && { model: execution.model }),
+    });
+    if (execution.model === undefined) {
       logger.warn('Report execution returned no model identifier; canonical report metadata omits model');
     }
-    reportMeta = {
-      ...reportMeta,
-      // The workflow supplies the scan date to the prompt and owns the final field. A model-written
-      // value cannot move the assessment to a different day.
-      assessment_date: assessmentDate,
-      // The workflow owns the assessed class set. The model may summarize the engagement,
-      // but it cannot rename or omit the canonical scope in customer output.
-      scope: formatVulnClassScope(resolveAnalysisClasses(input)),
-    };
 
     const reportData: ReportData = {
       report_meta: reportMeta,

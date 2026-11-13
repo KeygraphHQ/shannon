@@ -26,6 +26,7 @@ import { writeAndCommitExactFiles } from './exact-output-commit.js';
 import { orderFindings } from './finding-order.js';
 import { readCommittedFile, withGitRepoLock } from './git-manager.js';
 import { type PdfProvenance, pdfProvenanceIsCurrent, readPdfProvenance, renderReportPdf } from './pdf-renderer.js';
+import { reportMetaIsComplete } from './report-meta.js';
 import { buildReportCoverage, type ReportData, renderReport } from './report-renderer.js';
 import { renderSarif } from './sarif-renderer.js';
 
@@ -116,15 +117,7 @@ function parseReportData(contents: string): ReportData {
   if (!isRecord(decoded) || !isRecord(decoded.report_meta) || !Array.isArray(decoded.findings)) {
     throw new ReportFinalizationIntegrityError('finalization-report-malformed');
   }
-  const meta = decoded.report_meta;
-  if (
-    typeof meta.target !== 'string' ||
-    typeof meta.assessment_date !== 'string' ||
-    typeof meta.scope !== 'string' ||
-    typeof meta.executive_summary !== 'string' ||
-    meta.scope.trim() === '' ||
-    meta.executive_summary.trim() === ''
-  ) {
+  if (!reportMetaIsComplete(decoded.report_meta)) {
     throw new ReportFinalizationIntegrityError('finalization-report-meta-malformed');
   }
   return decoded as unknown as ReportData;

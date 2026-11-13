@@ -126,9 +126,7 @@ RUN mkdir -p /tmp/.claude/skills && \
 RUN ln -s /app/apps/worker/dist/scripts/save-deliverable.js /usr/local/bin/save-deliverable && \
     chmod +x /app/apps/worker/dist/scripts/save-deliverable.js && \
     ln -s /app/apps/worker/dist/scripts/generate-totp.js /usr/local/bin/generate-totp && \
-    chmod +x /app/apps/worker/dist/scripts/generate-totp.js && \
-    ln -s /app/apps/worker/dist/scripts/set-report-meta.js /usr/local/bin/set-report-meta && \
-    chmod +x /app/apps/worker/dist/scripts/set-report-meta.js
+    chmod +x /app/apps/worker/dist/scripts/generate-totp.js
 
 # Create directories for session data and ensure proper permissions
 RUN mkdir -p /app/sessions /app/repos /app/workspaces && \

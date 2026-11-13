@@ -22,6 +22,7 @@ import { fileExists } from '../utils/file-io.js';
 import { PentestError } from './error-handling.js';
 import { classifyHeadReadFailure, readGitBlob, withGitRepoLock } from './git-manager.js';
 import { isReportFinalizationManifest } from './report-finalization.js';
+import { reportMetaIsComplete } from './report-meta.js';
 import type { ReportData } from './report-renderer.js';
 
 function sha256(contents: string): string {
@@ -132,7 +133,7 @@ export async function reportCheckpointIsCoherent(
       decoded !== null &&
       typeof decoded === 'object' &&
       decoded.report_meta !== null &&
-      typeof decoded.report_meta === 'object' &&
+      reportMetaIsComplete(decoded.report_meta) &&
       Array.isArray(decoded.findings) &&
       arraysEqual(decoded.reconciliation_failed ?? [], failedClasses)
     );
