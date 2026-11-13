@@ -31,8 +31,32 @@ description: "Next.js e-commerce app on PostgreSQL. Local dev environment — .e
 #   - Do not include actual values in deliverables — use placeholders like [order_id] or [user_email].
 #   - ...
 
+# --- API-only, non-browser OAuth authentication ---------------------------------------------
+# For APIs with no browser login, set login_type: api and provide an `oauth` block instead of
+# login_url / credentials / login_flow / success_condition. Shannon fetches a bearer token from
+# the token endpoint (no browser) and attaches it to every request, refreshing it as it expires.
+#
+# authentication:
+#   login_type: api
+#   oauth:
+#     token_url: "https://auth.example.com/oauth/token"
+#     grant_type: client_credentials   # or: password | refresh_token
+#     client_id: "my-client-id"
+#     client_secret: "my-client-secret"
+#     scope: "read write"              # optional
+#     audience: "https://api.example.com"  # optional; some providers require it
+#     client_auth: client_secret_post # or: client_secret_basic
+#     # For grant_type: password, add:
+#     # username: "test@example.com"
+#     # password: "test-password"
+#     # For grant_type: refresh_token, add:
+#     # refresh_token: "the-initial-refresh-token"
+#     # token_header: "Authorization"  # optional, default Authorization
+#     # token_prefix: "Bearer "        # optional, default "Bearer "
+#
+# --- Browser (form/sso) authentication -------------------------------------------------------
 authentication:
-  login_type: form  # Options: 'form' or 'sso'
+  login_type: form  # Options: 'form', 'sso', or 'api' (see the API-only block above)
   login_url: "https://example.com/login"
   credentials:
     username: "testuser"

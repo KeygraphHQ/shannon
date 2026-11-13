@@ -42,6 +42,10 @@ export interface ReportConfig {
   sarif?: 'true' | 'false';
 }
 
+// `form` and `sso` are browser flows: a real login is driven in Playwright and the resulting
+// session (cookies/storage) is captured and reused. `api` is a non-browser flow for API-only
+// targets: a bearer token is obtained from an OAuth token endpoint (see OAuthConfig) and
+// attached to the agents' raw HTTP requests instead of a browser session. `basic` is reserved.
 export type LoginType = 'form' | 'sso' | 'api' | 'basic';
 
 export interface SuccessCondition {
@@ -62,12 +66,45 @@ export interface Credentials {
   email_login?: EmailLogin;
 }
 
+export type GrantType = 'client_credentials' | 'password' | 'refresh_token';
+export type ClientAuthMethod = 'client_secret_post' | 'client_secret_basic';
+
+// Non-browser OAuth token acquisition for `login_type: api`. The preflight fetches a token to
+// fail fast on a broken grant and writes this config to disk; downstream agents mint fresh
+// tokens on demand via the `get-oauth-token` CLI (which refreshes on expiry).
+export interface OAuthConfig {
+  token_url: string;
+  grant_type: GrantType;
+  client_id?: string;
+  client_secret?: string;
+  /** Resource-owner-password grant only. */
+  username?: string;
+  /** Resource-owner-password grant only. */
+  password?: string;
+  scope?: string;
+  audience?: string;
+  /** refresh_token grant only; the initial refresh token to exchange. */
+  refresh_token?: string;
+  /** How client credentials are presented to the token endpoint. Default: client_secret_post. */
+  client_auth?: ClientAuthMethod;
+  /** Header the agents attach the token under. Default: Authorization. */
+  token_header?: string;
+  /** Prefix placed before the token value in the header. Default: "Bearer ". */
+  token_prefix?: string;
+  /** Extra form parameters sent verbatim in the token request body. */
+  extra_params?: Record<string, string>;
+}
+
 export interface Authentication {
   login_type: LoginType;
-  login_url: string;
-  credentials: Credentials;
+  // Optional: browser flows (form/sso) require login_url + credentials + success_condition;
+  // the api flow requires oauth instead. The JSON schema enforces the right combination per
+  // login_type, so these are typed optional but are present at runtime for the flow that needs them.
+  login_url?: string;
+  credentials?: Credentials;
   login_flow?: string[];
-  success_condition: SuccessCondition;
+  success_condition?: SuccessCondition;
+  oauth?: OAuthConfig;
 }
 
 export interface AgenticSastConfig {
