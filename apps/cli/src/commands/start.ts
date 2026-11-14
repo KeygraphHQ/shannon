@@ -18,6 +18,7 @@ import { getWorkspacesDir, initHome } from '../home.js';
 import { commandPrefix, isLocal } from '../mode.js';
 import { resolveModelSpec } from '../model-spec.js';
 import {
+  ERROR_LOG_FILENAME,
   expandHome,
   FINAL_REPORT_MD_FILENAME,
   FINAL_REPORT_PDF_FILENAME,
@@ -29,6 +30,7 @@ import {
   STARTUP_ERROR_FILENAME,
 } from '../paths.js';
 import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
+import { readLastPersistedAgentFailure, resumeFailureMessage } from '../scan/error-log.js';
 import { indentFailureSegments, parseFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
@@ -169,9 +171,10 @@ function readLaunchState(filePath: string): LaunchState {
 /**
  * Decide fresh-versus-resume from on-disk state alone, before start() mutates anything.
  * A fresh launch requires the workspace directory to be absent or empty; a resume requires
- * current-release session state, a matching target URL, and a customer output path that
- * agrees with the recorded one. Every other combination fails the launch, so a typo in
- * -w or -o stops here instead of spawning a worker into the wrong workspace.
+ * current-release session state, a matching target URL, a customer output path that
+ * agrees with the recorded one, and no recorded non-retryable terminal failure. Every
+ * other combination fails the launch, so a typo in -w or -o stops here instead of
+ * spawning a worker into the wrong workspace.
  */
 export function classifyWorkspaceLaunch(
   workspacePath: string,
@@ -221,7 +224,30 @@ export function classifyWorkspaceLaunch(
       'This workspace already copies its report to a different location than the -o path you passed. Re-run without -o to keep the original location, or start a new scan with a different -w name.',
     );
   }
+  refuseTerminalFailure(workspacePath, session);
   return { isResume: true, ...(storedOutputDir !== undefined && { outputDir: storedOutputDir }) };
+}
+
+/**
+ * Refuse the resume of a terminally failed workspace: the workflow closed failed and the
+ * worker recorded the failure as non-retryable, so the pipeline would re-fail on the same
+ * state. Any other recorded outcome keeps the resume path — `in-progress` means a crash to
+ * recover from, a retryable failure is exactly what re-running -w retries, and a completed
+ * run has nothing left to resume regardless of stale error.log entries.
+ */
+function refuseTerminalFailure(workspacePath: string, session: Record<string, unknown>): void {
+  const sessionMetadata = session.session;
+  if (!isRecord(sessionMetadata) || sessionMetadata.status !== 'failed') return;
+  const failure = readLastPersistedAgentFailure(resolveRunFile(workspacePath, ERROR_LOG_FILENAME));
+  if (failure?.retryable !== false) return;
+  const reason =
+    failure.message !== undefined && failure.code !== undefined
+      ? `${failure.message} (${failure.code})`
+      : (failure.message ?? failure.code);
+  fail(
+    "This workspace's previous run failed terminally (not retryable), so it cannot be resumed. Its files are untouched. Start a new scan with a different -w name.",
+    ...(reason !== undefined ? [`  Recorded failure: ${reason}`] : []),
+  );
 }
 
 /**
@@ -527,7 +553,11 @@ export async function start(args: StartArgs): Promise<void> {
         });
         if (outcome.kind === 'failed') {
           spinner.error(couldNotStartLabel);
-          printScanStartFailure(outcome.message);
+          // A resume of a workspace whose failure carried no classified Temporal type gets the
+          // generic "Pipeline failed" wrapper here; the recorded error.log reason is the real one.
+          printScanStartFailure(
+            resumeFailureMessage(outcome.message, resolveRunFile(workspacePath, ERROR_LOG_FILENAME), isResume),
+          );
           process.exit(1);
         }
 
