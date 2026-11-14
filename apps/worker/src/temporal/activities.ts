@@ -48,6 +48,7 @@ import {
 } from '../services/cyber-access-verification.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { RenumberError } from '../services/exact-output-commit.js';
+import { assertExploitCollectorReconciled } from '../services/exploit-reconciliation.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
@@ -652,6 +653,20 @@ async function runExploitAgentWithCollector(
       exploited: exploitedCount,
       blocked: blockedCount,
       missing: missingIds.length,
+    });
+
+    // #529: a non-empty queue with zero collector entries means exploitation
+    // never ran for this class — fail here, before writing an empty
+    // collector that reporting would read as "zero vulnerabilities". The
+    // throw is wrapped by agent execution into a retryable
+    // OUTPUT_VALIDATION_FAILED error, so the agent gets the usual validation
+    // retries before the activity fails and the workflow degrades the class
+    // to partial ("not assessed") instead of a clean zero.
+    assertExploitCollectorReconciled({
+      vulnClass,
+      queueSize: validIds.size,
+      collectedCount: collected.length,
+      missingIds,
     });
 
     const collectorRelPath = sparseExploitCollectorPath(vulnClass);
