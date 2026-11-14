@@ -48,6 +48,7 @@ import {
 } from '../services/cyber-access-verification.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { RenumberError } from '../services/exact-output-commit.js';
+import { assertExploitCollectorCoverage } from '../services/exploit-collector-coverage.js';
 import { ExploitationCheckerService } from '../services/exploitation-checker.js';
 import { renderFindingsFromQueues } from '../services/findings-renderer.js';
 import { executeGitCommandWithRetry } from '../services/git-manager.js';
@@ -653,6 +654,12 @@ async function runExploitAgentWithCollector(
       blocked: blockedCount,
       missing: missingIds.length,
     });
+
+    // The reconciliation invariant: a non-empty queue must not end the stage as an empty
+    // collector. Exploit agents have no output validator (the evidence deliverable is
+    // rendered from the collector below), so a zero-`add_exploit` run would otherwise
+    // commit "no vulnerabilities" for a class the analysis phase queued as exploitable.
+    assertExploitCollectorCoverage(vulnClass, validIds, collected);
 
     const collectorRelPath = sparseExploitCollectorPath(vulnClass);
     await atomicWrite(path.join(deliverablesPath, collectorRelPath), `${JSON.stringify(collected, null, 2)}\n`);
