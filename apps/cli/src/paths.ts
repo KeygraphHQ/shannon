@@ -56,6 +56,14 @@ export const FINAL_REPORT_MD_FILENAME = 'Security-Assessment-Report.md';
 export const STARTUP_ERROR_FILENAME = 'startup-error.json';
 
 /**
+ * Appended agent-failure record under the deliverables dir, written by the worker when an agent
+ * phase fails terminally. The CLI reads it on the resume path to refuse a workspace whose last
+ * failure was non-retryable and to surface the recorded reason a generic outcome message hides.
+ * Must match the error.log name in the worker package (apps/worker/src/ai/pi/pi-executor.ts).
+ */
+export const ERROR_LOG_FILENAME = path.join('deliverables', 'error.log');
+
+/**
  * Resolve a run-directory file (e.g. session.json, workflow.log), preferring the
  * current INTERNAL_DIR location and falling back to the legacy run-root location
  * so pre-restructure workspaces keep working. Returns the INTERNAL_DIR path when
