@@ -29,6 +29,7 @@ import {
   RunStateError,
   recordMiscellaneousOutcome,
   type StoredPdfProvenance,
+  withoutReportProgress,
 } from '../types/run-state.js';
 import { atomicWrite, fileExists, readJson } from '../utils/file-io.js';
 import { calculatePercentage, formatTimestamp } from '../utils/formatting.js';
@@ -616,6 +617,24 @@ export class MetricsTracker {
     this.recalculateAggregations();
     await this.save();
     return structuredClone(report);
+  }
+
+  /** Discard report progress for a resume retry, keeping the report agent's billable attempts. */
+  async reopenReport(): Promise<void> {
+    const data = this.requireData();
+    const next = withoutReportProgress(this.requireDurableScanState());
+    if (!isDurableScanState(next)) {
+      throw new RunStateError('DurableStateConflictError', 'report-reopen-invalid');
+    }
+    const agent = data.metrics.agents.report;
+    if (agent !== undefined) {
+      agent.status = 'in-progress';
+      delete agent.checkpoint;
+      delete agent.model;
+    }
+    data.durableScanState = next;
+    this.recalculateAggregations();
+    await this.save();
   }
 
   /** Return persisted report metrics for a coherent draft/finalized model-skip path. */

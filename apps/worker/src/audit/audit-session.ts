@@ -312,6 +312,18 @@ export class AuditSession {
     }
   }
 
+  /** Discard report progress for a resume retry. */
+  async reopenReport(): Promise<void> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      await this.metricsTracker.reopenReport();
+    } finally {
+      unlock();
+    }
+  }
+
   /** Read persisted report metrics for model-skip resume. */
   async getReportMetrics(): Promise<AgentMetrics> {
     await this.ensureInitialized();

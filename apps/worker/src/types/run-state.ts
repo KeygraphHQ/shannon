@@ -823,10 +823,28 @@ export type ReportProgress =
  * True once the report agent has committed a draft. From that point report.json is fixed at the
  * model checkpoint, so nothing the pentest phase could still produce can reach the deliverable:
  * a resumed run that re-ran that phase would only spend money and observe degradation reasons the
- * committed draft can never carry.
+ * committed draft can never carry. Resumes with failed agents reopen the report first (`shouldReopenReport`).
  */
 export function reportIsAuthored(stage: ReportProgress['stage'] | undefined): boolean {
   return stage === 'draft' || stage === 'finalized';
+}
+
+/** True when a resume must discard report progress because agents other than `report` need a retry. */
+export function shouldReopenReport(
+  report: ReportProgress | undefined,
+  incompleteAgents: readonly AgentName[],
+): boolean {
+  if (report === undefined) return false;
+  return incompleteAgents.some((agentName) => agentName !== 'report');
+}
+
+/** Discard report progress at any stage. */
+export function withoutReportProgress(state: DurableScanState): DurableScanState {
+  if (state.report === undefined) {
+    throw new RunStateError('DurableStateConflictError', 'report-reopen-without-progress');
+  }
+  const { report: _discarded, ...withoutReport } = state;
+  return withoutReport;
 }
 
 export interface DurableScanState {

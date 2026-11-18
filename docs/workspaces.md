@@ -11,6 +11,7 @@ Shannon uses workspaces to store scan state, logs, prompts, and deliverables. Wo
 - Use `-w <name>` to give a run a custom name.
 - To resume a run, pass the same workspace name with `-w`.
 - Each agent's progress is checkpointed so resumed runs can skip completed work.
+- Resuming a `partial` scan retries only the agents that failed. Shannon then writes the report again so it includes the retried results, so finding numbers and wording can differ from the previous report.
 - The final report is surfaced at the workspace root as `Security-Assessment-Report.pdf` and `Security-Assessment-Report.md`. Run internals — deliverables, logs, prompts, and session state — live under a hidden `.shannon/` directory.
 
 > [!NOTE]

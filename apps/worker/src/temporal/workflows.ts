@@ -1394,11 +1394,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     await a.syncCodePathDenyRules(activityInput);
 
     const allExpectedDone = state.expectedAgents.every((agentName) => state.completedAgents.includes(agentName));
-    // A durable draft means report.json is already committed, so re-running the pentest phase
-    // cannot change what the report says. It would only re-pay for the analysis and observe new
-    // degradation reasons that the finalized deliverable, rendered from durable state, could never
-    // carry — leaving the report claiming complete coverage while the session records a partial
-    // run. An invalid draft is rolled back to `pending` during resume, so it still re-runs here.
+    // Resumes with failed agents reopen the report in loadResumeState, so an authored report here
+    // means only reporting remains.
     const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
       // Agentic SAST overlaps the pentest: it starts here and is joined per class before
