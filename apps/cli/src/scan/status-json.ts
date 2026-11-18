@@ -9,7 +9,7 @@
 import type { DerivedPhase } from './derive.js';
 import { derivePipeline, isTerminal, scanElapsedMs } from './derive.js';
 import type { PartialReasonView } from './pipeline.js';
-import type { RenderInput } from './render.js';
+import { type RenderInput, terminalFailureEvidence } from './render.js';
 import {
   safeAgenticSast,
   safeCliIdentifier,
@@ -77,7 +77,7 @@ export function toStatusJson(input: RenderInput, now: number): StatusJson {
   const partialReasons = safePartialReasons(input.state?.partialReasons ?? []);
   const agenticSast = safeAgenticSast(input.state?.agenticSast);
   const usageAccountingComplete = input.state?.summary?.usageAccountingComplete;
-  const failureMessage = safeTerminalFailure(input.failureMessage !== undefined);
+  const failureMessage = safeTerminalFailure(input.failureMessage !== undefined, terminalFailureEvidence(input));
 
   return {
     workspace: safeCliIdentifier(input.workspace),

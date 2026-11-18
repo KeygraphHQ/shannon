@@ -84,5 +84,7 @@ export function toWorkflowSummary(
     ...(agenticSastFailureMessage !== undefined && { agenticSastFailureMessage }),
     ...(agenticSastErrorCode !== undefined && { agenticSastErrorCode }),
     ...(state.errorCode !== undefined && { errorCode: state.errorCode }),
+    ...(state.failureType !== undefined && { failureType: state.failureType }),
+    ...(state.failureCheckCode !== undefined && { failureCheckCode: state.failureCheckCode }),
   };
 }

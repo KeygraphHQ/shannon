@@ -274,7 +274,59 @@ export function safeFailureDetail(hasFailure: boolean): string | undefined {
   return hasFailure ? 'This scan step could not be completed.' : undefined;
 }
 
-/** Same closed-set trade-off as safeFailureDetail, for the scan-level (not per-agent) failure. */
-export function safeTerminalFailure(hasFailure: boolean): string | undefined {
-  return hasFailure ? 'The scan could not be completed.' : undefined;
+/**
+ * Mirrors SAFE_WORKFLOW_FAILURE_MESSAGES in apps/worker/src/types/workflow-failures.ts; a type
+ * added there needs the same entry here, or the CLI falls back to the generic sentence for it.
+ */
+const WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = Object.freeze({
+  AuthenticationError: 'Provider authentication failed.',
+  ModelNotFoundError: 'The selected model was not found in the harness catalogue.',
+  ModelConfigError: 'The model configuration file could not be used.',
+  ConfigurationError: 'The scan configuration is invalid.',
+  OutputValidationError: 'A scan step returned an unusable result.',
+  AgentExecutionError: 'An agent could not complete its work.',
+  GitError: 'The scan checkpoint could not be updated.',
+  InvalidTargetError: 'The target could not be reached.',
+  AuthLoginFailedError: 'The configured login could not be completed.',
+  PipelineFailedError: 'The vulnerability analysis phase could not be completed.',
+  ReportDraftError: 'The report could not be saved.',
+  ReportSarifRenderError: 'The report SARIF output could not be rendered.',
+  ReportRenumberError: 'Report finding numbers could not be assigned.',
+  ReportAssemblyError: 'The report inputs could not be assembled.',
+  ReportCompactionError: 'Report finding numbers could not be compacted.',
+  ReportFinalizationError: 'The report outputs could not be finalized.',
+  ReportFinalizationIntegrityError: 'The finalized report outputs failed an integrity check.',
+  UnmappableSurvivor: 'A report finding could not be matched to its exploitation result.',
+  KeySetDivergence: 'The report outputs disagree with their committed records.',
+  IncompatibleWorkspaceError: 'This workspace cannot be resumed.',
+  CorruptedSessionError: "This workspace's scan state is missing or damaged, so it cannot be resumed.",
+  DurableStateConflictError:
+    "This workspace's saved progress does not match what the scan is trying to record. Start a new scan with a different -w name.",
+  WorkspaceNotFoundError: 'The requested workspace was not found.',
+  NoCheckpointsError: 'This workspace has no completed work to resume.',
+  URLMismatchError: 'This workspace was created for a different target URL.',
+  OpenAiCyberAccessError: 'OpenAI declined the security workload behind its cyber-access program.',
+  AnthropicCyberAccessError: 'Anthropic declined the security workload behind its cyber-access program.',
+  TransientError: 'A scan step kept failing on temporary errors and ran out of retries.',
+  PermanentError: 'A scan step failed with an error that cannot be retried.',
+  UnknownError: 'A scan step failed with an unclassified error.',
+});
+
+export interface TerminalFailureEvidence {
+  readonly failureType?: string | undefined;
+  readonly failureCheckCode?: string | undefined;
+}
+
+/**
+ * The scan-level failure, rendered from a closed set: a known type prints its fixed message and
+ * reference, anything else collapses to one generic sentence. Worker text is never echoed.
+ */
+export function safeTerminalFailure(hasFailure: boolean, evidence: TerminalFailureEvidence = {}): string | undefined {
+  if (!hasFailure) return undefined;
+  const { failureType, failureCheckCode } = evidence;
+  if (failureType === undefined || !Object.hasOwn(WORKFLOW_FAILURE_MESSAGES, failureType)) {
+    return 'The scan could not be completed.';
+  }
+  const showCheck = failureCheckCode !== undefined && safeCliIdentifier(failureCheckCode) === failureCheckCode;
+  return `${WORKFLOW_FAILURE_MESSAGES[failureType]} Reference: ${failureType}${showCheck ? ` (${failureCheckCode})` : ''}`;
 }

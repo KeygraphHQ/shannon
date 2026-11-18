@@ -13,6 +13,11 @@ import { isCapellaSafeFailureMessage, isCapellaTerminalStageLabel } from '../ai/
 import { CAPELLA_STAGE_LABELS, type CapellaStage } from '../ai/sast/types.js';
 import { type ErrorCode, isProviderFailureCategory } from '../types/errors.js';
 import { isPartialReason, type PartialReasonView, projectPartialReasons } from '../types/run-state.js';
+import {
+  isWorkflowFailureType,
+  SAFE_WORKFLOW_FAILURE_MESSAGES,
+  type WorkflowFailureType,
+} from '../types/workflow-failures.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
 import {
   agentLogPath,
@@ -85,6 +90,8 @@ export interface WorkflowSummary {
   readonly agenticSastStatus?: 'disabled' | 'running' | 'succeeded' | 'failed';
   readonly agenticSastCoverage?: 'complete' | 'reduced';
   readonly errorCode?: ErrorCode;
+  readonly failureType?: WorkflowFailureType;
+  readonly failureCheckCode?: string;
 }
 
 export type ChildTaskFailureCode = 'CANCELLED' | 'CHILD_TASK_FAILED';
@@ -744,7 +751,15 @@ export class WorkflowLogger {
     if (summary.usageAccountingComplete === false) {
       lines.push('Cost Note:   Cost is incomplete — some background work is not included in this total.');
     }
-    if (summary.errorCode !== undefined) {
+    if (isWorkflowFailureType(summary.failureType)) {
+      const checkCode =
+        summary.failureCheckCode !== undefined &&
+        safeWorkflowIdentifier(summary.failureCheckCode) === summary.failureCheckCode
+          ? ` (${summary.failureCheckCode})`
+          : '';
+      lines.push(`Error:       ${SAFE_WORKFLOW_FAILURE_MESSAGES[summary.failureType]}`);
+      lines.push(`             ${summary.failureType}${checkCode}`);
+    } else if (summary.errorCode !== undefined) {
       const safeError = safeErrorFromCode(summary.errorCode);
       lines.push(`Error:       ${safeError.message}`);
       lines.push(`             ${safeError.code}`);

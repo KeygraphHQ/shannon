@@ -13,6 +13,7 @@ import {
   type ProviderFailure,
   type ProviderFailureCategory,
 } from '../types/errors.js';
+import type { WorkflowFailureType } from '../types/workflow-failures.js';
 
 // The provider boundary answers two independent questions and never lets one decide the other:
 //
@@ -297,7 +298,10 @@ export function providerFailureSentence(failure: ProviderFailure): string {
  * Classifies errors by ErrorCode for reliable, code-based classification.
  * Used when error is a PentestError with a specific ErrorCode.
  */
-function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { type: string; retryable: boolean } {
+function classifyByErrorCode(
+  code: ErrorCode,
+  retryableFromError: boolean,
+): { type: WorkflowFailureType; retryable: boolean } {
   switch (code) {
     // Config errors - non-retryable (need manual fix)
     case ErrorCode.CONFIG_NOT_FOUND:
@@ -364,7 +368,7 @@ function classifyByErrorCode(code: ErrorCode, retryableFromError: boolean): { ty
  * 2. Anything else goes through the bounded provider classifier. The original value is passed
  *    through unchanged so an AssistantMessage keeps the fields the classifier reads.
  */
-export function classifyErrorForTemporal(error: unknown): { type: string; retryable: boolean } {
+export function classifyErrorForTemporal(error: unknown): { type: WorkflowFailureType; retryable: boolean } {
   // === CODE-BASED CLASSIFICATION (Preferred for internal errors) ===
   if (error instanceof PentestError && error.code !== undefined) {
     return classifyByErrorCode(error.code, error.retryable);

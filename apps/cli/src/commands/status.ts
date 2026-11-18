@@ -109,6 +109,8 @@ async function buildTerminalInput(workspace: string, workflowId: string, desc: S
     state: null,
     running: [],
     failureMessage: outcome.message,
+    ...(outcome.failureType !== undefined && { failureType: outcome.failureType }),
+    ...(outcome.failureCheckCode !== undefined && { failureCheckCode: outcome.failureCheckCode }),
     ...timing,
   };
 }
