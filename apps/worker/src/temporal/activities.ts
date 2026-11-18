@@ -95,6 +95,7 @@ import {
   isReportProgress,
   type MiscellaneousOutcome,
   type PartialReason,
+  prunePartialReasonsForRetry,
   type ReportProgress,
   type ReportSarifDisposition,
   RunStateError,
@@ -1152,6 +1153,36 @@ export async function initializeReportProgress(
     const auditSession = new AuditSession(buildSessionMetadata(input));
     await auditSession.initialize(input.workflowId);
     return await auditSession.initializeReportProgress(failedClasses, partialReasons);
+  } catch (error) {
+    throw runStateFailure(error);
+  }
+}
+
+/**
+ * Clear a drafted or finalized report so a resumed run can retry its failed classes and
+ * author the report again from the retried deliverables. Prunes the durable reasons to
+ * the set the retried run adopts — reasons for classes that are not retried survive, the
+ * rest are re-derived by the re-run phases — and returns them, so the workflow adopts the
+ * same set in memory. The report agent's success is withdrawn with the report, keeping the
+ * metrics and the durable state consistent for a later resume.
+ */
+export async function resetReportProgressForRetry(
+  input: ActivityInput,
+  retriedClasses: readonly ReconciliationClass[],
+): Promise<{ prunedReasons: PartialReason[] }> {
+  try {
+    const auditSession = new AuditSession(buildSessionMetadata(input));
+    await auditSession.initialize(input.workflowId);
+    const durableState = await auditSession.getDurableScanState();
+    if (
+      durableState.report === undefined ||
+      (durableState.report.stage !== 'draft' && durableState.report.stage !== 'finalized')
+    ) {
+      throw new RunStateError('DurableStateConflictError', 'report-retry-reset-invalid-source-stage');
+    }
+    const prunedReasons = prunePartialReasonsForRetry(durableState.report.partial_reasons, retriedClasses);
+    await auditSession.resetReportProgressForRetry(prunedReasons);
+    return { prunedReasons: [...prunedReasons] };
   } catch (error) {
     throw runStateFailure(error);
   }

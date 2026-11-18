@@ -160,6 +160,7 @@ const OPERATION_ACTIVITY_PROGRESS: Readonly<Record<string, ActivityProgressSpec>
   checkExploitationQueue: { key: 'queue-check', label: 'Check exploitation queue', kind: 'operation' },
   loadResumeState: { key: 'resume-validation', label: 'Validate resume state', kind: 'operation' },
   restoreGitCheckpoint: { key: 'resume-restore', label: 'Restore checkpoint', kind: 'operation' },
+  resetReportProgressForRetry: { key: 'resume-retry', label: 'Clear report for failed-class retry', kind: 'operation' },
   registerResumeAttempt: { key: 'resume-registration', label: 'Register resume', kind: 'operation' },
   recordResumeAttempt: { key: 'resume-registration', label: 'Record resume', kind: 'operation' },
   logPhaseTransition: { key: 'audit-log', label: 'Update audit log', kind: 'operation' },

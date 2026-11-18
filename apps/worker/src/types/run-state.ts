@@ -547,6 +547,49 @@ export function appendPartialReasons(
   return Object.freeze(result);
 }
 
+/**
+ * Codes a retried run re-derives from scratch, so a report reset drops them for every class:
+ * the report stages (renumber, compaction, assembly omissions, SARIF) run again over the
+ * retried deliverables, and Agentic SAST runs again inside the pentest phase when configured.
+ * Class-pipeline and reconciliation failures are not in this list: a class that is not
+ * retried keeps its recorded outcome, and a retried class re-adds its own failure if it
+ * fails again.
+ */
+const RETRY_REDERIVED_REASON_CODES: readonly PartialReasonCode[] = Object.freeze([
+  'agentic_sast_failed',
+  'agentic_sast_reduced',
+  'report_renumber_failed',
+  'report_compaction_failed',
+  'report_class_omitted',
+  'report_sarif_failed',
+]);
+
+/**
+ * Prune a durable reason set for a retry of the given classes: drop every reason the
+ * retried run re-derives (the codes above, for every class) and every class-scoped reason
+ * for a retried class. Reasons for classes that are not retried survive unchanged, since
+ * their outcomes stand. The locked ordering is preserved, so the result stays a valid
+ * durable set.
+ */
+export function prunePartialReasonsForRetry(
+  reasons: readonly PartialReason[],
+  retriedClasses: readonly ReconciliationClass[],
+): readonly PartialReason[] {
+  if (!isOrderedPartialReasonSet(reasons)) {
+    throw new RunStateError('CorruptedSessionError', 'partial-reasons-retry-prune-invalid');
+  }
+  const retried = new Set(retriedClasses);
+  const pruned = reasons.filter((reason) => {
+    if (RETRY_REDERIVED_REASON_CODES.includes(reason.code)) return false;
+    if (reason.vulnerabilityClass !== undefined) return !retried.has(reason.vulnerabilityClass);
+    return true;
+  });
+  if (!isOrderedPartialReasonSet(pruned)) {
+    throw new RunStateError('DurableStateConflictError', 'partial-reasons-retry-prune-conflict');
+  }
+  return Object.freeze(pruned);
+}
+
 /** Resolve one durable reason's rendered sentence, including its bounded class or stage context. */
 function safeMessageFor(reason: PartialReason): string {
   if (
@@ -823,7 +866,9 @@ export type ReportProgress =
  * True once the report agent has committed a draft. From that point report.json is fixed at the
  * model checkpoint, so nothing the pentest phase could still produce can reach the deliverable:
  * a resumed run that re-ran that phase would only spend money and observe degradation reasons the
- * committed draft can never carry.
+ * committed draft can never carry. A resume with incomplete agents therefore clears the report
+ * first (see resetReportProgressForRetry) instead of re-running the phase against it, so this
+ * stays true for the report that is actually in force.
  */
 export function reportIsAuthored(stage: ReportProgress['stage'] | undefined): boolean {
   return stage === 'draft' || stage === 'finalized';

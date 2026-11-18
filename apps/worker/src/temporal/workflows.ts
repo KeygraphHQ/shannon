@@ -1309,16 +1309,39 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.expectedAgents = [...resumeState.expectedAgents];
       state.participatingClasses = [...resumeState.participatingClasses];
       if (resumeState.miscellaneousOutcome !== undefined) miscellaneousOutcome = resumeState.miscellaneousOutcome;
-      if (resumeState.reportProgress !== undefined) {
-        state.reportProgress = resumeState.reportProgress;
-        // Durable reasons are restored, never reconstructed from session status or errors.
-        adoptDurableReasons(resumeState.reportProgress.partial_reasons);
-      }
 
       const expectedAgentNames = resumeState.expectedAgents.filter(isAgentName);
       const incompleteAgents = expectedAgentNames.filter(
         (agentName) => !resumeState?.completedAgents.includes(agentName),
       );
+      // A drafted or finalized report normally bars re-running the pentest phase: the report
+      // is already committed, so new findings could never reach it. But when agents are
+      // still incomplete, the report is missing those classes entirely — resuming only to
+      // re-render the same partial report is the bug in #532. Clear the report (and the
+      // report agent's success with it) so the retry re-runs the failed classes and the
+      // report is authored again from the retried deliverables. The stale reasons for the
+      // retried classes and the report stages are pruned; reasons for classes that are not
+      // retried survive, since their outcomes stand. The checkpoint restore below still
+      // uses the loaded snapshot, so the report deliverable is preserved on disk.
+      const retriedClasses: ReconciliationClass[] = ALL_VULN_CLASSES.filter(
+        (vulnerabilityClass) =>
+          incompleteAgents.includes(`${vulnerabilityClass}-vuln` as AgentName) ||
+          incompleteAgents.includes(`${vulnerabilityClass}-exploit` as AgentName),
+      );
+      if (incompleteAgents.includes('miscellaneous-exploit')) retriedClasses.push('miscellaneous');
+      if (incompleteAgents.length > 0 && reportIsAuthored(resumeState.reportProgress?.stage)) {
+        const reset = await deterministicReportActs.resetReportProgressForRetry(activityInput, retriedClasses);
+        delete state.reportProgress;
+        // Durable reasons are restored, never reconstructed from session status or errors —
+        // here the pruned set the reset activity persisted, not the full superseded set.
+        partialReasons = [...reset.prunedReasons];
+        state.partialReasons = [...projectPartialReasons(partialReasons)];
+      } else if (resumeState.reportProgress !== undefined) {
+        state.reportProgress = resumeState.reportProgress;
+        // Durable reasons are restored, never reconstructed from session status or errors.
+        adoptDurableReasons(resumeState.reportProgress.partial_reasons);
+      }
+
       await deterministicReportActs.restoreGitCheckpoint(
         input.repoPath,
         resumeState.checkpointHash,
@@ -1394,12 +1417,13 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     await a.syncCodePathDenyRules(activityInput);
 
     const allExpectedDone = state.expectedAgents.every((agentName) => state.completedAgents.includes(agentName));
-    // A durable draft means report.json is already committed, so re-running the pentest phase
-    // cannot change what the report says. It would only re-pay for the analysis and observe new
-    // degradation reasons that the finalized deliverable, rendered from durable state, could never
-    // carry — leaving the report claiming complete coverage while the session records a partial
-    // run. An invalid draft is rolled back to `pending` during resume, so it still re-runs here.
-    const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
+    // An authored report bars re-running the pentest phase only while every expected agent
+    // already completed: the report is committed, so a re-run could only observe new
+    // degradation the report could never carry. When agents are still incomplete, the
+    // resume above cleared the report, so the phase re-runs here and the report is authored
+    // again from the retried deliverables. An invalid draft is rolled back to `pending`
+    // during resume, so it still re-runs here.
+    const reportAlreadyAuthored = reportIsAuthored(state.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
       // Agentic SAST overlaps the pentest: it starts here and is joined per class before
       // reconciliation, so preliminary analysis and reconnaissance never wait on it.

@@ -618,6 +618,39 @@ export class MetricsTracker {
     return structuredClone(report);
   }
 
+  /**
+   * Clear a drafted or finalized report so a resumed run can retry its failed classes and
+   * author the report again from the retried deliverables. The report's checkpoints and
+   * terminal proof are dropped with it — the committed files stay in the deliverables git
+   * history, and the report agent re-authors from the new deliverables. The report agent's
+   * success is withdrawn at the same time (status back to in-progress, checkpoint and model
+   * cleared, attempts kept), so the metrics and the durable state still agree for a later
+   * resume: a pending report never pairs with a successful report agent. The pruned reasons
+   * the caller passes in are the set the retried run adopts; they must already be a valid
+   * ordered set, since this transition does not re-derive them.
+   */
+  async resetReportProgressForRetry(prunedReasons: readonly PartialReason[]): Promise<void> {
+    const data = this.requireData();
+    const durableState = this.requireDurableScanState();
+    const current = durableState.report;
+    if (current === undefined || (current.stage !== 'draft' && current.stage !== 'finalized')) {
+      throw new RunStateError('DurableStateConflictError', 'report-retry-reset-invalid-source-stage');
+    }
+    if (!isOrderedPartialReasonSet(prunedReasons)) {
+      throw new RunStateError('DurableStateConflictError', 'report-retry-reset-reasons-invalid');
+    }
+    const agent = data.metrics.agents.report;
+    if (agent !== undefined) {
+      agent.status = 'in-progress';
+      delete agent.checkpoint;
+      delete agent.model;
+    }
+    const { report: _droppedReport, ...rest } = durableState;
+    data.durableScanState = rest;
+    this.recalculateAggregations();
+    await this.save();
+  }
+
   /** Return persisted report metrics for a coherent draft/finalized model-skip path. */
   getReportMetrics(): AgentMetrics {
     const durableState = this.requireDurableScanState();

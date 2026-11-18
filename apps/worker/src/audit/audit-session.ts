@@ -312,6 +312,22 @@ export class AuditSession {
     }
   }
 
+  /**
+   * Clear a drafted or finalized report (and the report agent's success with it) so a
+   * resumed run can retry its failed classes and author the report again. The caller
+   * passes the already-pruned reasons the retried run adopts.
+   */
+  async resetReportProgressForRetry(prunedReasons: readonly PartialReason[]): Promise<void> {
+    await this.ensureInitialized();
+    const unlock = await sessionMutex.lock(this.sessionId);
+    try {
+      await this.metricsTracker.reload();
+      return await this.metricsTracker.resetReportProgressForRetry(prunedReasons);
+    } finally {
+      unlock();
+    }
+  }
+
   /** Read persisted report metrics for model-skip resume. */
   async getReportMetrics(): Promise<AgentMetrics> {
     await this.ensureInitialized();
