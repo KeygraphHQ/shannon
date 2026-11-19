@@ -189,7 +189,7 @@ Around those phases:
 - **Configuration-Driven** — YAML configs with JSON Schema validation
 - **Progressive Analysis** — Each phase builds on previous results
 - **Harness-First** — the pi harness (`@earendil-works/pi-coding-agent`) handles autonomous analysis
-- **Modular Error Handling** — `ErrorCode` enum, `Result<T,E>` for explicit error propagation, automatic retry (3 attempts per agent)
+- **Modular Error Handling** — `ErrorCode` enum, `Result<T,E>` for explicit error propagation, automatic retry (5 attempts per agent, 3 for output validation failures)
 - **Services Boundary** — Activities are thin Temporal wrappers; `apps/worker/src/services/` owns business logic, accepts `ActivityLogger`, returns `Result<T,E>`. No Temporal imports in services
 - **DI Container** — Per-workflow in `apps/worker/src/services/container.ts`. `AuditSession` excluded (parallel safety)
 - **Ephemeral Workers** — Each scan runs in its own `docker run --rm` container with a per-invocation task queue. Temporal routes activities by queue name, so per-scan queues ensure activities never land on a worker with the wrong repo mounted

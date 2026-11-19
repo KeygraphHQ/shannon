@@ -96,10 +96,10 @@ export { capellaWorkflow };
 // as non-retryable are ones a retry can never fix (bad credentials, invalid config, an
 // unreachable target, a failed login), so retrying them would only burn time before failing anyway.
 const PRODUCTION_RETRY = {
-  initialInterval: '5 minutes',
-  maximumInterval: '30 minutes',
+  initialInterval: '1 minute',
+  maximumInterval: '8 minutes',
   backoffCoefficient: 2,
-  maximumAttempts: 50,
+  maximumAttempts: 5,
   nonRetryableErrorTypes: [
     'AuthenticationError',
     'ConfigurationError',
