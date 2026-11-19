@@ -36,6 +36,7 @@
   "scripts": {
     "build": "tsc",
     "check": "tsc --noEmit",
+    "test": "pnpm run build && node --test $(find dist -name '*.test.js' -print)",
     "clean": "rm -rf dist"
   },
   "dependencies": {

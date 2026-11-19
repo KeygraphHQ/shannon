@@ -7,10 +7,10 @@
 /**
  * Finding Collector tools
  *
- * Collects structured findings from the report agent via a pi tool. The agent
- * calls `add_finding` once per finding with TypeBox-validated parameters. After
- * the agent finishes, the caller retrieves collected findings via `getAll()`
- * for downstream rendering (markdown, PDF, DB).
+ * Collects structured report metadata and findings from the report agent via pi tools.
+ * The agent calls `set_report_meta` once and `add_finding` once per finding with
+ * TypeBox-validated parameters. After the agent finishes, the caller retrieves
+ * collected report data for downstream rendering (markdown, PDF, DB).
  *
  * The tool schema is mode-dependent: fields describing a demonstrated attack have no source in
  * an analysis-only run, and offering them would only make the agent invent them.
@@ -42,6 +42,19 @@ const OWASP_CATEGORY_VALUES = [
 const SEVERITY_VALUES = ['critical', 'high', 'medium', 'low'] as const;
 const STATUS_VALUES = ['exploited', 'out_of_scope', 'blocked_by_constraints', 'false_positive'] as const;
 const CONFIDENCE_VALUES = ['high', 'medium', 'low'] as const;
+
+const ReportMetaSchema = Type.Object({
+  target: Type.String({ minLength: 1, description: 'Assessment target URL.' }),
+  assessment_date: Type.String({ minLength: 1, description: 'Assessment date in YYYY-MM-DD format.' }),
+  scope: Type.String({ minLength: 1, pattern: '\\S', description: 'Vulnerability classes assessed.' }),
+  executive_summary: Type.String({
+    minLength: 1,
+    pattern: '\\S',
+    description: 'Executive summary for the final report.',
+  }),
+});
+
+export type ReportMetaInput = Static<typeof ReportMetaSchema>;
 
 const StepItemSchema = Type.Union([
   Type.Object({
@@ -314,11 +327,25 @@ function errorResult(message: string, errorType = 'ValidationError', retryable =
 export interface FindingCollector {
   tools: ToolDefinition[];
   getAll(): AddFindingInput[];
+  getReportMeta(): ReportMetaInput | undefined;
 }
 
 export function createFindingCollector(exploit: boolean): FindingCollector {
   const findings: AddFindingInput[] = [];
+  let reportMeta: ReportMetaInput | undefined;
   const schema = buildAddFindingSchema(exploit);
+
+  const setReportMetaTool = defineTool({
+    name: 'set_report_meta',
+    label: 'Set Report Metadata',
+    description:
+      'Record the report target, assessment date, scope, and executive summary as structured output. Call once before adding findings.',
+    parameters: ReportMetaSchema,
+    async execute(_toolCallId, input) {
+      reportMeta = cleanInput(ReportMetaSchema, input) as ReportMetaInput;
+      return successResult({ report_meta: reportMeta });
+    },
+  });
 
   const addFindingTool = defineTool({
     name: 'add_finding',
@@ -342,7 +369,8 @@ export function createFindingCollector(exploit: boolean): FindingCollector {
   });
 
   return {
-    tools: [addFindingTool],
+    tools: [setReportMetaTool, addFindingTool],
     getAll: (): AddFindingInput[] => [...findings],
+    getReportMeta: (): ReportMetaInput | undefined => (reportMeta === undefined ? undefined : { ...reportMeta }),
   };
 }
