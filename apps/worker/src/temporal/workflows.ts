@@ -121,14 +121,14 @@ const TESTING_RETRY = {
 
 const acts = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '60 minutes',
+  heartbeatTimeout: '5 minutes',
   retry: PRODUCTION_RETRY,
   cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
 
 const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
-  heartbeatTimeout: '30 minutes',
+  heartbeatTimeout: '5 minutes',
   retry: TESTING_RETRY,
   cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
