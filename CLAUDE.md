@@ -138,7 +138,7 @@ Infra (Temporal) runs via `docker-compose.yml`. Workers are ephemeral `docker ru
 - `apps/worker/src/utils/` — Shared utilities (file I/O, formatting, concurrency)
 
 ### Temporal Orchestration
-Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution (5 concurrent agents in vuln/exploit phases).
+Durable workflow orchestration with crash recovery, queryable progress, intelligent retry, and parallel execution: six lanes (the five classes plus `miscellaneous`) run at once in the vuln/exploit phase, alongside Agentic SAST. `SHANNON_MAX_CONCURRENCY` (1–6) caps the lanes, makes Agentic SAST finish before pre-recon, and caps research's triage and audit pools at `min(4, N)` and `min(2, N)`; research's time budget and the Capella child timeout scale by `2 / auditWorkers`, while triage batch membership and the research fingerprint stay fixed so reuse survives. `SHANNON_AGENT_TIMEOUT_HOURS` (whole hours 1–12, default 2) sets the pentest agents' per-attempt `startToCloseTimeout`. Both are parsed in `apps/worker/src/types/run-limits.ts`, validated before launch by its CLI mirror `apps/cli/src/run-limits.ts`, forwarded through `COMMON_FORWARD_VARS`, and passed in `PipelineInput`.
 
 - `apps/worker/src/temporal/workflows.ts` — Main workflow (`pentestPipelineWorkflow`)
 - `apps/worker/src/temporal/activities.ts` — Thin wrappers — heartbeat loop, error classification, container lifecycle. Business logic delegated to `apps/worker/src/services/`

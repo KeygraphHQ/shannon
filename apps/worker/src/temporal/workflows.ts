@@ -18,6 +18,7 @@
 import type { ActivityOptions } from '@temporalio/workflow';
 import {
   ActivityCancellationType,
+  type ActivityInterfaceFor,
   ApplicationFailure,
   CancellationScope,
   executeChild,
@@ -29,8 +30,13 @@ import {
 } from '@temporalio/workflow';
 import type { StageMetrics } from '../ai/reconciliation/stage-contracts.js';
 import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
-import type { CapellaWorkflowInput } from '../ai/sast/capella/temporal/activity-types.js';
+import {
+  type CapellaWorkflowInput,
+  capellaChildWorkflowTimeoutMs,
+  researchBudgetFactor,
+} from '../ai/sast/capella/temporal/activity-types.js';
 import { CAPELLA_CHILD_WORKFLOW_OPTIONS, capellaWorkflow } from '../ai/sast/capella/temporal/workflow.js';
+import { CAPELLA_AUDIT_CONCURRENCY, CAPELLA_TRIAGE_CONCURRENCY } from '../ai/sast/capella/types.js';
 import {
   CAPELLA_PROGRESS_STAGES,
   CAPELLA_STAGE_LABELS,
@@ -42,6 +48,7 @@ import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
+import { DEFAULT_AGENT_TIMEOUT_MS, limitedWorkers, PIPELINE_LANE_COUNT } from '../types/run-limits.js';
 import {
   appendPartialReasons,
   type MiscellaneousOutcome,
@@ -119,12 +126,15 @@ const TESTING_RETRY = {
   nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
 };
 
-const acts = proxyActivities<typeof activities>({
-  startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '5 minutes',
-  retry: PRODUCTION_RETRY,
-  cancellationType: ActivityCancellationType.TRY_CANCEL,
-});
+// Per scan, since the timeout comes from SHANNON_AGENT_TIMEOUT_HOURS.
+function agentActs(startToCloseTimeoutMs: number): ActivityInterfaceFor<typeof activities> {
+  return proxyActivities<typeof activities>({
+    startToCloseTimeout: startToCloseTimeoutMs,
+    heartbeatTimeout: '5 minutes',
+    retry: PRODUCTION_RETRY,
+    cancellationType: ActivityCancellationType.TRY_CANCEL,
+  });
+}
 
 const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
@@ -189,7 +199,6 @@ const seedMiscellaneousActs = proxyActivities<Pick<ReconciliationActivityRegistr
   cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
 });
 
-const MAX_CONCURRENT_PIPELINES = 5;
 const MAX_NON_FATAL_FAILURES = 32;
 
 const CAPELLA_OPERATION_KEY = 'agentic-sast';
@@ -388,7 +397,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   const { workflowId } = workflowInfo();
-  const a = input.pipelineTestingMode ? testActs : acts;
+  const a = input.pipelineTestingMode ? testActs : agentActs(input.agentTimeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS);
   const exploit = input.exploit ?? true;
   const authOnly = input.authOnly ?? false;
   const validateModel = input.validateModel ?? false;
@@ -827,22 +836,26 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   /**
-   * Run `thunks` with at most `limit` in flight, collecting every settlement instead of
-   * failing fast, so one class's rejection never cancels the classes still running alongside it.
+   * Run `thunks` with at most `limit` in flight, starting them in order and collecting every
+   * settlement instead of failing fast, so one lane's rejection never cancels the lanes still
+   * running alongside it. Results keep the order of `thunks`.
    */
-  async function runWithConcurrencyLimit(
-    thunks: Array<() => Promise<VulnExploitPipelineResult>>,
+  async function runWithConcurrencyLimit<T>(
+    thunks: ReadonlyArray<() => Promise<T>>,
     limit: number,
-  ): Promise<PromiseSettledResult<VulnExploitPipelineResult>[]> {
-    const results: PromiseSettledResult<VulnExploitPipelineResult>[] = [];
+  ): Promise<PromiseSettledResult<T>[]> {
+    const results: PromiseSettledResult<T>[] = new Array(thunks.length);
     const inFlight = new Set<Promise<void>>();
-    for (const thunk of thunks) {
+    for (const [index, thunk] of thunks.entries()) {
       const slot = thunk()
         .then(
-          (value) => results.push({ status: 'fulfilled', value }),
-          (reason: unknown) => results.push({ status: 'rejected', reason }),
+          (value) => {
+            results[index] = { status: 'fulfilled', value };
+          },
+          (reason: unknown) => {
+            results[index] = { status: 'rejected', reason };
+          },
         )
-        .then(() => undefined)
         .finally(() => inFlight.delete(slot));
       inFlight.add(slot);
       if (inFlight.size >= limit) await Promise.race(inFlight);
@@ -942,11 +955,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       capellaFormatVersion: input.agenticSast.capellaFormatVersion,
       promptSetVersion: input.agenticSast.promptSetVersion,
       pipelineTestingMode: input.pipelineTestingMode ?? false,
+      ...(input.maxConcurrency !== undefined && {
+        triageWorkers: limitedWorkers(CAPELLA_TRIAGE_CONCURRENCY, input.maxConcurrency),
+        auditWorkers: limitedWorkers(CAPELLA_AUDIT_CONCURRENCY, input.maxConcurrency),
+      }),
     };
+    const researchFactor = researchBudgetFactor(capellaInput.auditWorkers ?? CAPELLA_AUDIT_CONCURRENCY);
 
     try {
       const result = await executeChild(capellaWorkflow, {
         ...CAPELLA_CHILD_WORKFLOW_OPTIONS,
+        workflowExecutionTimeout: capellaChildWorkflowTimeoutMs(researchFactor),
         workflowId: `${workflowId}-capella`,
         args: [capellaInput],
       });
@@ -1402,27 +1421,37 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // here means only reporting remains.
     const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
-      // Agentic SAST overlaps the pentest: it starts here and is joined per class before
-      // reconciliation, so preliminary analysis and reconnaissance never wait on it.
+      // Agentic SAST overlaps the pentest by default: it starts here and is joined per class before
+      // reconciliation, so preliminary analysis and reconnaissance never wait on it. Under a
+      // concurrency limit it finishes first instead, so the two never compete for the model.
       const settlement = settleCapella();
       capellaSettlement = settlement;
+      if (input.maxConcurrency !== undefined) {
+        const settled = await settlement;
+        if (settled.outcome === 'cancelled') throw settled.error;
+      }
       await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
       await runSequentialPhase('recon', 'recon', a.runReconAgent);
 
       state.currentPhase = 'vulnerability-exploitation';
       state.currentAgent = 'pipelines';
       await deterministicActs.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
-      const pipelineThunks = buildPipelineConfigs().map(
+      const classLanes = buildPipelineConfigs().map(
         (config) => () => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit, settlement),
       );
-      // Launch the Miscellaneous lane concurrently with the five fixed classes; it shares the same
-      // settled SARIF and joins the common barrier below.
-      const miscellaneousLane = runMiscellaneousExploitLane(settlement);
-      const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
-      // Join the sixth lane before aggregation so its outcome is always observed (never a
-      // dropped rejection in the workflow VM) and a cancellation from either path propagates.
-      await miscellaneousLane;
-      aggregatePipelineResults(pipelineResults);
+      // Queued last: it waits on the SARIF settlement, so it should not hold a slot while waiting.
+      const miscellaneousLane = async (): Promise<undefined> => {
+        await runMiscellaneousExploitLane(settlement);
+        return undefined;
+      };
+      const laneResults = await runWithConcurrencyLimit<VulnExploitPipelineResult | undefined>(
+        [...classLanes, miscellaneousLane],
+        input.maxConcurrency ?? PIPELINE_LANE_COUNT,
+      );
+      // The miscellaneous lane only rejects on cancellation, which must propagate.
+      const miscellaneousResult = laneResults[laneResults.length - 1];
+      if (miscellaneousResult?.status === 'rejected') throw miscellaneousResult.reason;
+      aggregatePipelineResults(laneResults.slice(0, -1) as PromiseSettledResult<VulnExploitPipelineResult>[]);
       if (state.failedPipelines.length > 0) {
         activityInput.failedClasses = state.failedPipelines.map((failure) => failure.vulnType);
       }

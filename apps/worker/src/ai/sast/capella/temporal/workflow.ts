@@ -33,7 +33,7 @@ import {
   type CapellaUsage,
 } from '../../types.js';
 import { capellaSafeFailureMessage } from '../safe-failures.js';
-import { usageAccountingWarning } from '../types.js';
+import { CAPELLA_AUDIT_CONCURRENCY, usageAccountingWarning } from '../types.js';
 import {
   CAPELLA_ACTIVITY_POLICIES,
   CAPELLA_CHILD_WORKFLOW_TIMEOUT_MS,
@@ -52,6 +52,8 @@ import {
   type CapellaResearchActivityInput,
   type CapellaThreatModelActivityInput,
   type CapellaWorkflowInput,
+  researchBudgetFactor,
+  scaledResearchPolicy,
 } from './activity-types.js';
 
 const ZERO_USAGE: CapellaUsage = {
@@ -94,9 +96,6 @@ const threatModelActivities = proxyActivities<Pick<CapellaActivityRegistry, 'cap
 );
 const planActivities = proxyActivities<Pick<CapellaActivityRegistry, 'capellaPlan'>>(
   activityOptions(CAPELLA_ACTIVITY_POLICIES.capellaPlan),
-);
-const researchActivities = proxyActivities<Pick<CapellaActivityRegistry, 'capellaResearch'>>(
-  activityOptions(CAPELLA_ACTIVITY_POLICIES.capellaResearch),
 );
 const dedupeActivities = proxyActivities<Pick<CapellaActivityRegistry, 'capellaDedupe'>>(
   activityOptions(CAPELLA_ACTIVITY_POLICIES.capellaDedupe),
@@ -389,8 +388,12 @@ export async function capellaWorkflow(input: CapellaWorkflowInput): Promise<Cape
     }
 
     currentStage = await beginStage('research');
+    const researchPolicy = scaledResearchPolicy(researchBudgetFactor(input.auditWorkers ?? CAPELLA_AUDIT_CONCURRENCY));
+    const researchActivities = proxyActivities<Pick<CapellaActivityRegistry, 'capellaResearch'>>(
+      activityOptions(researchPolicy),
+    );
     const researchInput: CapellaResearchActivityInput = {
-      ...baseInput(input, CAPELLA_ACTIVITY_POLICIES.capellaResearch),
+      ...baseInput(input, researchPolicy),
       architectureArtifact: architecture.artifact,
       planArtifact: plan.artifact,
     };
