@@ -100,6 +100,8 @@ import {
   RunStateError,
   SAFE_RUN_STATE_MESSAGES,
   type StoredPdfProvenance,
+  shouldReopenReport,
+  withoutReportProgress,
   workspaceExploitMismatchMessage,
 } from '../types/run-state.js';
 import { failureType, type WorkflowFailureType } from '../types/workflow-failures.js';
@@ -354,6 +356,12 @@ async function rollbackInvalidReportDraft(input: ActivityInput, progress: Report
   const auditSession = new AuditSession(buildSessionMetadata(input));
   await auditSession.initialize(input.workflowId);
   await auditSession.rollbackReportDraft();
+}
+
+async function reopenReportForRetry(input: ActivityInput): Promise<void> {
+  const auditSession = new AuditSession(buildSessionMetadata(input));
+  await auditSession.initialize(input.workflowId);
+  await auditSession.reopenReport();
 }
 
 /**
@@ -1629,6 +1637,13 @@ export async function loadResumeState(
   const completedAgents: AgentName[] = [];
   const agents = session.metrics.agents;
   const deliverablesPath = deliverablesDir(expectedRepoPath, deliverablesSubdir);
+  const sessionInput: ActivityInput = {
+    webUrl: expectedUrl,
+    repoPath: expectedRepoPath,
+    workflowId: session.session.originalWorkflowId ?? session.session.id,
+    sessionId: workspaceName,
+    ...(deliverablesSubdir !== undefined && { deliverablesSubdir }),
+  };
 
   const miscellaneousAgentSucceeded = agents['miscellaneous-exploit']?.status === 'success';
   if (miscellaneousAgentSucceeded !== (durableState.miscellaneous_outcome === 'completed')) {
@@ -1650,16 +1665,7 @@ export async function loadResumeState(
   if (durableState.report?.stage === 'draft') {
     const draftValidation = await validateDraftProgress(deliverablesPath, durableState.report);
     if (draftValidation === 'invalid-model') {
-      await rollbackInvalidReportDraft(
-        {
-          webUrl: expectedUrl,
-          repoPath: expectedRepoPath,
-          workflowId: session.session.originalWorkflowId ?? session.session.id,
-          sessionId: workspaceName,
-          ...(deliverablesSubdir !== undefined && { deliverablesSubdir }),
-        },
-        durableState.report,
-      );
+      await rollbackInvalidReportDraft(sessionInput, durableState.report);
       durableState = {
         ...durableState,
         report: {
@@ -1710,17 +1716,26 @@ export async function loadResumeState(
     completedAgents.push(agentName);
   }
 
-  // 4. Collect git checkpoints and validate at least one exists
-  const checkpoints = completedAgents
+  // 4. Reopen the report when a class failed
+  const unfinishedAgents = durableState.expected_agents.filter((agentName) => !completedAgents.includes(agentName));
+  const reopenReport = shouldReopenReport(durableState.report);
+  const resumeCompletedAgents = reopenReport
+    ? completedAgents.filter((agentName) => agentName !== 'report')
+    : completedAgents;
+
+  // 5. Collect git checkpoints and validate at least one exists
+  const checkpoints = resumeCompletedAgents
     .map((name) => agents[name]?.checkpoint)
     .filter((hash): hash is string => hash != null);
-  if (durableState.report?.stage === 'draft') {
+  if (!reopenReport && durableState.report?.stage === 'draft') {
     checkpoints.push(durableState.report.model_checkpoint);
     if (durableState.report.canonical_checkpoint !== undefined) {
       checkpoints.push(durableState.report.canonical_checkpoint);
     }
   }
-  if (durableState.report?.stage === 'finalized') checkpoints.push(durableState.report.final_checkpoint);
+  if (!reopenReport && durableState.report?.stage === 'finalized') {
+    checkpoints.push(durableState.report.final_checkpoint);
+  }
 
   if (checkpoints.length === 0) {
     const successAgents = Object.entries(agents)
@@ -1738,22 +1753,36 @@ export async function loadResumeState(
     );
   }
 
-  // 5. Find the most recent checkpoint commit
+  // 6. Find the most recent checkpoint commit
   const checkpointHash = await findLatestCommit(deliverablesPath, checkpoints);
   const originalWorkflowId = session.session.originalWorkflowId || session.session.id;
-
-  // 6. Log summary and return resume state
   const logger = createActivityLogger();
+
+  // 7. Persist the reopen after verifying the restore point and before any git change, so a crash
+  //    after the write simply resumes the same way.
+  if (reopenReport) {
+    if ((await resolveCheckpointCommit(deliverablesPath, checkpointHash)) === null) {
+      throw ApplicationFailure.nonRetryable(SAFE_RUN_STATE_MESSAGES.CorruptedSessionError, 'CorruptedSessionError', [
+        { checkCode: 'report-reopen-checkpoint-missing' },
+      ]);
+    }
+    await reopenReportForRetry(sessionInput);
+    durableState = withoutReportProgress(durableState);
+    const retriedAgents = unfinishedAgents.filter((agentName) => agentName !== 'report');
+    logger.warn(`Report reopened so this resume retries: ${retriedAgents.join(', ')}`);
+  }
+
+  // 8. Log summary and return resume state
   logger.info('Resume state loaded', {
     workspace: workspaceName,
-    completedAgents: completedAgents.length,
+    completedAgents: resumeCompletedAgents.length,
     checkpoint: checkpointHash,
   });
 
   return {
     workspaceName,
     originalUrl: session.session.webUrl,
-    completedAgents,
+    completedAgents: resumeCompletedAgents,
     checkpointHash,
     originalWorkflowId,
     expectedAgents: [...durableState.expected_agents],
@@ -1802,13 +1831,23 @@ async function findLatestCommit(gitDir: string, commitHashes: string[]): Promise
     return hash;
   }
 
+  // NOTE: commit dates can tie within a second, so order by history.
   const result = await executeGitCommandWithRetry(
-    ['git', 'rev-list', '--max-count=1', ...commitHashes],
+    ['git', 'rev-list', '--max-count=1', '--topo-order', ...commitHashes],
     gitDir,
     'find latest commit',
   );
+  const latest = result.stdout.trim();
 
-  return result.stdout.trim();
+  // A checkpoint outside the restore point's history is on a branch an earlier restore discarded.
+  for (const hash of commitHashes) {
+    if (!(await checkpointIsAncestor(hash, latest, gitDir))) {
+      throw ApplicationFailure.nonRetryable(SAFE_RUN_STATE_MESSAGES.CorruptedSessionError, 'CorruptedSessionError', [
+        { checkCode: 'resume-checkpoints-diverged' },
+      ]);
+    }
+  }
+  return latest;
 }
 
 /**

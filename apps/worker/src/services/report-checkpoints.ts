@@ -80,10 +80,12 @@ export async function checkpointFileContents(
 /** Resolve a revision to a commit hash; absent/corrupt yields null, transient throws. */
 export async function resolveCheckpointCommit(deliverablesPath: string, revision: string): Promise<string | null> {
   return withGitRepoLock(async () => {
-    const result = await $`cd ${deliverablesPath} && git rev-parse --verify ${`${revision}^{commit}`}`
+    const result = await $`cd ${deliverablesPath} && git rev-parse --verify --quiet ${`${revision}^{commit}`}`
       .nothrow()
       .quiet();
     if (result.exitCode === 0) return result.stdout.trim();
+    // With --quiet, a revision that names no commit exits 1 with no output.
+    if (result.exitCode === 1 && result.stderr.trim() === '') return null;
     const failure = classifyHeadReadFailure(result.stderr);
     if (failure === 'transient') throw transientCheckpointReadError('resolve-report-checkpoint');
     return null;
