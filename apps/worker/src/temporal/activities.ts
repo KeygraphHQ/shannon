@@ -1699,9 +1699,9 @@ export async function loadResumeState(
     completedAgents.push(agentName);
   }
 
-  // 4. Reopen the report when other agents still need a retry
+  // 4. Reopen the report when a class failed
   const unfinishedAgents = durableState.expected_agents.filter((agentName) => !completedAgents.includes(agentName));
-  const reopenReport = shouldReopenReport(durableState.report, unfinishedAgents);
+  const reopenReport = shouldReopenReport(durableState.report);
   const resumeCompletedAgents = reopenReport
     ? completedAgents.filter((agentName) => agentName !== 'report')
     : completedAgents;

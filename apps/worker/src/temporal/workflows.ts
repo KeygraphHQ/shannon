@@ -1394,8 +1394,8 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     await a.syncCodePathDenyRules(activityInput);
 
     const allExpectedDone = state.expectedAgents.every((agentName) => state.completedAgents.includes(agentName));
-    // Resumes with failed agents reopen the report in loadResumeState, so an authored report here
-    // means only reporting remains.
+    // Resumes that retry a failed class reopen the report in loadResumeState, so an authored report
+    // here means only reporting remains.
     const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
       // Agentic SAST overlaps the pentest: it starts here and is joined per class before
