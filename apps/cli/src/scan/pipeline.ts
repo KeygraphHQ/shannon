@@ -366,6 +366,9 @@ export interface PipelineState {
   readonly failedReconciliations?: { vulnerabilityClass: string; error: string }[];
   readonly failedAgent: string | null;
   readonly error: string | null;
+  /** Closed failure type and check code behind `error`; still vetted before display (safe-fields.ts). */
+  readonly failureType?: string;
+  readonly failureCheckCode?: string;
   readonly startTime: number;
   readonly agentMetrics: Record<string, AgentMetrics>;
   readonly operationalMetrics?: Record<string, AgentMetrics>;

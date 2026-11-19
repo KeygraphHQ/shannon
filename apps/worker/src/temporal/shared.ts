@@ -20,6 +20,7 @@ import type {
   ReportSarifDisposition,
   StoredPdfProvenance,
 } from '../types/run-state.js';
+import type { WorkflowFailureType } from '../types/workflow-failures.js';
 
 /**
  * The serializable slice of Capella's configuration passed across the Temporal workflow
@@ -203,6 +204,9 @@ export interface PipelineState {
   failedAgent: string | null;
   error: string | null;
   errorCode?: ErrorCode;
+  /** Closed failure type and check code behind `error`. */
+  failureType?: WorkflowFailureType;
+  failureCheckCode?: string;
   startTime: number;
   agentMetrics: Record<string, AgentMetrics>;
   operationalMetrics: Record<string, OperationalMetrics>;

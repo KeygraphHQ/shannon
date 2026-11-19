@@ -74,7 +74,13 @@ export interface ScanDescription {
 
 export type TerminalOutcome =
   | { readonly kind: 'success'; readonly state: PipelineState }
-  | { readonly kind: 'failed'; readonly message: string };
+  | {
+      readonly kind: 'failed';
+      readonly message: string;
+      /** From the worker's terminal-failure details; vetted before display. */
+      readonly failureType?: string;
+      readonly failureCheckCode?: string;
+    };
 
 /**
  * The authoritative Temporal state used by lifecycle commands. Transport failures deliberately
@@ -287,6 +293,23 @@ export async function queryProgress(workflowId: string): Promise<PipelineState |
   }
 }
 
+/** The failure type and check code from the terminal failure's details, not its display text. */
+function terminalFailureFacts(err: WorkflowFailedError): { failureType?: string; failureCheckCode?: string } {
+  let cause: unknown = err.cause;
+  while (cause instanceof Error) {
+    const details = (cause as { details?: unknown }).details;
+    const first: unknown = Array.isArray(details) ? details[0] : undefined;
+    if (first !== null && typeof first === 'object') {
+      const { failureType, failureCheckCode } = first as { failureType?: unknown; failureCheckCode?: unknown };
+      if (typeof failureType === 'string') {
+        return { failureType, ...(typeof failureCheckCode === 'string' && { failureCheckCode }) };
+      }
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return {};
+}
+
 /**
  * Deepest message in a Temporal failure's cause chain — the real reason nested under generic
  * wrappers (WorkflowFailedError → ActivityFailure → ApplicationFailure). Covers failed, cancelled,
@@ -386,7 +409,7 @@ export async function getTerminalOutcome(workflowId: string): Promise<TerminalOu
     return { kind: 'success', state };
   } catch (err) {
     if (err instanceof WorkflowFailedError) {
-      return { kind: 'failed', message: rootFailureMessage(err) };
+      return { kind: 'failed', message: rootFailureMessage(err), ...terminalFailureFacts(err) };
     }
     throw err;
   }

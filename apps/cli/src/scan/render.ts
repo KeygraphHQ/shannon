@@ -12,7 +12,13 @@ import { commandPrefix } from '../mode.js';
 import type { RunningAgent } from '../temporal-client.js';
 import { derivePipeline, isTerminal, type RunState, scanElapsedMs } from './derive.js';
 import type { PipelineState } from './pipeline.js';
-import { safeAgenticSast, safeCliIdentifier, safePartialReasons, safeTerminalFailure } from './safe-fields.js';
+import {
+  safeAgenticSast,
+  safeCliIdentifier,
+  safePartialReasons,
+  safeTerminalFailure,
+  type TerminalFailureEvidence,
+} from './safe-fields.js';
 
 export interface RenderInput {
   readonly workspace: string;
@@ -27,6 +33,17 @@ export interface RenderInput {
   readonly endedAt?: number;
   /** Failure text when a failed scan has no readable state. */
   readonly failureMessage?: string;
+  /** Closed failure facts when a failed scan has no readable state. */
+  readonly failureType?: string;
+  readonly failureCheckCode?: string;
+}
+
+/** The closed failure facts for a terminal scan: from its state when readable, else from the failure. */
+export function terminalFailureEvidence(input: RenderInput): TerminalFailureEvidence {
+  if (input.state?.failureType !== undefined) {
+    return { failureType: input.state.failureType, failureCheckCode: input.state.failureCheckCode };
+  }
+  return { failureType: input.failureType, failureCheckCode: input.failureCheckCode };
 }
 
 export interface RenderOptions {
@@ -302,7 +319,7 @@ function footerLines(input: RenderInput, opts: RenderOptions): string[] {
   if (isTerminal(input.temporalStatus)) {
     const hasRecordedFailure =
       input.failureMessage !== undefined || (input.state !== null && input.state.error !== null);
-    const reason = safeTerminalFailure(hasRecordedFailure) ?? 'no result recorded';
+    const reason = safeTerminalFailure(hasRecordedFailure, terminalFailureEvidence(input)) ?? 'no result recorded';
     return [
       footerDivider(opts),
       paint(

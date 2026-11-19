@@ -53,6 +53,7 @@ import {
   renderSafeMessage,
   reportIsAuthored,
 } from '../types/run-state.js';
+import { failureType, type WorkflowFailureType } from '../types/workflow-failures.js';
 import type * as activities from './activities.js';
 import type { ActivityInput } from './activities.js';
 import {
@@ -80,7 +81,12 @@ import {
   type VulnExploitPipelineResult,
 } from './shared.js';
 import { toWorkflowSummary } from './summary-mapper.js';
-import { classifyErrorCode, formatWorkflowError } from './workflow-errors.js';
+import {
+  classifyErrorCode,
+  classifyWorkflowFailure,
+  formatWorkflowError,
+  terminalFailureDetails,
+} from './workflow-errors.js';
 
 export { capellaWorkflow };
 
@@ -102,7 +108,7 @@ const PRODUCTION_RETRY = {
     'PermanentError',
     'OpenAiCyberAccessError',
     'AnthropicCyberAccessError',
-  ],
+  ] satisfies WorkflowFailureType[],
 };
 
 const TESTING_RETRY = {
@@ -282,7 +288,7 @@ function reconciliationActivityOptions(
         '{Class} findings took too long to process and the scan stopped that class. Re-running this workspace retries it.',
         { vulnerabilityClass },
       ),
-      'ConfigurationError',
+      failureType('ConfigurationError'),
       [{ activityName }],
     );
   }
@@ -360,21 +366,24 @@ function isAgentName(value: string): value is AgentName {
 /** Core current-release pipeline orchestration. */
 export async function pentestPipeline(input: PipelineInput): Promise<PipelineState> {
   if (!input.repoPath || input.repoPath.includes('..')) {
-    throw ApplicationFailure.nonRetryable('Invalid repository path.', 'ConfigurationError');
+    throw ApplicationFailure.nonRetryable('Invalid repository path.', failureType('ConfigurationError'));
   }
   if (!input.repoPath.startsWith('/')) {
-    throw ApplicationFailure.nonRetryable('An absolute repository path is required.', 'ConfigurationError');
+    throw ApplicationFailure.nonRetryable(
+      'An absolute repository path is required.',
+      failureType('ConfigurationError'),
+    );
   }
   if (input.agenticSast !== undefined && input.sastSarif !== undefined) {
     throw ApplicationFailure.nonRetryable(
       'Agentic SAST cannot run when a static-analysis report is already supplied. Remove the agentic_sast block from your config file, or remove the supplied report.',
-      'ConfigurationError',
+      failureType('ConfigurationError'),
     );
   }
   if (input.customerOutputPath !== undefined && input.customerOutputPath !== '/app/output') {
     throw ApplicationFailure.nonRetryable(
       'The customer output mount must use the stable worker path.',
-      'ConfigurationError',
+      failureType('ConfigurationError'),
     );
   }
 
@@ -465,6 +474,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   };
 
   let resumeState: ResumeState | null = null;
+  let resumeInProgress = false;
   // The one shared Capella settlement, once analysis has started it. The terminal paths read
   // it so a stopping run can account for a child that is still working.
   let capellaSettlement: Promise<CapellaSettlement> | null = null;
@@ -864,7 +874,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       const errors = [...failed.map((failure) => `${failure.vulnType}: ${failure.error}`), ...unattributable];
       throw ApplicationFailure.nonRetryable(
         'The vulnerability analysis phase failed and the scan cannot continue. Re-running this workspace retries it from the last checkpoint.',
-        'PipelineFailedError',
+        failureType('PipelineFailedError'),
         [{ failures: errors }],
       );
     }
@@ -1192,7 +1202,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (reportMetrics.checkpoint === undefined) {
         throw ApplicationFailure.nonRetryable(
           'The report was written but could not be saved. Re-running this workspace retries the reporting phase without repeating the analysis.',
-          'ReportDraftError',
+          failureType('ReportDraftError'),
         );
       }
       state.reportProgress = {
@@ -1239,7 +1249,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (canonicalProgress.stage !== 'draft' || canonicalProgress.canonical_checkpoint === undefined) {
         throw ApplicationFailure.nonRetryable(
           'The report could not save its reduced-output state. Re-running this workspace retries reporting.',
-          'ReportDraftError',
+          failureType('ReportDraftError'),
         );
       }
       // Persist the limitation before producing replacement outputs so report.json, Markdown,
@@ -1294,6 +1304,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     applyDurableSummary(durable);
 
     if (!authOnly && input.resumeFromWorkspace) {
+      resumeInProgress = true;
       // The new workflow id lands in session.json before anything that can reject the resume, so a
       // validation or checkpoint-restore failure still leaves the CLI an attempt to follow.
       await deterministicReportActs.registerResumeAttempt(activityInput, input.terminatedWorkflows ?? []);
@@ -1339,6 +1350,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       for (const agentName of resumeState.completedAgents) {
         if (isAgentName(agentName)) markCompleted(agentName);
       }
+      resumeInProgress = false;
     }
 
     state.currentPhase = 'preflight';
@@ -1380,7 +1392,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (authMetrics === null) {
         throw ApplicationFailure.nonRetryable(
           'An auth-validation run needs an authentication block in the config. Add one, or drop --validate-auth.',
-          'ConfigurationError',
+          failureType('ConfigurationError'),
         );
       }
       state.status = 'completed';
@@ -1463,9 +1475,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     projectUnfinishedCapella();
     state.status = 'failed';
     state.failedAgent = state.currentAgent;
-    state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent);
+    state.error = formatWorkflowError(error, state.currentPhase, state.currentAgent, resumeInProgress);
     const errorCode = classifyErrorCode(error);
     if (errorCode) state.errorCode = errorCode;
+    const failure = classifyWorkflowFailure(error);
+    if (failure !== undefined) {
+      state.failureType = failure.type;
+      if (failure.checkCode !== undefined) state.failureCheckCode = failure.checkCode;
+    }
     state.summary = computeSummary(state, usageAccountingComplete());
     try {
       await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
@@ -1475,7 +1492,12 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     // Terminate the workflow in Temporal's FAILED state. WARNING: this must be an
     // ApplicationFailure — any other thrown type becomes an unhandled workflow-task failure
     // that Temporal retries indefinitely, leaving the run stuck in RUNNING.
-    throw ApplicationFailure.nonRetryable(state.error ?? 'Pipeline failed', 'PipelineExecutionError');
+    // The details carry the closed type and check code, so consumers never parse the display text.
+    throw ApplicationFailure.nonRetryable(
+      state.error ?? 'Pipeline failed',
+      'PipelineExecutionError',
+      ...(failure !== undefined ? [terminalFailureDetails(failure)] : []),
+    );
   }
 }
 

@@ -9,19 +9,19 @@
  * Pure functions with no side effects — safe for Temporal workflow sandbox.
  */
 
-import { WORKFLOW_PHASES } from '../audit/safe-fields.js';
+import { safeWorkflowIdentifier, WORKFLOW_PHASES } from '../audit/safe-fields.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { ErrorCode } from '../types/errors.js';
+import {
+  isWorkflowFailureType,
+  SAFE_WORKFLOW_FAILURE_MESSAGES,
+  type TerminalFailureDetails,
+  WORKFLOW_FAILURE_HINTS,
+  type WorkflowFailureType,
+} from '../types/workflow-failures.js';
 
-/**
- * Maps an ApplicationFailure type string to a structured ErrorCode.
- *
- * Activities classify errors via classifyErrorForTemporal() and throw
- * ApplicationFailure with a type string. This function maps those strings
- * to stable ErrorCode values so consumers can switch on codes instead of
- * string-matching error messages.
- */
-const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
+/** Maps a failure type to an ErrorCode; types without a natural code are left out. */
+const ERROR_TYPE_TO_CODE: Readonly<Partial<Record<WorkflowFailureType, ErrorCode>>> = {
   AuthenticationError: ErrorCode.AUTH_FAILED,
   ModelNotFoundError: ErrorCode.MODEL_NOT_FOUND,
   ModelConfigError: ErrorCode.MODEL_CONFIG_INVALID,
@@ -43,8 +43,9 @@ const ERROR_TYPE_TO_CODE: Record<string, ErrorCode> = {
 export function classifyErrorCode(error: unknown): ErrorCode | undefined {
   let current: unknown = error;
   while (current instanceof Error) {
-    if ('type' in current && typeof (current as { type: unknown }).type === 'string') {
-      const code = ERROR_TYPE_TO_CODE[(current as { type: string }).type];
+    const type = (current as { type?: unknown }).type;
+    if (isWorkflowFailureType(type)) {
+      const code = ERROR_TYPE_TO_CODE[type];
       if (code) return code;
     }
     current = (current as { cause?: unknown }).cause;
@@ -52,83 +53,69 @@ export function classifyErrorCode(error: unknown): ErrorCode | undefined {
   return undefined;
 }
 
-/**
- * Maps Temporal error type strings to actionable remediation hints. A type earns an entry
- * only when the reader has a next step to take; the rest print without a hint line.
- */
-const REMEDIATION_HINTS: Record<string, string> = {
-  AuthenticationError: "Verify the selected provider's API key is valid and not expired.",
-  ModelNotFoundError: 'Check SHANNON_AI_MODEL against pi.dev/models, or supply the model with --models-config.',
-  ModelConfigError: 'Check the --models-config file parses and matches pi’s models.json schema.',
-  ConfigurationError: 'Check your CONFIG file path and contents.',
-  GitError: 'Check repository path and git state.',
-  InvalidTargetError: 'Verify the target URL is correct and accessible.',
-  IncompatibleWorkspaceError: 'start a new scan with a different -w name.',
-  WorkspaceNotFoundError: 'check the -w name against: shannon scans',
-  PipelineFailedError: 're-run the same -w to retry from the last checkpoint.',
-  OpenAiCyberAccessError:
-    'Your OpenAI organization must be approved for cyber use. Apply for cyber access at https://chatgpt.com/cyber, then retry. Or use the gpt-5.4 model instead.',
-  AnthropicCyberAccessError:
-    'Your Anthropic organization must complete cyber verification. See https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet, then retry. Or use the claude-sonnet-4-6 model instead.',
-};
+/** The innermost known failure type in an error chain, plus the check code its details carry. */
+export interface WorkflowFailure {
+  readonly type: WorkflowFailureType;
+  readonly checkCode?: string;
+}
+
+function checkCodeOf(error: Error): string | undefined {
+  const details = (error as { details?: unknown }).details;
+  if (!Array.isArray(details)) return undefined;
+  // NOTE: throw sites pass their details as one array argument, so it arrives nested one level down.
+  const first: unknown = Array.isArray(details[0]) ? details[0][0] : details[0];
+  if (first === null || typeof first !== 'object') return undefined;
+  const checkCode = (first as { checkCode?: unknown }).checkCode;
+  if (typeof checkCode !== 'string') return undefined;
+  return safeWorkflowIdentifier(checkCode) === checkCode ? checkCode : undefined;
+}
 
 /**
- * Every message a terminal scan failure can show. Closed on purpose: an ApplicationFailure's
- * own `.message` can carry raw activity or provider detail, so it is never surfaced directly.
- * A type absent from this record falls back to one generic sentence instead.
+ * The innermost known failure type in the .cause chain (Temporal wraps ApplicationFailure in
+ * ActivityFailure). Duck-typed because workflow code cannot import @temporalio/activity types.
  */
-const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = {
-  AuthenticationError: 'Provider authentication failed.',
-  ModelNotFoundError: 'The selected model was not found in the harness catalogue.',
-  ModelConfigError: 'The model configuration file could not be used.',
-  ConfigurationError: 'The scan configuration is invalid.',
-  OutputValidationError: 'A scan step returned an unusable result.',
-  AgentExecutionError: 'An agent could not complete its work.',
-  GitError: 'The scan checkpoint could not be updated.',
-  InvalidTargetError: 'The target could not be reached.',
-  AuthLoginFailedError: 'The configured login could not be completed.',
-  PipelineFailedError: 'The vulnerability analysis phase could not be completed.',
-  ReportDraftError: 'The report could not be saved.',
-  ReportSarifRenderError: 'The report SARIF output could not be rendered.',
-  IncompatibleWorkspaceError: 'This workspace cannot be resumed.',
-  WorkspaceNotFoundError: 'The requested workspace was not found.',
-  OpenAiCyberAccessError: 'OpenAI declined the security workload behind its cyber-access program.',
-  AnthropicCyberAccessError: 'Anthropic declined the security workload behind its cyber-access program.',
-};
+export function classifyWorkflowFailure(error: unknown): WorkflowFailure | undefined {
+  let current: unknown = error;
+  let failure: WorkflowFailure | undefined;
+  while (current instanceof Error) {
+    const type = (current as { type?: unknown }).type;
+    if (isWorkflowFailureType(type)) {
+      const checkCode = checkCodeOf(current);
+      failure = { type, ...(checkCode !== undefined && { checkCode }) };
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return failure;
+}
+
+export function terminalFailureDetails(failure: WorkflowFailure): TerminalFailureDetails {
+  return {
+    failureType: failure.type,
+    ...(failure.checkCode !== undefined && { failureCheckCode: failure.checkCode }),
+  };
+}
+
+function workflowFailureReference(failure: WorkflowFailure): string {
+  return failure.checkCode === undefined ? failure.type : `${failure.type} (${failure.checkCode})`;
+}
 
 const WORKFLOW_PHASE_SET = new Set<string>(WORKFLOW_PHASES);
 const AGENT_NAME_SET = new Set<string>(ALL_AGENTS);
 
 /**
- * Walk the .cause chain to find the innermost approved failure type.
- * Temporal wraps ApplicationFailure in ActivityFailure, so classification must inspect causes.
- *
- * Uses duck-typing because workflow code cannot import @temporalio/activity types.
- */
-function unwrapActivityError(error: unknown): { type: string | null } {
-  let current: unknown = error;
-  let type: string | null = null;
-
-  while (current instanceof Error) {
-    if ('type' in current && typeof (current as { type: unknown }).type === 'string') {
-      const candidate = (current as { type: string }).type;
-      if (candidate in SAFE_WORKFLOW_FAILURE_MESSAGES) type = candidate;
-    }
-    current = (current as { cause?: unknown }).cause;
-  }
-
-  return { type };
-}
-
-/**
  * Format a structured, closed-field error string from workflow catch context.
  * Segments are delimited by | for multi-line rendering by WorkflowLogger.
  */
-export function formatWorkflowError(error: unknown, currentPhase: string | null, currentAgent: string | null): string {
-  const unwrapped = unwrapActivityError(error);
+export function formatWorkflowError(
+  error: unknown,
+  currentPhase: string | null,
+  currentAgent: string | null,
+  duringResume = false,
+): string {
+  const failure = classifyWorkflowFailure(error);
 
   // Phase context (first segment)
-  let phaseContext = 'Pipeline failed';
+  let phaseContext = duringResume ? 'Resume failed' : 'Pipeline failed';
   const safePhase = currentPhase !== null && WORKFLOW_PHASE_SET.has(currentPhase) ? currentPhase : null;
   const safeAgent = currentAgent !== null && AGENT_NAME_SET.has(currentAgent) ? currentAgent : null;
   if (safePhase && safeAgent && safePhase !== safeAgent) {
@@ -138,20 +125,14 @@ export function formatWorkflowError(error: unknown, currentPhase: string | null,
   }
 
   const segments: string[] = [phaseContext];
-
-  segments.push(
-    unwrapped.type === null
-      ? 'The scan could not be completed.'
-      : (SAFE_WORKFLOW_FAILURE_MESSAGES[unwrapped.type] ?? 'The scan could not be completed.'),
-  );
-
-  if (unwrapped.type) {
-    const hint = REMEDIATION_HINTS[unwrapped.type];
-    if (hint) {
-      segments.push(`Hint: ${hint}`);
-    }
-    segments.push(`Reference code: ${unwrapped.type}`);
+  if (failure === undefined) {
+    segments.push('The scan could not be completed.');
+    return segments.join('|');
   }
 
+  segments.push(SAFE_WORKFLOW_FAILURE_MESSAGES[failure.type]);
+  const hint = WORKFLOW_FAILURE_HINTS[failure.type];
+  if (hint) segments.push(`Hint: ${hint}`);
+  segments.push(`Reference code: ${workflowFailureReference(failure)}`);
   return segments.join('|');
 }
