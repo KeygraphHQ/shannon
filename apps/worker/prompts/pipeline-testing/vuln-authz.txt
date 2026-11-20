@@ -22,3 +22,5 @@ Exercise the same collector and queue tools as a normal run, using placeholder d
    - `externally_exploitable`: `true`
    - `confidence`: `low`
    - `notes`: `Pipeline testing stub entry.`
+
+Then announce "**AUTHORIZATION ANALYSIS COMPLETE**" and stop.
