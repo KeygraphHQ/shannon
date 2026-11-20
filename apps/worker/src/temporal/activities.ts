@@ -19,7 +19,7 @@ import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { ApplicationFailure, Context, heartbeat } from '@temporalio/activity';
-import { resolveModelSelection } from '../ai/models.js';
+import { type ModelSelection, resolveModelSelection } from '../ai/models.js';
 import { syncPermissionSystemConfig } from '../ai/pi/permission-system.js';
 import { writePlaywrightStealthConfig } from '../ai/playwright-config-writer.js';
 import { AuditSession } from '../audit/index.js';
@@ -42,9 +42,13 @@ import { compactReportFindings as compactReportFindingsService } from '../servic
 import { getContainer, getOrCreateContainer, removeContainer } from '../services/container.js';
 import {
   type CyberAccessResult,
+  type DaybreakAccess,
   isCyberGatedProvider,
   isCyberSafeguardDecline,
+  runsWithoutDaybreak,
+  usesDaybreakCheck,
   verifyCyberAccess,
+  verifyDaybreakAccess,
 } from '../services/cyber-access-verification.js';
 import { classifyErrorForTemporal, PentestError } from '../services/error-handling.js';
 import { RenumberError } from '../services/exact-output-commit.js';
@@ -79,6 +83,7 @@ import type { ReportData, ReportMeta } from '../services/report-renderer.js';
 import { assembleFinalReportWithEvidence } from '../services/reporting.js';
 import { validateAuthentication } from '../services/validate-authentication.js';
 import { AGENTS } from '../session-manager.js';
+import type { ActivityLogger } from '../types/activity-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { ContainerConfig, VulnClass } from '../types/config.js';
 import { ErrorCode } from '../types/errors.js';
@@ -891,10 +896,54 @@ function cyberAccessErrorType(
   return providerId === 'anthropic' ? 'AnthropicCyberAccessError' : 'OpenAiCyberAccessError';
 }
 
+async function checkDaybreakAccess(selection: ModelSelection, logger: ActivityLogger): Promise<DaybreakAccess> {
+  let apiKey: string | undefined;
+  try {
+    apiKey = (await selection.modelRuntime.getAuth(selection.providerId))?.auth.apiKey;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    logger.info(`Cyber access verification: Daybreak unverified (credential error: ${message.slice(0, 200)})`);
+    return { status: 'unverified', transient: true, checkCode: 'daybreak-credential-error' };
+  }
+  if (!apiKey) {
+    logger.info('Cyber access verification: Daybreak unverified (no credential resolved)');
+    return { status: 'unverified', transient: false, checkCode: 'daybreak-no-credential' };
+  }
+
+  logger.info(`Verifying Daybreak access for ${selection.model.id}...`);
+  const access = await verifyDaybreakAccess(selection.providerId, selection.model.baseUrl, apiKey, selection.model.id);
+  const detail = access.status === 'unverified' ? ` (${access.checkCode})` : '';
+  logger.info(`Cyber access verification: Daybreak ${access.status}${detail} for ${selection.model.id}`);
+  return access;
+}
+
+function daybreakFailure(
+  access: Exclude<DaybreakAccess, { status: 'enabled' }>,
+  selection: ModelSelection,
+  attemptNumber: number,
+  startTime: number,
+): ApplicationFailure {
+  const details = { phase: 'cyber-access', attemptNumber, elapsed: Date.now() - startTime };
+  let failure: ApplicationFailure;
+  if (access.status === 'declined') {
+    const message = truncateErrorMessage(`openai has no Daybreak access program enabled for ${selection.model.id}`);
+    failure = ApplicationFailure.nonRetryable(message, cyberAccessErrorType(selection.providerId), [details]);
+  } else {
+    const message = truncateErrorMessage(`Daybreak access could not be verified for ${selection.model.id}`);
+    const type = failureType('CyberAccessUnverifiedError');
+    const failureDetails = [{ ...details, checkCode: access.checkCode }];
+    failure = access.transient
+      ? ApplicationFailure.retryable(message, type, failureDetails)
+      : ApplicationFailure.nonRetryable(message, type, failureDetails);
+  }
+  truncateStackTrace(failure);
+  return failure;
+}
+
 /**
- * Cyber access verification activity. For OpenAI/Anthropic, hands the model a slice of the
- * exploit agent's workload and gates on a decline (`stopReason: error`), failing the scan with the
- * provider's own message. A setup/transport fault is not a decline and never gates.
+ * Cyber access verification activity. `openai` and `openai-codex` are checked through Daybreak
+ * (GPT-5.4 is skipped) and fail the scan unless access is confirmed. Anthropic gets a slice of the
+ * exploit agent's workload and gates only on a confirmed decline.
  *
  * Returns `{ gated }` — true only for a provider that actually gates security workloads, so the
  * caller records the cyber-access stage for those alone (a non-gated provider ran a no-op check).
@@ -920,9 +969,22 @@ export async function runCyberAccessVerification(_input: ActivityInput): Promise
       return { gated: false };
     }
 
+    if (usesDaybreakCheck(selection.providerId)) {
+      if (runsWithoutDaybreak(selection.model)) {
+        logger.info(`Cyber access verification: skipped (${selection.model.id} runs without Daybreak)`);
+        return { gated: false };
+      }
+
+      const access = await checkDaybreakAccess(selection, logger);
+      if (access.status === 'enabled') return { gated: true };
+      throw daybreakFailure(access, selection, attemptNumber, startTime);
+    }
+
     logger.info('Verifying cyber access via pi...');
     result = await verifyCyberAccess(selection.model, selection.modelRuntime, selection.providerId);
   } catch (error) {
+    // A Daybreak failure must not be swallowed as a setup fault.
+    if (error instanceof ApplicationFailure) throw error;
     // Setup/transport fault, not a decline — never gates the scan.
     const message = error instanceof Error ? error.message : String(error);
     logger.info(`Cyber access verification: skipped (${message.slice(0, 200)})`);

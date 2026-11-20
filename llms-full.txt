@@ -929,6 +929,8 @@ export SHANNON_AI_MODEL=openai:gpt-6-sol
 export SHANNON_AI_BASE_URL=https://llm-gateway.example.com/v1
 ```
 
+For `openai:` and `openai-codex:`, preflight confirms OpenAI cyber access by sending the `access_programs` request field, so any base URL you set must forward that field to OpenAI. An endpoint that rejects it fails the scan with `CyberAccessUnverifiedError`.
+
 `npx @keygraph/shannon setup` configures a base URL two ways: **Custom Base URL** covers the common Anthropic Messages and OpenAI Responses LLM gateways, and **Other provider** takes any provider ID plus an optional base URL of its own.
 
 ## Custom model configuration
