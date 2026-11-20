@@ -36,6 +36,7 @@ import type {
   ReviewValue,
   ThreatModelValue,
 } from '../types.js';
+import { CAPELLA_AUDIT_CONCURRENCY } from '../types.js';
 
 export interface CapellaWorkflowInput {
   readonly repoPath: string;
@@ -48,6 +49,8 @@ export interface CapellaWorkflowInput {
   readonly capellaFormatVersion: string;
   readonly promptSetVersion: string;
   readonly pipelineTestingMode: boolean;
+  readonly triageWorkers?: number;
+  readonly auditWorkers?: number;
 }
 
 export interface CapellaActivityInput extends CapellaWorkflowInput {
@@ -292,3 +295,23 @@ export const CAPELLA_ACTIVITY_POLICIES = Object.freeze({
 
 /** Bounds the whole child pipeline, including every stage's retries and backoff. */
 export const CAPELLA_CHILD_WORKFLOW_TIMEOUT_MS = 15 * HOUR_MS;
+
+/** Audits are most of research's work, so its time budget scales inversely with the audit pool. */
+export function researchBudgetFactor(auditWorkers: number): number {
+  return CAPELLA_AUDIT_CONCURRENCY / auditWorkers;
+}
+
+export function scaledResearchPolicy(factor: number): Readonly<CapellaActivityPolicy> {
+  const base = CAPELLA_ACTIVITY_POLICIES.capellaResearch;
+  return Object.freeze({
+    ...base,
+    startToCloseTimeoutMs: base.startToCloseTimeoutMs * factor,
+    scheduleToCloseTimeoutMs: base.scheduleToCloseTimeoutMs * factor,
+  });
+}
+
+/** Extended by research's added budget so the child never cuts research short. */
+export function capellaChildWorkflowTimeoutMs(factor: number): number {
+  const researchBudgetMs = CAPELLA_ACTIVITY_POLICIES.capellaResearch.scheduleToCloseTimeoutMs;
+  return CAPELLA_CHILD_WORKFLOW_TIMEOUT_MS + (factor - 1) * researchBudgetMs;
+}

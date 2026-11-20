@@ -259,6 +259,24 @@ Some servers need compatibility flags. If a reasoning-capable model is rejected,
 
 Pi's [models documentation](https://pi.dev/docs/latest/models) lists the full set of compatibility flags and local-runtime options.
 
+## Slow model endpoints
+
+If your model endpoint responds slowly or accepts only a few requests at a time, such as a gateway or proxy with tight rate limits, two settings help a scan finish:
+
+| Variable | Effect | Accepted values | Unset |
+| --- | --- | --- | --- |
+| `SHANNON_MAX_CONCURRENCY` | The most pentest agents running at once | A whole number from 1 to 6 | Up to 6 at once |
+| `SHANNON_AGENT_TIMEOUT_HOURS` | How long one pentest agent attempt may run before it is retried | A whole number from 1 to 12 | 2 hours |
+
+For example:
+
+```bash
+export SHANNON_MAX_CONCURRENCY=1
+export SHANNON_AGENT_TIMEOUT_HOURS=6
+```
+
+When `SHANNON_MAX_CONCURRENCY` is set, Agentic SAST (if enabled) finishes before the pentest starts and follows the same limit, so at most that many agents run at once. The scan takes longer, but the results are the same.
+
 ## OpenAI Codex (ChatGPT Plus/Pro subscription)
 
 A ChatGPT Plus or Pro Codex subscription can run Shannon. Shannon reuses a login created by Pi.

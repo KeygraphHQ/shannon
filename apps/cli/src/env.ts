@@ -21,6 +21,7 @@ import {
   PROVIDER_EXTRA_ENV,
   resolveModelSpec,
 } from './model-spec.js';
+import { AGENT_TIMEOUT_ENV, MAX_CONCURRENCY_ENV } from './run-limits.js';
 
 /**
  * Variables forwarded to every worker container regardless of provider. Each is
@@ -35,6 +36,8 @@ const COMMON_FORWARD_VARS = [
   // durable state unless an operator deliberately enables it for a diagnosis.
   'SHANNON_DEBUG_PROVIDER_ERRORS',
   GENERIC_API_KEY_ENV,
+  MAX_CONCURRENCY_ENV,
+  AGENT_TIMEOUT_ENV,
 ] as const;
 
 /**

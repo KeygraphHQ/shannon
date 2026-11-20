@@ -29,6 +29,7 @@ import {
   STARTUP_ERROR_FILENAME,
 } from '../paths.js';
 import { clearPendingWorkflowIdentity, writePendingWorkflowIdentity } from '../pending-workflow.js';
+import { runLimitsError } from '../run-limits.js';
 import { indentFailureSegments, parseFailureSegments } from '../scan/failure.js';
 import { resolveWorkflowId } from '../session.js';
 import { displayPlainBanner, displaySplash } from '../splash.js';
@@ -293,6 +294,10 @@ export async function start(args: StartArgs): Promise<void> {
   const creds = validateCredentials();
   if (!creds.valid) {
     fail(creds.error ?? 'Invalid credentials');
+  }
+  const limitsError = runLimitsError();
+  if (limitsError !== undefined) {
+    fail(limitsError);
   }
   const repo = resolveRepo(args.repo);
   const config = args.config ? resolveConfig(args.config) : undefined;

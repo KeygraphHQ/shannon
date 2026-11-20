@@ -192,6 +192,8 @@ export interface PlanStageInput extends CapellaStageInput {
 export interface ResearchStageInput extends CapellaStageInput {
   readonly architectureArtifact: CapellaArtifactRef;
   readonly planArtifact: CapellaArtifactRef;
+  readonly triageWorkers?: number;
+  readonly auditWorkers?: number;
 }
 
 export type ExportSourceStage = 'research' | 'dedupe' | 'review' | 'critic' | 'confirm' | 'calibrate';

@@ -44,6 +44,7 @@ import { distributeConfig, parseConfig } from '../config-parser.js';
 import { deliverablesDir, INTERNAL_DIR, resolveSessionJsonPath, STARTUP_ERROR_FILENAME } from '../paths.js';
 import { PentestError } from '../services/error-handling.js';
 import { isProviderFailureCategory } from '../types/errors.js';
+import { AGENT_TIMEOUT_ENV, MAX_CONCURRENCY_ENV, parseAgentTimeout, parseMaxConcurrency } from '../types/run-limits.js';
 import {
   ACCEPTED_CAPELLA_FAILURE_STAGES,
   isPartialReason,
@@ -586,12 +587,24 @@ function persistStartupError(workspace: string | undefined, error: unknown, phas
   }
 }
 
+function readRunLimits(): { maxConcurrency?: number; agentTimeoutMs?: number } {
+  const maxConcurrency = parseMaxConcurrency(process.env[MAX_CONCURRENCY_ENV]);
+  if (!maxConcurrency.ok) throw new Error(maxConcurrency.error);
+  const agentTimeout = parseAgentTimeout(process.env[AGENT_TIMEOUT_ENV]);
+  if (!agentTimeout.ok) throw new Error(agentTimeout.error);
+  return {
+    ...(maxConcurrency.value !== undefined && { maxConcurrency: maxConcurrency.value }),
+    ...(agentTimeout.value !== undefined && { agentTimeoutMs: agentTimeout.value }),
+  };
+}
+
 function buildPipelineInput(
   args: CliArgs,
   workspace: WorkspaceResolution,
   orchestration: OrchestrationConfig,
 ): PipelineInput {
   return {
+    ...readRunLimits(),
     webUrl: args.webUrl,
     repoPath: args.repoPath,
     workflowId: workspace.workflowId,

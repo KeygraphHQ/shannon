@@ -18,6 +18,7 @@
 import type { ActivityOptions } from '@temporalio/workflow';
 import {
   ActivityCancellationType,
+  type ActivityInterfaceFor,
   ApplicationFailure,
   CancellationScope,
   executeChild,
@@ -29,8 +30,13 @@ import {
 } from '@temporalio/workflow';
 import type { StageMetrics } from '../ai/reconciliation/stage-contracts.js';
 import { capellaTerminalStageLabel, isCapellaSafeFailureMessage } from '../ai/sast/capella/safe-failures.js';
-import type { CapellaWorkflowInput } from '../ai/sast/capella/temporal/activity-types.js';
+import {
+  type CapellaWorkflowInput,
+  capellaChildWorkflowTimeoutMs,
+  researchBudgetFactor,
+} from '../ai/sast/capella/temporal/activity-types.js';
 import { CAPELLA_CHILD_WORKFLOW_OPTIONS, capellaWorkflow } from '../ai/sast/capella/temporal/workflow.js';
+import { CAPELLA_AUDIT_CONCURRENCY, CAPELLA_TRIAGE_CONCURRENCY } from '../ai/sast/capella/types.js';
 import {
   CAPELLA_PROGRESS_STAGES,
   CAPELLA_STAGE_LABELS,
@@ -42,6 +48,7 @@ import type { AgentName, VulnType } from '../types/agents.js';
 import { ALL_AGENTS } from '../types/agents.js';
 import { ALL_VULN_CLASSES, type VulnClass } from '../types/config.js';
 import type { ReconciliationClass } from '../types/reconciliation.js';
+import { DEFAULT_AGENT_TIMEOUT_MS, limitedWorkers, PIPELINE_LANE_COUNT } from '../types/run-limits.js';
 import {
   appendPartialReasons,
   type MiscellaneousOutcome,
@@ -96,10 +103,10 @@ export { capellaWorkflow };
 // as non-retryable are ones a retry can never fix (bad credentials, invalid config, an
 // unreachable target, a failed login), so retrying them would only burn time before failing anyway.
 const PRODUCTION_RETRY = {
-  initialInterval: '5 minutes',
-  maximumInterval: '30 minutes',
+  initialInterval: '1 minute',
+  maximumInterval: '8 minutes',
   backoffCoefficient: 2,
-  maximumAttempts: 50,
+  maximumAttempts: 5,
   nonRetryableErrorTypes: [
     'AuthenticationError',
     'ConfigurationError',
@@ -119,16 +126,19 @@ const TESTING_RETRY = {
   nonRetryableErrorTypes: PRODUCTION_RETRY.nonRetryableErrorTypes,
 };
 
-const acts = proxyActivities<typeof activities>({
-  startToCloseTimeout: '2 hours',
-  heartbeatTimeout: '60 minutes',
-  retry: PRODUCTION_RETRY,
-  cancellationType: ActivityCancellationType.TRY_CANCEL,
-});
+// Per scan, since the timeout comes from SHANNON_AGENT_TIMEOUT_HOURS.
+function agentActs(startToCloseTimeoutMs: number): ActivityInterfaceFor<typeof activities> {
+  return proxyActivities<typeof activities>({
+    startToCloseTimeout: startToCloseTimeoutMs,
+    heartbeatTimeout: '5 minutes',
+    retry: PRODUCTION_RETRY,
+    cancellationType: ActivityCancellationType.TRY_CANCEL,
+  });
+}
 
 const testActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '30 minutes',
-  heartbeatTimeout: '30 minutes',
+  heartbeatTimeout: '5 minutes',
   retry: TESTING_RETRY,
   cancellationType: ActivityCancellationType.TRY_CANCEL,
 });
@@ -160,7 +170,7 @@ const authValidationActs = proxyActivities<typeof activities>({
 // cancelled scan lets an in-flight write finish cleanly instead of racing a mid-commit abort;
 // the agent activities above use the cheaper TRY_CANCEL because an agent process can simply be
 // killed without leaving a half-written checkpoint behind.
-const deterministicReportActs = proxyActivities<typeof activities>({
+const deterministicActs = proxyActivities<typeof activities>({
   startToCloseTimeout: '2 minutes',
   retry: { initialInterval: '1 second', backoffCoefficient: 2, maximumAttempts: 5 },
   cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
@@ -189,7 +199,6 @@ const seedMiscellaneousActs = proxyActivities<Pick<ReconciliationActivityRegistr
   cancellationType: ActivityCancellationType.WAIT_CANCELLATION_COMPLETED,
 });
 
-const MAX_CONCURRENT_PIPELINES = 5;
 const MAX_NON_FATAL_FAILURES = 32;
 
 const CAPELLA_OPERATION_KEY = 'agentic-sast';
@@ -388,7 +397,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   const { workflowId } = workflowInfo();
-  const a = input.pipelineTestingMode ? testActs : acts;
+  const a = input.pipelineTestingMode ? testActs : agentActs(input.agentTimeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS);
   const exploit = input.exploit ?? true;
   const authOnly = input.authOnly ?? false;
   const validateModel = input.validateModel ?? false;
@@ -619,11 +628,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }
     state.currentPhase = phaseName;
     state.currentAgent = agentName;
-    await a.logPhaseTransition(activityInput, phaseName, 'start');
+    await deterministicActs.logPhaseTransition(activityInput, phaseName, 'start');
     state.agentMetrics[agentName] = await runAgent(activityInput);
     markCompleted(agentName);
-    if (input.checkpointsEnabled) await a.saveCheckpoint(activityInput, agentName, phaseName, state);
-    await a.logPhaseTransition(activityInput, phaseName, 'complete');
+    if (input.checkpointsEnabled) await deterministicActs.saveCheckpoint(activityInput, agentName, phaseName, state);
+    await deterministicActs.logPhaseTransition(activityInput, phaseName, 'complete');
   }
 
   async function reconcileClass(vulnerabilityClass: ReconciliationClass, sarif?: SarifRef): Promise<void> {
@@ -772,7 +781,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         state.agentMetrics[vulnAgentName] = vulnMetrics;
         markCompleted(vulnAgentName);
         if (input.checkpointsEnabled)
-          await a.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
+          await deterministicActs.saveCheckpoint(activityInput, vulnAgentName, 'vulnerability-analysis', state);
       }
 
       // The class joins the shared Capella outcome here: reconciliation needs the settled
@@ -783,7 +792,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       reconciliationStarted = true;
       await reconcileClass(vulnType, settled.sarif);
       reconciliationCompleted = true;
-      const decision = await a.checkExploitationQueue(activityInput, vulnType);
+      const decision = await deterministicActs.checkExploitationQueue(activityInput, vulnType);
       let exploitMetrics: AgentMetrics | null = null;
       if (exploit && shouldSkip(exploitAgentName)) {
         markCompleted(exploitAgentName);
@@ -791,10 +800,12 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         exploitMetrics = await runExploitAgent();
         state.agentMetrics[exploitAgentName] = exploitMetrics;
         markCompleted(exploitAgentName);
-        if (input.checkpointsEnabled) await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+        if (input.checkpointsEnabled)
+          await deterministicActs.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
       } else if (exploit) {
         markSkipped(exploitAgentName);
-        if (input.checkpointsEnabled) await a.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
+        if (input.checkpointsEnabled)
+          await deterministicActs.saveCheckpoint(activityInput, exploitAgentName, 'exploitation', state);
       }
 
       return {
@@ -825,22 +836,26 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   /**
-   * Run `thunks` with at most `limit` in flight, collecting every settlement instead of
-   * failing fast, so one class's rejection never cancels the classes still running alongside it.
+   * Run `thunks` with at most `limit` in flight, starting them in order and collecting every
+   * settlement instead of failing fast, so one lane's rejection never cancels the lanes still
+   * running alongside it. Results keep the order of `thunks`.
    */
-  async function runWithConcurrencyLimit(
-    thunks: Array<() => Promise<VulnExploitPipelineResult>>,
+  async function runWithConcurrencyLimit<T>(
+    thunks: ReadonlyArray<() => Promise<T>>,
     limit: number,
-  ): Promise<PromiseSettledResult<VulnExploitPipelineResult>[]> {
-    const results: PromiseSettledResult<VulnExploitPipelineResult>[] = [];
+  ): Promise<PromiseSettledResult<T>[]> {
+    const results: PromiseSettledResult<T>[] = new Array(thunks.length);
     const inFlight = new Set<Promise<void>>();
-    for (const thunk of thunks) {
+    for (const [index, thunk] of thunks.entries()) {
       const slot = thunk()
         .then(
-          (value) => results.push({ status: 'fulfilled', value }),
-          (reason: unknown) => results.push({ status: 'rejected', reason }),
+          (value) => {
+            results[index] = { status: 'fulfilled', value };
+          },
+          (reason: unknown) => {
+            results[index] = { status: 'rejected', reason };
+          },
         )
-        .then(() => undefined)
         .finally(() => inFlight.delete(slot));
       inFlight.add(slot);
       if (inFlight.size >= limit) await Promise.race(inFlight);
@@ -940,11 +955,17 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       capellaFormatVersion: input.agenticSast.capellaFormatVersion,
       promptSetVersion: input.agenticSast.promptSetVersion,
       pipelineTestingMode: input.pipelineTestingMode ?? false,
+      ...(input.maxConcurrency !== undefined && {
+        triageWorkers: limitedWorkers(CAPELLA_TRIAGE_CONCURRENCY, input.maxConcurrency),
+        auditWorkers: limitedWorkers(CAPELLA_AUDIT_CONCURRENCY, input.maxConcurrency),
+      }),
     };
+    const researchFactor = researchBudgetFactor(capellaInput.auditWorkers ?? CAPELLA_AUDIT_CONCURRENCY);
 
     try {
       const result = await executeChild(capellaWorkflow, {
         ...CAPELLA_CHILD_WORKFLOW_OPTIONS,
+        workflowExecutionTimeout: capellaChildWorkflowTimeoutMs(researchFactor),
         workflowId: `${workflowId}-capella`,
         args: [capellaInput],
       });
@@ -1099,21 +1120,21 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       await seedMiscellaneousActs.seedEmptyProducerQueue({ sessionId });
       await reconcileClass('miscellaneous', effectiveSarif);
       reconciliationCompleted = true;
-      const decision = await a.checkExploitationQueue(activityInput, 'miscellaneous' as VulnType);
+      const decision = await deterministicActs.checkExploitationQueue(activityInput, 'miscellaneous' as VulnType);
       let outcome: MiscellaneousOutcome;
       if (!exploit) {
         outcome = 'exploitation_disabled';
       } else if (!decision.shouldExploit) {
         outcome = 'not_actionable';
       } else {
-        const admitted = await deterministicReportActs.persistMiscellaneousOutcome(activityInput, 'expected');
+        const admitted = await deterministicActs.persistMiscellaneousOutcome(activityInput, 'expected');
         applyDurableSummary(admitted);
         if (!shouldSkip('miscellaneous-exploit'))
           state.agentMetrics['miscellaneous-exploit'] = await a.runMiscellaneousExploitAgent(activityInput);
         markCompleted('miscellaneous-exploit');
         outcome = 'completed';
       }
-      const persisted = await deterministicReportActs.persistMiscellaneousOutcome(activityInput, outcome);
+      const persisted = await deterministicActs.persistMiscellaneousOutcome(activityInput, outcome);
       applyDurableSummary(persisted);
     } catch (error) {
       if (hasCancellationInCauseChain(error)) throw error;
@@ -1167,7 +1188,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   async function finalizeReportPipeline(): Promise<void> {
     state.currentPhase = 'reporting';
     state.currentAgent = 'report';
-    await a.logPhaseTransition(activityInput, 'reporting', 'start');
+    await deterministicActs.logPhaseTransition(activityInput, 'reporting', 'start');
 
     if (state.reportProgress === undefined) {
       const renumberFailed: ReconciliationClass[] = [];
@@ -1176,7 +1197,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           const key = `report:renumber:${vulnerabilityClass}`;
           try {
             await runOperation(key, `Renumber ${vulnerabilityClass}`, () =>
-              deterministicReportActs.renumberClassFindings(activityInput, vulnerabilityClass),
+              deterministicActs.renumberClassFindings(activityInput, vulnerabilityClass),
             );
           } catch (error) {
             if (hasCancellationInCauseChain(error)) throw error;
@@ -1187,14 +1208,14 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         }
       }
       state.reportProgress = await runOperation('report:initialize', 'Initialize report state', () =>
-        deterministicReportActs.initializeReportProgress(activityInput, renumberFailed, partialReasons),
+        deterministicActs.initializeReportProgress(activityInput, renumberFailed, partialReasons),
       );
       adoptDurableReasons(state.reportProgress.partial_reasons);
     }
 
     if (state.reportProgress.stage === 'pending') {
       const assembled = await runOperation('report:assemble', 'Assemble report inputs', () =>
-        deterministicReportActs.assembleReportActivity(activityInput, exploit),
+        deterministicActs.assembleReportActivity(activityInput, exploit),
       );
       recordAssemblyOmissions(assembled.failedClasses);
       const reportMetrics = await a.runReportAgent(activityInput, exploit);
@@ -1218,7 +1239,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       if (exploit) {
         try {
           const compacted = await runOperation('report:compact', 'Compact report findings', () =>
-            deterministicReportActs.compactReportFindings(activityInput),
+            deterministicActs.compactReportFindings(activityInput),
           );
           canonicalCheckpoint = compacted.checkpoint ?? canonicalCheckpoint;
         } catch (error) {
@@ -1228,7 +1249,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         }
       }
       state.reportProgress = await runOperation('report:checkpoint', 'Saving report progress', () =>
-        deterministicReportActs.persistCanonicalReportProgress(activityInput, canonicalCheckpoint, partialReasons),
+        deterministicActs.persistCanonicalReportProgress(activityInput, canonicalCheckpoint, partialReasons),
       );
       adoptDurableReasons(state.reportProgress.partial_reasons);
     }
@@ -1254,7 +1275,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       }
       // Persist the limitation before producing replacement outputs so report.json, Markdown,
       // PDF, session state, and CLI status all derive from the same durable reason set.
-      state.reportProgress = await deterministicReportActs.persistCanonicalReportProgress(
+      state.reportProgress = await deterministicActs.persistCanonicalReportProgress(
         activityInput,
         canonicalProgress.canonical_checkpoint,
         partialReasons,
@@ -1265,16 +1286,11 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       );
     }
     state.reportProgress = await runOperation('report:terminal', 'Saving final report state', () =>
-      deterministicReportActs.persistFinalizedReportProgress(
-        activityInput,
-        finalized.checkpoint,
-        finalized.manifestSha256,
-        {
-          sarifDisposition: finalized.sarifDisposition,
-          pdfProvenance: finalized.pdfProvenance,
-          partialReasons,
-        },
-      ),
+      deterministicActs.persistFinalizedReportProgress(activityInput, finalized.checkpoint, finalized.manifestSha256, {
+        sarifDisposition: finalized.sarifDisposition,
+        pdfProvenance: finalized.pdfProvenance,
+        partialReasons,
+      }),
     );
     adoptDurableReasons(state.reportProgress.partial_reasons);
     markCompleted('report');
@@ -1296,27 +1312,22 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
         error: 'Customer report copies could not be refreshed; canonical outputs remain finalized.',
       });
     }
-    await a.logPhaseTransition(activityInput, 'reporting', 'complete');
+    await deterministicActs.logPhaseTransition(activityInput, 'reporting', 'complete');
   }
 
   try {
-    const durable = await deterministicReportActs.initializeDurableScanState(activityInput, exploit, stateContext);
+    const durable = await deterministicActs.initializeDurableScanState(activityInput, exploit, stateContext);
     applyDurableSummary(durable);
 
     if (!authOnly && input.resumeFromWorkspace) {
       resumeInProgress = true;
       // The new workflow id lands in session.json before anything that can reject the resume, so a
       // validation or checkpoint-restore failure still leaves the CLI an attempt to follow.
-      await deterministicReportActs.registerResumeAttempt(activityInput, input.terminatedWorkflows ?? []);
-      resumeState = await deterministicReportActs.loadResumeState(
-        input.resumeFromWorkspace,
-        input.webUrl,
-        input.repoPath,
-        {
-          ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
-          expectedExploit: exploit,
-        },
-      );
+      await deterministicActs.registerResumeAttempt(activityInput, input.terminatedWorkflows ?? []);
+      resumeState = await deterministicActs.loadResumeState(input.resumeFromWorkspace, input.webUrl, input.repoPath, {
+        ...(input.deliverablesSubdir !== undefined && { deliverablesSubdir: input.deliverablesSubdir }),
+        expectedExploit: exploit,
+      });
       state.expectedAgents = [...resumeState.expectedAgents];
       state.participatingClasses = [...resumeState.participatingClasses];
       if (resumeState.miscellaneousOutcome !== undefined) miscellaneousOutcome = resumeState.miscellaneousOutcome;
@@ -1330,7 +1341,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       const incompleteAgents = expectedAgentNames.filter(
         (agentName) => !resumeState?.completedAgents.includes(agentName),
       );
-      await deterministicReportActs.restoreGitCheckpoint(
+      await deterministicActs.restoreGitCheckpoint(
         input.repoPath,
         resumeState.checkpointHash,
         incompleteAgents,
@@ -1341,7 +1352,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
           ...(resumeState.reportProgress !== undefined && { reportProgress: resumeState.reportProgress }),
         },
       );
-      await deterministicReportActs.recordResumeAttempt(
+      await deterministicActs.recordResumeAttempt(
         activityInput,
         resumeState.checkpointHash,
         resumeState.originalWorkflowId,
@@ -1375,7 +1386,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.status = 'completed';
       state.currentPhase = null;
       state.summary = computeSummary(state, usageAccountingComplete());
-      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+      await deterministicActs.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
       return state;
     }
 
@@ -1398,43 +1409,53 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.status = 'completed';
       state.currentPhase = null;
       state.summary = computeSummary(state, usageAccountingComplete());
-      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
+      await deterministicActs.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'completed'));
       return state;
     }
 
-    await a.initDeliverableGit(activityInput);
-    await a.syncCodePathDenyRules(activityInput);
+    await deterministicActs.initDeliverableGit(activityInput);
+    await deterministicActs.syncCodePathDenyRules(activityInput);
 
     const allExpectedDone = state.expectedAgents.every((agentName) => state.completedAgents.includes(agentName));
     // Resumes that retry a failed class reopen the report in loadResumeState, so an authored report
     // here means only reporting remains.
     const reportAlreadyAuthored = reportIsAuthored(resumeState?.reportProgress?.stage);
     if (!allExpectedDone && !reportAlreadyAuthored) {
-      // Agentic SAST overlaps the pentest: it starts here and is joined per class before
-      // reconciliation, so preliminary analysis and reconnaissance never wait on it.
+      // Agentic SAST overlaps the pentest by default: it starts here and is joined per class before
+      // reconciliation, so preliminary analysis and reconnaissance never wait on it. Under a
+      // concurrency limit it finishes first instead, so the two never compete for the model.
       const settlement = settleCapella();
       capellaSettlement = settlement;
+      if (input.maxConcurrency !== undefined) {
+        const settled = await settlement;
+        if (settled.outcome === 'cancelled') throw settled.error;
+      }
       await runSequentialPhase('pre-recon', 'pre-recon', a.runPreReconAgent);
       await runSequentialPhase('recon', 'recon', a.runReconAgent);
 
       state.currentPhase = 'vulnerability-exploitation';
       state.currentAgent = 'pipelines';
-      await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
-      const pipelineThunks = buildPipelineConfigs().map(
+      await deterministicActs.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'start');
+      const classLanes = buildPipelineConfigs().map(
         (config) => () => runVulnExploitPipeline(config.vulnType, config.runVuln, config.runExploit, settlement),
       );
-      // Launch the Miscellaneous lane concurrently with the five fixed classes; it shares the same
-      // settled SARIF and joins the common barrier below.
-      const miscellaneousLane = runMiscellaneousExploitLane(settlement);
-      const pipelineResults = await runWithConcurrencyLimit(pipelineThunks, MAX_CONCURRENT_PIPELINES);
-      // Join the sixth lane before aggregation so its outcome is always observed (never a
-      // dropped rejection in the workflow VM) and a cancellation from either path propagates.
-      await miscellaneousLane;
-      aggregatePipelineResults(pipelineResults);
+      // Queued last: it waits on the SARIF settlement, so it should not hold a slot while waiting.
+      const miscellaneousLane = async (): Promise<undefined> => {
+        await runMiscellaneousExploitLane(settlement);
+        return undefined;
+      };
+      const laneResults = await runWithConcurrencyLimit<VulnExploitPipelineResult | undefined>(
+        [...classLanes, miscellaneousLane],
+        input.maxConcurrency ?? PIPELINE_LANE_COUNT,
+      );
+      // The miscellaneous lane only rejects on cancellation, which must propagate.
+      const miscellaneousResult = laneResults[laneResults.length - 1];
+      if (miscellaneousResult?.status === 'rejected') throw miscellaneousResult.reason;
+      aggregatePipelineResults(laneResults.slice(0, -1) as PromiseSettledResult<VulnExploitPipelineResult>[]);
       if (state.failedPipelines.length > 0) {
         activityInput.failedClasses = state.failedPipelines.map((failure) => failure.vulnType);
       }
-      await a.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
+      await deterministicActs.logPhaseTransition(activityInput, 'vulnerability-exploitation', 'complete');
     }
 
     await finalizeReportPipeline();
@@ -1447,7 +1468,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     state.currentPhase = null;
     state.currentAgent = null;
     state.summary = computeSummary(state, usageAccountingComplete());
-    await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, terminalStatus));
+    await deterministicActs.logWorkflowComplete(activityInput, toWorkflowSummary(state, terminalStatus));
     return state;
   } catch (error) {
     if (hasCancellationInCauseChain(error)) {
@@ -1460,7 +1481,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
       state.summary = computeSummary(state, usageAccountingComplete());
       await CancellationScope.nonCancellable(async () => {
         try {
-          await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
+          await deterministicActs.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'cancelled'));
         } catch {
           log.warn('Failed to finalize cancelled workflow', { code: 'WORKFLOW_LOG_WRITE_FAILED' });
         }
@@ -1482,7 +1503,7 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
     }
     state.summary = computeSummary(state, usageAccountingComplete());
     try {
-      await a.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
+      await deterministicActs.logWorkflowComplete(activityInput, toWorkflowSummary(state, 'failed'));
     } catch {
       log.warn('Failed to finalize failed workflow', { code: 'WORKFLOW_LOG_WRITE_FAILED' });
     }

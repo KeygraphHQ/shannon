@@ -326,7 +326,8 @@ export async function runResearchStage(
     batchId: buildFingerprint({ files }).slice(0, 20),
   }));
 
-  const triageOutcomes = await runSettledPool(batches, CAPELLA_TRIAGE_CONCURRENCY, async (batch, index) => {
+  const triageWorkers = input.triageWorkers ?? CAPELLA_TRIAGE_CONCURRENCY;
+  const triageOutcomes = await runSettledPool(batches, triageWorkers, async (batch, index) => {
     // The label is display-only; it is derived from the dispatch index and kept out of the batch
     // and the checkpoint fingerprint, which must stay keyed on the batch content alone.
     const sessionLabel = `triage ${index + 1}`;
@@ -429,7 +430,8 @@ export async function runResearchStage(
     .filter((audit) => audit.flaggedFiles.length > 0);
 
   const nameAuditSession = createCapellaSessionNamer('audit');
-  const auditOutcomes = await runSettledPool(audits, CAPELLA_AUDIT_CONCURRENCY, async (audit) => {
+  const auditWorkers = input.auditWorkers ?? CAPELLA_AUDIT_CONCURRENCY;
+  const auditOutcomes = await runSettledPool(audits, auditWorkers, async (audit) => {
     // Assign the label synchronously, before any await, so concurrent siblings cannot race.
     const sessionLabel = nameAuditSession(audit.investigation.title);
     const checkpointPath = resolve(input.artifactRoot, 'research', 'audit', `${audit.investigationId}.json`);
