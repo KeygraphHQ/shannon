@@ -49,6 +49,21 @@ Windows Defender may flag exploit code in reports as false positives. Add an exc
 
 Linux works with native Docker. Depending on your Docker setup, you may need `sudo`. If output files have permission issues, ensure your user has access to the Docker socket and workspace directory.
 
+### AppArmor and Browser Sandbox
+
+On Linux hosts with AppArmor enabled (such as Debian 13 or Ubuntu 24.04+), Chromium's internal user namespace sandbox inside the worker container may be blocked under Docker's default AppArmor profile (`docker-default`).
+
+If browser-driven phases (such as authentication validation, dynamic reconnaissance, or exploitation) fail with sandbox permission errors, you can either:
+
+1. Relax the container's AppArmor confinement:
+   ```bash
+   export SHANNON_APPARMOR_UNCONFINED=true
+   ```
+2. Or disable the in-container Chromium sandbox:
+   ```bash
+   export SHANNON_CHROMIUM_NO_SANDBOX=true
+   ```
+
 ## macOS
 
 macOS works with Docker Desktop installed.
