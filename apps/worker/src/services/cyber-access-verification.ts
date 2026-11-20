@@ -191,3 +191,122 @@ export async function verifyCyberAccess(
     return { providerId, error: thrown.message };
   }
 }
+
+// === DAYBREAK ACCESS ===
+
+/** OpenAI's Daybreak cyber access programs, tried in order. */
+const DAYBREAK_PROGRAMS = ['daybreak_blue', 'daybreak_red'] as const;
+
+const GPT_54_MODEL = 'gpt-5.4';
+
+// Two pings must fit inside the preflight activity's 2-minute timeout.
+const DAYBREAK_PING_TIMEOUT_MS = 30_000;
+
+const DAYBREAK_PROVIDERS: ReadonlySet<string> = new Set(['openai', 'openai-codex']);
+
+export function usesDaybreakCheck(providerId: string): boolean {
+  return DAYBREAK_PROVIDERS.has(providerId);
+}
+
+export function runsWithoutDaybreak(model: Model<Api>): boolean {
+  return model.id === GPT_54_MODEL;
+}
+
+/** `transient`: a retry may fix the cause (network, timeout, 429, 5xx). */
+export type DaybreakAccess =
+  | { readonly status: 'enabled' }
+  | { readonly status: 'declined' }
+  | { readonly status: 'unverified'; readonly transient: boolean; readonly checkCode: string };
+
+function unverifiedPing(result: PingResult | undefined): DaybreakAccess {
+  if (result === undefined) return { status: 'unverified', transient: true, checkCode: 'daybreak-request-failed' };
+  const transient = result.status === 429 || result.status >= 500;
+  return { status: 'unverified', transient, checkCode: `daybreak-http-${result.status}` };
+}
+
+interface PingResult {
+  readonly status: number;
+  readonly body: string;
+}
+
+interface DaybreakEndpoint {
+  readonly url: string;
+  readonly headers: Readonly<Record<string, string>>;
+}
+
+/** Selects the ChatGPT workspace, since Daybreak access is per organization. */
+function codexAccountId(token: string): string | undefined {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString());
+    const accountId = payload?.['https://api.openai.com/auth']?.chatgpt_account_id;
+    return typeof accountId === 'string' ? accountId : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function daybreakEndpoint(providerId: string, baseUrl: string, token: string): DaybreakEndpoint {
+  const headers: Record<string, string> = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  if (providerId !== 'openai-codex') {
+    const url = baseUrl.endsWith('/') ? `${baseUrl}responses` : `${baseUrl}/responses`;
+    return { url, headers };
+  }
+
+  const accountId = codexAccountId(token);
+  if (accountId !== undefined) headers['chatgpt-account-id'] = accountId;
+  return { url: `${baseUrl}/codex/responses`, headers };
+}
+
+/** Pi OAuth logins require list input, `store: false` and `stream: true`. */
+async function daybreakPing(
+  endpoint: DaybreakEndpoint,
+  modelId: string,
+  program: string,
+): Promise<PingResult | undefined> {
+  const body = {
+    model: modelId,
+    input: [{ role: 'user', content: 'ping' }],
+    max_output_tokens: 16,
+    store: false,
+    stream: true,
+    access_programs: { cyber: program },
+  };
+  try {
+    const response = await fetch(endpoint.url, {
+      method: 'POST',
+      headers: endpoint.headers,
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(DAYBREAK_PING_TIMEOUT_MS),
+    });
+    return { status: response.status, body: await response.text() };
+  } catch {
+    return undefined;
+  }
+}
+
+/** A streamed request can be refused after a 200, as an in-stream `error` event. */
+function programAccepted({ status, body }: PingResult): boolean {
+  const succeeded = status >= 200 && status < 300;
+  return succeeded && !body.includes('event: error');
+}
+
+function tryNextProgram({ body }: PingResult): boolean {
+  return body.includes('access_program_not_enabled') || body.includes('invalid_access_program');
+}
+
+/** Tries each Daybreak program until one accepts. Never throws. */
+export async function verifyDaybreakAccess(
+  providerId: string,
+  baseUrl: string,
+  apiKey: string,
+  modelId: string,
+): Promise<DaybreakAccess> {
+  const endpoint = daybreakEndpoint(providerId, baseUrl, apiKey);
+  for (const program of DAYBREAK_PROGRAMS) {
+    const result = await daybreakPing(endpoint, modelId, program);
+    if (result === undefined) return unverifiedPing(result);
+    if (programAccepted(result)) return { status: 'enabled' };
+    if (!tryNextProgram(result)) return unverifiedPing(result);
+  }
+  return { status: 'declined' };
+}

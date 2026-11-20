@@ -40,6 +40,7 @@ export const WORKFLOW_FAILURE_TYPES = [
   'URLMismatchError',
   'OpenAiCyberAccessError',
   'AnthropicCyberAccessError',
+  'CyberAccessUnverifiedError',
   'TransientError',
   'PermanentError',
   'UnknownError',
@@ -89,6 +90,7 @@ export const SAFE_WORKFLOW_FAILURE_MESSAGES: Readonly<Record<WorkflowFailureType
   URLMismatchError: 'This workspace was created for a different target URL.',
   OpenAiCyberAccessError: 'OpenAI declined the security workload behind its cyber-access program.',
   AnthropicCyberAccessError: 'Anthropic declined the security workload behind its cyber-access program.',
+  CyberAccessUnverifiedError: 'OpenAI cyber access could not be confirmed for the selected model.',
   TransientError: 'A scan step kept failing on temporary errors and ran out of retries.',
   PermanentError: 'A scan step failed with an error that cannot be retried.',
   UnknownError: 'A scan step failed with an unclassified error.',
@@ -116,6 +118,8 @@ export const WORKFLOW_FAILURE_HINTS: Readonly<Partial<Record<WorkflowFailureType
     'Your OpenAI organization must be approved for cyber use. Apply for cyber access at https://chatgpt.com/cyber, then retry. Or use the gpt-5.4 model instead.',
   AnthropicCyberAccessError:
     'Your Anthropic organization must complete cyber verification. See https://support.claude.com/en/articles/14604842-real-time-cyber-safeguards-on-claude-opus-and-sonnet, then retry. Or use the claude-sonnet-4-6 model instead.',
+  CyberAccessUnverifiedError:
+    'Check the OpenAI credential and endpoint, then retry. If SHANNON_AI_BASE_URL is set, that endpoint must forward the access_programs request field to OpenAI.',
   TransientError: 're-run the same -w to retry from the last checkpoint.',
 });
 

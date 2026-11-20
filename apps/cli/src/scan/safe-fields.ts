@@ -307,6 +307,7 @@ const WORKFLOW_FAILURE_MESSAGES: Readonly<Record<string, string>> = Object.freez
   URLMismatchError: 'This workspace was created for a different target URL.',
   OpenAiCyberAccessError: 'OpenAI declined the security workload behind its cyber-access program.',
   AnthropicCyberAccessError: 'Anthropic declined the security workload behind its cyber-access program.',
+  CyberAccessUnverifiedError: 'OpenAI cyber access could not be confirmed for the selected model.',
   TransientError: 'A scan step kept failing on temporary errors and ran out of retries.',
   PermanentError: 'A scan step failed with an error that cannot be retried.',
   UnknownError: 'A scan step failed with an unclassified error.',
