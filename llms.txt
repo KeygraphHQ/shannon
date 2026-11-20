@@ -12,11 +12,16 @@ Use this file as the concise entry point for AI agents and LLMs reading this rep
 
 - [Development](docs/development.md): Source-build workflow, common CLI commands, repository paths, and output locations.
 - [Configuration](docs/configuration.md): Authenticated testing, login flows, rules of engagement (including rate-limit guidance), report filters, and credential precedence.
-- [AI Providers](docs/ai-providers.md): Anthropic, OpenAI, xAI, AWS Bedrock, any other Pi-supported provider, custom LLM gateway setup, custom model configuration for models not yet in the Pi catalogue, and local self-hosted runtimes (Ollama, LM Studio, vLLM).
+- [AI Providers](docs/ai-providers.md): Anthropic, OpenAI, xAI, AWS Bedrock, any other Pi-supported provider, custom LLM gateway setup, custom model configuration for models not yet in the Pi catalogue, local self-hosted runtimes (Ollama, LM Studio, vLLM), and settings for slow or rate-limited model endpoints.
 - [Platforms and Networking](docs/platforms.md): Windows/WSL2, Linux, macOS, Docker networking, local applications, and custom hostnames.
 - [Workspaces and Resuming](docs/workspaces.md): Workspace storage, naming, resuming interrupted scans, and examples.
 - [Safety and Limitations](docs/safety.md): Authorized-use requirements, non-production guidance, mutative effects, model caveats, scope limits, cost, and performance.
 - [Coverage and Roadmap](docs/coverage-roadmap.md): Current Shannon coverage and roadmap direction.
+
+## Experimental
+
+- [php2shell Upgrade Verification](docs/exp-php2shell.md): The experimental `--exp-php2shell` probe that confirms PHP servers are patched against the php2shell RCE chain. Not maintained long term.
+- [php2shell Probe Testing](docs/exp-php2shell-testing.md): How the `--exp-php2shell` probe was validated against patched, unpatched, and non-PHP Docker targets.
 
 ## Keygraph Pro and Enterprise
 
