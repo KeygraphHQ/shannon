@@ -116,18 +116,21 @@ export function isCyberGatedProvider(providerId: string): boolean {
   return CYBER_GATED_PROVIDERS.has(providerId);
 }
 
-// One marker per provider, from its own decline wording.
-const CYBER_MESSAGE_MARKER: Readonly<Record<string, string>> = {
-  openai: 'daybreak',
-  'openai-codex': 'daybreak',
-  anthropic: 'violative cyber',
+// Markers per provider, from its own decline wording.
+const OPENAI_CYBER_MARKERS = ['daybreak', 'cybersecurity risk'] as const;
+const ANTHROPIC_CYBER_MARKERS = ['violative cyber', 'cyber safeguards flagged'] as const;
+const CYBER_MESSAGE_MARKERS: Readonly<Record<string, readonly string[]>> = {
+  openai: OPENAI_CYBER_MARKERS,
+  'openai-codex': OPENAI_CYBER_MARKERS,
+  anthropic: ANTHROPIC_CYBER_MARKERS,
 };
 
 /** Whether an errored turn's message is a cyber-safeguard decline, by the provider's own wording. */
 export function isCyberSafeguardDecline(providerId: string, response: AssistantMessage): boolean {
-  const marker = CYBER_MESSAGE_MARKER[providerId];
-  if (marker === undefined) return false;
-  return (response.errorMessage?.toLowerCase() ?? '').includes(marker);
+  const markers = CYBER_MESSAGE_MARKERS[providerId];
+  if (markers === undefined) return false;
+  const message = response.errorMessage?.toLowerCase() ?? '';
+  return markers.some((marker) => message.includes(marker));
 }
 
 export interface CyberAccessResult {
