@@ -71,6 +71,16 @@ export function authStateFile(sessionMetadata: SessionMetadata): string {
 }
 
 /**
+ * Path to the OAuth config the auth preflight writes for API-only (login_type: api) targets.
+ * The `get-oauth-token` CLI reads it to mint bearer tokens for downstream agents, caching the
+ * token in a sibling file. Both are deleted at workflow end, so neither the client secret nor
+ * an issued token outlives the scan that created them.
+ */
+export function oauthConfigFile(sessionMetadata: SessionMetadata): string {
+  return path.join(generateInternalPath(sessionMetadata), 'oauth-config.json');
+}
+
+/**
  * Generate path to workflow.log file
  */
 export function generateWorkflowLogPath(sessionMetadata: SessionMetadata): string {

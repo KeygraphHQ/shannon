@@ -105,6 +105,48 @@ rules:
 #   sarif: "false"
 ```
 
+## API-only (OAuth) Authentication
+
+For APIs with no browser login, set `login_type: api` and supply an `oauth` block instead of
+`login_url` / `credentials` / `login_flow` / `success_condition`. Shannon obtains a bearer token
+from the token endpoint over HTTP (no browser), attaches it to the requests its agents make, and
+refreshes it automatically as it expires — a single up-front fetch would go stale on a long run.
+
+```yaml
+authentication:
+  login_type: api
+  oauth:
+    token_url: "https://auth.example.com/oauth/token"
+    grant_type: client_credentials   # client_credentials | password | refresh_token
+    client_id: "my-client-id"
+    client_secret: "my-client-secret"
+    scope: "read write"               # optional
+    audience: "https://api.example.com"  # optional; some providers require it
+    client_auth: client_secret_post   # client_secret_post (default) | client_secret_basic
+    # grant_type: password also needs:
+    # username: "test@example.com"
+    # password: "test-password"
+    # grant_type: refresh_token also needs:
+    # refresh_token: "the-initial-refresh-token"
+    # token_header: "Authorization"   # optional (default)
+    # token_prefix: "Bearer "         # optional (default)
+    # extra_params:                   # optional extra form fields on the token request
+    #   resource: "urn:example:api"
+```
+
+The preflight fetches one token before the scan starts and fails fast with a clear error if the
+grant is misconfigured. During the run, agents mint fresh tokens on demand via the bundled
+`get-oauth-token` helper and send them as, for example,
+`Authorization: Bearer <token>`. The client secret is written only to a scan-scoped file that the
+token helper reads; it is never placed in prompt text, and both the config and any cached token
+are deleted when the scan ends.
+
+| Grant type | Required `oauth` fields |
+| --- | --- |
+| `client_credentials` | `token_url`, `grant_type`, `client_id`, `client_secret` |
+| `password` | `token_url`, `grant_type`, `username`, `password` (plus `client_id`/`client_secret` if the provider requires them) |
+| `refresh_token` | `token_url`, `grant_type`, `refresh_token` (plus `client_id`/`client_secret` if required) |
+
 ## Analysis Scope and Agentic SAST
 
 Every scan runs all five analysis classes: Injection, Cross-Site Scripting, Authentication, Authorization, and
