@@ -1,5 +1,5 @@
 > [!NOTE]
-> **[php2shell upgrade verification](docs/exp-php2shell.md):** confirm your PHP apps are patched against the php2shell RCE chain with the experimental `--exp-php2shell` probe. See the [test results](docs/exp-php2shell-testing.md).
+> **[Git worktrees, run limits and OpenAI cyber access checks](https://github.com/KeygraphHQ/shannon/discussions/541):** scan a worktree directly, tune scans for slow model endpoints, and catch missing OpenAI access before a scan starts.
 
 <div align="center">
 
