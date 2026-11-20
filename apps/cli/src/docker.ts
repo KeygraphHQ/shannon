@@ -15,6 +15,7 @@ import { fileURLToPath } from 'node:url';
 import type { SpinnerResult } from '@clack/prompts';
 import { envBool, PI_AUTH_CONTAINER_PATH } from './env.js';
 import { fail, warn } from './errors.js';
+import type { WorktreeGitMounts } from './git-worktree.js';
 import { getMode, isDevMode } from './mode.js';
 import { INTERNAL_DIR } from './paths.js';
 import { runStep, spawnCaptured, surfaceOutput } from './ui.js';
@@ -400,6 +401,7 @@ export interface WorkerOptions {
   version: string;
   url: string;
   repo: { hostPath: string; containerPath: string };
+  worktreeGit?: WorktreeGitMounts;
   workspacesDir: string;
   taskQueue: string;
   workflowId: string;
@@ -453,6 +455,13 @@ export function spawnWorker(opts: WorkerOptions): ChildProcess {
   // Volume mounts
   args.push('-v', `${opts.workspacesDir}:/app/workspaces`);
   args.push('-v', `${opts.repo.hostPath}:${opts.repo.containerPath}:ro`);
+
+  // A worktree's git data lives in the main repo's .git, reached through a generated `.git` pointer.
+  if (opts.worktreeGit) {
+    const { commonDir, pointer } = opts.worktreeGit;
+    args.push('-v', `${commonDir.hostPath}:${commonDir.containerPath}:ro`);
+    args.push('-v', `${pointer.hostPath}:${pointer.containerPath}:ro`);
+  }
 
   // Writable overlays: shadow .shannon/ and .playwright/ inside the :ro repo with workspace-backed
   // dirs, nested under the run's INTERNAL_DIR. Container paths are unchanged.
