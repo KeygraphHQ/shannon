@@ -16,8 +16,7 @@ import type { ReconciliationClass } from './types/reconciliation.js';
 //     of the intended dependency graph, not an executed check. Actual phase ordering and
 //     concurrency are enforced by the explicit phase structure in the Temporal workflow.
 //   - promptTemplate: the file under apps/worker/prompts/ (without extension) rendered for this agent
-//   - deliverableFilename: the canonical filename AgentExecutionService and the
-//     save-deliverable CLI script write this agent's output under
+//   - deliverableFilename: the canonical filename this agent's output is rendered under
 export const AGENTS: Readonly<Record<AgentName, AgentDefinition>> = Object.freeze({
   'pre-recon': {
     name: 'pre-recon',
