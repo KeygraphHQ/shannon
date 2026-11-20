@@ -164,7 +164,7 @@ async function validateConfig(configPath: string, logger: ActivityLogger): Promi
 // .shannon/ holds this scan's own internal bookkeeping (deliverables, logs, checkpoints), not
 // source the operator meant to scope. Without this exclusion, a code_path rule could match a
 // path Shannon itself created rather than a real entry in the target repo.
-const CODE_PATH_IGNORE = ['.git/**', '.shannon/**'];
+const CODE_PATH_IGNORE = ['.git', '.shannon'];
 
 async function patternMatchesAny(repoPath: string, pattern: string): Promise<boolean> {
   const stream = glob.globbyStream(pattern, {
