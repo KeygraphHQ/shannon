@@ -1,3 +1,20 @@
 @include(shared/_filesystem.txt)
 
-Run: `save-deliverable --type CODE_ANALYSIS --content 'Pre-recon analysis complete'`. Then say "Done".
+## Pipeline Testing: Pre-Recon Contract
+
+Exercise the same collector tools as a normal run, using placeholder data. Do not analyze the repository.
+
+**Your Output:** `.shannon/deliverables/pre_recon_deliverable.md` (feeds all subsequent analysis phases)
+
+Call each tool exactly once, in this order. Fill every required text field with `Pipeline testing placeholder` and pass an empty array wherever a list is accepted:
+1. `set_executive_summary`
+2. `set_application_intelligence`
+3. `set_auth_deep_dive`
+4. `set_codebase_indexing`
+5. `set_critical_file_paths`
+6. `set_xss_sinks`
+7. `set_ssrf_sinks`
+
+**Emit your findings exclusively via the deliverable tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+
+Then announce "**PRE-RECON CODE ANALYSIS COMPLETE**" and stop.

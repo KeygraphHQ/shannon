@@ -136,12 +136,16 @@ function agentActs(startToCloseTimeoutMs: number): ActivityInterfaceFor<typeof a
   });
 }
 
-const testActs = proxyActivities<typeof activities>({
-  startToCloseTimeout: '30 minutes',
-  heartbeatTimeout: '5 minutes',
-  retry: TESTING_RETRY,
-  cancellationType: ActivityCancellationType.TRY_CANCEL,
-});
+const DEFAULT_TESTING_AGENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+function testActs(startToCloseTimeoutMs: number): ActivityInterfaceFor<typeof activities> {
+  return proxyActivities<typeof activities>({
+    startToCloseTimeout: startToCloseTimeoutMs,
+    heartbeatTimeout: '5 minutes',
+    retry: TESTING_RETRY,
+    cancellationType: ActivityCancellationType.TRY_CANCEL,
+  });
+}
 
 const SHORT_RETRY = {
   initialInterval: '10 seconds',
@@ -397,7 +401,9 @@ export async function pentestPipeline(input: PipelineInput): Promise<PipelineSta
   }
 
   const { workflowId } = workflowInfo();
-  const a = input.pipelineTestingMode ? testActs : agentActs(input.agentTimeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS);
+  const a = input.pipelineTestingMode
+    ? testActs(input.agentTimeoutMs ?? DEFAULT_TESTING_AGENT_TIMEOUT_MS)
+    : agentActs(input.agentTimeoutMs ?? DEFAULT_AGENT_TIMEOUT_MS);
   const exploit = input.exploit ?? true;
   const authOnly = input.authOnly ?? false;
   const validateModel = input.validateModel ?? false;

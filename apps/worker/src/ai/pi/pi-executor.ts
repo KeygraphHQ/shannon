@@ -260,7 +260,7 @@ export async function runPiPrompt(
 
   logger.info(`Running pi agent: ${description}...`);
 
-  // 3. Expose bash-invoked CLI tooling (playwright-cli, save-deliverable) to the
+  // 3. Expose bash-invoked CLI tooling (playwright-cli, set-report-meta) to the
   //    environment pi's bash tool inherits. These are constant per container, so
   //    setting them on process.env is parallel-safe across this workflow's agents.
   process.env.PLAYWRIGHT_MCP_OUTPUT_DIR = deliverablesSubdir

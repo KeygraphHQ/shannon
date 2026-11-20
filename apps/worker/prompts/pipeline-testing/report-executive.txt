@@ -1,3 +1,14 @@
 @include(shared/_filesystem.txt)
 
-Read `.shannon/deliverables/comprehensive_security_assessment_report.md`, prepend "# Security Assessment Report\n\n**Target:** {{WEB_URL}}\n\n" to the content, and save it back. Say "Done".
+## Pipeline Testing: Report Contract
+
+Exercise the same report tools as a normal run, using placeholder data.
+
+1. Run `set-report-meta` once via `bash`:
+   `set-report-meta --target "{{WEB_URL}}" --assessment-date "{{ASSESSMENT_DATE}}" --scope "Pipeline testing" --executive-summary "Pipeline testing report. No real assessment was performed."`
+
+2. Read `.shannon/deliverables/comprehensive_security_assessment_report.md`. For each exploited finding it lists, call `add_finding` once with that finding's ID as `finding_id`, severity `low`, status `exploited`, and `Pipeline testing placeholder` in every other required text field. For enum fields, pick any allowed value; for list fields, pass one short item. If it lists no findings, do not call `add_finding`.
+
+Record all findings as structured data using the `add_finding` tool. You do NOT write a markdown report — a downstream renderer produces the report from your structured output.
+
+Then say "Done".

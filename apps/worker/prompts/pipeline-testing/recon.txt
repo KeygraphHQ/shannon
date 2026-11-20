@@ -1,3 +1,22 @@
 @include(shared/_filesystem.txt)
 
-Run: `save-deliverable --type RECON --content 'Reconnaissance analysis complete'`. Then say "Done".
+## Pipeline Testing: Recon Contract
+
+Exercise the same collector tools as a normal run, using placeholder data. Do not map the application.
+
+**Your Output:** `.shannon/deliverables/recon_deliverable.md` (comprehensive attack surface map)
+
+Call each tool exactly once, in this order. Fill every required text field with `Pipeline testing placeholder` and pass an empty array wherever a list is accepted:
+1. `set_executive_summary`
+2. `set_technology_stack`
+3. `set_authentication`
+4. `add_endpoints` with one endpoint: method `GET`, path `/`
+5. `set_input_vectors`
+6. `set_network_map`
+7. `set_role_architecture`
+8. `set_authz_candidates`
+9. `set_injection_sources`
+
+**Emit your findings exclusively via the deliverable tools.** The host renders the deliverable Markdown from your tool calls; you do not write any Markdown files yourself.
+
+Then announce "**RECONNAISSANCE COMPLETE**" and stop.

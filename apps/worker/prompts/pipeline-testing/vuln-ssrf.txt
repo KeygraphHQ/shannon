@@ -1,13 +1,26 @@
 @include(shared/_filesystem.txt)
 
-Please complete these tasks using your CLI tools:
+## Pipeline Testing: SSRF Analysis Contract
 
-1. Navigate to https://httpbin.org and take a screenshot:
-   - Invoke the `playwright-cli` skill to learn the available commands
-   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to navigate to https://httpbin.org
-   - Use `playwright-cli -s={{PLAYWRIGHT_SESSION}}` to take a screenshot
+Exercise the same collector and queue tools as a normal run, using placeholder data. Do not analyze the application.
 
-2. Save an analysis deliverable:
-   - Run: `save-deliverable --type SSRF_ANALYSIS --content '# SSRF Analysis Report\n\nAnalysis complete. No SSRF vulnerabilities identified.'`
+**Your Output:** `.shannon/deliverables/ssrf_analysis_deliverable.md` (analysis report for exploitation phase)
 
-As a final step, return an empty array for vulnerabilities.
+1. Check browser session isolation:
+   - Invoke the `playwright-cli` skill to learn the available commands.
+   - Run `playwright-cli -s={{PLAYWRIGHT_SESSION}} navigate https://example.com`, then take a screenshot with the same session and save it to `{{REPO_PATH}}/.shannon/scratchpad/ssrf-vuln-test.png`.
+
+2. Call each analysis tool exactly once. Fill every required text field with `Pipeline testing placeholder`:
+   - `set_findings_summary` with an empty `patterns` array
+   - `set_strategic_intelligence` with `Not applicable` for every field
+   - `set_safe_vectors` with an empty `vectors` array
+   - `set_blind_spots` with an empty `items` array
+
+3. Call `submit_exploitation_queue` once with exactly one vulnerability:
+   - `ID`: `SSRF-VULN-01`
+   - `vulnerability_type`: `URL_Manipulation`
+   - `externally_exploitable`: `true`
+   - `confidence`: `low`
+   - `notes`: `Pipeline testing stub entry.`
+
+Then announce "**SSRF ANALYSIS COMPLETE**" and stop.
