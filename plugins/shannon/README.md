@@ -24,17 +24,21 @@ Installing the plugin does not install these prerequisites.
 
 ## Install
 
+The `--sparse` flags below download only the marketplace index and this plugin
+instead of the whole repository. Without them, Codex downloads the full
+repository history when the marketplace is added and again on its first update.
+
 ### Claude Code
 
 ```sh
-claude plugin marketplace add KeygraphHQ/shannon
+claude plugin marketplace add KeygraphHQ/shannon --sparse .claude-plugin plugins/shannon
 claude plugin install shannon@keygraph-shannon
 ```
 
 ### ChatGPT desktop app and Codex CLI
 
 ```sh
-codex plugin marketplace add KeygraphHQ/shannon
+codex plugin marketplace add KeygraphHQ/shannon --sparse .agents/plugins --sparse plugins/shannon
 codex plugin add shannon@keygraph-shannon
 ```
 
@@ -47,9 +51,7 @@ Desktop only because it runs local programs.
 grok plugin install 'KeygraphHQ/shannon#plugins/shannon' --trust
 ```
 
-Use this direct install instead of `grok plugin marketplace add`. Grok clones a
-marketplace source with a 15-second limit, and this repository does not clone
-in that time.
+This installs the plugin folder directly.
 
 ### Cursor
 
