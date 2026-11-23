@@ -90,7 +90,8 @@ Marketplace indexes live at the repository root: `.claude-plugin/marketplace.jso
 
 - The bundled `llms.txt` and `llms-full.txt` are byte-identical copies of the
   repository-root originals. Run `scripts/sync-docs.sh` after the root docs
-  change, and `scripts/sync-docs.sh --check` in CI to catch drift.
+  change. CI runs `scripts/sync-docs.sh --check` on every pull request that
+  touches them (`.github/workflows/plugin-docs-check.yml`).
 - Keep `version` the same in `plugin.json`, `.claude-plugin/plugin.json`, and
   `.cursor-plugin/plugin.json`.
 - Validate before release:

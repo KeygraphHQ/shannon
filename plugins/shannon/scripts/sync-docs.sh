@@ -9,7 +9,12 @@ status=0
 for f in llms.txt llms-full.txt; do
   if [[ "${1:-}" == "--check" ]]; then
     if ! cmp -s "$repo_root/$f" "$refs/$f"; then
-      echo "drift: $refs/$f differs from $repo_root/$f (run scripts/sync-docs.sh)" >&2
+      msg="plugins/shannon/skills/shannon/references/$f is missing or differs from $f at the repository root. Run plugins/shannon/scripts/sync-docs.sh to refresh it."
+      if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+        echo "::error file=plugins/shannon/skills/shannon/references/$f::$msg"
+      else
+        echo "drift: $msg" >&2
+      fi
       status=1
     fi
   else
