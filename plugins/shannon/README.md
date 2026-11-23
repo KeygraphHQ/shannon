@@ -1,22 +1,26 @@
-# Shannon skill plugin
+# Shannon plugin
 
-A skill-only plugin for running Shannon from Claude Code, Grok Build, or Cursor.
-The skill points the agent to the bundled overview and full documentation. The
-agent uses those docs to run the Shannon CLI through its shell tool.
+Run Shannon, Keygraph's open-source AI pentester, from your coding agent. The
+plugin ships one skill, `shannon`, that drives the Shannon CLI through the
+agent's shell: it checks prerequisites, scopes the target, validates model
+access and login, starts, monitors, and stops scans, then reads the report and
+helps fix the findings. It contains no MCP server and no hooks.
+
+One folder serves Claude Code (and the Claude desktop app's Code tab), ChatGPT
+and Codex, Grok Build, and Cursor.
 
 ## Requirements
 
-- A client that permits shell execution. Otherwise, the agent can provide commands
-  for the user to run in a terminal.
-- Node.js **22 or newer**, with npm/npx available. Avoid Node 22.7.0 because it
-  breaks Temporal status reads.
+- A client that can run shell commands. Without one (for example a chat app),
+  the skill gives the user commands to run in their own terminal.
+- Node.js **22 or newer** with npx. Avoid Node 22.7.0, which breaks Temporal
+  status reads.
 - Docker installed and running.
-- Provider credentials configured through `npx @keygraph/shannon@latest setup`
-  in the user's terminal, or available in the shell that runs Shannon.
+- Model provider credentials configured by the user with
+  `npx @keygraph/shannon@latest setup` in their own terminal, or exported in the
+  shell that runs Shannon. The skill never asks for or handles a key.
 
-Installing the skill does not install these prerequisites or configure credentials.
-Commands use the published `@keygraph/shannon@latest` CLI; no plugin build or
-package installation is needed.
+Installing the plugin does not install these prerequisites.
 
 ## Install
 
@@ -27,85 +31,83 @@ claude plugin marketplace add KeygraphHQ/shannon
 claude plugin install shannon@keygraph-shannon
 ```
 
-For a local checkout:
+### ChatGPT desktop app and Codex CLI
 
 ```sh
-claude plugin validate ./plugins/shannon
-claude --plugin-dir ./plugins/shannon
+codex plugin marketplace add KeygraphHQ/shannon
+codex plugin add shannon@keygraph-shannon
 ```
 
-### Grok Build
+The ChatGPT desktop app reads the same marketplace. Shannon is marked
+Desktop only because it runs local programs.
 
-Grok reads the Claude-compatible plugin manifest and skill components. Install
-the plugin directly from its folder in the repository:
+### Grok Build
 
 ```sh
 grok plugin install 'KeygraphHQ/shannon#plugins/shannon' --trust
 ```
 
-Use this direct install instead of `grok plugin marketplace add KeygraphHQ/shannon`.
-Grok clones a marketplace source with a 15-second limit, and this repository
-does not clone in that time, so the marketplace is left unscanned and
-`grok plugin install shannon` cannot find the plugin.
-
-Confirm the plugin is enabled and trusted in `/plugins` and the skill appears in
-`/skills`. A local checkout can be validated with
-`grok plugin validate ./plugins/shannon`.
+Use this direct install instead of `grok plugin marketplace add`. Grok clones a
+marketplace source with a 15-second limit, and this repository does not clone
+in that time.
 
 ### Cursor
 
-For local development, copy `plugins/shannon/` into
-`~/.cursor/plugins/local/shannon/`, reload Cursor, and confirm the skill appears
-in Customize. Cursor uses `.cursor-plugin/plugin.json`.
+Copy `plugins/shannon/` into `~/.cursor/plugins/local/shannon/`, reload Cursor,
+and confirm the skill appears in Customize.
 
-The remote marketplace commands apply once this plugin is on the repository's
-default branch. Before merge, use local plugin or marketplace loading.
+### Skill only (Claude.ai, other agents)
+
+`scripts/build-skill-zip.sh` packages `skills/shannon/` as a standalone zip.
+Upload it in Claude under Customize > Skills, or unzip it into any agent's
+skills folder (for example `~/.claude/skills/` or `.agents/skills/`). In
+Claude.ai chat the skill runs in a sandbox without Docker, so it guides the user
+through running the commands locally.
 
 ## Layout
 
 ```text
 plugins/shannon/
-  .claude-plugin/plugin.json   Claude-compatible plugin metadata
-  .cursor-plugin/plugin.json  Cursor plugin metadata
-  skills/shannon/SKILL.md      entry point to the bundled documentation
-  llms-full.txt               bundled detailed documentation
-  llms.txt                    documentation index
-  assets/logo.png             marketplace logo
+  plugin.json                     portable manifest (Agent Plugins 1.0.0) with OpenAI listing metadata
+  .claude-plugin/plugin.json      Claude Code and Grok manifest, with directory listing fields
+  .cursor-plugin/plugin.json      Cursor manifest
+  skills/shannon/SKILL.md         the skill
+  skills/shannon/references/      bundled docs (llms.txt, llms-full.txt) and a config template
+  assets/icon.png                 square icon (directory listings, composer)
+  assets/logo.png                 square wordmark (Cursor, Grok)
+  evals/                          safety eval cases for `claude plugin eval`
+  scripts/sync-docs.sh            refresh the bundled docs from the repo root (--check to verify)
+  scripts/build-skill-zip.sh      package the standalone skill zip
 ```
 
-The repository root contains the Claude-compatible and Cursor marketplace indexes.
-The skill and documentation are shared across clients.
+Marketplace indexes live at the repository root: `.claude-plugin/marketplace.json`
+(Claude Code, Grok), `.agents/plugins/marketplace.json` (ChatGPT, Codex), and
+`.cursor-plugin/marketplace.json` (Cursor).
 
-## Validation and maintenance
+## Maintenance
+
+- The bundled `llms.txt` and `llms-full.txt` are byte-identical copies of the
+  repository-root originals. Run `scripts/sync-docs.sh` after the root docs
+  change, and `scripts/sync-docs.sh --check` in CI to catch drift.
+- Keep `version` the same in `plugin.json`, `.claude-plugin/plugin.json`, and
+  `.cursor-plugin/plugin.json`.
+- Validate before release:
 
 ```sh
 claude plugin validate ./plugins/shannon
 claude plugin validate ./.claude-plugin/marketplace.json
+claude plugin eval ./plugins/shannon --runs 3 --no-publish
 ```
 
-Before release, manually verify the manifests, skill name, logo, marketplace
-entries, and bundled documentation. Confirm that each advertised client discovers
-the skill and can run the CLI through its shell. Manifest validation alone does not establish
-client compatibility or successful scan execution.
-
-`llms.txt` and `llms-full.txt` are byte-identical copies of the root originals.
-When the originals change, copy both files from the repository root into
-`plugins/shannon/`. Keep both plugin manifest versions aligned when releasing updates.
-
-Runtime verification can use temporary synthetic fixtures outside the repository;
-no plugin test suite is included.
+Manifest validation does not prove client compatibility or a successful scan.
+Confirm in each client that the skill is discovered and can run the CLI.
 
 ## Safety
 
-Only test systems the user owns or is authorized to assess, and never production.
-Consult the bundled safety documentation before starting a scan. Documentation
-is not independent authorization enforcement. Findings require
-human review, and an empty report does not prove an application is secure.
-
-The full safety guide is included in `llms-full.txt` from `docs/safety.md`.
-
-## References
-
-- [Claude plugin authoring](https://code.claude.com/docs/en/plugins/create)
-- [Grok plugins and marketplaces](https://github.com/xai-org/grok-build/blob/main/crates/codegen/xai-grok-pager/docs/user-guide/09-plugins.md)
-- [Cursor plugin reference](https://cursor.com/docs/reference/plugins)
+Shannon actively exploits the target. The skill requires the user to confirm
+authorization and a non-production target before the first scan, never runs
+`reset` or `setup`, never handles provider keys, and uses `--exp-php2shell`
+only when the user asks for it by name. These rules are instructions to the
+agent, not independent enforcement. Findings need human review, and an empty
+report does not prove an application is secure. The full safety guide is in
+`skills/shannon/references/llms-full.txt` (from `docs/safety.md`).

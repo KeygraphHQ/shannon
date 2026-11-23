@@ -9,7 +9,8 @@
     {
       "name": "shannon",
       "source": "./plugins/shannon",
-      "description": "Run Shannon white-box pentests of web apps and APIs you are authorized to test, from your coding agent, with safety rules built in."
+      "description": "Run Shannon, Keygraph's open-source AI pentester, from your coding agent: preflight, scoping, validation, start, monitor, stop, and report triage for web apps and APIs you are authorized to test. Safety rules built in.",
+      "category": "security"
     }
   ]
 }

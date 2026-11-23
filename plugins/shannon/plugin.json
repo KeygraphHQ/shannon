@@ -1,0 +1,55 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "shannon",
+  "version": "1.1.0",
+  "description": "Run Shannon, Keygraph's open-source AI pentester, from your coding agent. Checks prerequisites, scopes the target, starts, monitors, and stops white-box pentests of web apps and APIs you are authorized to test, then helps fix the findings. Safety rules built in.",
+  "author": {
+    "name": "Keygraph",
+    "email": "shannon@keygraph.io",
+    "url": "https://keygraph.io"
+  },
+  "homepage": "https://keygraph.io/open-source",
+  "repository": "https://github.com/KeygraphHQ/shannon",
+  "license": "AGPL-3.0",
+  "keywords": [
+    "security",
+    "pentest",
+    "penetration-testing",
+    "appsec",
+    "owasp",
+    "vulnerability-assessment",
+    "devsecops",
+    "keygraph"
+  ],
+  "extensions": {
+    "com.openai": {
+      "requires_local_executor": true,
+      "interface": {
+        "displayName": "Shannon by Keygraph",
+        "shortDescription": "AI pentester for your web apps",
+        "longDescription": "Shannon is Keygraph's open-source autonomous AI pentester for web applications and APIs. It reads your application's source code, then attacks the running app to prove which vulnerabilities are actually exploitable, and writes a report with reproducible proof for each finding.\n\nThis plugin runs Shannon for you on your own computer. It checks the prerequisites (Node.js 22 or newer and Docker), helps you scope the target and write a configuration for authenticated testing, validates your model access and login before the long run, starts and monitors the scan, then walks you through the report and helps fix the findings in your codebase.\n\nWhat Shannon tests: injection, cross-site scripting, server-side request forgery, broken authentication, and broken authorization.\n\nWho it is for: developers and security engineers who want a real pentest of an app they own, on a local, development, or staging environment.\n\nRequirements and limits:\n- Desktop only. Shannon runs locally through its command line and needs Docker.\n- Bring your own model access (Anthropic, OpenAI, xAI, AWS Bedrock, and others). You configure your key yourself in your own terminal. The plugin never asks for or handles it.\n- A full run takes about 1 to 1.5 hours, and model usage is billed to your provider account.\n- Only test systems you own or are authorized to test, and never production. Shannon actively exploits the target and can change data. The plugin asks you to confirm both before the first scan.\n- If you run Shannon on OpenAI models, complete OpenAI's Trusted Access for Cyber verification first (chatgpt.com/cyber), or the model may stop partway through a scan.\n- Findings need human review. An empty report does not prove an app is secure.\n\nShannon is licensed under AGPL-3.0. Source and documentation: github.com/KeygraphHQ/shannon",
+        "developerName": "Keygraph",
+        "category": "Security",
+        "capabilities": [
+          "Interactive",
+          "Write"
+        ],
+        "websiteURL": "https://keygraph.io/open-source",
+        "supportURL": "https://github.com/KeygraphHQ/shannon/issues",
+        "privacyPolicyURL": "https://keygraph.io/privacy",
+        "termsOfServiceURL": "https://keygraph.io/terms",
+        "defaultPrompt": [
+          "Check whether my computer is ready to run Shannon",
+          "Run a Shannon pentest on my local app on port 3000 using this repo",
+          "Summarize my latest Shannon report and help me fix the findings"
+        ],
+        "brandColor": "#D05121",
+        "composerIcon": "./assets/icon.png",
+        "logo": "./assets/icon.png"
+      },
+      "publication": {
+        "release_notes": "First directory release. One skill that checks prerequisites, scopes the target, validates model access and login, starts, monitors, and stops Shannon scans, and helps read and fix the report. Safety confirmations built in."
+      }
+    }
+  }
+}
