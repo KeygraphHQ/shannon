@@ -1,0 +1,46 @@
+name: Repository size
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  size:
+    name: Check repository size
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Check sizes
+        run: |
+          # Anthropic's plugin directory rejects a repository whose GitHub archive is
+          # over 50 MiB, and Grok and Claude Code download the whole tree on every
+          # marketplace install. Host large media (GIFs, videos) outside git, for
+          # example as a GitHub user-attachments upload.
+          set -euo pipefail
+          max_archive=$((10 * 1024 * 1024))
+          max_file=$((2 * 1024 * 1024))
+          status=0
+
+          git archive --format=zip -o "$RUNNER_TEMP/repo.zip" HEAD
+          size=$(wc -c < "$RUNNER_TEMP/repo.zip" | tr -d ' ')
+          echo "Archive size: $size bytes (limit $max_archive)"
+          if [ "$size" -gt "$max_archive" ]; then
+            echo "::error::Repository archive is $size bytes, over the $max_archive byte limit."
+            status=1
+          fi
+
+          while IFS=$'\t' read -r bytes path; do
+            [ -n "$path" ] || continue
+            echo "::error file=$path::$path is $bytes bytes, over the $max_file byte per-file limit."
+            status=1
+          done < <(git ls-tree -r -l HEAD | awk -F'\t' -v max="$max_file" \
+            '{ split($1, f, " "); if (f[4] != "-" && f[4] + 0 > max) print f[4] "\t" $2 }')
+
+          exit "$status"
