@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Package skills/shannon as a standalone skill zip for Claude.ai / Claude Desktop upload
-# (Settings > Capabilities > Skills) or for copying into ~/.claude/skills, ~/.codex/skills, etc.
+# (Customize > Skills) or for copying into ~/.claude/skills, ~/.codex/skills, etc.
 # Usage: plugins/shannon/scripts/build-skill-zip.sh [output.zip]
 set -euo pipefail
 plugin_dir="$(cd "$(dirname "$0")/.." && pwd)"

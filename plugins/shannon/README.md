@@ -75,8 +75,7 @@ plugins/shannon/
   .cursor-plugin/plugin.json      Cursor manifest
   skills/shannon/SKILL.md         the skill
   skills/shannon/references/      bundled docs (llms.txt, llms-full.txt) and a config template
-  assets/icon.png                 square icon (directory listings, composer)
-  assets/logo.png                 square wordmark (Cursor, Grok)
+  assets/                         square icon (directory listings, composer) and wordmark (Cursor, Grok)
   evals/                          safety eval cases for `claude plugin eval`
   scripts/sync-docs.sh            refresh the bundled docs from the repo root (--check to verify)
   scripts/build-skill-zip.sh      package the standalone skill zip
