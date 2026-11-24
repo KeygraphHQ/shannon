@@ -390,7 +390,7 @@ Keygraph never receives your source code and never proxies your model traffic. Y
 
 ### Does Shannon support bring your own key (BYOK)?
 
-Yes, always. You provide the LLM credentials Shannon uses to run a pentest, in every deployment, open source and commercial. Keygraph never proxies your model traffic.
+Yes, always. You provide the LLM credentials Shannon uses to run a pentest, in every deployment, open source and commercial. Shannon sends model requests straight to the provider or endpoint you configure, and Keygraph never proxies them. In self-hosted Enterprise deployments, model requests never touch Keygraph's infrastructure: they leave your environment only to reach the endpoint you configure. In Keygraph Pro, which Keygraph hosts, model requests are routed through Keygraph's LLM gateway.
 
 ### Does Shannon output SARIF?
 
