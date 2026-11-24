@@ -112,7 +112,7 @@ Shannon shifts pentesting left into the software development lifecycle (SDLC). U
 
 ## Shannon in Action
 
-![Shannon running an autonomous pentest](assets/Shannon3GIF.gif)
+![Shannon running an autonomous pentest](assets/shannon-demo.gif)
 
 These reports are from Shannon OSS scans of Photoview 2.4.0, one of the applications in Doyensec's comparison of Aikido and XBOW. We ran Shannon against the same application version and evaluated its results separately. Read the [Doyensec study](https://doyensec.com/resources/ComparingAIApplicationSecurityTestingPlatforms_Doyensec.pdf) and our [Shannon follow-up comparison](docs/shannon-xbow-aikido-benchmark.md) for the methodology, limitations, costs, and results.
 
