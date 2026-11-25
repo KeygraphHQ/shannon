@@ -1,0 +1,62 @@
+# Shannon scan configuration template.
+# Copy this file OUTSIDE the target repository (for example ~/.shannon/configs/<workspace>.yaml),
+# fill it in, and pass it with: npx @keygraph/shannon@latest start -u <url> -r <repo> -c <this-file>
+# Do not commit a filled-in copy. Use a dedicated test account, never a real person's login.
+# Full reference: the "Configuration" section of llms-full.txt in this folder.
+
+# What the target is and where it runs (optional, max 500 characters).
+description: "<one sentence: stack, environment (local / staging), anything the agents should know>"
+
+# Every scan runs all five classes: injection, xss, auth, authz, ssrf. There is no setting to narrow that.
+
+# Agentic static analysis before the pentest (optional, default off). Adds model time and cost.
+# agentic_sast:
+#   enabled: "true"
+
+# Analysis only, no exploitation (optional, default "true").
+# exploit: "false"
+
+# Free-form rules of engagement for the analysis and exploitation agents (optional).
+# rules_of_engagement: |
+#   - No password brute-force; cap login attempts at 5 per account.
+#   - Throttle to under 5 requests per second per endpoint; back off 60s on any 429.
+#   - Use placeholders like [order_id] in deliverables; no real data values.
+
+# Remove this whole block for an unauthenticated scan.
+authentication:
+  login_type: form                       # form | sso | api | basic
+  login_url: "<https://target/login>"
+  credentials:
+    username: "<TEST_ACCOUNT_USERNAME>"  # the user types the real value into the file
+    password: "<TEST_ACCOUNT_PASSWORD>"  # the user types the real value into the file
+    # totp_secret: "<BASE32_TOTP_SECRET>"
+    # email_login:                       # only for magic-link or email-OTP flows
+    #   address: "<inbox@example.com>"
+    #   password: "<MAILBOX_PASSWORD>"
+  # Steps in the order a person performs them, using the exact field labels and button text.
+  # Placeholders: $username $password $totp $email_address $email_password $email_totp
+  login_flow:
+    - "Type $username into the <exact email field label>"
+    - "Type $password into the <exact password field label>"
+    - "Click the '<exact button text>' button"
+  success_condition:
+    type: url_contains                   # url_contains | url_equals_exactly | element_present | text_contains
+    value: "<path seen only after login, such as /dashboard>"
+
+# Rule types: url_path, subdomain, domain, method, header, parameter, code_path (repo-relative glob).
+rules:
+  avoid:
+    - description: "Skip logout so the session stays alive"
+      type: url_path
+      value: "/logout"
+  # focus:
+  #   - description: "Emphasize the API"
+  #     type: url_path
+  #     value: "/api"
+
+# Report options (optional).
+# report:
+#   min_severity: low
+#   guidance: |
+#     Drop findings about missing security headers.
+#   sarif: "false"

@@ -187,6 +187,9 @@ Around those phases:
 - Shared partials in `apps/worker/prompts/shared/` included via `apps/worker/src/services/prompt-manager.ts`
 - Test with `--pipeline-testing` for fast iteration
 
+### Editing llms.txt or llms-full.txt
+The Shannon plugin bundles copies of both root files in `plugins/shannon/skills/shannon/references/`. After editing either one, run `plugins/shannon/scripts/sync-docs.sh` and commit the refreshed copies. The "Check bundled documentation" CI job fails while they are out of date.
+
 ### Key Design Patterns
 - **Configuration-Driven** — YAML configs with JSON Schema validation
 - **Progressive Analysis** — Each phase builds on previous results
