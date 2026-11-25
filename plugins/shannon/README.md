@@ -13,8 +13,7 @@ and Codex, Grok Build, and Cursor.
 
 - A client that can run shell commands. Without one (for example a chat app),
   the skill gives the user commands to run in their own terminal.
-- Node.js **22 or newer** with npx. Avoid Node 22.7.0, which breaks Temporal
-  status reads.
+- Node.js **22 or newer** with npx.
 - Docker installed and running.
 - Model provider credentials configured by the user with
   `npx @keygraph/shannon@latest setup` in their own terminal, or exported in the
@@ -87,10 +86,12 @@ Marketplace indexes live at the repository root: `.claude-plugin/marketplace.jso
 
 ## Maintenance
 
-- The bundled `llms.txt` and `llms-full.txt` are byte-identical copies of the
-  repository-root originals. Run `scripts/sync-docs.sh` after the root docs
-  change. CI runs `scripts/sync-docs.sh --check` on every pull request that
-  touches them (`.github/workflows/plugin-docs-check.yml`).
+- The bundled `llms.txt` and `llms-full.txt` are copies of the
+  repository-root originals, with relative links rewritten to absolute GitHub
+  URLs so they resolve inside the skill folder. Run `scripts/sync-docs.sh`
+  after the root docs change. CI runs `scripts/sync-docs.sh --check` on every
+  pull request that touches them (`.github/workflows/plugin-docs-check.yml`)
+  and fails when the copies are out of date.
 - Keep `version` the same in `plugin.json`, `.claude-plugin/plugin.json`, and
   `.cursor-plugin/plugin.json`.
 - Validate before release:

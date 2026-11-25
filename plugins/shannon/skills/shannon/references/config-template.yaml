@@ -24,7 +24,7 @@ description: "<one sentence: stack, environment (local / staging), anything the 
 
 # Remove this whole block for an unauthenticated scan.
 authentication:
-  login_type: form                       # form | sso
+  login_type: form                       # form | sso | api | basic
   login_url: "<https://target/login>"
   credentials:
     username: "<TEST_ACCOUNT_USERNAME>"  # the user types the real value into the file
@@ -40,7 +40,7 @@ authentication:
     - "Type $password into the <exact password field label>"
     - "Click the '<exact button text>' button"
   success_condition:
-    type: url_contains                   # url_contains | element_present
+    type: url_contains                   # url_contains | url_equals_exactly | element_present | text_contains
     value: "<path seen only after login, such as /dashboard>"
 
 # Rule types: url_path, subdomain, domain, method, header, parameter, code_path (repo-relative glob).

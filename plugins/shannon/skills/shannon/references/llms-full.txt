@@ -7,7 +7,7 @@
 # File: README.md
 
 > [!NOTE]
-> **[php2shell upgrade verification](docs/exp-php2shell.md):** confirm your PHP apps are patched against the php2shell RCE chain with the experimental `--exp-php2shell` probe. See the [test results](docs/exp-php2shell-testing.md).
+> **[php2shell upgrade verification](https://github.com/KeygraphHQ/shannon/blob/main/docs/exp-php2shell.md):** confirm your PHP apps are patched against the php2shell RCE chain with the experimental `--exp-php2shell` probe. See the [test results](https://github.com/KeygraphHQ/shannon/blob/main/docs/exp-php2shell-testing.md).
 
 <div align="center">
 
@@ -120,16 +120,16 @@ Shannon shifts pentesting left into the software development lifecycle (SDLC). U
 
 ## Shannon in Action
 
-![Shannon running an autonomous pentest](assets/shannon-demo.gif)
+![Shannon running an autonomous pentest](https://raw.githubusercontent.com/KeygraphHQ/shannon/main/assets/shannon-demo.gif)
 
-These reports are from Shannon OSS scans of Photoview 2.4.0, one of the applications in Doyensec's comparison of Aikido and XBOW. We ran Shannon against the same application version and evaluated its results separately. Read the [Doyensec study](https://doyensec.com/resources/ComparingAIApplicationSecurityTestingPlatforms_Doyensec.pdf) and our [Shannon follow-up comparison](docs/shannon-xbow-aikido-benchmark.md) for the methodology, limitations, costs, and results.
+These reports are from Shannon OSS scans of Photoview 2.4.0, one of the applications in Doyensec's comparison of Aikido and XBOW. We ran Shannon against the same application version and evaluated its results separately. Read the [Doyensec study](https://doyensec.com/resources/ComparingAIApplicationSecurityTestingPlatforms_Doyensec.pdf) and our [Shannon follow-up comparison](https://github.com/KeygraphHQ/shannon/blob/main/docs/shannon-xbow-aikido-benchmark.md) for the methodology, limitations, costs, and results.
 
 
 | Model             | Report                                                                       | SARIF                                                            |
 | ----------------- | ---------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| DeepSeek v4 Flash | [View report](benchmark/photoview-deepseek-v4-flash.pdf) | [SARIF](benchmark/photoview-deepseek-v4-flash.sarif) |
-| Grok 4.6          | [View report](benchmark/photoview-grok-4-6.pdf)          | [SARIF](benchmark/photoview-grok-4-6.sarif)          |
-| Claude Opus 5     | [View report](benchmark/photoview-opus-5.pdf)            | [SARIF](benchmark/photoview-opus-5.sarif)            |
+| DeepSeek v4 Flash | [View report](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-deepseek-v4-flash.pdf) | [SARIF](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-deepseek-v4-flash.sarif) |
+| Grok 4.6          | [View report](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-grok-4-6.pdf)          | [SARIF](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-grok-4-6.sarif)          |
+| Claude Opus 5     | [View report](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-opus-5.pdf)            | [SARIF](https://github.com/KeygraphHQ/shannon/blob/main/benchmark/photoview-opus-5.sarif)            |
 
 ## Quick Start
 
@@ -139,8 +139,8 @@ These reports are from Shannon OSS scans of Photoview 2.4.0, one of the applicat
 
 - **Docker**: required for the worker container.
 - **Node.js 22+**: required for the recommended `npx` workflow.
-- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](docs/ai-providers.md#custom-base-url), and a model the catalogue does not carry can be described with a [custom model configuration](docs/ai-providers.md#custom-model-configuration). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](docs/ai-providers.md#suggested-models) for suggested model IDs.
-- **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan) and the [cyber verification announcement](https://github.com/KeygraphHQ/shannon/discussions/483).
+- **AI provider credentials**: Shannon runs on Anthropic, OpenAI, xAI, AWS Bedrock, and [any other provider](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#any-other-provider) in the harness catalogue — each of which you can point at a proxy or LLM gateway through a [custom base URL](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#custom-base-url), and a model the catalogue does not carry can be described with a [custom model configuration](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#custom-model-configuration). You bring your own key, and Keygraph never proxies your model traffic. Shannon is provider-agnostic. See [AI providers](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#suggested-models) for suggested model IDs.
+- **Cyber safeguards cleared with your provider**: Anthropic and OpenAI apply real-time safeguards to cyber-security workloads, which can interrupt a scan mid-run. Complete their guidance for legitimate security testers before your first run - see [AI providers](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#cyber-safeguards-do-this-before-your-first-scan) and the [cyber verification announcement](https://github.com/KeygraphHQ/shannon/discussions/483).
 
 
 
@@ -166,9 +166,9 @@ For source builds, authenticated scans, provider-specific setup, and platform no
 > [!TIP]
 > **Prefer to use a subscription instead of API credits?**
 >
-> - **OpenAI Codex:** The latest version of Shannon supports ChatGPT Plus and Pro subscriptions. Follow the [OpenAI Codex subscription setup guide](docs/ai-providers.md#openai-codex-chatgpt-pluspro-subscription) to get started.
-> - **xAI (Grok):** The latest version of Shannon supports xAI subscriptions. Follow the [xAI subscription setup guide](docs/ai-providers.md#xai-grok-subscription) to get started.
-> - **Claude Code:** The latest version of Shannon does not support Claude Code subscriptions. Follow the [Claude Code subscription setup guide](docs/ai-providers.md#claude-code-subscription) to use version `1.9.0`, which is the final release built on the Claude Agent SDK.
+> - **OpenAI Codex:** The latest version of Shannon supports ChatGPT Plus and Pro subscriptions. Follow the [OpenAI Codex subscription setup guide](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#openai-codex-chatgpt-pluspro-subscription) to get started.
+> - **xAI (Grok):** The latest version of Shannon supports xAI subscriptions. Follow the [xAI subscription setup guide](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#xai-grok-subscription) to get started.
+> - **Claude Code:** The latest version of Shannon does not support Claude Code subscriptions. Follow the [Claude Code subscription setup guide](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#claude-code-subscription) to use version `1.9.0`, which is the final release built on the Claude Agent SDK.
 
 
 
@@ -262,7 +262,7 @@ See [keygraph.io/pricing](https://keygraph.io/pricing?utm_source=github&utm_medi
 
 No source code? Use the [Blackbox Pentester](https://keygraph.io/agentic-blackbox-pentester?utm_source=github&utm_medium=referral&utm_campaign=shannon_oss_2026q4&utm_content=readme_editions_blackbox).
 
-[Compare Shannon, Pro, and Enterprise in detail →](docs/keygraph-platform.md)
+[Compare Shannon, Pro, and Enterprise in detail →](https://github.com/KeygraphHQ/shannon/blob/main/docs/keygraph-platform.md)
 
 ## Architecture
 
@@ -307,14 +307,14 @@ Use these guides for operational detail:
 
 | Guide                                                     | Use it for                                                                                                                                                                |
 | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [Source build and CLI commands](docs/development.md)      | Cloning, building, common commands, output paths, and local development.                                                                                                  |
-| [Configuration](docs/configuration.md)                    | Authenticated testing, login flows, rules of engagement, and report filters.                                                                                              |
-| [AI providers](docs/ai-providers.md)                      | Selecting the model, the supported providers (Anthropic, OpenAI, xAI, AWS Bedrock, and any other Pi-supported provider), and custom LLM gateways.                             |
-| [Platforms and networking](docs/platforms.md)             | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames.                                                                                          |
-| [Workspaces and resuming](docs/workspaces.md)             | Naming workspaces, resuming interrupted scans, and workspace storage.                                                                                                     |
-| [Safety and limitations](docs/safety.md)                  | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats.                                                                          |
-| [Coverage and roadmap](docs/coverage-roadmap.md)          | Current vulnerability coverage and planned work.                                                                                                                          |
-| [Pro and Enterprise](docs/keygraph-platform.md)           | Shannon compared with Pro, Enterprise, and the Community Program: black-box pentesting, SCA and secrets, findings management, fix pull requests, retests, Jira, and deployment. |
+| [Source build and CLI commands](https://github.com/KeygraphHQ/shannon/blob/main/docs/development.md)      | Cloning, building, common commands, output paths, and local development.                                                                                                  |
+| [Configuration](https://github.com/KeygraphHQ/shannon/blob/main/docs/configuration.md)                    | Authenticated testing, login flows, rules of engagement, and report filters.                                                                                              |
+| [AI providers](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md)                      | Selecting the model, the supported providers (Anthropic, OpenAI, xAI, AWS Bedrock, and any other Pi-supported provider), and custom LLM gateways.                             |
+| [Platforms and networking](https://github.com/KeygraphHQ/shannon/blob/main/docs/platforms.md)             | Windows/WSL2, Linux, macOS, Docker networking, local apps, and custom hostnames.                                                                                          |
+| [Workspaces and resuming](https://github.com/KeygraphHQ/shannon/blob/main/docs/workspaces.md)             | Naming workspaces, resuming interrupted scans, and workspace storage.                                                                                                     |
+| [Safety and limitations](https://github.com/KeygraphHQ/shannon/blob/main/docs/safety.md)                  | Authorized-use requirements, non-production guidance, mutative effects, cost, and model caveats.                                                                          |
+| [Coverage and roadmap](https://github.com/KeygraphHQ/shannon/blob/main/docs/coverage-roadmap.md)          | Current vulnerability coverage and planned work.                                                                                                                          |
+| [Pro and Enterprise](https://github.com/KeygraphHQ/shannon/blob/main/docs/keygraph-platform.md)           | Shannon compared with Pro, Enterprise, and the Community Program: black-box pentesting, SCA and secrets, findings management, fix pull requests, retests, Jira, and deployment. |
 
 
 
@@ -333,11 +333,11 @@ Important limitations:
 - A full run can take roughly 1 to 1.5 hours and may incur LLM API costs depending on model pricing and application complexity.
 - Do not scan untrusted or adversarial codebases. AI-powered tools that read source code can be exposed to prompt injection.
 
-Read the full [Safety and limitations](docs/safety.md) guide before running Shannon in a new environment.
+Read the full [Safety and limitations](https://github.com/KeygraphHQ/shannon/blob/main/docs/safety.md) guide before running Shannon in a new environment.
 
 ## License
 
-Shannon is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Shannon is licensed under the [GNU Affero General Public License v3.0](https://github.com/KeygraphHQ/shannon/blob/main/LICENSE).
 
 Commercial and enterprise licensing is available for organizations that need different license terms, commercial support, private redistribution, managed-service use, or broader deployment options, including Keygraph Pro and Enterprise.
 
@@ -349,7 +349,7 @@ Thanks to [Pi](https://github.com/earendil-works/pi),
 [Playwright CLI](https://github.com/microsoft/playwright-cli),
 and [Mantis](https://github.com/google/mantis).
 
-See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md) for licensing and attribution details.
+See [THIRD_PARTY_NOTICES.md](https://github.com/KeygraphHQ/shannon/blob/main/THIRD_PARTY_NOTICES.md) for licensing and attribution details.
 
 ## About Keygraph
 
@@ -398,11 +398,11 @@ Yes. Shannon emits SARIF 2.1.0, the OASIS standard format for static analysis re
 
 ### Which AI providers does Shannon support?
 
-Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. A model the catalogue does not carry, such as one a router or gateway serves under its own ID, or a self-hosted model, is described in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file and passed with `--models-config`. Shannon uses a single unified model setting throughout a pentest.
+Anthropic, OpenAI, xAI, and AWS Bedrock are built in and configured directly by provider ID. Beyond those, Shannon runs on any provider in the Pi harness catalogue, named the same `<provider>:<model-id>` way. Any provider can be pointed at a proxy or LLM gateway through a custom base URL, which overrides only the endpoint and keeps that provider's API dialect. A model the catalogue does not carry, such as one a router or gateway serves under its own ID, or a self-hosted model, is described in a [custom model configuration](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#custom-model-configuration) file and passed with `--models-config`. Shannon uses a single unified model setting throughout a pentest.
 
 ### Can I run Shannon on a local or self-hosted model?
 
-Shannon works with local models served through Ollama, vLLM, or LM Studio, which expose an OpenAI-compatible endpoint, as well as routers such as OpenRouter and LLM gateways such as LiteLLM. A model the harness catalogue does not carry, which most self-hosted models are, is described in a [custom model configuration](docs/ai-providers.md#custom-model-configuration) file passed with `--models-config`; routers and gateways can also be reached with a custom base URL. Capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests than a frontier model, so take this path only if you know how your chosen model behaves. See [Local and self-hosted models](docs/ai-providers.md#local-and-self-hosted-models).
+Shannon works with local models served through Ollama, vLLM, or LM Studio, which expose an OpenAI-compatible endpoint, as well as routers such as OpenRouter and LLM gateways such as LiteLLM. A model the harness catalogue does not carry, which most self-hosted models are, is described in a [custom model configuration](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#custom-model-configuration) file passed with `--models-config`; routers and gateways can also be reached with a custom base URL. Capability varies, and a model that does not follow Shannon's instructions or tool-use constraints reliably will produce weaker pentests than a frontier model, so take this path only if you know how your chosen model behaves. See [Local and self-hosted models](https://github.com/KeygraphHQ/shannon/blob/main/docs/ai-providers.md#local-and-self-hosted-models).
 
 ### Does Shannon actually exploit vulnerabilities, or just scan?
 
@@ -1386,7 +1386,7 @@ This reduces speculative noise, but it also means Shannon does not aim to report
 
 Planned coverage areas should continue to live in the repository's canonical roadmap document if one exists. The README should link to that document rather than carrying detailed roadmap history inline.
 
-For organizations that need broader static and organizational coverage now, see [Keygraph Pro and Enterprise](keygraph-platform.md).
+For organizations that need broader static and organizational coverage now, see [Keygraph Pro and Enterprise](https://github.com/KeygraphHQ/shannon/blob/main/docs/keygraph-platform.md).
 
 ---
 
@@ -1451,7 +1451,7 @@ Upgrade PHP regardless of which verdict is reported.
 
 ## Validation
 
-The probe was tested against a matrix of local PHP deployments: the CLI built-in server, PHP-FPM behind nginx, and Apache mod_php, across patched and unpatched 8.3 and 8.4 releases and an end-of-life 8.1 branch, alongside non-PHP controls and the stealmybitcoin CTF application. There were no false positives on the patched or non-PHP targets in these tests. A separate crash-only pass, with version headers stripped, confirmed that every unpatched target was detected by the crash itself rather than by the version string. The full matrix and per-deployment behavior are in [exp-php2shell-testing.md](exp-php2shell-testing.md).
+The probe was tested against a matrix of local PHP deployments: the CLI built-in server, PHP-FPM behind nginx, and Apache mod_php, across patched and unpatched 8.3 and 8.4 releases and an end-of-life 8.1 branch, alongside non-PHP controls and the stealmybitcoin CTF application. There were no false positives on the patched or non-PHP targets in these tests. A separate crash-only pass, with version headers stripped, confirmed that every unpatched target was detected by the crash itself rather than by the version string. The full matrix and per-deployment behavior are in [exp-php2shell-testing.md](https://github.com/KeygraphHQ/shannon/blob/main/docs/exp-php2shell-testing.md).
 
 ---
 
@@ -1514,7 +1514,7 @@ The `--exp-php2shell` probe was validated against 10 local Docker targets spanni
 
 The probe implements only step 1 of the php2shell chain, the worker crash via memory exhaustion (CVE-2026-109618). Step 2, code execution from the stale pointer (CVE-2026-109619), is never attempted.
 
-For how to run the probe, its flags, verdict meanings, and the vulnerability background, see [exp-php2shell.md](exp-php2shell.md).
+For how to run the probe, its flags, verdict meanings, and the vulnerability background, see [exp-php2shell.md](https://github.com/KeygraphHQ/shannon/blob/main/docs/exp-php2shell.md).
 
 ## Fixed Versions
 

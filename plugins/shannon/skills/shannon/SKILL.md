@@ -38,7 +38,7 @@ If you cannot run commands (for example in a chat app), give the user each comma
 Run these read-only checks and report any failure with its fix:
 
 ```bash
-node --version                                # need 22 or newer; avoid 22.7.0
+node --version                                # need 22 or newer
 docker info --format '{{.ServerVersion}}'     # Docker must be running
 npx -y @keygraph/shannon@latest version --json
 ```
@@ -47,10 +47,10 @@ Credentials: environment variables win over the saved config. Check presence onl
 
 ```bash
 test -f ~/.shannon/config.toml && echo "saved config found"
-env | grep -E '^(SHANNON_AI_MODEL|SHANNON_AI_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|XAI_API_KEY|AWS_BEARER_TOKEN_BEDROCK|SHANNON_USE_PI_AUTH)=' | cut -d= -f1
+env | grep -E '^(SHANNON_AI_MODEL|SHANNON_AI_API_KEY|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN|OPENAI_API_KEY|XAI_API_KEY|AWS_BEARER_TOKEN_BEDROCK|AWS_REGION|SHANNON_USE_PI_AUTH)=' | cut -d= -f1
 ```
 
-If neither exists, ask the user to run `npx @keygraph/shannon@latest setup` in their own terminal, then continue. On Windows, Shannon runs only inside WSL2. For provider details (Anthropic, OpenAI, xAI, Bedrock, gateways, local models, Codex or Grok subscriptions) read the "AI Providers" section of [references/llms-full.txt](references/llms-full.txt).
+Anthropic accepts either `ANTHROPIC_API_KEY` or `CLAUDE_CODE_OAUTH_TOKEN`. Bedrock needs both `AWS_BEARER_TOKEN_BEDROCK` and `AWS_REGION`. If there is no saved config and no complete credential, ask the user to run `npx @keygraph/shannon@latest setup` in their own terminal, then continue. On Windows, Shannon runs only inside WSL2. For provider details (Anthropic, OpenAI, xAI, Bedrock, gateways, local models, Codex or Grok subscriptions) read the "AI Providers" section of [references/llms-full.txt](references/llms-full.txt).
 
 ### 2. Scope the target
 
@@ -96,7 +96,7 @@ Check progress only when the user asks or after a few minutes, not in a tight lo
 
 ```bash
 npx @keygraph/shannon@latest status <workspace> --json    # one snapshot, exits
-npx @keygraph/shannon@latest scans --json                 # every scan and its state
+npx @keygraph/shannon@latest scans --json                 # running scans and scans with a report
 tail -n 40 ~/.shannon/workspaces/<workspace>/.shannon/workflow.log
 ```
 
@@ -106,13 +106,20 @@ To stop a scan the user asked to stop: `npx @keygraph/shannon@latest stop <works
 
 ### 7. Read the results
 
-When `scans --json` shows the workspace as `completed`, the report is at:
+`scans --json` lists a workspace only while it is running or once it has a report, so a scan that fails before writing one drops out of the list. Once the workspace is no longer `running` there, take one snapshot and act on its `status`:
 
-```text
-~/.shannon/workspaces/<workspace>/Security-Assessment-Report.md
-~/.shannon/workspaces/<workspace>/Security-Assessment-Report.pdf
-~/.shannon/workspaces/<workspace>/report.sarif     # exploit runs only
+```bash
+npx @keygraph/shannon@latest status <workspace> --json
 ```
+
+- `completed`: read the report.
+- `partial`: the scan finished with gaps, listed in `partialReasons`. Read the report and tell the user what it is missing. Offer to resume: step 5's command with the same `-w` and URL retries only the failed agents and rewrites the report, so finding numbers and wording can change.
+- `failed` or `timed_out`: there is no usable report. Show `failureMessage`, read the tail of `workflow.log`, and check Troubleshooting below. Once the cause is fixed, step 5's command resumes the scan.
+- `stopped` or `cancelled`: someone stopped the scan. Resume it only if the user asks.
+
+If `status` reports `CLI_SCAN_NOT_FOUND`, the scan is older than Temporal's retention window (7 days by default). Go by `scans --json` and the workspace files instead.
+
+Take the report location from the workspace's `reportPath` in `scans --json` instead of building the path yourself. It usually points to `Security-Assessment-Report.pdf`. `Security-Assessment-Report.md`, and `report.sarif` on exploit runs, are in the same folder.
 
 Read the Markdown report and summarize it: findings grouped by severity, each with its class, the affected endpoint, the proof Shannon recorded, and the code location. State plainly that findings need human review, and that an empty report does not prove the app is secure.
 
