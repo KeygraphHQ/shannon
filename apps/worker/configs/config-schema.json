@@ -97,10 +97,113 @@
           },
           "required": ["type", "value"],
           "additionalProperties": false
+        },
+        "oauth": {
+          "type": "object",
+          "description": "Non-browser OAuth token acquisition for API-only targets (login_type: api). A bearer token is fetched from token_url and attached to the agents' HTTP requests; it is refreshed automatically as it expires.",
+          "properties": {
+            "token_url": {
+              "type": "string",
+              "format": "uri",
+              "description": "OAuth 2.0 token endpoint URL."
+            },
+            "grant_type": {
+              "type": "string",
+              "enum": ["client_credentials", "password", "refresh_token"],
+              "description": "OAuth grant used to obtain the token."
+            },
+            "client_id": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "OAuth client identifier."
+            },
+            "client_secret": {
+              "type": "string",
+              "maxLength": 1024,
+              "description": "OAuth client secret."
+            },
+            "username": {
+              "type": "string",
+              "maxLength": 255,
+              "description": "Resource-owner username (password grant only)."
+            },
+            "password": {
+              "type": "string",
+              "maxLength": 255,
+              "description": "Resource-owner password (password grant only)."
+            },
+            "scope": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Space-delimited scopes to request."
+            },
+            "audience": {
+              "type": "string",
+              "maxLength": 512,
+              "description": "Audience/resource indicator, when the provider requires one."
+            },
+            "refresh_token": {
+              "type": "string",
+              "maxLength": 4096,
+              "description": "Initial refresh token to exchange (refresh_token grant only)."
+            },
+            "client_auth": {
+              "type": "string",
+              "enum": ["client_secret_post", "client_secret_basic"],
+              "description": "How client credentials are presented to the token endpoint. Default: client_secret_post."
+            },
+            "token_header": {
+              "type": "string",
+              "maxLength": 64,
+              "description": "Header the token is attached under. Default: Authorization."
+            },
+            "token_prefix": {
+              "type": "string",
+              "maxLength": 32,
+              "description": "Prefix before the token value in the header. Default: 'Bearer '."
+            },
+            "extra_params": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Extra form parameters sent verbatim in the token request body."
+            }
+          },
+          "required": ["token_url", "grant_type"],
+          "additionalProperties": false
         }
       },
-      "required": ["login_type", "login_url", "credentials", "success_condition"],
-      "additionalProperties": false
+      "required": ["login_type"],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "login_type": {
+                "enum": ["form", "sso"]
+              }
+            },
+            "required": ["login_type"]
+          },
+          "then": {
+            "required": ["login_url", "credentials", "success_condition"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "login_type": {
+                "const": "api"
+              }
+            },
+            "required": ["login_type"]
+          },
+          "then": {
+            "required": ["oauth"]
+          }
+        }
+      ]
     },
     "rules": {
       "type": "object",
@@ -191,14 +294,30 @@
     }
   },
   "anyOf": [
-    { "required": ["authentication"] },
-    { "required": ["rules"] },
-    { "required": ["authentication", "rules"] },
-    { "required": ["description"] },
-    { "required": ["agentic_sast"] },
-    { "required": ["exploit"] },
-    { "required": ["report"] },
-    { "required": ["rules_of_engagement"] }
+    {
+      "required": ["authentication"]
+    },
+    {
+      "required": ["rules"]
+    },
+    {
+      "required": ["authentication", "rules"]
+    },
+    {
+      "required": ["description"]
+    },
+    {
+      "required": ["agentic_sast"]
+    },
+    {
+      "required": ["exploit"]
+    },
+    {
+      "required": ["report"]
+    },
+    {
+      "required": ["rules_of_engagement"]
+    }
   ],
   "additionalProperties": false,
   "$defs": {
